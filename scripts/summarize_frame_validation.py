@@ -53,6 +53,11 @@ def clip_physical_window(record):
     return r
 
 
+def native_cpu(record):
+    mean = record.get("nativeWorkerCpuMeanMs")
+    return "未采集" if mean is None else f"{mean:.2f} ({record['nativeWorkerCpuSamples']})"
+
+
 def index_records(records, sizes):
     expected = {(w, h, s, t) for w, h in sizes for s, t in PROFILES}
     indexed = {(r["width"], r["height"], r["sourceFps"], r["targetFps"]): r for r in records}
@@ -114,17 +119,17 @@ def main():
         lines.append(f"| {s}→{t} | " + " | ".join(cells) + " |")
     lines += ["", "1080p、1440p、4K 超出当前正式捕获预算，未将研究引擎推理结果充当完整播放链路结果。", "",
               "## 120 fps 离屏指标", "",
-              "| 尺寸 / 源 fps | fps | 任务 p50/p90/p99 ms | worker CPU 均值 ms | 长间隔 | seek 后迟到/错过提交 | 补帧占比 | 回退 | PSS MiB 范围 |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+              "| 尺寸 / 源 fps | fps | 任务 p50/p90/p99 ms | 调用线程 CPU 均值 ms / 原生推理线程 CPU 均值 ms（样本） | 长间隔 | seek 后迟到/错过提交 | 补帧占比 | 回退 | PSS MiB 范围 |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for w, h in SIZES[:4]:
         for s in (30, 60):
             r = complete[w, h, s, 120]
             mem = [item["pssKb"] / 1024 for item in r["resources"]]
-            lines.append(f"| {w}×{h} / {s} | {r['measuredFps']:.2f} | {r['inferenceP50Ms']:.2f}/{r['inferenceP90Ms']:.2f}/{r['inferenceP99Ms']:.2f} | {r['workerCpuMeanMs']:.2f} | {r['hitches']}/{r['intervalCount']} | {r['steadyLate']}/{r['steadyMissedCommit']} | {r['interpolatedFraction']:.3f} | {r['nativeFallback']} | {min(mem):.1f}–{max(mem):.1f} |")
+            lines.append(f"| {w}×{h} / {s} | {r['measuredFps']:.2f} | {r['inferenceP50Ms']:.2f}/{r['inferenceP90Ms']:.2f}/{r['inferenceP99Ms']:.2f} | {r['workerCpuMeanMs']:.2f} / {native_cpu(r)} | {r['hitches']}/{r['intervalCount']} | {r['steadyLate']}/{r['steadyMissedCommit']} | {r['interpolatedFraction']:.3f} | {r['nativeFallback']} | {min(mem):.1f}–{max(mem):.1f} |")
     lines += ["", "## 4K 研究引擎", "",
-              "| 源→目标 | p50/p90/p99 ms | worker CPU 均值 ms | 预处理/GPU及传输/后处理均值 ms | PSS MiB | 需求补帧/s | 估算 worker 负载 |", "| --- | --- | --- | --- | --- | --- | --- |"]
+              "| 源→目标 | p50/p90/p99 ms | 调用线程 CPU 均值 ms / 原生推理线程 CPU 均值 ms（样本） | 预处理/GPU及传输/后处理均值 ms | PSS MiB | 需求补帧/s | 估算 worker 负载 |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for s, t in PROFILES[2:]:
         r = raw[3840, 2160, s, t]
-        lines.append(f"| {s}→{t} | {r['p50Ms']:.2f}/{r['p90Ms']:.2f}/{r['p99Ms']:.2f} | {r['cpuMeanMs']:.2f} | {r['averagePrepMs']:.2f}/{r['averageGpuAndTransfersMs']:.2f}/{r['averagePostMs']:.2f} | {r['pssEndKb']/1024:.1f} | {r['requiredInferencesPerSecond']} | {r['estimatedWorkerUtilization']:.2f} |")
+        lines.append(f"| {s}→{t} | {r['p50Ms']:.2f}/{r['p90Ms']:.2f}/{r['p99Ms']:.2f} | {r['cpuMeanMs']:.2f} / {native_cpu(r)} | {r['averagePrepMs']:.2f}/{r['averageGpuAndTransfersMs']:.2f}/{r['averagePostMs']:.2f} | {r['pssEndKb']/1024:.1f} | {r['requiredInferencesPerSecond']} | {r['estimatedWorkerUtilization']:.2f} |")
     lines += ["", "CPU 时间不能与 GPU/传输阶段耗时简单相加；后者包含提交、等待和同步。worker 负载>1 表示仅此任务已超过单 worker 的持续预算。", ""]
     if screens:
         lines += ["## 实际上屏补充验证", "",

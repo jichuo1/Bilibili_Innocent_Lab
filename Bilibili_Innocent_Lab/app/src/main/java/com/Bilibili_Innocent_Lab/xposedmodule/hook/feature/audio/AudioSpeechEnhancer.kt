@@ -3,9 +3,10 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio
 import kotlin.math.*
 
 /** Stateful 16 kHz spectral model. Cache arrays belong to one track's shared reference. */
-internal fun interface AudioSpeechModel {
+internal fun interface AudioSpeechModel : AutoCloseable {
     fun infer(spectrum: FloatArray, caches: Array<FloatArray>): FloatArray
     fun profile(): LongArray = longArrayOf()
+    override fun close() = Unit
 }
 
 /** Causal rate conversion + 512/256 sqrt-Hann GTCRN. No frames are inserted or removed.

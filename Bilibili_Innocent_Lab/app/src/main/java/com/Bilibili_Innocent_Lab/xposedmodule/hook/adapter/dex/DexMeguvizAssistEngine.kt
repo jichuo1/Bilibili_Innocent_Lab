@@ -65,9 +65,8 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         try {
             for (path in paths) {
                 if (outcomes.values.all { it.failure != null }) break
-                val plan = ApkMetadataPlan.from(path, null, null, false, null)
-                AndroidApkSources.open(plan, null, limits).use { opened ->
-                    val archive = Archive(opened.snapshot, classLoader)
+                withArchiveSnapshot(path) { snapshot ->
+                    val archive = Archive(snapshot, classLoader)
                     archive.collect(rules.filter { outcomes.getValue(it.query).failure == null }, outcomes)
                 }
             }
@@ -77,6 +76,11 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
             outcomes.values.forEach { if (it.failure == null) it.failure = Reason.QUERY_FAILED }
         }
         return outcomes.mapValues { (_, outcome) -> outcome.result() }
+    }
+
+    internal fun <T> withArchiveSnapshot(path: String, read: (NativeEngine.SourceSetSnapshot) -> T): T {
+        val plan = ApkMetadataPlan.from(path, null, null, false, null)
+        return AndroidApkSources.open(plan, null, limits).use { read(it.snapshot) }
     }
 
     private data class Rule(val query: DexAssistQuery, val bytes: ByteArray)

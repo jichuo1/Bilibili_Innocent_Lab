@@ -3,7 +3,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,18 +18,54 @@ class FramePreparationScratchContractTest {
         assertFalse(holder.contains("ByteBuffer.allocateDirect("))
         assertFalse(holder.contains("fun medianMs("))
         assertTrue(holder.contains("withScratch(WARM_SIZES + capabilitySizes)"))
-        assertTrue(holder.contains("FrameCapabilityProbe(arena, scratchHint(capabilitySizes))"))
+        assertTrue(holder.contains("FrameCapabilityProbe(arena)"))
+        assertTrue(holder.contains("withScratch(listOf(size), inputs = 2)"))
+    }
+
+    @Test fun warmupCompletionUsesItsEngineAndHandlesFailedInference() {
+        val queued = holder.after("fun prewarm(width:").before("private fun warm(")
+        assertTrue(queued.contains("engine.claimWarmup(size)"))
+        assertTrue(queued.contains("backend === engine && ready()"))
+        assertTrue(queued.after("finally {").contains("engine.finishWarmup(size, status)"))
+        assertTrue(queued.contains("engine.finishWarmup(size, FrameInterpolationBackend.Status.BUSY)"))
+        val warm = holder.after("private fun warm(").before("private fun robustMs(")
+        assertTrue(warm.contains("if (status != FrameInterpolationBackend.Status.OK) retireLostDevice(engine)"))
     }
 
     @Test fun scratchSessionAlwaysReleasesItsReferences() {
-        val session = holder.after("private inline fun <T> withScratch(").before("private fun scratchHint(")
-        assertTrue(session.contains("finally {"))
-        assertTrue(session.after("finally {").contains("arena.close()"))
+        val session = holder.after("private fun withScratch(").before("@Volatile private var modelName")
+        assertTrue(session.contains("FrameScratchArena.withMemory(bytes, inputs)"))
+        val arena = SourceContract.read("hook/feature/interpolation/FrameScratchArena.kt")
+        val scope = arena.after("fun withMemory(")
+        assertTrue(scope.contains("FramePreparationMemory.withStorage("))
+        assertTrue(scope.after("finally {").contains("arena.invalidate()"))
+        val memory = SourceContract.read("hook/feature/interpolation/FramePreparationMemory.kt")
+        assertTrue(memory.contains("ManagedMemoryDomain.system("))
+        assertTrue(memory.contains(".use { allocation ->"))
+        assertTrue(memory.contains("allocation.borrowWrite().use { lease ->"))
+        assertTrue(memory.contains("lease.withDirectBuffer { storage ->"))
+    }
+
+    @Test fun modelBytesAreVerifiedInTheSameLeaseThatSuppliesTheSynchronousLoad() {
+        val backend = SourceContract.read("hook/feature/interpolation/FrameInterpolationBackend.kt")
+        val loan = backend.after("FramePreparationMemory.withStorage(").before("opened = openVerifiedModel(")
+        assertTrue(loan.contains("readVerified(paramFile, FrameModelSpec.PARAM, param)"))
+        assertTrue(loan.contains("readVerified(weightsFile, FrameModelSpec.WEIGHTS, weights)"))
+        assertTrue(backend.after("private fun readVerified(").before("private fun planeValid(")
+            .contains("FrameModelSpec.matches(part, input)"))
+        assertTrue(backend.contains("MediaNative.frameLoad(handle, param, weights)"))
+        assertFalse(backend.contains("ByteBuffer.allocateDirect"))
     }
 
     @Test fun failedStepsNeverBecomeUsableTiers() {
         val measure = holder.after("private fun measureCapability(").before("/** 为宿主实际尺寸预热")
         assertTrue(measure.contains("measured != null && measured.also { chosenMs = it } <="))
+        assertTrue(measure.contains("engine.probeInterpolation("))
+        val backend = SourceContract.read("hook/feature/interpolation/FrameInterpolationBackend.kt")
+        val evidence = backend.after("fun probeInterpolation(").before("fun unreliablePermille(")
+        assertTrue(evidence.contains("if (status != Status.OK) return status"))
+        assertTrue(evidence.contains("frameLastFrameKind(handle) == FRAME_INFERRED"))
+        assertTrue(evidence.contains("frameLastEffectiveFlowScale(handle) == flowScale"))
         val robust = holder.after("private fun robustMs(").before("@Synchronized private fun fail(")
         assertTrue(robust.contains("is FrameCapabilityProbe.Result.Failed"))
         assertTrue(robust.contains("engine.capability.failed"))
@@ -43,16 +78,23 @@ class FramePreparationScratchContractTest {
         assertTrue(probe.contains("if (warm != FrameInterpolationBackend.Status.OK) return Result.Failed(warm, 0)"))
         assertTrue(probe.contains("if (status != FrameInterpolationBackend.Status.OK) return Result.Failed(status, index + 1)"))
         assertTrue(probe.contains("Result.Measured(times[1], times)"))
-        assertEquals("zeroing precedes the timer", true,
-            probe.indexOf("arena.zeroed(it, bytes, hint)") in 0 until probe.indexOf("val started = nanoTime()"))
+        assertTrue(probe.before("val started = nanoTime()").contains("arena.input(it, bytes)"))
+    }
+
+    @Test fun onlyConfirmedDeviceLossRetiresTheCurrentEngineAndSchedulesReload() {
+        val backend = SourceContract.read("hook/feature/interpolation/FrameInterpolationBackend.kt")
+        assertTrue(backend.contains("MediaNative.frameDeviceLossStatus(handle) == MGC_DEVICE_LOST"))
+        val retire = holder.after("private fun retireLostDevice(").before("@Synchronized private fun fail(")
+        assertTrue(retire.before("backend = null").contains("if (backend !== engine || !engine.deviceLost()) return false"))
+        assertTrue(retire.contains("engine.close()"))
+        assertTrue(retire.after("finally {").contains("fail(\"device-lost\", FramePreparationRetry.Work.LOAD)"))
     }
 
     @Test fun scratchNeverBorrowsLedgerFramesNorHoldsDirectBuffersForever() {
         val arena = SourceContract.read("hook/feature/interpolation/FrameScratchArena.kt")
-        val code = arena.substringAfter("internal class FrameScratchArena(")
+        val code = arena.after("internal class FrameScratchArena(")
         assertFalse(code.contains("FrameBufferLedger."))
-        assertFalse(code.contains("object ") && code.contains("companion object").not())
-        assertTrue(code.contains("override fun close()"))
-        assertTrue(code.contains("slots.fill(null)"))
+        assertFalse(code.contains("ByteBuffer.allocateDirect"))
+        assertTrue(code.contains("slot.asReadOnlyBuffer()"))
     }
 }

@@ -3694,7 +3694,7 @@ object VersionAdapter {
         observer: LocateObserver?,
         excluded: Set<String>,
         hostVersionCode: Int?
-    ): AdaptResult? {
+    ): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
         val locators = SyncLocatorRun(plan, observer, traceStartup = true)
         val low = locators.locate(PointFamily.COMMENT_LOW) { locateCommentLow(loader) }
         val high = locators.locate(PointFamily.COMMENT_HIGH) { locateCommentHigh(loader) }
@@ -3744,7 +3744,7 @@ object VersionAdapter {
             mineAccountMine == null && storyFeed == null && bottomBar == null &&
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             commentFilter == null && commentTopology == null && commentSection == null &&
-            splashAds == null) return null
+            splashAds == null) return@withLookupBatch null
         val protocolFingerprint = StartupTrace.measure("adapter.protocol") {
             buildProtocolStructureFingerprint(
                 loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
@@ -3788,7 +3788,7 @@ object VersionAdapter {
             diagnostics = emptyList(),
             coverage = locators.coverage()
         )
-        return located.copy(
+        located.copy(
             diagnostics = buildDiagnostics(
                 loader, plan, null, located, commentTopologyOutcome?.failureDetail.orEmpty(), hostVersionCode
             ) + protocolFingerprint.toDiagnostic(plan) + listOf(
@@ -3845,7 +3845,7 @@ object VersionAdapter {
                       blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
                       plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
-                      dexSource: DexSourceFingerprint.Result?, vc: Int): AdaptResult? {
+                      dexSource: DexSourceFingerprint.Result?, vc: Int): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
         ModernHookLog.info("[BIL] DEX source count=${dexSource?.dexEntryCount ?: 0}, " +
             "isolated=${dexSource?.codePaths?.all { File(it).parentFile?.name == "bil-host-dex" } == true}")
         // 只对计划内家族调用定位器；计划外的家族沿用此前有覆盖证明的缓存点，没有证明就是未请求（null）。
@@ -4316,7 +4316,7 @@ object VersionAdapter {
             playerQuality == null && teenagersMode == null && commentPurify == null &&
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null &&
-            !anyClassExists) return null
+            !anyClassExists) return@withLookupBatch null
         val protocolFingerprint = buildProtocolStructureFingerprint(
             loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
             splashAds, mineAccountMine
@@ -4373,7 +4373,7 @@ object VersionAdapter {
         val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
             topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
-        return located.copy(
+        located.copy(
             diagnostics = diagnostics,
             coverage = coverageOf(located, locators, plan, previous?.coverage)
         )

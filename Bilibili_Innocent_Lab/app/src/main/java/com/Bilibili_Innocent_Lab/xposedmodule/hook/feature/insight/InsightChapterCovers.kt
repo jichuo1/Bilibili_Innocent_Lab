@@ -1,7 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import org.json.JSONObject
 import java.io.File
@@ -86,18 +85,10 @@ internal class InsightChapterCovers(private val directory: File, private val tra
         check(directory.isDirectory || directory.mkdirs())
         val needed = chapters.filter { uri(video, it.start) == null }.groupBy { index.cell(it.start).page }
         for ((page, sections) in needed) {
-            val bytes = read(index.images[page], 12 * 1024 * 1024)
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            require(bounds.outWidth in index.columns..16_000 && bounds.outHeight in index.rows..16_000 &&
-                bounds.outWidth.toLong() * bounds.outHeight <= 40_000_000)
-            val options = BitmapFactory.Options().apply {
-                inSampleSize = 1
-                while (bounds.outWidth / inSampleSize > index.columns * 240 || bounds.outHeight / inSampleSize > index.rows * 150) inSampleSize *= 2
-                inPreferredConfig = Bitmap.Config.RGB_565
+            check(System.nanoTime() < deadline)
+            val bitmap = InsightContextClient.withPublicConnection(index.images[page]) { connection ->
+                InsightThumbnailPage.read(connection, index.columns, index.rows)
             }
-            // BitmapFactory 的解码上限与采样率在解码前校验；BetterAndroid 未提供宫格裁剪能力。
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: error("thumbnail-decode")
             try {
                 for (chapter in sections) {
                     val cell = index.cell(chapter.start)

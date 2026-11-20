@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.os.Bundle
 import android.os.Looper
+import android.os.MessageQueue
 import android.util.Log
 import android.content.res.ColorStateList
 import android.graphics.Typeface
@@ -17,6 +18,7 @@ import androidx.core.widget.NestedScrollView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowBackdropTarget
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowFloatingChrome
@@ -35,6 +37,8 @@ import io.github.jichuo1.meguviz.ui.prewarm.PrewarmStop
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmSubmission
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmWork
 import io.github.jichuo1.meguviz.ui.prewarm.UiPrewarmer
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ModuleMemoryPressureHub
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ModuleMemoryPressureListener
 import io.github.jichuo1.meguviz.android.extensions.toast
 import kotlin.math.roundToInt
 
@@ -105,6 +109,24 @@ internal class SettingsHomePresenter(
     private var disposed = false
     private var prewarmer: UiPrewarmer? = null
     private var prewarmIdleQueued = false
+    private var prewarmAllowed = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    private val idleQueue = Looper.getMainLooper().queue
+    private val onPrewarmIdle = MessageQueue.IdleHandler {
+        prewarmIdleQueued = false
+        if (canPrewarm()) submitPrewarm()
+        false
+    }
+    private val armPrewarmIdle = Runnable {
+        if (canPrewarm()) idleQueue.addIdleHandler(onPrewarmIdle) else prewarmIdleQueued = false
+    }
+    private val prewarmAttachment = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) = schedulePrewarm(PREWARM_START_DELAY_MILLIS)
+        override fun onViewDetachedFromWindow(view: View) {
+            cancelPrewarmAdmission()
+            prewarmer?.onDetached()
+        }
+    }
+    private val pressureListener = ModuleMemoryPressureListener { onLowMemory() }
 
     /** 弹窗队列派发前要先问：disposed 后 edit 会静默丢弃且不回调，队列会永久卡死。 */
     internal val isDisposed: Boolean get() = disposed
@@ -307,6 +329,8 @@ internal class SettingsHomePresenter(
         SettingsFavoritesRepository.read(activity.applicationContext, this)
         installTopInset()
         // 让开冷启动首屏与入场动效；之后每个空闲窗口最多预建一页。
+        shell.addOnAttachStateChangeListener(prewarmAttachment)
+        ModuleMemoryPressureHub.addListener(pressureListener)
         schedulePrewarm(PREWARM_START_DELAY_MILLIS)
     }
 
@@ -317,16 +341,30 @@ internal class SettingsHomePresenter(
      * 已建好的部分保留，下次从游标继续。
      */
     private fun schedulePrewarm(delayMillis: Long = 0) {
-        if (disposed || prewarmIdleQueued || builtPages.all { it }) return
-        prewarmIdleQueued = true
-        shell.postDelayed({
-            if (disposed) { prewarmIdleQueued = false; return@postDelayed }
-            Looper.myQueue().addIdleHandler {
-                prewarmIdleQueued = false
-                submitPrewarm()
-                false
-            }
-        }, delayMillis)
+        if (!canPrewarm() || prewarmIdleQueued || builtPages.all { it }) return
+        prewarmIdleQueued = shell.postDelayed(armPrewarmIdle, delayMillis)
+    }
+
+    private fun canPrewarm() = !disposed && prewarmAllowed && shell.isAttachedToWindow
+
+    private fun cancelPrewarmAdmission() {
+        shell.removeCallbacks(armPrewarmIdle)
+        idleQueue.removeIdleHandler(onPrewarmIdle)
+        prewarmIdleQueued = false
+    }
+
+    fun setPrewarmStarted(started: Boolean) {
+        prewarmAllowed = started
+        if (started) schedulePrewarm(PREWARM_START_DELAY_MILLIS) else {
+            cancelPrewarmAdmission()
+            prewarmer?.cancel()
+        }
+    }
+
+    fun onLowMemory() {
+        prewarmAllowed = false
+        cancelPrewarmAdmission()
+        prewarmer?.onLowMemory()
     }
 
     private fun submitPrewarm() {
@@ -629,6 +667,9 @@ internal class SettingsHomePresenter(
 
     fun dispose() {
         disposed = true
+        cancelPrewarmAdmission()
+        shell.removeOnAttachStateChangeListener(prewarmAttachment)
+        ModuleMemoryPressureHub.removeListener(pressureListener)
         prewarmer?.let { queue -> runCatching { queue.close() } }
         prewarmer = null
         plans.fill(null)

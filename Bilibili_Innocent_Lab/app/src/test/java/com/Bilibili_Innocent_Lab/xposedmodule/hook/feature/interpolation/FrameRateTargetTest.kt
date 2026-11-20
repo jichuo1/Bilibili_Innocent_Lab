@@ -9,6 +9,13 @@ class FrameRateTargetTest {
     private fun choose(source: Float?, ceiling: Int, modes: List<Float> = ltpo, measured: Float? = null, ms: Double = 5.0) =
         FrameRateTarget.choose(source, ceiling, modes, measured, ms)
 
+    @Test fun midpointRouteChoosesOneIntermediateWithoutAResearchModelTiming() {
+        assertEquals(60, FrameRateTarget.midpoint(29.97f, 120, ltpo, null))
+        assertEquals(50, FrameRateTarget.midpoint(25f, 60, listOf(60f), null))
+        assertNull(FrameRateTarget.midpoint(30f, 120, ltpo, 45f))
+        assertNull(FrameRateTarget.midpoint(60f, 60, ltpo, null))
+    }
+
     @Test fun `default ceiling keeps the validated 60 and 50 fps behaviour`() {
         assertEquals(60, choose(30f, 60))
         assertEquals(60, choose(29.97f, 60))

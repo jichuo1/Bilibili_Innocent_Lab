@@ -22,6 +22,17 @@ internal object FrameRateTarget {
         for (source in listOf(24, 25, 30)) for (k in 2..7) (source * k).takeIf { it <= 185 }?.let(::add)
     }
 
+    /** QCOM generates one midpoint per adjacent source pair. */
+    fun midpoint(sourceFps: Float, ceiling: Int, displayModes: List<Float>, measuredLimit: Float?): Int? {
+        val source = normalizeSource(sourceFps) ?: return null
+        val target = source * 2
+        val limit = minOf(ceiling.toFloat(), displayModes.maxOrNull() ?: 60f, measuredLimit ?: Float.MAX_VALUE)
+        return target.takeIf { it <= limit * 1.01f && presentable(it, displayModes) }
+    }
+
+    private fun presentable(target: Int, displayModes: List<Float>) = target == 50 || displayModes.isEmpty() ||
+        displayModes.any { mode -> mode >= target - 1 && abs(mode / target - (mode / target).roundToInt()) < 0.02 }
+
     /**
      * 宿主内持续补帧可用的 GPU 时间比例：其余留给捕获、呈现与宿主 UI。须与引擎档位上限一致：1080p 1/4 档
      * 接受到 26 ms，30→60 每 33.3 ms 一次补帧即占 78%；此前用 0.75 时 25–26 ms 的档位被选中却又被这里拒绝，
@@ -45,9 +56,7 @@ internal object FrameRateTarget {
         var k = floor(limit * 1.01 / source).toInt()
         while (k >= 2) {
             val target = source * k
-            val presentable = target == 50 || displayModes.isEmpty() ||
-                displayModes.any { mode -> mode >= target - 1 && abs(mode / target - (mode / target).roundToInt()) < 0.02 }
-            if (target in TARGETS && presentable && target - source <= perSecond) return target
+            if (target in TARGETS && presentable(target, displayModes) && target - source <= perSecond) return target
             k--
         }
         return null

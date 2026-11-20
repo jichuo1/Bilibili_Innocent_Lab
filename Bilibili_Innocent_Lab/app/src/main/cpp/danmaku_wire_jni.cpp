@@ -1,8 +1,6 @@
 // 弹幕净化 wire 内核的 JNI 垫片：只做参数搬运，不含任何业务判定。
-// 合同与 frame_jni.cpp 相同：无 JavaVM、不回呼 JVM、不建线程、任何失败都返回
-// null 而绝不抛出——Rust 侧每个入口已 catch_unwind，panic 到不了这里以外。
-// NewIntArray/NewByteArray 的 OOM 会让异常挂起并由 Java 侧看到（与 frame_jni 的
-// creation() 同一取舍），调用方必须以 runCatching 包裹本入口。
+// JNI 调用在当前线程完成。Rust 入口用 catch_unwind 捕获 panic，并向 Java 返回 null。
+// NewIntArray/NewByteArray 分配失败时 JVM 会保留 OOM，调用方用 runCatching 处理。
 #include <jni.h>
 #include <cstdint>
 #include <cstddef>

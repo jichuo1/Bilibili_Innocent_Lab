@@ -69,16 +69,24 @@ internal class HostBackgroundDrawable(
         }
     private var requestScheduled = false
     private var requestedKey: HostBackgroundRasterCache.Key? = null
-    private val cacheRequest = Runnable {
+    private val cacheRequest: Runnable = Runnable { requestRaster() }
+    private fun requestRaster() {
         requestScheduled = false
-        val current = key ?: return@Runnable
-        if (requestedKey == current) return@Runnable
+        val current = key ?: return
+        if (requestedKey == current) return
         requestedKey = current
         val owner = WeakReference(this)
-        HostBackgroundRasterCache.request(current) { bitmap ->
+        val accepted = HostBackgroundRasterCache.request(current, { owner.get()?.key == current }) { bitmap ->
             owner.get()?.takeIf { it.key == current }?.let { drawable ->
                 drawable.raster = bitmap
                 if (bitmap != null) drawable.invalidateSelf()
+            }
+        }
+        if (!accepted && key == current) {
+            requestedKey = null
+            if (callback != null) {
+                requestScheduled = true
+                scheduleSelf(cacheRequest, SystemClock.uptimeMillis() + 150)
             }
         }
     }

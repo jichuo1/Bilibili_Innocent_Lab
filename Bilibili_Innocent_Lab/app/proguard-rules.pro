@@ -39,8 +39,6 @@
 }
 
 -dontwarn io.github.libxposed.annotation.**
-# JNI exports use this exact class and method spelling.
--keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationNative { *; }
 # 弹幕 wire 内核的 JNI 导出同样依赖精确类名/方法名拼写（漏 keep 的失败是运行期静默回退）。
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.DanmakuWireNative { *; }
 # This model bridge and its companion are loaded into the dedicated audio native namespace.

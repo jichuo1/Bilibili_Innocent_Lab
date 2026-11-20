@@ -34,6 +34,15 @@ public final class ArchiveVerifierTest {
         byte[] verified = ArchiveVerifier.readVerified(new ByteArrayInputStream(archive), expected);
         ArchiveVerifier.unpackVerified(verified, expected, output);
     }
+    @org.junit.Test public void cacheHitStillAuthenticatesTheOriginalArchive() throws Exception {
+        byte[] archive = zip(ENTRY, LIBRARY, null);
+        ArchiveSpec expected = spec(archive);
+        ArchiveVerifier.verifyArchive(new ByteArrayInputStream(archive), expected);
+        archive[0] ^= 1;
+        org.junit.Assert.assertThrows(IOException.class,
+                () -> ArchiveVerifier.verifyArchive(new ByteArrayInputStream(archive), expected));
+    }
+
     @org.junit.Test public void validatesBytesAndRejectsAllBoundViolations() throws Exception {
         byte[] archive = zip(ENTRY, LIBRARY, null);
         ArchiveSpec expected = spec(archive);

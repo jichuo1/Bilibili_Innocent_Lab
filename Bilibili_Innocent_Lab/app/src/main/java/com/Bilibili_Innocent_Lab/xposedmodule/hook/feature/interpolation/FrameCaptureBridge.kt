@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaFormat
 import android.view.Choreographer
 import android.view.Surface
+import io.github.jichuo1.meguviz.media.MediaNative
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -34,13 +35,14 @@ internal class FrameCaptureBridge private constructor(
     private val engine: FrameInterpolationEngineHolder,
     private val host: Host,
     private val isCurrent: () -> Boolean
-) {
+) : FramePlaybackBridge {
     private val codecReference = java.lang.ref.WeakReference(codec)
+    private var changeOutput: ((Surface) -> Boolean)? = null
     private val codecId = System.identityHashCode(codec).toLong()
     /** 宿主侧回调：音频补偿目标、倍速与音频输出证据、诊断日志。 */
     interface Host {
         fun setAudioDelayUs(delayUs: Long)
-        fun playbackSpeed(): Double
+        fun playbackRateReader(surface: Surface): () -> Double
         fun audio(): FrameMediaPolicy.Audio
         fun log(event: String, detail: String)
         /** 用于温控余量与 ADPF；null 时两者都不启用。 */
@@ -99,6 +101,7 @@ internal class FrameCaptureBridge private constructor(
         measureGpu = host.diagnostics()
     }
     private val capture = FrameGlCapture(width, height, sourceWidth, sourceHeight)
+    private val playbackSpeed = host.playbackRateReader(display)
     private val clock = FrameHostClock()
     private val ledger = FrameBufferLedger(config.maxBuffers)
     private val gate = FrameMediaGate()
@@ -113,7 +116,7 @@ internal class FrameCaptureBridge private constructor(
         // 只认近乎完全相同的画面：宿主真机慢速摇镜被宽松的「基本静止」判为重复后连丢两帧，100 ms 间隔里每个槽位
         // 都要推理，负载翻倍并跳槽（录屏中慢镜段每半秒只有 18–23 帧）。
         duplicate = { previous, current, format ->
-            FrameInterpolationNative.isDuplicate(previous, current, format.width, format.height, format.stride) == 1 })
+            MediaNative.isDuplicate(previous, current, format.width, format.height, format.stride) == 1 })
     // 捕获线程写、驱动线程读：admitted、lastArrivalNs、discontinuity；后者两线程都会递增。
     @Volatile private var admitted = false
     private val discontinuityCount = java.util.concurrent.atomic.AtomicLong()
@@ -156,6 +159,7 @@ internal class FrameCaptureBridge private constructor(
      * 任何一步失败都把解码器切回显示 Surface。
      */
     private fun start(attach: ((Surface) -> Boolean)? = null): Boolean {
+        changeOutput = attach
         engine.prewarm(width, height)
         power = FramePowerAdvisor(host.context(), 1_000_000_000L / config.targetFps)
         val listener = FrameGlCapture.FrameListener { timestamp, arrival, read -> onFrame(timestamp, arrival, read) }
@@ -165,7 +169,7 @@ internal class FrameCaptureBridge private constructor(
         if (attach != null && !attach(surface)) return false
         if (!isCurrent()) return false
         if (!presenter.start()) {
-            if (attach != null && isCurrent()) runCatching { codecReference.get()?.setOutputSurface(display) }
+            if (attach != null && isCurrent()) attach(display)
             return false
         }
         driveHandler.post { Choreographer.getInstance().postFrameCallback(frameCallback) }
@@ -177,7 +181,7 @@ internal class FrameCaptureBridge private constructor(
     fun diagnostics(): Pair<FrameInterpolationSession.Snapshot, Boolean> = session.snapshot() to native.get()
 
     /** 宿主 MediaCodec.flush（seek）：旧帧与时钟作废，下一帧开新 epoch。 */
-    fun onFlush() {
+    override fun onFlush() {
         capture.handler.post {
             clock.reset()
             cadence.reset()
@@ -189,7 +193,7 @@ internal class FrameCaptureBridge private constructor(
     }
 
     /** 宿主 stop/release：拆除会话、断开 EGL；音频补偿归零。 */
-    fun close() {
+    override fun close() {
         if (!closed.compareAndSet(false, true)) return
         capture.handler.post {
             if (isCurrent()) host.setAudioDelayUs(0L)
@@ -207,7 +211,7 @@ internal class FrameCaptureBridge private constructor(
         if (!isCurrent()) { close(); return }
         if (!admitted && !admit()) return
         val pts = timestampNs / 1_000L
-        if (clock.feed(pts, arrivalNs, host.playbackSpeed()) == FrameHostClock.Update.DISCONTINUITY) {
+        if (clock.feed(pts, arrivalNs, playbackSpeed()) == FrameHostClock.Update.DISCONTINUITY) {
             discontinuityCount.incrementAndGet()
             beginEpoch("source-discontinuity")
         }
@@ -381,7 +385,7 @@ internal class FrameCaptureBridge private constructor(
         audioDelayUs = 0L
         host.setAudioDelayUs(0L)
         val decoder = codecReference.get()
-        val switched = decoder != null && runCatching { decoder.setOutputSurface(display) }.isSuccess
+        val switched = decoder != null && (changeOutput?.invoke(display) ?: runCatching { decoder.setOutputSurface(display) }.isSuccess)
         host.log("bridge.restored", "${report.state}:${report.cause}:switched=$switched")
         // 温控/准入回退后本实例不会再恢复插帧；归还 RGB 账本、GL 线程与读回内存，避免闲置资源常驻。
         if (switched || decoder == null) close()
@@ -508,7 +512,7 @@ internal class FrameCaptureBridge private constructor(
         }
 
         /** 面板支持的刷新率（去重）；取不到时为空。 */
-        private fun displayModes(context: android.content.Context?): List<Float> = runCatching {
+        internal fun displayModes(context: android.content.Context?): List<Float> = runCatching {
             context!!.getSystemService(android.hardware.display.DisplayManager::class.java)
                 .getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes.map { it.refreshRate }.distinct()
         }.getOrDefault(emptyList())
@@ -523,7 +527,7 @@ internal class FrameCaptureBridge private constructor(
         }.getOrDefault(0 to 0)
 
         /** ijk 在 configure 格式里给出 operating-rate（真机：29.97 fps 源为 29、30 fps 源为 30），也可能给 frame-rate。 */
-        private fun sourceFpsHint(format: MediaFormat): Float? {
+        internal fun sourceFpsHint(format: MediaFormat): Float? {
             for (key in listOf(MediaFormat.KEY_FRAME_RATE, MediaFormat.KEY_OPERATING_RATE)) {
                 val value = runCatching {
                     if (!format.containsKey(key)) null
@@ -539,7 +543,7 @@ internal class FrameCaptureBridge private constructor(
             return requested ?: if (sourceFps != null && sourceFps in 24.5f..25.5f) 50 else 60
         }
 
-        private fun values(format: MediaFormat): FrameHostMediaSignals.Values {
+        internal fun values(format: MediaFormat): FrameHostMediaSignals.Values {
             fun integer(key: String) = runCatching { if (format.containsKey(key)) format.getInteger(key) else null }.getOrNull()
             fun bytes(key: String): ByteArray? = runCatching {
                 if (format.containsKey(key)) format.getByteBuffer(key)?.let { buffer ->

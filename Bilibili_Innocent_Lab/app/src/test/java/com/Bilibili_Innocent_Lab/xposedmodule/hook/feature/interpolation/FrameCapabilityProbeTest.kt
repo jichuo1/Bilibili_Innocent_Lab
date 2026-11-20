@@ -20,8 +20,9 @@ class FrameCapabilityProbeTest {
         val calls = ArrayList<Call>()
         val nanoTimeReads = ArrayList<Long>()
         val inputsWereZero = ArrayList<Boolean>()
-        val arena = FrameScratchArena()
-        val probe = FrameCapabilityProbe(arena, 0, { nanoTimeReads += clock; clock }) { l, r, o, w, h, li, ri, fs ->
+        private val frameBytes = 64 * 36 * 3
+        val arena = FrameScratchArena(ByteBuffer.allocateDirect(FrameScratchArena.storageBytes(frameBytes, 4)), frameBytes, 4)
+        val probe = FrameCapabilityProbe(arena, { nanoTimeReads += clock; clock }) { l, r, o, w, h, li, ri, fs ->
             val index = calls.size
             calls += Call(l, r, o, w, h, li, ri, fs)
             inputsWereZero += listOf(l, r).all { buffer ->
@@ -64,14 +65,11 @@ class FrameCapabilityProbeTest {
         assertTrue("所有输入在调用时为零内容", harness.inputsWereZero.all { it })
     }
 
-    @Test fun staleBytesInReusedBuffersAreClearedBeforeEachMeasurement() {
+    @Test fun writesToThePreviousOutputCannotPolluteTheNextMeasurementsInputs() {
         val harness = Harness()
         harness.probe.measure(16, 8, 4)
-        // 模拟上一次测量后缓冲里留有脏数据（输出会被引擎写入，输入也可能被其他用途污染）。
-        for (slot in 0 until 5) {
-            val buffer = harness.arena.scratch(slot, 16 * 8 * 3)
-            for (i in 0 until 16 * 8 * 3) buffer.put(i, 0x55)
-        }
+        val buffer = harness.arena.output(16 * 8 * 3)
+        while (buffer.hasRemaining()) buffer.put(0x55)
         harness.inputsWereZero.clear()
         harness.calls.clear()
         harness.probe.measure(16, 8, 4)
@@ -104,14 +102,14 @@ class FrameCapabilityProbeTest {
     @Test fun oneArenaServesEveryTierAndSizeOfAProbeSession() {
         val harness = Harness()
         val hint = 64 * 36 * 3
-        val probe = FrameCapabilityProbe(harness.arena, hint, { harness.clock }) { l, r, o, w, h, li, ri, fs ->
+        val probe = FrameCapabilityProbe(harness.arena, { harness.clock }) { l, r, o, w, h, li, ri, fs ->
             harness.calls += Call(l, r, o, w, h, li, ri, fs); Status.OK
         }
         for ((w, h, scale) in listOf(Triple(16, 9, 4), Triple(32, 18, 4), Triple(64, 36, 4), Triple(64, 36, 6), Triple(64, 36, 8))) {
             probe.measure(w, h, scale)
         }
-        // 旧实现每次测量 5 次 allocateDirect（共 25 次）；会话内 5 个槽只分配一次。
-        assertEquals(5, harness.arena.allocations)
-        assertEquals(5L * hint, harness.arena.allocatedBytes)
+        assertEquals(5 * hint, harness.arena.allocatedBytes)
+        assertTrue(harness.calls.all { it.output === harness.calls.first().output })
+        assertEquals(4, harness.calls.flatMap { listOf(it.left, it.right) }.distinctBy(System::identityHashCode).size)
     }
 }

@@ -8,7 +8,8 @@ import java.util.Locale
  * 未生效带一个面向用户的原因（不暴露内部诊断码）。
  */
 internal sealed interface FrameStatus {
-    data class Active(val sourceFps: Float?, val targetFps: Int) : FrameStatus
+    enum class Backend { QCOM, RIFE }
+    data class Active(val sourceFps: Float?, val targetFps: Int, val backend: Backend = Backend.RIFE) : FrameStatus
     data class Inactive(val reason: Reason) : FrameStatus
 
     enum class Reason {
@@ -32,8 +33,11 @@ internal sealed interface FrameStatus {
 
     companion object {
         fun text(status: FrameStatus, messages: InjectedUiMessages): String = when (status) {
-            is Active -> status.sourceFps?.let { messages.frameStatusActive.format(Locale.ROOT, fps(it), status.targetFps) }
-                ?: messages.frameStatusActiveTarget.format(Locale.ROOT, status.targetFps)
+            is Active -> {
+                val rate = status.sourceFps?.let { messages.frameStatusActive.format(Locale.ROOT, fps(it), status.targetFps) }
+                    ?: messages.frameStatusActiveTarget.format(Locale.ROOT, status.targetFps)
+                "$rate · ${status.backend.name}"
+            }
             is Inactive -> messages.frameStatusInactive.format(Locale.ROOT, when (status.reason) {
                 Reason.LOADING -> messages.frameReasonLoading
                 Reason.ENGINE -> messages.frameReasonEngine

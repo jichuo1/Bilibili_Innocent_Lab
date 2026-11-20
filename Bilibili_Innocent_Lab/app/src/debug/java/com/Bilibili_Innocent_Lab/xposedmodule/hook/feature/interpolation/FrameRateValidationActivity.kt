@@ -95,6 +95,11 @@ class FrameRateValidationActivity : Activity(), SurfaceHolder.Callback {
             return
         }
         view = SurfaceView(this)
+        val bufferWidth = intent.getIntExtra("surfaceWidth", 0)
+        val bufferHeight = intent.getIntExtra("surfaceHeight", 0)
+        if (bufferWidth in 1..4096 && bufferHeight in 1..4096 && bufferWidth.toLong() * bufferHeight <= 4096L * 2160L) {
+            view.holder.setFixedSize(bufferWidth, bufferHeight)
+        }
         if (Build.VERSION.SDK_INT >= 35) view.requestedFrameRate = viewVote
         view.holder.addCallback(this)
         setContentView(view)

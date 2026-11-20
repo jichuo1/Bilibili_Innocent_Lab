@@ -26,6 +26,21 @@ import io.github.jichuo1.meguviz.ui.android.AndroidUiBinding
 internal typealias LinearSettingsScope = SettingsScope<LinearLayout, LinearLayout.LayoutParams>
 internal typealias FrameSettingsScope = SettingsScope<FrameLayout, FrameLayout.LayoutParams>
 
+/** Stateless factory descriptors can be shared. Views, contexts and keys are supplied by each mount. */
+private class SettingsWidget<V : View>(clazz: Class<V>, val factory: ViewFactory<V>) {
+    val type = ComponentType(clazz.name, clazz)
+}
+
+private val textWidget = SettingsWidget(TextView::class.java) { TextView(it.context) }
+private val imageWidget = SettingsWidget(ImageView::class.java) { ImageView(it.context) }
+private val spaceWidget = SettingsWidget(Space::class.java) { Space(it.context) }
+private val viewWidget = SettingsWidget(View::class.java) { View(it.context) }
+private val switchWidget = SettingsWidget(MaterialSwitch::class.java) { MaterialSwitch(it.context, null) }
+private val scrubWidget = SettingsWidget(LogSegmentScrubBar::class.java) { LogSegmentScrubBar(it.context, null) }
+private val linearWidget = SettingsWidget(LinearLayout::class.java) { LinearLayout(it.context) }
+private val frameWidget = SettingsWidget(FrameLayout::class.java) { FrameLayout(it.context) }
+private val scrollWidget = SettingsWidget(NestedScrollView::class.java) { NestedScrollView(it.context) }
+
 private object LinearPolicy : ParentPolicy<LinearLayout, LinearLayout.LayoutParams>
 private object FramePolicy : ParentPolicy<FrameLayout, FrameLayout.LayoutParams>
 private object ScrollPolicy : ParentPolicy<NestedScrollView, FrameLayout.LayoutParams>
@@ -58,12 +73,11 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
         if (matchParent || heightMatchParent) ViewGroup.LayoutParams.MATCH_PARENT else height
     ).apply(configure)
 
-    private fun <V : View> createRef(key: String, lparams: LP, type: Class<V>, factory: (Context) -> V, init: V.() -> Unit): ViewRef<V> =
-        session.mount(parent, policy, ViewKey(key), ComponentType(type.name, type), lparams,
-            ViewFactory { factory(it.context) }, init)
+    private fun <V : View> createRef(key: String, lparams: LP, widget: SettingsWidget<V>, init: V.() -> Unit): ViewRef<V> =
+        session.mount(parent, policy, ViewKey(key), widget.type, lparams, widget.factory, init)
 
-    private fun <V : View> create(key: String, lparams: LP, type: Class<V>, factory: (Context) -> V, init: V.() -> Unit): V =
-        createRef(key, lparams, type, factory, init).get()
+    private fun <V : View> create(key: String, lparams: LP, widget: SettingsWidget<V>, init: V.() -> Unit): V =
+        createRef(key, lparams, widget, init).get()
 
     private fun releaseFailed(ref: ViewRef<*>, failure: Throwable): Nothing {
         try { session.release(ref) } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
@@ -71,7 +85,7 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
     }
 
     fun textView(key: String, lparams: LP = params(), init: TextView.() -> Unit = {}): TextView =
-        create(key, lparams, TextView::class.java, ::TextView, init)
+        create(key, lparams, textWidget, init)
 
     fun textViewAction(
         key: String,
@@ -79,22 +93,22 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
         init: TextView.() -> Unit,
         action: (ViewRef<TextView>, TextView) -> Unit
     ) {
-        val ref = createRef(key, lparams, TextView::class.java, ::TextView, init)
+        val ref = createRef(key, lparams, textWidget, init)
         try { session.click(ref) { action(ref, it) } }
         catch (failure: Throwable) { releaseFailed(ref, failure) }
     }
 
     fun imageView(key: String, lparams: LP = params(), init: ImageView.() -> Unit = {}): ImageView =
-        create(key, lparams, ImageView::class.java, ::ImageView, init)
+        create(key, lparams, imageWidget, init)
 
     fun space(key: String, lparams: LP = params(), init: Space.() -> Unit = {}): Space =
-        create(key, lparams, Space::class.java, ::Space, init)
+        create(key, lparams, spaceWidget, init)
 
     fun view(key: String, lparams: LP = params(), init: View.() -> Unit = {}): View =
-        create(key, lparams, View::class.java, ::View, init)
+        create(key, lparams, viewWidget, init)
 
     fun materialSwitch(key: String, lparams: LP = params(), init: MaterialSwitch.() -> Unit = {}): MaterialSwitch {
-        val ref = createRef(key, lparams, MaterialSwitch::class.java, { MaterialSwitch(it, null) }, init)
+        val ref = createRef(key, lparams, switchWidget, init)
         val view = ref.get()
         session.onRelease(ref) { view.unbindModel() }
         try { view.finishModelBinding() } catch (failure: Throwable) { releaseFailed(ref, failure) }
@@ -102,10 +116,10 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
     }
 
     fun logSegmentScrubBar(key: String, lparams: LP = params(), init: LogSegmentScrubBar.() -> Unit = {}): LogSegmentScrubBar =
-        create(key, lparams, LogSegmentScrubBar::class.java, { LogSegmentScrubBar(it, null) }, init)
+        create(key, lparams, scrubWidget, init)
 
     fun linearLayout(key: String, lparams: LP = params(), init: LinearLayout.() -> Unit = {}, content: LinearSettingsScope.() -> Unit = {}): LinearLayout {
-        val ref = createRef(key, lparams, LinearLayout::class.java, ::LinearLayout, init)
+        val ref = createRef(key, lparams, linearWidget, init)
         val view = ref.get()
         try {
             SettingsScope(session, view, LinearPolicy) { width, height -> LinearLayout.LayoutParams(width, height) }.content()
@@ -114,7 +128,7 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
     }
 
     fun frameLayout(key: String, lparams: LP = params(), init: FrameLayout.() -> Unit = {}, content: FrameSettingsScope.() -> Unit = {}): FrameLayout {
-        val ref = createRef(key, lparams, FrameLayout::class.java, ::FrameLayout, init)
+        val ref = createRef(key, lparams, frameWidget, init)
         val view = ref.get()
         try {
             SettingsScope(session, view, FramePolicy) { width, height -> FrameLayout.LayoutParams(width, height) }.content()
@@ -123,7 +137,7 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
     }
 
     fun nestedScrollView(key: String, lparams: LP = params(), init: NestedScrollView.() -> Unit = {}, content: SettingsScope<NestedScrollView, FrameLayout.LayoutParams>.() -> Unit = {}): NestedScrollView {
-        val ref = createRef(key, lparams, NestedScrollView::class.java, ::NestedScrollView, init)
+        val ref = createRef(key, lparams, scrollWidget, init)
         val view = ref.get()
         try {
             SettingsScope(session, view, ScrollPolicy) { width, height -> FrameLayout.LayoutParams(width, height) }.content()

@@ -189,23 +189,27 @@ class FrameInterpolationModelBenchmarkTest {
     /** RGB24 loads cross uint and row boundaries; a cached image must also retain its source stride. */
     @Test fun fusedRgbCachePreservesPaddedRows() {
         val w=641; val h=361; val row=w*3
+        val fp16 = InstrumentationRegistry.getArguments().getString("fusionFp16", "true").toBooleanStrict()
         val left=frame(w,h,0); val right=frame(w,h,8)
         val phases=listOf(.25f,.5f,.75f)
-        val legacy=open(FrameInterpolationBackend.Backend.VULKAN,1,true,4,true,true,fusedWarp=false)
-        val references=try {
+        fun compactPixels(engine: FrameInterpolationBackend): Map<Float, ByteArray> =
             phases.associateWith { alpha ->
                 val out=ByteBuffer.allocateDirect(row*h)
-                assertEquals(FrameInterpolationBackend.Status.OK,legacy.process(left,right,out,w,h,alpha))
+                assertEquals(FrameInterpolationBackend.Status.OK,engine.process(left,right,out,w,h,alpha))
                 ByteArray(row*h).also { out.duplicate().get(it) }
             }
-        } finally { legacy.close() }
+        val compareRawModes = InstrumentationRegistry.getArguments().getString("fusionCompareRawModes", "false").toBooleanStrict()
+        var standardPixels: Map<Float, ByteArray>? = null
         fun padded(input:ByteBuffer,stride:Int):ByteBuffer = ByteBuffer.allocateDirect(stride*h).also { output ->
             for(y in 0 until h) for(x in 0 until stride)
                 output.put(y*stride+x,if(x<row) input.get(y*row+x) else 0x5a.toByte())
         }
         for(rawGpuInput in listOf(false,true)) {
-            val engine=open(FrameInterpolationBackend.Backend.VULKAN,1,true,4,true,true,rawGpuInput=rawGpuInput)
+            val engine=open(FrameInterpolationBackend.Backend.VULKAN,1,fp16,4,true,true,rawGpuInput=rawGpuInput)
             try {
+                // 行布局只与同一着色器的无缓存紧凑输入比较。显式参数可重跑普通与 raw 着色器的严格对照。
+                val references = if (rawGpuInput && compareRawModes) checkNotNull(standardPixels) else compactPixels(engine)
+                if (!rawGpuInput && compareRawModes) standardPixels = references
                 for((lp,rp) in listOf(0 to 0,5 to 9,11 to 1)) for(alpha in phases) {
                     val output=padded(left,row+7)
                     assertEquals(FrameInterpolationBackend.Status.OK,engine.process(padded(left,row+lp),padded(right,row+rp),
@@ -221,10 +225,74 @@ class FrameInterpolationModelBenchmarkTest {
                         }
                         for(x in row until row+7) assertEquals(0x5a.toByte(),output.get(y*(row+7)+x))
                     }
-                    assertTrue("RGB24 stride $lp/$rp alpha=$alpha max=$maximum",maximum<=1)
+                    assertTrue("RGB24 fp16=$fp16 raw=$rawGpuInput stride $lp/$rp alpha=$alpha max=$maximum",maximum<=1)
                     assertTrue(psnr(references.getValue(alpha),actual)>=60.0)
                 }
             } finally { engine.close() }
+        }
+    }
+
+    /** 固定棋盘向右平移 8 像素，1/4、1/2、3/4 槽位的整数位移真值分别为 2、4、6 像素。 */
+    @Test fun fusedFp16QualityAgainstReferenceAndTranslation() {
+        val width = 641
+        val height = 361
+        val phases = listOf(.25f, .5f, .75f)
+        val left = frame(width, height, 0)
+        val right = frame(width, height, 8)
+        val truth = phases.associateWith { phase ->
+            ByteArray(width * height * 3).also { frame(width, height, (8 * phase).toInt()).get(it) }
+        }
+        val reference = mutableMapOf<Float, ByteArray>()
+        data class Variant(val name: String, val fp16: Boolean, val fused: Boolean, val guard: Boolean, val raw: Boolean = false)
+        val variants = listOf(
+            Variant("fp32-separate", false, false, false),
+            Variant("fp16-separate", true, false, false),
+            Variant("fp16-fused", true, true, false),
+            Variant("fp16-fused-protected", true, true, true),
+            Variant("fp16-fused-raw-protected", true, true, true, raw = true)
+        )
+        fun errors(expected: ByteArray, actual: ByteArray, inset: Int): JSONObject {
+            var absolute = 0L
+            var squared = 0L
+            var maximum = 0
+            for (y in inset until height - inset) {
+                val start = 3 * (y * width + inset)
+                val end = 3 * ((y + 1) * width - inset)
+                for (offset in start until end) {
+                    val diff = kotlin.math.abs((actual[offset].toInt() and 255) - (expected[offset].toInt() and 255))
+                    absolute += diff
+                    squared += diff * diff
+                    maximum = maxOf(maximum, diff)
+                }
+            }
+            val samples = 3L * (width - 2 * inset) * (height - 2 * inset)
+            return JSONObject().put("mae", absolute.toDouble() / samples).put("max", maximum)
+                .put("psnrDb", if (squared == 0L) JSONObject.NULL else 10 * kotlin.math.log10(65025.0 * samples / squared))
+        }
+        for (variant in variants) {
+            open(FrameInterpolationBackend.Backend.VULKAN, 1, variant.fp16, 4, true, true,
+                fusedWarp = variant.fused, rawGpuInput = variant.raw).use { engine ->
+                engine.setMotionGuard(variant.guard)
+                val output = ByteBuffer.allocateDirect(width * height * 3)
+                for (phase in phases) {
+                    assertEquals(FrameInterpolationBackend.Status.OK,
+                        engine.process(left, right, output, width, height, phase))
+                    val bytes = ByteArray(output.capacity()).also { output.duplicate().get(it) }
+                    if (!variant.fp16) reference[phase] = bytes
+                    val execution = JSONObject(checkNotNull(engine.executionInfo()))
+                    assertEquals(1, execution.getInt("frame_kind"))
+                    val resolved = reference.getValue(phase)
+                    val known = truth.getValue(phase)
+                    val result = JSONObject().put("variant", variant.name).put("phase", phase.toDouble())
+                        .put("fp32", errors(resolved, bytes, 0)).put("fp32Center", errors(resolved, bytes, 32))
+                        .put("translation", errors(known, bytes, 0)).put("translationCenter", errors(known, bytes, 32))
+                        .put("patchedTiles", engine.patchedTiles()).put("unreliablePermille", engine.unreliablePermille())
+                        .put("execution", execution)
+                    InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply {
+                        putString("translation", result.toString())
+                    })
+                }
+            }
         }
     }
 
@@ -333,14 +401,18 @@ class FrameInterpolationModelBenchmarkTest {
         val scale = InstrumentationRegistry.getArguments().getString("flowScale", "4").toInt()
         require(scale == 2 || scale == 4)
         val rawGpuInput=InstrumentationRegistry.getArguments().getString("rawGpuInput") == "true"
+        // FP32 两条路径使用相同精度的坐标。传 fusionFp16=true 可以重跑 FP16 的严格跨实现对照。
+        val fp16=InstrumentationRegistry.getArguments().getString("fusionFp16","false").toBooleanStrict()
         val selectedWidth = InstrumentationRegistry.getArguments().getString("fusionWidth")?.toInt()
         for ((w,h) in listOf(641 to 361, 1280 to 720, 1920 to 1080, 3840 to 2160).filter { selectedWidth == null || it.first == selectedWidth }) {
             val inputs = listOf(frame(w,h,0), frame(w,h,maxOf(4,w/80)))
             val references = HashMap<Float,ByteArray>()
             for (fused in listOf(false,true,false,true)) {
-                val engine = open(FrameInterpolationBackend.Backend.VULKAN,1,true,scale,true,true,
+                val engine = open(FrameInterpolationBackend.Backend.VULKAN,1,fp16,scale,true,true,
                     maxPixels=maxOf(1920L*1080,w.toLong()*h),fusedWarp=fused,rawGpuInput=fused && rawGpuInput)
                 try {
+                    // 比较 GPU 实现时，统一关闭会主动替换图像内容的运动保护。
+                    engine.setMotionGuard(false)
                     val times = ArrayList<Long>()
                     val out=ByteBuffer.allocateDirect(w*h*3)
                     var worstMax=0
@@ -373,7 +445,7 @@ class FrameInterpolationModelBenchmarkTest {
                         }
                     }
                     times.sort()
-                    val record=JSONObject().put("width",w).put("height",h).put("fused",fused)
+                    val record=JSONObject().put("width",w).put("height",h).put("fused",fused).put("fp16Requested",fp16)
                         .put("flowScale", scale)
                         .put("rawGpuInput",fused && rawGpuInput)
                         .put("p50Ms",times[times.size/2]/1e6).put("p90Ms",times[(times.size*9/10).coerceAtMost(times.size-1)]/1e6)
@@ -416,6 +488,7 @@ class FrameInterpolationModelBenchmarkTest {
                 for ((source, target) in profiles) {
                     val samples = ArrayList<Long>()
                     val cpu = ArrayList<Long>()
+                    val nativeCpu = ArrayList<Long>()
                     val stages = LongArray(3)
                     var originals = 0
                     var slot = 0L
@@ -438,7 +511,10 @@ class FrameInterpolationModelBenchmarkTest {
                         samples += System.nanoTime() - start
                         cpu += Debug.threadCpuTimeNanos() - cpuStart
                         if (status != FrameInterpolationBackend.Status.OK) { failure = status; break }
-                        if (phase != 0L) engine.stageNanos().forEachIndexed { i, value -> stages[i] += value }
+                        if (phase != 0L) {
+                            engine.nativeWorkerCpuNanos()?.let(nativeCpu::add)
+                            engine.stageNanos().forEachIndexed { i, value -> stages[i] += value }
+                        }
                     }
                     identityBase += 1_000_000L
                     samples.sort()
@@ -449,6 +525,8 @@ class FrameInterpolationModelBenchmarkTest {
                         .put("stage", if (required == 0) "original frame copy only" else "raw model inference; no capture/presentation")
                         .put("samples", samples.size).put("originalSlotsSkipped", originals).put("rawGpuInput",rawGpuInput)
                         .put("p50Ms", q(.5)).put("p90Ms", q(.9)).put("p99Ms", q(.99)).put("maxMs", q(1.0))
+                        .put("nativeWorkerCpuSamples", nativeCpu.size)
+                        .put("nativeWorkerCpuMeanMs", if (nativeCpu.isEmpty()) JSONObject.NULL else nativeCpu.average() / 1e6)
                         .put("cpuMeanMs", cpu.average() / 1e6).put("wallElapsedMs", (System.nanoTime() - began) / 1e6)
                         .put("requiredInferencesPerSecond", required).put("estimatedWorkerUtilization", avgNs * required / 1e9)
                         .put("rawP90Fits", failure == null && (required == 0 || q(.9) <= 1000.0 / required))

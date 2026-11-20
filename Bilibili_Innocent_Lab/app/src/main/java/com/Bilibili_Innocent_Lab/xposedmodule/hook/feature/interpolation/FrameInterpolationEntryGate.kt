@@ -4,7 +4,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
  * 插帧 / 目标 FPS 入口的唯一开关。入口（设置项、播放器内档位、宿主 hook 装配）只能在
  * [evaluate] 全部条件满足时出现；任一条件缺证据即保持关闭，并逐条报告缺什么。
  *
- * 条件与当前证据来源（2026-10-18）：
+ * 以下为 2026-10-18 至 10-19 的宿主接管记录，推理耗时对应当时的引擎。
+ * MeguvizMedia 的可用性、模型及当前设备的推理预算由运行时逐项验证。
  * - NATIVE_READY：[FrameInterpolationNative.status] == READY。来源存在（按需解包 + 校验）；
  *   2026-10-19 OnePlus PMA110（Android 17、arm64、Adreno）真机：压缩包解包、加载与缓存复用通过，
  *   CPU 与 Vulkan 引擎均可创建（FrameInterpolationDeviceTest）。

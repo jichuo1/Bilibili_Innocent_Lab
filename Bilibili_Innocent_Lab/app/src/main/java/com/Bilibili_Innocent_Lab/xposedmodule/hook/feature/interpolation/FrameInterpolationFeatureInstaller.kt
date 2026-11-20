@@ -15,12 +15,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import java.io.File
+import java.lang.ref.WeakReference
 import java.util.Collections
 import java.util.WeakHashMap
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptWire
 
 /**
- * 主播放器插帧（≤720p → 60 fps）。只接管主播放器设置给 IjkMediaPlayer 的显示 Surface 所对应的视频解码器；
+ * 主播放器插帧。只接管主播放器设置给 IjkMediaPlayer 的显示 Surface 所对应的视频解码器；
  * 广告、开屏、动图、编辑器等其他 ijk/MediaCodec 使用者不受影响。
  *
  * 真机：coreV2 主播放器的 IjkMediaPlayer 与 MediaCodec 运行在独立进程 tv.danmaku.bili:ijkservice
@@ -50,20 +51,23 @@ internal class FrameInterpolationFeatureInstaller(
     override val id: String = ID
 
     private val mainSurfaces = FrameSurfaceOwnership<Any, Surface>()
-    private val bridges = Collections.synchronizedMap(WeakHashMap<MediaCodec, FrameCaptureBridge>())
+    private val bridges = Collections.synchronizedMap(WeakHashMap<MediaCodec, FramePlaybackBridge>())
     private val audioTracks = Collections.synchronizedMap(WeakHashMap<AudioTrack, FrameAudioDelay>())
     private val inMainDisplay = FrameCallScope()
     private val inMainOp = FrameCallScope()
+    private val changingOutput = FrameCallScope()
     private val decoderGeneration = FrameDecoderGeneration<MediaCodec>()
     private val activationScheduled = java.util.concurrent.atomic.AtomicBoolean()
     private val pendingDrainScheduled = java.util.concurrent.atomic.AtomicBoolean()
     private val activationExecutor = HostReceiptWire.executor("bil-frame-activation")
+    private val mediaRetryHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
     private val writingSilence = ThreadLocal<Boolean>()
     private val playerClocks = FramePlayerClockProbe(::log, ::clockProbeEnabled)
-    @Volatile private var speed = 1.0
     @Volatile private var audioDelayUs = 0L
     @Volatile private var active: Boolean? = null
-    @Volatile private var engine: FrameInterpolationEngineHolder? = null
+    @Volatile private var nativeOnly = false
+    @Volatile private var gpuDiagnostics = false
+    @Volatile private var routes: FramePlaybackRoutes? = null
     private var playerProcess = false
     private lateinit var environment: HookEnvironment
     private val displayRequests = WeakHashMap<Activity, Triple<Int, Float, Float?>>()
@@ -159,13 +163,15 @@ internal class FrameInterpolationFeatureInstaller(
             }
         }
         hook("display") {
-            registrar.all("$ID.display", ADAPTER, "setVideoDisPlay") {
+            val videoDisplay = Class.forName("tv.danmaku.videoplayer.coreV2.VideoDisplay", false, loader)
+            registrar.exact("$ID.display", adapter, "setVideoDisPlay", videoDisplay) {
                 before { inMainDisplay.enter() }
                 after { inMainDisplay.leave() }
             }
         }
         hook("op") {
-            registrar.all("$ID.op", ADAPTER, "invokeOp") {
+            val ops = Class.forName("tv.danmaku.videoplayer.coreV2.adapter.IMediaPlayAdapter\$Ops", false, loader)
+            registrar.exact("$ID.op", adapter, "invokeOp", ops, Any::class.java) {
                 before { inMainOp.enter() }
                 after { inMainOp.leave() }
             }
@@ -196,20 +202,17 @@ internal class FrameInterpolationFeatureInstaller(
             }
         }
         hook("surface.release") {
-            registrar.all("$ID.surface.release", PLAYER, "release") {
+            registrar.exact("$ID.surface.release", player, "release") {
                 before { instance?.let(mainSurfaces::release) }
             }
         }
-        if (playerProcess) {
+        val client = if (playerProcess) runCatching { Class.forName(CLIENT, false, loader) }.getOrNull() else null
+        if (client != null) {
             if (verificationAllowed) hook("clock.client") {
-                val client = Class.forName(CLIENT, false, loader)
                 client.declaredConstructors.forEach { constructor ->
                     registrar.constructor("$ID.clock.client", constructor) {
                         after { if (!hasThrowable) instance?.let { if (clockProbeEnabled() && activate(apk)) playerClocks.attach(it) } }
                     }
-                }
-                registrar.all("$ID.clock.release", CLIENT, "release") {
-                    before { instance?.let(playerClocks::remove) }
                 }
                 registrar.all("$ID.clock.event", CLIENT, "eventHandlerForClient") {
                     before {
@@ -225,30 +228,42 @@ internal class FrameInterpolationFeatureInstaller(
             }
             // setSurface 与外部渲染等路径最终都进入原生 _setVideoSurface；两处都登记，重复登记无副作用。
             for (method in listOf("setSurface", "_setVideoSurface")) hook("client.$method") {
-                registrar.all("$ID.client.$method", CLIENT, method) {
+                registrar.exact("$ID.client.$method", client, method, Surface::class.java) {
                     before {
-                        val surface = argOrNull(0) as? Surface ?: return@before
+                        val surface = argOrNull(0) as? Surface
                         val owner = instance ?: return@before
-                        if (mainSurfaces.bind(owner, surface, true)) activate(apk)
+                        if (mainSurfaces.bind(owner, surface, true) && surface != null) activate(apk)
+                    }
+                    after { if (hasThrowable) instance?.let(mainSurfaces::release) }
+                }
+            }
+            hook("client.release") {
+                registrar.exact("$ID.client.release", client, "release") {
+                    before {
+                        val owner = instance ?: return@before
+                        mainSurfaces.release(owner)
+                        if (verificationAllowed) playerClocks.remove(owner)
                     }
                 }
             }
-            // 倍速设置器名称以真机为准；缺失只影响倍速证据（时钟按 1.0 推算，倍速变化表现为不连续而重建）。
-            runCatching {
-                registrar.all("$ID.client.speed", CLIENT, "setSpeed") {
-                    before {
-                        val value = (argOrNull(0) as? Float)?.toDouble() ?: return@before
-                        if (value.isFinite() && value > 0.0) speed = value
+            hook("client.speed") {
+                registrar.exact("$ID.client.speed", client, "setPropertyFloat", Int::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!) {
+                    after {
+                        if (hasThrowable || argOrNull(0) != IJK_PLAYBACK_RATE) return@after
+                        val owner = instance ?: return@after
+                        val rate = argOrNull(1) as? Float ?: return@after
+                        mainSurfaces.updateSpeed(owner, rate, allowNew = true)
                     }
                 }
-                hooks++
-            }.onFailure { log("hook.missing", "client.setSpeed") }
+            }
         }
         hook("speed") {
             registrar.exact("$ID.speed", player, "setSpeed", Float::class.javaPrimitiveType!!) {
-                before {
-                    val value = (argOrNull(0) as? Float)?.toDouble() ?: return@before
-                    if ((playerProcess || inMainOp.active) && value.isFinite() && value > 0.0) speed = value
+                after {
+                    if (hasThrowable || !inMainOp.active) return@after
+                    val owner = instance ?: return@after
+                    val rate = argOrNull(0) as? Float ?: return@after
+                    mainSurfaces.updateSpeed(owner, rate, allowNew = true)
                 }
             }
         }
@@ -260,6 +275,9 @@ internal class FrameInterpolationFeatureInstaller(
             check(shapes.isNotEmpty())
             registrar.all("$ID.configure", MediaCodec::class.java.name, "configure") {
                 before {
+                    val codec = instance as? MediaCodec ?: return@before
+                    // A reconfigure may move a previously owned codec to an ineligible display or encoder.
+                    if (configured.containsKey(codec)) detachDecoder(codec)?.close()
                     log("configure.seen", "observed")
                     val cryptoIndex = (method as? java.lang.reflect.Method)?.let { shapes[it] }
                         ?: run { log("configure.skip.abi", "unsupported"); return@before }
@@ -267,12 +285,9 @@ internal class FrameInterpolationFeatureInstaller(
                     if (flags and MediaCodec.CONFIGURE_FLAG_ENCODE != 0) {
                         log("configure.skip.encoder", "encoder"); return@before
                     }
-                    val codec = instance as? MediaCodec ?: return@before
                     val display = argOrNull(1) as? Surface ?: run { log("configure.skip.surface", "missing"); return@before }
                     val format = argOrNull(0) as? MediaFormat ?: run { log("configure.skip.format", "missing"); return@before }
-                    if (verificationAllowed && ReflectAccess.currentApplication()?.getExternalFilesDir(null)?.let {
-                            File(it, "$VERIFY_DIR/native-only").isFile
-                        } == true) return@before
+                    if (nativeOnly) return@before
                     if (!playerProcess && !mainSurfaces.contains(display)) {
                         log("configure.skip.owner", "unowned_surface"); return@before
                     }
@@ -281,37 +296,14 @@ internal class FrameInterpolationFeatureInstaller(
                     if (!mime.startsWith("video/")) { log("configure.skip.mime", "non_video"); return@before }
                     if (!activate(apk)) return@before
                     log("configure.owned", "video_decoder")
-                    var previous: FrameCaptureBridge? = null
+                    var previous: FramePlaybackBridge? = null
                     val ticket = decoderGeneration.begin(codec) {
                         previous = bridges.remove(codec); pending.remove(codec); configured.remove(codec)
                     }
                     previous?.let { audioDelayUs = 0L; it.close() }
                     setObjectExtra(CONFIGURE_TICKET, ticket)
                     val decoder = PendingDecoder(format, display, argOrNull(cryptoIndex), ticket)
-                    val holder = engine
-                    if (holder == null) {
-                        awaitEngine(codec, decoder)
-                        log("configure.wait", "activation")
-                        showStatus(FrameStatus.Inactive(FrameStatus.Reason.LOADING))
-                        return@before
-                    }
-                    if (!holder.ready()) {
-                        // 冷启动：模型仍在后台加载。保持原生播放，就绪后迟接管（见 attachPending），不阻塞解码线程。
-                        // 启动时能力测量因 GPU 被短暂占满而失败的，到期在此重测，成功后同样迟接管。
-                        holder.retryIfDue()
-                        if (holder.state != FrameInterpolationEngineHolder.State.FAILED || holder.recoveryPending()) {
-                            awaitEngine(codec, decoder)
-                            showStatus(FrameStatus.Inactive(FrameStatus.Reason.LOADING))
-                        } else showStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE))
-                        return@before
-                    }
-                    val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, decoder.crypto,
-                        holder, bridgeHost, requestedTargetFps = verificationTarget(),
-                        isCurrent = decoder.ticket::isActive) ?: return@before
-                    if (!decoderGeneration.commit(codec, ticket) { bridges[codec] = bridge; configured[codec] = decoder }) {
-                        bridge.close(); return@before
-                    }
-                    args[1] = bridge.captureSurface
+                    decoderGeneration.commit(codec, ticket) { configured[codec] = decoder }
                 }
                 after {
                     // configure 失败时宿主会放弃这个解码器：立刻拆除，避免持有显示 Surface。
@@ -322,22 +314,69 @@ internal class FrameInterpolationFeatureInstaller(
                 }
             }
         }
+        hook("start") {
+            registrar.exact("$ID.start", MediaCodec::class.java, "start") {
+                before {
+                    (instance as? MediaCodec)?.let { configured[it]?.let { d -> setObjectExtra(CONFIGURE_TICKET, d.ticket) } }
+                }
+                after {
+                    val codec = instance as? MediaCodec ?: return@after
+                    val ticket = getObjectExtra(CONFIGURE_TICKET) as? FrameDecoderGeneration.Ticket ?: return@after
+                    if (hasThrowable) detachDecoder(codec, ticket)?.close()
+                    else decoderGeneration.commit(codec, ticket) {
+                        val decoder = configured[codec] ?: return@commit
+                        if (!decoder.started) { decoder.started = true; awaitEngine(codec, decoder) }
+                    }
+                }
+            }
+        }
+        hook("output.surface") {
+            registrar.exact("$ID.output.surface", MediaCodec::class.java, "setOutputSurface", Surface::class.java) {
+                before {
+                    if (changingOutput.active) return@before
+                    val codec = instance as? MediaCodec ?: return@before
+                    val decoder = configured[codec] ?: return@before
+                    decoderGeneration.commit(codec, decoder.ticket) {
+                        decoder.externalChanges++
+                        if (decoder.externalChanges > 1) decoder.overlappingChanges = true
+                        setObjectExtra(HOST_OUTPUT_CHANGE, decoder)
+                        val requested = argOrNull(0) as? Surface ?: return@commit
+                        val bridge = bridges[codec] ?: return@commit
+                        val input = bridge.decoderInputFor(requested) ?: return@commit
+                        setObjectExtra(HOST_OUTPUT_BORROW, bridge)
+                        decoder.repeatedDisplay = true
+                        args[0] = input
+                    }
+                }
+                after {
+                    val borrowed = getObjectExtra(HOST_OUTPUT_BORROW) as? FramePlaybackBridge
+                    try {
+                        val codec = instance as? MediaCodec ?: return@after
+                        val previous = getObjectExtra(HOST_OUTPUT_CHANGE) as? PendingDecoder ?: return@after
+                        val changed = if (borrowed == null && !hasThrowable) argOrNull(0) as? Surface else null
+                        finishHostOutputChange(codec, previous, changed)
+                    } finally {
+                        borrowed?.finishDecoderInput()
+                    }
+                }
+            }
+        }
         hook("flush") {
             registrar.exact("$ID.flush", MediaCodec::class.java, "flush") {
                 before { (instance as? MediaCodec)?.let { bridges[it]?.onFlush() } }
             }
         }
-        for (method in listOf("stop", "release")) hook(method) {
+        for (method in listOf("stop", "reset", "release")) hook(method) {
             registrar.exact("$ID.$method", MediaCodec::class.java, method) {
                 before { (instance as? MediaCodec)?.let { setObjectExtra(STOP_BRIDGE, detachDecoder(it)) } }
-                after { (getObjectExtra(STOP_BRIDGE) as? FrameCaptureBridge)?.close() }
+                after { (getObjectExtra(STOP_BRIDGE) as? FramePlaybackBridge)?.close() }
             }
         }
         hook("audio.ctor") { installAudio(registrar) }
         // 专用播放进程：Application 就绪后立即决定是否启用并预热引擎，首个解码器 configure 时即可接管。
         if (playerProcess) environment.postToMain?.invoke { activate(apk) }
         environment.reportStatus(STATUS, "installed:$hooks")
-        val complete = FrameHookCoverage.complete(installedRoles)
+        val complete = FrameHookCoverage.complete(installedRoles, playerProcess)
         log("installed", "hooks=$hooks complete=$complete process=${environment.processName}")
         return FeatureInstallResult.Installed(hooks, complete = complete)
     }
@@ -442,12 +481,24 @@ internal class FrameInterpolationFeatureInstaller(
     private fun shiftFrames(rate: Int): Long = audioDelayUs * rate / 1_000_000L
 
     private class PendingDecoder(val format: MediaFormat, val display: Surface, val crypto: Any?,
-                                 val ticket: FrameDecoderGeneration.Ticket)
+                                 val ticket: FrameDecoderGeneration.Ticket,
+                                 val attempt: FramePlaybackRoutes.Attempt = FramePlaybackRoutes.Attempt()) {
+        @Volatile var started = false
+        @Volatile var waitingForRife = false
+        // Access under decoderGeneration's lock, including module-owned setOutputSurface calls.
+        var externalChanges = 0
+        var overlappingChanges = false
+        var changedDisplay: Surface? = null
+        var repeatedDisplay = false
+    }
     private val pending = FramePendingTakeovers<MediaCodec, PendingDecoder>()
+
+    private fun canAttempt(decoder: PendingDecoder): Boolean =
+        routes?.let { !decoder.waitingForRife || it.rifeCanAdvance(decoder.attempt) } == true
 
     private fun awaitEngine(codec: MediaCodec, decoder: PendingDecoder) {
         decoderGeneration.commit(codec, decoder.ticket) {
-            pending.await(codec, decoder, { engine?.ready() == true }, ::schedulePendingTakeover)
+            pending.await(codec, decoder, { canAttempt(decoder) }, ::schedulePendingTakeover)
         }
     }
 
@@ -457,13 +508,13 @@ internal class FrameInterpolationFeatureInstaller(
             try { attachPending() }
             finally {
                 pendingDrainScheduled.set(false)
-                if (pending.hasPending() && engine?.ready() == true) schedulePendingTakeover()
+                if (pending.hasReady(::canAttempt)) schedulePendingTakeover()
             }
         }) }.onFailure { pendingDrainScheduled.set(false); log("bridge.late.skip", "queue") }
     }
 
-    private fun detachDecoder(codec: MediaCodec, ticket: FrameDecoderGeneration.Ticket? = null): FrameCaptureBridge? {
-        var detached: FrameCaptureBridge? = null
+    private fun detachDecoder(codec: MediaCodec, ticket: FrameDecoderGeneration.Ticket? = null): FramePlaybackBridge? {
+        var detached: FramePlaybackBridge? = null
         decoderGeneration.end(codec, ticket) {
             pending.remove(codec); configured.remove(codec); detached = bridges.remove(codec)
             if (detached != null) audioDelayUs = 0L
@@ -473,21 +524,115 @@ internal class FrameInterpolationFeatureInstaller(
 
     /** 引擎就绪后接管冷启动期间已原生播放的解码器：在 worker 上把其输出切到捕获 Surface。 */
     private fun attachPending() {
-        val holder = engine ?: return
-        if (!holder.ready()) return
-        val waiting = pending.take()
+        val routes = routes ?: return
+        val waiting = pending.takeReady(::canAttempt)
         for ((codec, decoder) in waiting) {
             if (!decoderGeneration.matches(codec, decoder.ticket)) continue
-            val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
-                decoder.crypto, holder, bridgeHost, requestedTargetFps = verificationTarget(),
-                attach = { surface -> decoderGeneration.matches(codec, decoder.ticket) &&
-                    runCatching { codec.setOutputSurface(surface) }.isSuccess },
-                isCurrent = decoder.ticket::isActive) ?: continue
-            if (!decoderGeneration.commit(codec, decoder.ticket) { bridges[codec] = bridge; configured[codec] = decoder }) {
-                bridge.close(); continue
+            val weakCodec = WeakReference(codec)
+            val ticket = decoder.ticket
+            val host = object : FrameCaptureBridge.Host by bridgeHost {
+                override fun onDisplayLimited(codec: MediaCodec, hz: Float) {
+                    if (!ticket.isActive()) return
+                    displayLimit = minOf(displayLimit ?: hz, hz)
+                    reattach(codec, ticket, "limit=${hz.toInt()}Hz")
+                }
+                override fun onRebuild(codec: MediaCodec) = reattach(codec, ticket, "overload")
+                override fun setAudioDelayUs(delayUs: Long) {
+                    if (ticket.isActive()) bridgeHost.setAudioDelayUs(delayUs)
+                }
+                override fun onStatus(status: FrameStatus) {
+                    if (ticket.isActive()) bridgeHost.onStatus(status)
+                }
             }
-            log("bridge.late", "attached")
+            val outcome = try {
+                routes.attach(codec, decoder.format, decoder.display, decoder.crypto, host, decoder.attempt,
+                    requestedTargetFps = verificationTarget(), isCurrent = ticket::isActive,
+                    attach = { surface -> weakCodec.get()?.let { changeOutput(it, ticket, surface) } == true },
+                    onWindowFailed = { backend -> weakCodec.get()?.let { reattach(it, ticket, "$backend-failed") } })
+            } catch (failure: Exception) {
+                log("route.error", failure.javaClass.simpleName)
+                continue
+            } catch (failure: LinkageError) {
+                log("route.error", failure.javaClass.simpleName)
+                continue
+            }
+            when (outcome) {
+                is FramePlaybackRoutes.Result.Attached -> {
+                    val published = decoderGeneration.commit(codec, ticket) {
+                        bridges[codec] = outcome.bridge
+                        outcome.bridge.onPublished()
+                    }
+                    if (!published) outcome.bridge.close()
+                }
+                FramePlaybackRoutes.Result.WaitForRife -> {
+                    decoder.waitingForRife = true
+                    awaitEngine(codec, decoder)
+                }
+                FramePlaybackRoutes.Result.WaitForMedia -> {
+                    // MediaCodec output metadata and AudioTrack attributes can arrive after start.
+                    mediaRetryHandler.postDelayed({
+                        val current = weakCodec.get() ?: return@postDelayed
+                        val next = configured[current] ?: return@postDelayed
+                        if (next.ticket === ticket) awaitEngine(current, next)
+                    }, decoder.attempt.mediaRetryDelayMs)
+                }
+                FramePlaybackRoutes.Result.Original -> Unit
+            }
         }
+    }
+
+    private fun finishHostOutputChange(codec: MediaCodec, previous: PendingDecoder, changed: Surface?) {
+        var old: FramePlaybackBridge? = null
+        decoderGeneration.commit(codec, previous.ticket) {
+            if (changed != null) previous.changedDisplay = changed
+            if (--previous.externalChanges != 0) return@commit
+            val surface = previous.changedDisplay
+            val overlapping = previous.overlappingChanges
+            val mixed = overlapping && previous.repeatedDisplay
+            previous.changedDisplay = null
+            previous.overlappingChanges = false
+            previous.repeatedDisplay = false
+            if (surface == null) return@commit
+            // A real retarget racing a redirected repeat may leave either buffer queue on the codec.
+            // Establish the successful host destination before releasing the old QCOM input.
+            if (mixed && !changeOutput(codec, previous.ticket, surface)) return@commit
+            decoderGeneration.replace(codec, previous.ticket) { ticket ->
+                pending.remove(codec)
+                old = bridges.remove(codec)
+                configured.remove(codec)
+                if (!overlapping && (playerProcess || mainSurfaces.contains(surface))) {
+                    val decoder = PendingDecoder(previous.format, surface, previous.crypto, ticket)
+                    decoder.started = previous.started
+                    configured[codec] = decoder
+                    if (decoder.started) awaitEngine(codec, decoder)
+                }
+            }
+        }
+        if (old != null) { audioDelayUs = 0; old?.close() }
+    }
+
+    private fun changeOutput(codec: MediaCodec, ticket: FrameDecoderGeneration.Ticket, surface: Surface): Boolean {
+        var changed = false
+        decoderGeneration.commit(codec, ticket) {
+            if (configured[codec]?.externalChanges != 0) return@commit
+            changingOutput.enter()
+            try { changed = runCatching { codec.setOutputSurface(surface) }.isSuccess }
+            finally { changingOutput.leave() }
+        }
+        return changed
+    }
+
+    /** Called after the backend has disconnected its EGL producer and restored native playback. */
+    private fun reattach(codec: MediaCodec, ticket: FrameDecoderGeneration.Ticket, reason: String) {
+        val previous = configured[codec]?.takeIf { it.ticket === ticket } ?: return
+        decoderGeneration.replace(codec, ticket) { next ->
+            val replacement = PendingDecoder(previous.format, previous.display, previous.crypto, next, previous.attempt)
+            replacement.started = true
+            configured[codec] = replacement
+            bridges.remove(codec)
+            awaitEngine(codec, replacement)
+        } ?: return
+        log("bridge.retarget", reason)
     }
 
     /** 首次需要补偿时按 ijk 已调用过的接口选择平移方式；都没有调用过才退回写静音。 */
@@ -534,7 +679,9 @@ internal class FrameInterpolationFeatureInstaller(
             val external = if (verificationAllowed) host.getExternalFilesDir(null) else null
             val verifying = verificationAllowed && external != null && File(external, "$VERIFY_DIR/enable").isFile
             val decided = enabled || verifying
-            if (decided) {
+            nativeOnly = verificationAllowed && external != null && File(external, "$VERIFY_DIR/native-only").isFile
+            gpuDiagnostics = verificationAllowed && external != null && File(external, "$VERIFY_DIR/measure-gpu").isFile
+            if (decided && !nativeOnly) {
                 val debugModel = external?.let { File(it, "$VERIFY_DIR/${FrameModelSpec.NAME}") }
                 // 模型来源：debug 验证目录（仅验证构建）优先，否则用模块下载后写入的远程文件，复制并校验到宿主私有目录。
                 val modelSource: () -> File? = {
@@ -557,8 +704,9 @@ internal class FrameInterpolationFeatureInstaller(
                     log = { event, detail -> log(event, detail) }, capabilitySizes = sizes,
                     dumpDir = if (verifying) File(external, "$VERIFY_DIR/dump").apply { mkdirs() } else null)
                 holder.onReady = ::schedulePendingTakeover
-                engine = holder
-                holder.warmUp()
+                holder.onPreparationChanged = ::schedulePendingTakeover
+                routes = FramePlaybackRoutes(holder)
+                schedulePendingTakeover()
             }
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")
             active = decided
@@ -584,7 +732,7 @@ internal class FrameInterpolationFeatureInstaller(
             // 覆盖时间线允许的最大延迟 250 ms + 相位锁定（≤ 100 ms）；正式播放当前用 150 ms。
             audioDelayUs = delayUs.coerceIn(0L, 350_000L)
         }
-        override fun playbackSpeed(): Double = speed
+        override fun playbackRateReader(surface: Surface): () -> Double = mainSurfaces.rateReader(surface, playerProcess)
         override fun audio(): FrameMediaPolicy.Audio =
             if (audioTracks.isEmpty()) FrameMediaPolicy.Audio()
             else FrameMediaPolicy.Audio(output = FrameMediaPolicy.AudioOutput.PCM,
@@ -593,43 +741,14 @@ internal class FrameInterpolationFeatureInstaller(
         override fun context(): android.content.Context? = ReflectAccess.currentApplication()
         override fun maxFps(): Int = maxFps
         override fun thermalControlEnabled(): Boolean = !disableThermalControl
-        override fun diagnostics(): Boolean = verificationAllowed && runCatching {
-            File(ReflectAccess.currentApplication()?.getExternalFilesDir(null), "$VERIFY_DIR/measure-gpu").isFile
-        }.getOrDefault(false)
+        override fun diagnostics(): Boolean = gpuDiagnostics
         override fun presentLeadOverrideNs(): Long? = if (!verificationAllowed) null else runCatching {
             File(ReflectAccess.currentApplication()?.getExternalFilesDir(null), "$VERIFY_DIR/present-lead-us")
                 .takeIf { it.isFile }?.readText()?.trim()?.toLong()?.coerceIn(0L, 40_000L)?.times(1_000L)
         }.getOrNull()
         override fun displayLimitHz(): Float? = displayLimit
-        override fun onDisplayLimited(codec: MediaCodec, hz: Float) {
-            displayLimit = minOf(displayLimit ?: hz, hz)
-            reattach(codec, "limit=%.0fHz".format(hz))
-        }
-        override fun onRebuild(codec: MediaCodec) = reattach(codec, "overload")
         override fun onStatus(status: FrameStatus) = showStatus(status)
 
-        /** 解码器此时已回到显示 Surface（原生播放）；在独立线程按当前上限与能力重新接管，不占用呈现或解码线程。 */
-        private fun reattach(codec: MediaCodec, reason: String) {
-            val previous = configured[codec] ?: return
-            val holder = engine ?: return
-            var replacement: PendingDecoder? = null
-            decoderGeneration.replace(codec, previous.ticket) { ticket ->
-                val next = PendingDecoder(previous.format, previous.display, previous.crypto, ticket)
-                replacement = next
-                configured[codec] = next
-                bridges.remove(codec)
-            } ?: return
-            val decoder = replacement ?: return
-            runCatching { activationExecutor.execute(HostThreadGuard.runnable("frame.retarget") {
-                if (configured[codec] !== decoder || !decoderGeneration.matches(codec, decoder.ticket)) return@runnable
-                val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
-                    decoder.crypto, holder, this, attach = { surface -> decoderGeneration.matches(codec, decoder.ticket) &&
-                        runCatching { codec.setOutputSurface(surface) }.isSuccess },
-                    isCurrent = decoder.ticket::isActive)
-                if (bridge != null && !decoderGeneration.commit(codec, decoder.ticket) { bridges[codec] = bridge }) bridge.close()
-                log("bridge.retarget", "$reason attached=${bridge != null}")
-            }) }.onFailure { log("bridge.retarget.skip", "queue") }
-        }
     }
 
     @Volatile private var lastStatusText: String? = null
@@ -687,6 +806,8 @@ internal class FrameInterpolationFeatureInstaller(
         private const val CLIENT = "tv.danmaku.ijk.media.player.services.IjkMediaPlayerClient"
         private const val VERIFY_TAG = "InnocentFrame"
         private const val CONFIGURE_TICKET = "innocent.frame.configure.ticket"
+        private const val HOST_OUTPUT_CHANGE = "innocent.frame.host-output-change"
+        private const val HOST_OUTPUT_BORROW = "innocent.frame.host-output-borrow"
         private const val STOP_BRIDGE = "innocent.frame.stop.bridge"
         private const val DROPPED = "innocent.frame.audio.dropped"
         private const val STATUS_REPEAT_NS = 4_000_000_000L

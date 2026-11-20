@@ -78,7 +78,7 @@ internal class FramePlayerClockProbe(private val log: (String, String) -> Unit, 
             val value = runCatching {
                 val at = (position.invoke(target) as Long)
                 val isPlaying = playing.invoke(target) as Boolean
-                val rate = (speed.invoke(target, PLAYBACK_RATE, Float.NaN) as Float).toDouble()
+                val rate = (speed.invoke(target, IJK_PLAYBACK_RATE, Float.NaN) as Float).toDouble()
                 Observation(Math.multiplyExact(at, 1_000L), isPlaying, rate, before, System.nanoTime())
             }.getOrNull()
             if (closed) return
@@ -112,5 +112,4 @@ internal class FramePlayerClockProbe(private val log: (String, String) -> Unit, 
         fun close() { closed = true; task?.cancel(false) }
     }
 
-    private companion object { const val PLAYBACK_RATE = 10003 }
 }

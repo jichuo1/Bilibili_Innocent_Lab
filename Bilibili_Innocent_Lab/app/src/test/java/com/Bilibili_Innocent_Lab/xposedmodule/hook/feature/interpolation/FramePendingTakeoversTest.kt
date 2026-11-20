@@ -4,6 +4,40 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FramePendingTakeoversTest {
+    @Test fun rifeAhbWaitsForItsModelAndOnlyRunsOncePerDecoderAttempt() {
+        val attempt = FramePlaybackRoutes.Attempt()
+        assertFalse(attempt.claimRifeAhb(false))
+        assertTrue(attempt.claimRifeAhb(true))
+        assertFalse(attempt.claimRifeAhb(true))
+        assertTrue(FramePlaybackRoutes.Attempt().claimRifeAhb(true))
+    }
+
+    @Test fun delayedMediaKeepsAdmissionOpenWithCappedProbesOnlyForMissingEvidence() {
+        val attempt = FramePlaybackRoutes.Attempt()
+        val delays = List(32) {
+            assertTrue(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_AUDIO_PATH))
+            attempt.mediaRetryDelayMs
+        }
+        assertEquals(150L, delays.first())
+        assertEquals(3_000L, delays.last())
+        assertTrue(delays.zipWithNext().all { (previous, next) -> next in previous..3_000L })
+        assertTrue(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_COLOR))
+        assertTrue(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_BIT_DEPTH))
+        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.HDR_PQ))
+        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.PROTECTED_CONTENT))
+        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.READY))
+    }
+
+    @Test fun pendingRifeModelDoesNotHoldOtherQcomCandidates() {
+        val pending = FramePendingTakeovers<Any, String>()
+        val a = Any()
+        val b = Any()
+        pending.await(a, "rife", { false }) {}
+        pending.await(b, "qcom", { true }) {}
+        assertEquals(listOf(b to "qcom"), pending.takeReady { it == "qcom" })
+        assertFalse(pending.hasReady { it == "qcom" })
+        assertEquals(listOf(a to "rife"), pending.takeReady { true })
+    }
     @Test fun readyBetweenTheInitialCheckAndRegistrationStillWakesTheDecoder() {
         val pending = FramePendingTakeovers<Any, String>()
         val codec = Any()

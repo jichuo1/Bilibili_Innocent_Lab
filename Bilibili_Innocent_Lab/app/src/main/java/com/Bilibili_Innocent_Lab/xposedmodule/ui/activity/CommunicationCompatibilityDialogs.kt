@@ -11,7 +11,7 @@ import android.transition.TransitionSet
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.PathInterpolator
+import com.lumen.coacervation.engine.motion.LumenEasing
 import androidx.core.view.isVisible
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
@@ -118,7 +118,7 @@ internal fun MainActivity.updateCommunicationCompatibilityHint() {
     if (hint.isVisible == show) return
     LumenAnimator.property(hint).cancel()
     val root = (hint.parent as? ViewGroup)?.parent as? ViewGroup
-    val curve = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+    val curve = LumenEasing.standard()
     val animated = android.animation.ValueAnimator.areAnimatorsEnabled()
     if (animated && root != null && root.isLaidOut) {
         TransitionManager.beginDelayedTransition(root, TransitionSet()

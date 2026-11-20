@@ -12,19 +12,16 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.Input
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import org.gradle.api.tasks.Classpath
-import org.gradle.api.provider.Property
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
-import org.gradle.process.ExecOperations
 import org.gradle.process.CommandLineArgumentProvider
-import javax.inject.Inject
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import java.time.LocalDateTime
-import java.nio.file.Files
 
 plugins {
     alias(libs.plugins.android.application)
@@ -44,58 +41,39 @@ if (baselineProfileTooling) {
     dependencies.add("baselineProfile", project(":baselineprofile"))
 }
 
-/** Build-owned stripped payloads and trusted specifications. No host/runtime input supplies hashes. */
+/** Repackage the native bytes from the same published AAR as the Java API for lazy host loading. */
 abstract class PackFrameNativePayload : DefaultTask() {
-    @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.NONE)
-    abstract val nativeBuildAnchor: DirectoryProperty
-    @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.RELATIVE)
-    abstract val payloadDirectory: DirectoryProperty
     @get:InputFile @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.NONE)
-    abstract val stripExecutable: RegularFileProperty
-    @get:Input abstract val buildKey: Property<String>
-    @get:Input abstract val requireBothAbis: Property<Boolean>
+    abstract val mediaAar: RegularFileProperty
     @get:OutputDirectory abstract val assetsDirectory: DirectoryProperty
     @get:OutputDirectory abstract val javaDirectory: DirectoryProperty
-    @get:Inject abstract val execution: ExecOperations
 
     @TaskAction fun pack() {
         val specs = mutableListOf<String>()
-        val approved = listOf("arm64-v8a", "armeabi-v7a")
-        val selected = approved.filter { abi ->
-            val input = payloadDirectory.file("$abi/libinnocent_frame_interpolation.so").get().asFile
-            val receipt = input.parentFile.resolve("frame-build-key.txt")
-            input.isFile && receipt.isFile && receipt.readText() == "${buildKey.get()}\n$abi\n"
+        val library = "libmeguviz_media_rife_ncnn.so"
+        fun hash(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value).toHexString()
+        val artifact = mediaAar.get().asFile
+        // Update with the published Media AAR when changing the version catalog.
+        check(hash(artifact.readBytes()) == "b0cec7a241488263908c7cff41c0abefe19456f2e5def2216047aa9b35239f6c") {
+            "MeguvizMedia AAR differs from the reviewed release"
         }
-        check(selected.isNotEmpty() && (!requireBothAbis.get() || selected.size == approved.size)) {
-            "Frame native payloads are missing or stale for this source/configuration; release requires both ARM ABIs."
-        }
-        // Only these task-owned generated ZIP files may disappear when an IDE debug build selects fewer ABIs.
-        for (abi in approved) {
-            // Retire only the previous task-owned name; never carry duplicate payloads into the APK.
-            Files.deleteIfExists(assetsDirectory.file("native-packing/$abi.zip").get().asFile.toPath())
-        }
-        for (abi in approved - selected.toSet()) {
-            Files.deleteIfExists(assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile.toPath())
-        }
-        logger.lifecycle("Frame native packaged ABIs: $selected")
-        for (abi in selected) {
-            val input = payloadDirectory.file("$abi/libinnocent_frame_interpolation.so").get().asFile
-            val stripped = temporaryDir.resolve("$abi.so")
-            execution.exec { commandLine(stripExecutable.get().asFile, "--strip-unneeded", "-o", stripped, input) }
-            val bytes = stripped.readBytes()
-            check(bytes.size in 1..16 * 1024 * 1024) { "Native payload exceeds fixed bound." }
-            fun hash(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value)
-                .joinToString("") { "%02x".format(it.toInt() and 255) }
-            val archive = assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile
-            archive.parentFile.mkdirs()
-            ZipOutputStream(archive.outputStream()).use { zip ->
-                zip.setLevel(9)
-                val entry = ZipEntry("lib/$abi/libinnocent_frame_interpolation.so")
-                entry.setTimeLocal(LocalDateTime.of(1980, 1, 2, 0, 0))
-                zip.putNextEntry(entry); zip.write(bytes); zip.closeEntry()
+        ZipFile(artifact).use { aar ->
+            for (abi in listOf("arm64-v8a", "armeabi-v7a")) {
+                val nativeEntry = requireNotNull(aar.getEntry("jni/$abi/$library")) { "Missing $abi/$library in MeguvizMedia" }
+                check(nativeEntry.size in 1..16L * 1024 * 1024) { "Native payload exceeds fixed bound." }
+                val bytes = aar.getInputStream(nativeEntry).use { it.readNBytes(nativeEntry.size.toInt()) }
+                check(bytes.size.toLong() == nativeEntry.size) { "Incomplete MeguvizMedia native payload." }
+                val archive = assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile
+                archive.parentFile.mkdirs()
+                ZipOutputStream(archive.outputStream()).use { zip ->
+                    zip.setLevel(9)
+                    val entry = ZipEntry("lib/$abi/$library")
+                    entry.setTimeLocal(LocalDateTime.of(1980, 1, 2, 0, 0))
+                    zip.putNextEntry(entry); zip.write(bytes); zip.closeEntry()
+                }
+                check(archive.length() in 1..8L * 1024 * 1024) { "Native archive exceeds fixed bound." }
+                specs += "        if (\"$abi\".equals(abi)) return new ArchiveSpec(\"$abi\", ${archive.length()}, \"${hash(archive.readBytes())}\", ${bytes.size}, \"${hash(bytes)}\");"
             }
-            check(archive.length() in 1..8L * 1024 * 1024) { "Native archive exceeds fixed bound." }
-            specs += "        if (\"$abi\".equals(abi)) return new ArchiveSpec(\"$abi\", ${archive.length()}, \"${hash(archive.readBytes())}\", ${bytes.size}, \"${hash(bytes)}\");"
         }
         val source = javaDirectory.file("com/Bilibili_Innocent_Lab/xposedmodule/hook/feature/interpolation/packing/FrameNativeSpec.java").get().asFile
         source.parentFile.mkdirs()
@@ -117,19 +95,24 @@ abstract class LumenContractJvmArguments : CommandLineArgumentProvider {
 }
 
 /** Guard the built APK itself, including dependency transitives and all generated asset sources. */
-abstract class VerifyAudioApk : DefaultTask() {
+abstract class VerifyMediaApk : DefaultTask() {
     @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.RELATIVE)
     abstract val apkDirectory: DirectoryProperty
     @TaskAction fun verify() {
         val apks = apkDirectory.get().asFile.walkTopDown().filter { it.isFile && it.extension == "apk" }.toList()
-        check(apks.isNotEmpty()) { "Audio packaging check found no APK" }
+        check(apks.isNotEmpty()) { "Media packaging check found no APK" }
         for (apk in apks) ZipFile(apk).use { zip ->
             val forbidden = zip.entries().asSequence().filter { entry ->
                 entry.name.endsWith("/libonnxruntime.so") || entry.name.endsWith("/libonnxruntime4j_jni.so") ||
                     entry.name.startsWith("assets/audio-rescue/") && entry.name.endsWith(".onnx")
             }.map { it.name }.toList()
             check(forbidden.isEmpty()) { "Optional audio payload leaked into APK: $forbidden" }
-            logger.lifecycle("Audio packaging verified: ${apk.name} (${apk.length()} bytes), no model/native runtime")
+            val abis = zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }
+                .map { it.substringAfter("lib/").substringBefore('/') }.toSet()
+            check(abis.isNotEmpty() && abis.all { (zip.getEntry("lib/$it/libmeguviz_qcom_motion.so")?.size ?: 0L) > 0 }) {
+                "QCOM motion library missing for a packaged ABI: $abis"
+            }
+            logger.lifecycle("Media packaging verified: ${apk.name} (${apk.length()} bytes), QCOM motion for $abis")
         }
     }
 }
@@ -226,9 +209,6 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += "-DANDROID_STL=c++_static"
-                providers.gradleProperty("innocentLab.ncnnArchive").orNull?.let {
-                    arguments += "-DINNOCENT_NCNN_ARCHIVE=$it"
-                }
             }
         }
         ndk {
@@ -303,8 +283,8 @@ android {
     }
 
     packaging.jniLibs.excludes += setOf(
-        "lib/arm64-v8a/libinnocent_frame_interpolation.so",
-        "lib/armeabi-v7a/libinnocent_frame_interpolation.so"
+        "lib/arm64-v8a/libmeguviz_media_rife_ncnn.so",
+        "lib/armeabi-v7a/libmeguviz_media_rife_ncnn.so"
     )
     // Keep ORT's Java bridge in dex; weights and native runtime are verified on-demand downloads.
     packaging.jniLibs.excludes += setOf("**/libonnxruntime.so", "**/libonnxruntime4j_jni.so")
@@ -318,49 +298,49 @@ android {
     }
 }
 
+// Media publishes the optional Qualcomm JNI target in its matching source artifact.
+val mediaNativeSources = configurations.create("mediaNativeSources") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+val mediaRelease = libs.meguviz.media.get()
+dependencies.add(mediaNativeSources.name, mapOf(
+    "group" to mediaRelease.module.group, "name" to mediaRelease.module.name,
+    "version" to mediaRelease.versionConstraint.requiredVersion, "classifier" to "sources", "ext" to "jar"
+))
+val qcomSourcesDir = layout.buildDirectory.dir("intermediates/meguviz-qcom-source")
+val stageQcomSources = tasks.register<Copy>("stageQcomSources") {
+    from(mediaNativeSources)
+    into(qcomSourcesDir)
+    rename { "media-sources.jar" }
+}
+tasks.configureEach {
+    if (name.startsWith("configureCMake") || name.startsWith("buildCMake") || name.startsWith("generateJsonModel")) {
+        dependsOn(stageQcomSources)
+    }
+}
+
 androidComponents.onVariants { variant ->
+    variant.externalNativeBuild?.arguments?.add(qcomSourcesDir.map {
+        "-DBIL_MEDIA_SOURCE_ARCHIVE=${it.file("media-sources.jar").asFile.invariantSeparatorsPath}"
+    })
     val variantName = variant.name
-    val audioPackaging = tasks.register<VerifyAudioApk>("verify${variant.name.replaceFirstChar { it.uppercase() }}AudioApk") {
+    // Keep the existing verification task name for CI and local callers.
+    val mediaPackaging = tasks.register<VerifyMediaApk>("verify${variant.name.replaceFirstChar { it.uppercase() }}AudioApk") {
         apkDirectory.set(variant.artifacts.get(SingleArtifact.APK))
     }
     tasks.matching { it.name == "assemble${variant.name.replaceFirstChar { it.uppercase() }}" }.configureEach {
-        finalizedBy(audioPackaging)
+        finalizedBy(mediaPackaging)
     }
-    val sourceKey = providers.provider {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val files = fileTree("src/main/cpp").files.toList() + listOf(
-            file("build.gradle.kts"), rootProject.file("build.gradle.kts"), rootProject.file("settings.gradle.kts"),
-            rootProject.file("gradle.properties"), rootProject.file("gradle/libs.versions.toml"),
-            rootProject.file("gradle/wrapper/gradle-wrapper.properties")
-        )
-        for (source in files.sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }) {
-            digest.update(source.relativeTo(rootDir).invariantSeparatorsPath.toByteArray(Charsets.UTF_8))
-            digest.update(0)
-            digest.update(source.readBytes())
+    val mediaModule = libs.meguviz.media.get().module
+    val mediaArtifacts = variant.runtimeConfiguration.incoming.artifactView {
+        attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar")
+        componentFilter { id ->
+            id is ModuleComponentIdentifier && id.group == mediaModule.group && id.module == mediaModule.name
         }
-        for (name in listOf("CFLAGS", "CXXFLAGS", "LDFLAGS", "CC", "CXX", "SOURCE_DATE_EPOCH")) {
-            digest.update(name.toByteArray(Charsets.UTF_8)); digest.update(0)
-            digest.update(providers.environmentVariable(name).orElse("").get().toByteArray(Charsets.UTF_8)); digest.update(0)
-        }
-        digest.update(variantName.toByteArray(Charsets.UTF_8))
-        digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
-    }
-    // CMake configurations can be reused out of order; never let one overwrite another's copy receipt.
-    // The short directory handle keeps Windows paths bounded; pack still checks the full 256-bit key.
-    val copiedPayload = layout.buildDirectory.dir(sourceKey.map { key ->
-        "intermediates/frame-native-copy/$variantName/${key.take(16)}"
-    })
-    variant.externalNativeBuild?.arguments?.add(sourceKey.map { "-DINNOCENT_FRAME_BUILD_KEY=$it" })
-    variant.externalNativeBuild?.arguments?.add(copiedPayload.map { "-DINNOCENT_FRAME_PAYLOAD_DIR=${it.asFile.invariantSeparatorsPath}" })
+    }.files
     val pack = tasks.register<PackFrameNativePayload>("pack${variant.name.replaceFirstChar(Char::uppercaseChar)}FrameNativePayload") {
-        nativeBuildAnchor.set(variant.artifacts.get(SingleArtifact.MERGED_NATIVE_LIBS))
-        payloadDirectory.set(copiedPayload)
-        buildKey.set(sourceKey)
-        // 发布包与内测集成包都必须是完整双 ABI，避免测试产物悄悄少一个 ABI。
-        requireBothAbis.set(variant.buildType == "release" || variant.buildType == "embedded")
-        val host = if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
-        val executable = if (host == "windows-x86_64") "llvm-strip.exe" else "llvm-strip"
-        stripExecutable.set(androidComponents.sdkComponents.ndkDirectory.map { it.file("toolchains/llvm/prebuilt/$host/bin/$executable") })
+        mediaAar.set(layout.file(mediaArtifacts.elements.map { it.single().asFile }))
         assetsDirectory.set(layout.buildDirectory.dir("generated/frame-native/${variant.name}/assets"))
         javaDirectory.set(layout.buildDirectory.dir("generated/frame-native/${variant.name}/java"))
     }
@@ -588,6 +568,8 @@ dependencies {
     implementation(libs.libxposed.service)
 
     implementation(platform(libs.meguviz.bom))
+    implementation(libs.meguviz.media)
+    implementation(libs.meguviz.memory)
 
     // MeguvizHook：API 102 后端；框架 API 仍由运行时提供（compileOnly），不会进入 APK。
     implementation(libs.meguviz.hook.api)

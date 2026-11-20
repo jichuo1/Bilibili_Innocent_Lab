@@ -33,7 +33,7 @@ public final class FrameNativeLoader {
      * Never use ProtectionDomain, module-private data, or a host APK here.
      * Runs synchronously on the caller's bounded background worker; no thread or work queue is created.
      */
-    public static Status prepare(File moduleApk, File hostCodeCache, Class<?> actualJniClass) {
+    public static Status prepare(File moduleApk, File hostCodeCache) {
         if (Looper.myLooper() == Looper.getMainLooper()) throw new IllegalStateException("native_prepare_requires_worker");
         String abi = runtimeAbi();
         if (abi == null) return Status.UNSUPPORTED_ABI;
@@ -59,7 +59,7 @@ public final class FrameNativeLoader {
                 }
                 if (selected == null) throw new IOException("native_asset_missing");
                 try (InputStream input = apk.getInputStream(selected)) {
-                    NativeDependencyCache.prepareAndLoad(hostCodeCache, input, spec, actualJniClass, mapped);
+                    NativeDependencyCache.prepareAndLoad(hostCodeCache, input, spec, mapped);
                 }
             }
         });

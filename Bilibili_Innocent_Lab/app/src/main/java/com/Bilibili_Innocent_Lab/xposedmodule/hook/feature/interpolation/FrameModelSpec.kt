@@ -6,7 +6,7 @@ import java.security.MessageDigest
 
 /**
  * 插帧模型的唯一规格：RIFE v4.6（ncnn 转换版），按固定大小与 SHA-256 校验。
- * 权重不随 APK 分发（见 cpp/player_interpolation/NOTICE.md）；用户在模块设置中主动下载，
+ * 用户在模块设置中主动下载权重，
  * 来源固定为 nihui/rife-ncnn-vulkan 的指定提交，下载后写入 LSPosed 远程文件，宿主进程再复制到自身私有目录。
  */
 internal object FrameModelSpec {

@@ -6,6 +6,8 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
+import io.github.jichuo1.meguviz.media.MediaNative;
+import io.github.jichuo1.meguviz.media.MediaRuntime;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,7 +26,6 @@ import java.nio.file.attribute.PosixFilePermissions;
 
 /** Frame-native dependency cache only. No model, package manager, network or legacy library-load fallback. */
 final class NativeDependencyCache {
-    static final String JNI_CLASS = "com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationNative";
     private static final LinkOption NOFOLLOW = LinkOption.NOFOLLOW_LINKS;
     private NativeDependencyCache() { }
 
@@ -34,13 +35,11 @@ final class NativeDependencyCache {
         Loaded(Path library, boolean cacheHit) { this.library = library; this.cacheHit = cacheHit; }
     }
 
-    static Loaded prepareAndLoad(File ownCodeCache, InputStream archiveInput, ArchiveSpec spec, Class<?> actualJniClass, Runnable mapped)
+    static Loaded prepareAndLoad(File ownCodeCache, InputStream archiveInput, ArchiveSpec spec, Runnable mapped)
             throws IOException {
-        if (!JNI_CLASS.equals(actualJniClass.getName()) ||
-                actualJniClass.getClassLoader() != NativeDependencyCache.class.getClassLoader())
+        if (MediaNative.class.getClassLoader() != NativeDependencyCache.class.getClassLoader())
             throw new IOException("classloader_mismatch");
         requireRuntimeAbi(spec.abi);
-        byte[] archive = ArchiveVerifier.readVerified(archiveInput, spec);
         Path base = CanonicalCacheRoot.resolve(ownCodeCache).toPath();
         requireOwned(base, true, false);
         Path scope = privateDirectory(base.resolve("native-dependency-packing-v1"));
@@ -57,8 +56,8 @@ final class NativeDependencyCache {
                 requireSame(lockIdentity, requireOwned(lockPath, false, false));
                 Path library = content.resolve(ArchiveSpec.LIBRARY_NAME);
                 boolean hit = Files.exists(library, NOFOLLOW);
-                if (hit) verifyCached(library, spec);
-                else publish(content, library, archive, spec);
+                if (hit) ArchiveVerifier.verifyArchive(archiveInput, spec);
+                else publish(content, library, ArchiveVerifier.readVerified(archiveInput, spec), spec);
                 // Revalidate while holding the non-waiting publication lock, then load the absolute path.
                 verifyCached(library, spec);
                 Loaded prepared = new Loaded(library, hit);
@@ -66,6 +65,7 @@ final class NativeDependencyCache {
                 System.load(absolute);
                 // Remember the mapping before lock/stream close can fail. It is never unloaded or replaced.
                 mapped.run();
+                MediaRuntime.attachAlreadyLoaded();
                 return prepared;
             }
         }

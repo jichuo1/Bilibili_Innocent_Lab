@@ -122,6 +122,22 @@ Copyright © jichuo1
 Licensed under the Apache License, Version 2.0. See each upstream repository for
 its complete license text and notices.
 
+## Meguviz Media and Memory
+
+Frame interpolation uses MeguvizMedia 1.2.2 (GNU General Public License v3), published with
+MeguvizRIFE and the MeguvizCompute ncnn backend in one Android native library.
+The module packages that library for each supported ARM ABI. The distribution's
+source identities and license texts accompany it in `assets/licenses/meguviz-pack/`.
+The optional Qualcomm motion estimator and its JNI bridge are built for both
+ARM ABIs from the same release's published source archive.
+The user-supplied RIFE v4.6 weights retain their separate provenance.
+[MeguvizMedia](https://github.com/Meguvizarchic/MeguvizMedia)
+
+Frame preparation, GTCRN model loading and large chapter-preview image downloads
+use MeguvizMemory 1.2.2 for budgeted native buffers and scoped borrowing.
+MeguvizMemory is distributed under the Apache License, Version 2.0.
+[MeguvizMemory](https://github.com/Meguvizarchic/MeguvizMemory)
+
 ## Lumen Coacervation Engine
 
 The module uses

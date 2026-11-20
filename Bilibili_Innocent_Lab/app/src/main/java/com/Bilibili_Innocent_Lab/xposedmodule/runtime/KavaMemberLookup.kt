@@ -70,6 +70,37 @@ internal object KavaMemberLookup {
     private val fieldCollectionCache = ConcurrentHashMap<FieldCollectionKey, List<Field>>()
     private val constructorCollectionCache = ConcurrentHashMap<Class<*>, List<Constructor<*>>>()
 
+    /** One resolver schema index per synchronous adaptation pass; warm BIL cache hits never open it. */
+    private class Batch(val loader: ClassLoader) {
+        var scope: CodeScope? = null
+    }
+    private val batch = ThreadLocal<Batch>()
+
+    internal fun <T> withLookupBatch(loader: ClassLoader, work: () -> T): T {
+        if (BuildConfig.MEGUVIZ_LEGACY_LOOKUP) return work()
+        val previous = batch.get()
+        if (previous?.loader === loader) return work()
+        val current = Batch(loader)
+        batch.set(current)
+        return try {
+            work()
+        } finally {
+            if (previous == null) batch.remove() else batch.set(previous)
+            current.scope?.close()
+        }
+    }
+
+    internal fun <T> withMemberScope(loader: ClassLoader?, work: (CodeScope) -> T): T {
+        val current = batch.get()
+        if (current != null && current.loader === loader) {
+            val scope = current.scope ?: openScope(loader).also { current.scope = it }
+            return work(scope)
+        }
+        return openScope(loader).use(work)
+    }
+
+    private fun openScope(loader: ClassLoader?) = CodeScope.open(loader, AccessPolicy.PRESERVE_JAVA_ACCESS, 16384)
+
     private val cacheHits = AtomicLong()
     private val cacheMisses = AtomicLong()
     private val lookupFailures = AtomicLong()
@@ -336,7 +367,7 @@ internal object KavaMemberLookup {
             }
             return null
         }
-        return CodeScope.open(owner.classLoader, AccessPolicy.PRESERVE_JAVA_ACCESS, 16384).use { scope ->
+        return withMemberScope(owner.classLoader) { scope ->
             val query = QuerySpec.builder(owner, kind).selection(Selection.FIRST)
             name?.let(query::name)
             parameterTypes?.let { query.parameters(*it) }
@@ -360,7 +391,7 @@ internal object KavaMemberLookup {
     ): List<Member> {
         if (Thread.currentThread().isInterrupted) throw IncompleteMemberLookup(ResolutionStatus.CANCELLED)
         if (BuildConfig.MEGUVIZ_LEGACY_LOOKUP) return platformMembers(owner, kind)
-        return CodeScope.open(owner.classLoader, AccessPolicy.PRESERVE_JAVA_ACCESS, 16384).use { scope ->
+        return withMemberScope(owner.classLoader) { scope ->
             val query = QuerySpec.builder(owner, kind).selection(Selection.ALL).resultLimit(16384)
             name?.let(query::name)
             parameterTypes?.let { query.parameters(*it) }

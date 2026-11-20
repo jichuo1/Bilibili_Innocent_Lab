@@ -159,7 +159,10 @@ internal class InsightContextClient(private val snapshot: InsightHostSnapshot,
             return root.getJSONObject("data")
         }
         private fun getPublic(address: String): String = getPublicBytes(address).toString(Charsets.UTF_8)
-        internal fun getPublicBytes(address: String, maximum: Int = 2_000_000): ByteArray {
+        internal fun getPublicBytes(address: String, maximum: Int = 2_000_000): ByteArray =
+            withPublicConnection(address) { readPublicBytes(it, maximum) }
+
+        internal fun <T> withPublicConnection(address: String, read: (HttpURLConnection) -> T): T {
             val connection = URL(address).openConnection() as HttpURLConnection
             try {
                 connection.instanceFollowRedirects = false
@@ -167,19 +170,31 @@ internal class InsightContextClient(private val snapshot: InsightHostSnapshot,
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0 BIL-AI-Insight")
                 connection.setRequestProperty("Referer", "https://www.bilibili.com/")
                 if (connection.responseCode != 200) throw InsightContextHttpException(connection.responseCode)
-                val deadline = System.nanoTime() + 8_000_000_000L
-                val bytes = ByteArrayOutputStream()
-                connection.inputStream.use { stream ->
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        check(System.nanoTime() < deadline)
-                        val count = stream.read(buffer); if (count < 0) break
-                        require(bytes.size() + count <= maximum) { "public-response-too-large" }
-                        bytes.write(buffer, 0, count)
-                    }
-                }
-                return bytes.toByteArray()
+                return read(connection)
             } finally { connection.disconnect() }
+        }
+
+        internal fun readPublicBytes(connection: HttpURLConnection, maximum: Int): ByteArray {
+            val bytes = ByteArrayOutputStream()
+            readPublicBody(connection, maximum) { buffer, count -> bytes.write(buffer, 0, count) }
+            return bytes.toByteArray()
+        }
+
+        internal fun readPublicBody(connection: HttpURLConnection, maximum: Int, write: (ByteArray, Int) -> Unit): Int {
+            val deadline = System.nanoTime() + 8_000_000_000L
+            var total = 0
+            connection.inputStream.use { stream ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    check(System.nanoTime() < deadline)
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    require(count <= maximum - total) { "public-response-too-large" }
+                    write(buffer, count)
+                    total += count
+                }
+            }
+            return total
         }
     }
 }

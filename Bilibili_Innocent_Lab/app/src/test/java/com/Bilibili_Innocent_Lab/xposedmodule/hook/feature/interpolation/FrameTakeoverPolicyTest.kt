@@ -46,6 +46,45 @@ class FrameTakeoverPolicyTest {
         assertFalse(ownership.contains(shared))
     }
 
+    @Test fun playbackRatesFollowThePlayerAndDoNotLeakAcrossConcurrentServiceSurfaces() {
+        val ownership = FrameSurfaceOwnership<Any, Any>(2)
+        val first = Any(); val second = Any()
+        val firstSurface = Any(); val secondSurface = Any(); val alias = Any()
+        ownership.updateSpeed(first, 1.5f, allowNew = true)
+        assertEquals(1.0, ownership.rateReader(alias, true)(), 0.0)
+        ownership.bind(first, firstSurface, true)
+        val originalReader = ownership.rateReader(alias, true)
+        assertEquals(1.5, ownership.rateReader(firstSurface, false)(), 0.0)
+        assertEquals(1.0, ownership.rateReader(alias, false)(), 0.0)
+        assertEquals(1.5, ownership.rateReader(alias, true)(), 0.0)
+
+        ownership.bind(second, secondSurface, true)
+        ownership.updateSpeed(second, 2f, allowNew = false)
+        ownership.updateSpeed(second, Float.NaN, allowNew = false)
+        assertEquals(1.0, ownership.rateReader(alias, true)(), 0.0)
+        assertEquals(2.0, ownership.rateReader(secondSurface, true)(), 0.0)
+        ownership.bind(second, firstSurface, false)
+        assertEquals(1.0, originalReader(), 0.0)
+        assertEquals(1.0, ownership.rateReader(firstSurface, true)(), 0.0)
+        ownership.bind(second, null, false)
+        assertEquals(1.5, ownership.rateReader(alias, true)(), 0.0)
+        val lastReader = ownership.rateReader(alias, true)
+        ownership.release(first)
+        assertEquals(1.0, lastReader(), 0.0)
+        assertEquals(1.0, ownership.rateReader(alias, true)(), 0.0)
+    }
+
+    @Test fun aSpeedNotificationWithoutASurfaceCannotDisplaceAnActivePlayer() {
+        val ownership = FrameSurfaceOwnership<Any, Any>(1)
+        val pending = Any(); val active = Any(); val surface = Any()
+        ownership.updateSpeed(pending, 2f, true)
+        assertTrue(ownership.bind(active, surface, true))
+        ownership.updateSpeed(active, 1.5f, false)
+        ownership.updateSpeed(pending, 2f, true)
+        assertFalse(ownership.bind(pending, Any(), true))
+        assertEquals(1.5, ownership.rateReader(surface, false)(), 0.0)
+    }
+
     @Test fun nestedAdapterCallsAndExceptionalExitPreserveAndThenClearTheirScope() {
         val scope = FrameCallScope()
         scope.enter()
@@ -82,9 +121,13 @@ class FrameTakeoverPolicyTest {
     }
 
     @Test fun optionalHooksCannotMaskAMissingConfigureOrSurfaceRole() {
-        val required = setOf("display", "op", "surface", "configure", "flush", "stop", "release", "audio.ctor")
-        assertTrue(FrameHookCoverage.complete(required))
-        assertFalse(FrameHookCoverage.complete(required - "configure" + setOf("display.resume", "display.pause", "surface.holder")))
-        assertFalse(FrameHookCoverage.complete(required - "surface" + setOf("display.resume", "display.pause")))
+        val required = setOf("display", "op", "surface", "surface.holder", "surface.release", "speed",
+            "configure", "start", "output.surface", "flush", "stop", "reset", "release", "audio.ctor")
+        val service = setOf("client.setSurface", "client.release", "client.speed")
+        assertTrue(FrameHookCoverage.complete(required, false))
+        assertFalse(FrameHookCoverage.complete(required - "configure" + setOf("display.resume", "display.pause"), false))
+        assertFalse(FrameHookCoverage.complete(required - "surface" + setOf("display.resume", "display.pause"), false))
+        assertTrue(FrameHookCoverage.complete(required + service, true))
+        for (role in service) assertFalse(FrameHookCoverage.complete(required + service - role, true))
     }
 }

@@ -9,7 +9,9 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
+        google {
+            content { excludeGroup("io.github.jichuo1.meguviz") }
+        }
         mavenCentral()
         maven("https://api.xposed.info/")
         maven("https://jitpack.io/") {

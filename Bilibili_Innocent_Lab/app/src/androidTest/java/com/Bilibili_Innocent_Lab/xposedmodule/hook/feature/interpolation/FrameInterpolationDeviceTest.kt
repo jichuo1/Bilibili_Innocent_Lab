@@ -12,14 +12,19 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationSession.Outcome
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing.FrameNativeLoader
+import io.github.jichuo1.meguviz.media.MediaNative
+import io.github.jichuo1.meguviz.media.MediaRuntime
 import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.ZipInputStream
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,30 +44,52 @@ class FrameInterpolationDeviceTest {
         val first = prepareNative()
         assertEquals(FrameNativeLoader.Status.READY, first)
         assertTrue(FrameInterpolationNative.available)
-        val extracted = File(context.codeCacheDir, "native-dependency-packing-v1").walkTopDown()
-            .filter { it.name == "libinnocent_frame_interpolation.so" }.toList()
-        assertEquals(1, extracted.size)
+        assertTrue(MediaRuntime.isAttached())
+        assertEquals(1, MediaNative.abiVersion())
+        val abi = if (android.os.Process.is64Bit()) "arm64-v8a" else "armeabi-v7a"
+        val name = "libmeguviz_media_rife_ncnn.so"
+        val hash = ZipInputStream(context.assets.open("native-packing/$abi/VisionTool.zip")).use { archive ->
+            assertEquals("lib/$abi/$name", archive.nextEntry.name)
+            sha256(archive)
+        }
+        val extracted = File(context.codeCacheDir, "native-dependency-packing-v1/$abi/$hash/$name")
+        assertEquals(hash, extracted.inputStream().use(::sha256))
+        val inode = android.system.Os.stat(extracted.absolutePath).st_ino
         assertEquals(FrameNativeLoader.Status.READY, prepareNative())
-        Log.i(TAG, "native ready: ${extracted.single().length()} bytes at ${extracted.single().parentFile?.name}")
+        assertEquals(inode, android.system.Os.stat(extracted.absolutePath).st_ino)
+        Log.i(TAG, "native ready: $abi ${extracted.length()} bytes sha256=$hash")
+    }
+
+    private fun sha256(input: InputStream): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(16 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     @Test fun vulkanAndCpuEnginesCreateAndRefuseInferenceWithoutModel() {
         assertEquals(FrameNativeLoader.Status.READY, prepareNative())
         for (backend in FrameInterpolationBackend.Backend.entries) {
-            val created = FrameInterpolationNative.create(backend.nativeValue, 0, 1)
+            val created = MediaNative.frameCreate(backend.nativeValue, 0, 1, FrameInterpolationBackend.MAX_PIXELS)
             Log.i(TAG, "create $backend -> status ${created[0]} handle ${created[1]}")
             assertEquals("$backend create", 0L, created[0])
             val handle = created[1]
             assertTrue(handle > 0L)
-            // RGB8 input is an opt-in fused GPU layout, never a standalone mode or an unknown flag.
-            for (flags in listOf(64, 128)) assertEquals(FrameInterpolationBackend.Status.INVALID_ARGUMENT.nativeValue,
-                FrameInterpolationNative.configure(handle, flags))
+            assertEquals(FrameInterpolationBackend.Status.INVALID_ARGUMENT.nativeValue, MediaNative.frameConfigure(handle, 256))
+            assertEquals(FrameInterpolationBackend.Status.INVALID_ARGUMENT, FrameInterpolationBackend.openResearchModel(
+                context.filesDir, backend, rawGpuInput = true).status)
+            assertEquals(FrameInterpolationBackend.Status.INVALID_ARGUMENT, FrameInterpolationBackend.openResearchModel(
+                context.filesDir, backend, adaptiveFlow = true).status)
             val (left, right, out) = List(3) { ByteBuffer.allocateDirect(4 * 2 * 3) }
             assertEquals(FrameInterpolationBackend.Status.NOT_LOADED.nativeValue,
-                FrameInterpolationNative.process(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L, 0))
-            FrameInterpolationNative.close(handle)
+                MediaNative.frameProcess(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L, 0))
+            MediaNative.frameClose(handle)
             assertEquals(FrameInterpolationBackend.Status.NOT_LOADED.nativeValue,
-                FrameInterpolationNative.process(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L, 0))
+                MediaNative.frameProcess(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L, 0))
         }
     }
 
@@ -75,7 +102,7 @@ class FrameInterpolationDeviceTest {
             val output = ByteBuffer.allocateDirect(stride * height)
             for (i in 0 until source.capacity()) source.put(i, (i * 37).toByte())
             for (i in 0 until output.capacity()) output.put(i, 0x5a.toByte())
-            assertEquals(0, FrameInterpolationNative.rgbaToRgb(source, width, height, output, stride))
+            assertEquals(0, MediaNative.rgbaToRgb(source, width, height, output, stride))
             for (y in 0 until height) {
                 for (x in 0 until width) for (c in 0..2)
                     assertEquals("$width/$x/$y/$c", source.get((y * width + x) * 4 + c), output.get(y * stride + x * 3 + c))
@@ -108,12 +135,12 @@ class FrameInterpolationDeviceTest {
                     else -> 0
                 }
                 val began = System.nanoTime()
-                val actual = FrameInterpolationNative.analyzeScene(a, b, w, h, format.stride)
+                val actual = MediaNative.analyzeScene(a, b, w, h, format.stride)
                 assertEquals("$w/$h/$kind", expected, actual)
                 Log.i(TAG, "scene ${w}x$h kind=$kind code=$actual us=${(System.nanoTime() - began) / 1_000}")
                 assertEquals(0, a.position())
             }
-            assertEquals(-1, FrameInterpolationNative.analyzeScene(a, ByteBuffer.allocateDirect(1), w, h, format.stride))
+            assertEquals(-1, MediaNative.analyzeScene(a, ByteBuffer.allocateDirect(1), w, h, format.stride))
         }
     }
 

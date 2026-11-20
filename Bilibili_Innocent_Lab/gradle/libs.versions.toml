@@ -3,6 +3,8 @@ agp = "9.5.1"
 kotlin = "2.4.21"
 libxposed = "102.0.0"
 meguviz-bom = "1.2.0"
+meguviz-media = "1.2.2"
+meguviz-memory = "1.2.2"
 m3color = "2026.1"
 androidx-core-ktx = "1.19.1"
 androidx-appcompat = "1.8.0"
@@ -39,6 +41,8 @@ shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposed" }
 meguviz-bom = { group = "io.github.jichuo1.meguviz", name = "meguviz-bom", version.ref = "meguviz-bom" }
+meguviz-media = { group = "io.github.jichuo1.meguviz", name = "meguviz-media", version.ref = "meguviz-media" }
+meguviz-memory = { group = "io.github.jichuo1.meguviz", name = "mgmem-android", version.ref = "meguviz-memory" }
 meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core" }
 meguviz-ui-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-core" }
 meguviz-ui-prewarm = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-prewarm" }

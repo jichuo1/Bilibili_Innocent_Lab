@@ -2,9 +2,12 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
 import android.os.Looper
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing.FrameNativeLoader
+import io.github.jichuo1.meguviz.media.MediaNative
+import io.github.jichuo1.meguviz.media.AndroidMediaSession
+import io.github.jichuo1.meguviz.memory.android.ManagedMemoryDomain
 import java.io.File
 import java.nio.ByteBuffer
-import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /** Optional backend only; no model is bundled and no player is intercepted by this class. */
 internal class FrameInterpolationBackend private constructor(private var handle: Long, private val maxPixels: Long) : AutoCloseable {
@@ -20,6 +23,13 @@ internal class FrameInterpolationBackend private constructor(private var handle:
     }
 
     data class OpenResult(val status: Status, val engine: FrameInterpolationBackend? = null)
+
+    // 预热登记只属于这个原生引擎，旧队列收尾不影响重新创建的引擎。
+    private val warmSizes = ConcurrentHashMap.newKeySet<Pair<Int, Int>>()
+    fun claimWarmup(size: Pair<Int, Int>): Boolean = warmSizes.add(size)
+    fun finishWarmup(size: Pair<Int, Int>, status: Status) {
+        if (status != Status.OK) warmSizes.remove(size)
+    }
 
     /** The caller owns buffers and serializes their mutation on a bounded background worker. */
     @Synchronized fun process(
@@ -37,44 +47,74 @@ internal class FrameInterpolationBackend private constructor(private var handle:
             !planeValid(left, width, height, leftStride, maxPixels) || !planeValid(right, width, height, rightStride, maxPixels) ||
             !planeValid(output, width, height, outputStride, maxPixels) || flowScale !in setOf(0, 4, 6, 8)) return Status.INVALID_ARGUMENT
         return Status.fromNative(
-            FrameInterpolationNative.process(handle, left, right, output, width, height,
+            MediaNative.frameProcess(handle, left, right, output, width, height,
                 leftStride, rightStride, outputStride, timestep, leftId, rightId, flowScale)
         )
     }
 
+    /** 只在预热和能力分档读取回执。端点复制或实际光流档不符均不能证明目标档有足够吞吐。 */
+    @Synchronized fun probeInterpolation(left: ByteBuffer, right: ByteBuffer, output: ByteBuffer,
+                                        width: Int, height: Int, flowScale: Int,
+                                        leftId: Long = -1L, rightId: Long = -1L): Status {
+        val status = process(left, right, output, width, height, 0.5f,
+            leftId = leftId, rightId = rightId, flowScale = flowScale)
+        if (status != Status.OK) return status
+        return if (MediaNative.frameLastFrameKind(handle) == FRAME_INFERRED &&
+            MediaNative.frameLastEffectiveFlowScale(handle) == flowScale) Status.OK else Status.INVALID_OUTPUT
+    }
+
     /** 最近一次插帧中运动置信度不足的像素比例（千分比，抽样）；用于把转场帧换成最近原帧。 */
     @Synchronized fun unreliablePermille(): Int =
-        if (handle == 0L) 0 else FrameInterpolationNative.unreliablePermille(handle)
+        if (handle == 0L) 0 else MediaNative.frameLastUnreliablePermille(handle)
 
     /** 最近一次插帧两帧颜色分布差异（千分比）：切镜明显，摇镜很小。 */
-    @Synchronized fun histogramPermille(): Int = if (handle == 0L) 0 else FrameInterpolationNative.histogramPermille(handle)
+    @Synchronized fun histogramPermille(): Int = if (handle == 0L) 0 else MediaNative.frameLastHistogramPermille(handle)
 
     /** 最近一次插帧中因局部转场换成最近原帧的分块数（16×9 网格）。 */
-    @Synchronized fun patchedTiles(): Int = if (handle == 0L) 0 else FrameInterpolationNative.patchedTiles(handle)
+    @Synchronized fun patchedTiles(): Int = if (handle == 0L) 0 else MediaNative.frameLastPatchedTiles(handle)
 
     /** 运动置信度保护默认开启；仅供对照测试关闭。 */
     @Synchronized fun setMotionGuard(enabled: Boolean) {
-        if (handle != 0L) FrameInterpolationNative.setMotionGuard(handle, enabled)
+        if (handle != 0L) MediaNative.frameSetMotionGuard(handle, enabled)
     }
 
     /** Last successful interpolation stage durations in ns: preprocess, inference (incl. transfers), postprocess. */
     @Synchronized fun stageNanos(): LongArray =
-        if (handle == 0L) LongArray(3) else FrameInterpolationNative.timings(handle)
+        if (handle == 0L) LongArray(3) else MediaNative.frameLastStageNanos(handle)
+
+    /** 当前计划与最近帧的实际执行选项，供离线画质对照读取。 */
+    @Synchronized fun executionInfo(): String? = if (handle == 0L) null else MediaNative.frameExecutionInfo(handle)
+
+    @Synchronized fun deviceLost(): Boolean =
+        handle != 0L && MediaNative.frameDeviceLossStatus(handle) == MGC_DEVICE_LOST
+
+    /** Creates a model-backed RGBA8 AHB session on the calling EGL owner. */
+    @Synchronized fun openWindowSession(width: Int, height: Int, sourceWidth: Int, sourceHeight: Int, path: Int): AndroidMediaSession {
+        requireWorker()
+        check(handle != 0L && width.toLong() * height <= maxPixels)
+        return AndroidMediaSession(handle, width, height, sourceWidth, sourceHeight, 8, path, false, null)
+    }
+
+    /** CPU time of Media's own inference worker for the last completed request, when observed. */
+    @Synchronized fun nativeWorkerCpuNanos(): Long? =
+        if (handle == 0L) null else MediaNative.frameLastWorkerCpuNanos(handle).takeIf { it >= 0L }
 
     /** Schedule on the engine worker after revoking presentation epochs. */
     @Synchronized override fun close() {
         requireWorker()
         val previous = handle
         handle = 0
-        if (previous != 0L) FrameInterpolationNative.close(previous)
+        if (previous != 0L) MediaNative.frameClose(previous)
     }
 
     companion object {
         const val MAX_PIXELS = 1920L * 1080L
+        private const val FRAME_INFERRED = 1
+        private const val MGC_DEVICE_LOST = -11
 
         /**
          * Research caller supplies the exact reviewed files. No network, download or model discovery.
-         * fp16 is still clipped by ncnn to device support. flowScale 2, 4 or 8 estimates motion at 1/flowScale
+         * MeguvizMedia selects the supported fp16 precision. flowScale 2, 4 or 8 estimates motion at 1/flowScale
          * resolution and warps at full resolution; gpuIo converts RGB8 on the GPU. flowScale > 1 and gpuIo
          * are Vulkan only. All are research options, off by default.
          */
@@ -91,71 +131,80 @@ internal class FrameInterpolationBackend private constructor(private var handle:
                 maxPixels !in 1L..(4096L * 2160L) || fusedWarp && (!gpuIo || flowScale == 1) || rawGpuInput && !fusedWarp || adaptiveFlow && flowScale != 4)
                 return OpenResult(Status.INVALID_ARGUMENT)
             if (!FrameInterpolationNative.available) return OpenResult(Status.NATIVE_UNAVAILABLE)
-            val model = runCatching {
+            val flags = (if (fp16) 1 else 0) or (if (flowScale == 2 || flowScale == 8) 2 else 0) or (if (flowScale == 4 || flowScale == 8) 4 else 0) or
+                (if (gpuIo) 8 else 0) or (if (protectStaticDetails) 16 else 0) or (if (fusedWarp) 32 else 0) or
+                (if (rawGpuInput) 64 else 0) or (if (adaptiveFlow) 128 else 0)
+            var opened = OpenResult(Status.INVALID_MODEL)
+            try {
                 val root = directory.canonicalFile
                 require(root.isDirectory)
-                Pair(readVerified(root, FrameModelSpec.PARAM.fileName, FrameModelSpec.PARAM.size, FrameModelSpec.PARAM.sha256),
-                    readVerified(root, FrameModelSpec.WEIGHTS.fileName, FrameModelSpec.WEIGHTS.size, FrameModelSpec.WEIGHTS.sha256))
-            }.getOrElse { return OpenResult(if (it is OutOfMemoryError) Status.ALLOCATION_FAILED else Status.INVALID_MODEL) }
+                val paramFile = modelFile(root, FrameModelSpec.PARAM)
+                val weightsFile = modelFile(root, FrameModelSpec.WEIGHTS)
+                val weightsOffset = FramePreparationMemory.aligned(FrameModelSpec.PARAM.size)
+                FramePreparationMemory.withStorage(weightsOffset + FrameModelSpec.WEIGHTS.size) { storage ->
+                    val param = FramePreparationMemory.region(storage, 0, FrameModelSpec.PARAM.size)
+                    val weights = FramePreparationMemory.region(storage, weightsOffset, FrameModelSpec.WEIGHTS.size)
+                    readVerified(paramFile, FrameModelSpec.PARAM, param)
+                    readVerified(weightsFile, FrameModelSpec.WEIGHTS, weights)
+                    opened = openVerifiedModel(backend, threads, maxPixels, flags, param, weights)
+                }
+            } catch (failure: Throwable) {
+                // Lease/owner release can fail after frameLoad has succeeded.
+                runCatching { opened.engine?.close() }
+                return OpenResult(when (failure) {
+                    is OutOfMemoryError, is ManagedMemoryDomain.ManagedException -> Status.ALLOCATION_FAILED
+                    is LinkageError -> Status.NATIVE_UNAVAILABLE
+                    else -> Status.INVALID_MODEL
+                })
+            }
+            return opened
+        }
+
+        private fun openVerifiedModel(backend: Backend, threads: Int, maxPixels: Long, flags: Int,
+                                      param: ByteBuffer, weights: ByteBuffer): OpenResult {
             val created = runCatching {
-                if (maxPixels == MAX_PIXELS) FrameInterpolationNative.create(backend.nativeValue, 0, threads)
-                else FrameInterpolationNative.createWithPixelBudget(backend.nativeValue, 0, threads, maxPixels)
+                MediaNative.frameCreate(backend.nativeValue, 0, threads, maxPixels)
             }
                 .getOrElse { return OpenResult(Status.NATIVE_UNAVAILABLE) }
             if (created.size != 2 || created[0] != 0L || created[1] <= 0L)
                 return OpenResult(if (created.firstOrNull() == 0L) Status.ALLOCATION_FAILED
                     else Status.fromNative(created.firstOrNull()?.toInt() ?: -1))
             val handle = created[1]
-            if (fp16 || flowScale != 1 || gpuIo) {
-                val flags = (if (fp16) 1 else 0) or (if (flowScale == 2 || flowScale == 8) 2 else 0) or (if (flowScale == 4 || flowScale == 8) 4 else 0) or
-                    (if (gpuIo) 8 else 0) or (if (protectStaticDetails) 16 else 0) or (if (fusedWarp) 32 else 0) or
-                    (if (rawGpuInput) 64 else 0) or (if (adaptiveFlow) 128 else 0)
+            if (flags != 0) {
                 val configured = runCatching {
-                    Status.fromNative(FrameInterpolationNative.configure(handle, flags))
+                    Status.fromNative(MediaNative.frameConfigure(handle, flags))
                 }.getOrElse { Status.NATIVE_UNAVAILABLE }
                 if (configured != Status.OK) {
-                    runCatching { FrameInterpolationNative.close(handle) }
+                    runCatching { MediaNative.frameClose(handle) }
                     return OpenResult(configured)
                 }
             }
             val loaded = runCatching {
-                Status.fromNative(FrameInterpolationNative.load(handle, model.first, model.second))
+                Status.fromNative(MediaNative.frameLoad(handle, param, weights))
             }.getOrElse { Status.MODEL_LOAD_FAILED }
             if (loaded != Status.OK) {
-                runCatching { FrameInterpolationNative.close(handle) }
+                runCatching { MediaNative.frameClose(handle) }
                 return OpenResult(loaded)
             }
             return try {
                 OpenResult(Status.OK, FrameInterpolationBackend(handle, maxPixels))
             } catch (failure: Throwable) {
                 // Transfer ownership only after both JVM owner/result allocations succeed.
-                runCatching { FrameInterpolationNative.close(handle) }
+                runCatching { MediaNative.frameClose(handle) }
                 if (failure is OutOfMemoryError) OpenResult(Status.ALLOCATION_FAILED) else throw failure
             }
         }
 
-        private fun readVerified(root: File, name: String, expectedSize: Int, expectedHash: String): ByteBuffer {
-            val file = File(root, name).canonicalFile
-            require(file.parentFile == root && file.isFile && file.length() == expectedSize.toLong())
-            val buffer = ByteBuffer.allocateDirect(expectedSize)
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().buffered().use { input ->
-                val chunk = ByteArray(16 * 1024)
-                var total = 0
-                while (true) {
-                    val count = input.read(chunk)
-                    if (count < 0) break
-                    require(count <= expectedSize - total)
-                    buffer.put(chunk, 0, count)
-                    digest.update(chunk, 0, count)
-                    total += count
-                }
-                require(total == expectedSize)
+        private fun modelFile(root: File, part: FrameModelSpec.Part): File =
+            File(root, part.fileName).canonicalFile.also { file ->
+                require(file.parentFile == root && file.isFile && file.length() == part.size.toLong())
             }
-            val actualHash = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-            require(actualHash == expectedHash)
+
+        private fun readVerified(file: File, part: FrameModelSpec.Part, buffer: ByteBuffer) {
+            require(file.inputStream().use { input ->
+                FrameModelSpec.matches(part, input) { bytes, count -> buffer.put(bytes, 0, count) }
+            })
             buffer.flip()
-            return buffer
         }
 
         private fun planeValid(buffer: ByteBuffer, width: Int, height: Int, stride: Int, maxPixels: Long): Boolean {
@@ -176,25 +225,5 @@ internal object FrameInterpolationNative {
 
     /** Supply framework module APK + actual host codeCacheDir on a bounded background worker. */
     fun prepare(moduleApk: File, hostCodeCache: File): FrameNativeLoader.Status =
-        FrameNativeLoader.prepare(moduleApk, hostCodeCache, FrameInterpolationNative::class.java)
-
-    external fun create(backend: Int, gpuIndex: Int, threads: Int): LongArray
-    external fun createWithPixelBudget(backend: Int, gpuIndex: Int, threads: Int, maxPixels: Long): LongArray
-    external fun load(handle: Long, param: ByteBuffer, weights: ByteBuffer): Int
-    external fun process(handle: Long, left: ByteBuffer, right: ByteBuffer, output: ByteBuffer,
-        width: Int, height: Int, leftStride: Int, rightStride: Int, outputStride: Int, timestep: Float,
-        leftId: Long, rightId: Long, flowScale: Int): Int
-    external fun close(handle: Long)
-    external fun unreliablePermille(handle: Long): Int
-    external fun patchedTiles(handle: Long): Int
-    /** 源重复帧（同一画面重新编码）：1 是，0 否，-1 布局无效；比 analyzeScene 的「基本静止」严格得多。 */
-    external fun isDuplicate(left: ByteBuffer, right: ByteBuffer, width: Int, height: Int, stride: Int): Int
-    external fun histogramPermille(handle: Long): Int
-    external fun setMotionGuard(handle: Long, enabled: Boolean)
-    external fun configure(handle: Long, flags: Int): Int
-    external fun timings(handle: Long): LongArray
-    /** 0 运动，1 近静止，2 切镜，-1 布局无效；只读 RGB8 直接缓冲，不拷贝像素。 */
-    external fun analyzeScene(left: ByteBuffer, right: ByteBuffer, width: Int, height: Int, stride: Int): Int
-    /** glReadPixels 的紧凑 RGBA8 → 带步长 RGB8；返回 Status 原生值。 */
-    external fun rgbaToRgb(rgba: ByteBuffer, width: Int, height: Int, output: ByteBuffer, outputStride: Int): Int
+        FrameNativeLoader.prepare(moduleApk, hostCodeCache)
 }

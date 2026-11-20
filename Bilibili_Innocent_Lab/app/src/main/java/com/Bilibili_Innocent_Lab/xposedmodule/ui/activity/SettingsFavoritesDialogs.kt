@@ -8,7 +8,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.PathInterpolator
+import com.lumen.coacervation.engine.motion.LumenEasing
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -27,7 +27,7 @@ import io.github.jichuo1.meguviz.android.extensions.textToString
 import kotlin.math.hypot
 
 /** 拖拽拾起/放下的缓出曲线：快起缓落，落位末尾是减速而不是匀速急停。 */
-private val SETTLE_EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
+private val SETTLE_EASE = LumenEasing.emphasizedDecelerate()
 
 /** 拖拽落位滑行：最短 220ms，随距离每像素 +0.16ms，封顶 420ms。 */
 private const val DROP_SETTLE_MIN_MS = 220L

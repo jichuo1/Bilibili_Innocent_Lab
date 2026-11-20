@@ -7,6 +7,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameCaptureTimingContractTest {
+    @Test fun `a repeated host display uses the published codec input and still calls the platform setter`() {
+        val installer = SourceContract.read("hook/feature/interpolation/FrameInterpolationFeatureInstaller.kt")
+        val hook = installer.after("hook(\"output.surface\")").before("hook(\"flush\")")
+        val before = hook.after("before {").before("after {")
+        assertTrue(before.contains("decoderGeneration.commit(codec, decoder.ticket)"))
+        assertTrue(before.contains("bridge.decoderInputFor(requested) ?: return@commit"))
+        assertTrue(before.contains("args[0] = input"))
+        assertFalse(before.contains("result ="))
+        val after = hook.after("after {")
+        assertTrue(after.contains("borrowed == null && !hasThrowable"))
+        assertTrue(after.after("finally {").contains("borrowed?.finishDecoderInput()"))
+        val published = installer.after("is FramePlaybackRoutes.Result.Attached ->").before("FramePlaybackRoutes.Result.WaitForRife")
+        val registered = published.indexOf("bridges[codec] = outcome.bridge")
+        assertTrue(registered >= 0 && published.indexOf("outcome.bridge.onPublished()") > registered)
+    }
+
     @Test fun `revoked bridges cannot restore codec output or reset a replacement audio clock`() {
         val source = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")
         val restore = source.after("private fun onNativeRestored(").before("companion object")
@@ -16,8 +32,11 @@ class FrameCaptureTimingContractTest {
         val close = source.after("fun close()").before("private fun onFrame(")
         assertTrue(close.contains("if (isCurrent()) host.setAudioDelayUs(0L)"))
         val installer = SourceContract.read("hook/feature/interpolation/FrameInterpolationFeatureInstaller.kt")
-        assertTrue(installer.contains("isCurrent = decoder.ticket::isActive"))
-        assertTrue(installer.contains("pending.await(codec, decoder, { engine?.ready() == true }"))
+        assertTrue(installer.contains("isCurrent = ticket::isActive"))
+        assertTrue(installer.contains("pending.await(codec, decoder, { canAttempt(decoder) }"))
+        val change = installer.after("private fun changeOutput(").before("private fun reattach(")
+        assertTrue(change.contains("decoderGeneration.commit(codec, ticket)"))
+        assertTrue(change.indexOf("externalChanges != 0") in 0 until change.indexOf("codec.setOutputSurface(surface)"))
     }
     @Test fun `clock rejection enters recovery before its observation window is reset`() {
         val rejection = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")

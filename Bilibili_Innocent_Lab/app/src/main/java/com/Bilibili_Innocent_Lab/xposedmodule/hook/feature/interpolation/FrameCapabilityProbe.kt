@@ -12,7 +12,6 @@ import java.nio.ByteBuffer
  */
 internal class FrameCapabilityProbe(
     private val arena: FrameScratchArena,
-    private val capacityHintBytes: Int,
     private val nanoTime: () -> Long = System::nanoTime,
     private val process: Step
 ) {
@@ -30,10 +29,8 @@ internal class FrameCapabilityProbe(
 
     fun measure(width: Int, height: Int, flowScale: Int): Result {
         val bytes = width * height * 3
-        val hint = maxOf(bytes, capacityHintBytes)
-        // 四份输入彼此独立且为零内容（与逐次 allocateDirect 的初始内容一致），一份输出。
-        val frames = Array(INPUTS) { arena.zeroed(it, bytes, hint) }
-        val output = arena.scratch(INPUTS, bytes, hint)
+        val frames = Array(INPUTS) { arena.input(it, bytes) }
+        val output = arena.output(bytes)
         // 宿主稳态：每次插帧只有后一帧是新上传的，前一帧按 ID 命中显存缓存。ID 取在账本永远达不到的区间。
         val base = FrameInterpolationEngineHolder.CAPABILITY_ID_BASE + (width.toLong() * 65_536L + height) * 16L + flowScale
         fun step(i: Int): FrameInterpolationBackend.Status = process.run(frames[i % INPUTS], frames[(i + 1) % INPUTS], output,

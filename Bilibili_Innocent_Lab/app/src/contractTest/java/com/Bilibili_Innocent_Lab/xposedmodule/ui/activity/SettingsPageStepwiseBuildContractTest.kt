@@ -14,6 +14,25 @@ import org.junit.Test
 class SettingsPageStepwiseBuildContractTest {
     private val presenter = SettingsUiSource.file("SettingsHomePresenter")
 
+    @Test fun detachingStoppingAndLowMemoryReleaseBothIdleAdmissionAndQueuedWork() {
+        val detach = SettingsUiSource.functions(presenter, "onViewDetachedFromWindow")
+            .single { it.contains("prewarmer?.onDetached()") }
+        assertTrue(detach.contains("cancelPrewarmAdmission()"))
+        val cancel = SettingsUiSource.functions(presenter, "cancelPrewarmAdmission").single()
+        assertTrue(cancel.contains("shell.removeCallbacks(armPrewarmIdle)"))
+        assertTrue(cancel.contains("idleQueue.removeIdleHandler(onPrewarmIdle)"))
+        val pressure = SettingsUiSource.functions(presenter, "onLowMemory").single()
+        assertTrue(pressure.contains("prewarmAllowed = false"))
+        assertTrue(pressure.contains("prewarmer?.onLowMemory()"))
+        val dispose = SettingsUiSource.functions(presenter, "dispose").single()
+        assertTrue(dispose.contains("shell.removeOnAttachStateChangeListener(prewarmAttachment)"))
+        assertTrue(dispose.contains("ModuleMemoryPressureHub.removeListener(pressureListener)"))
+        val main = SettingsUiSource.file("MainActivity")
+        assertTrue(SettingsUiSource.functions(main, "onStart").any { it.contains("settingsHome?.setPrewarmStarted(true)") })
+        val stop = SettingsUiSource.functions(main, "onStop").single { it.contains("settingsHome?.setPrewarmStarted(false)") }
+        assertTrue(stop.before("super.onStop()").contains("settingsHome?.setPrewarmStarted(false)"))
+    }
+
     @Test fun prewarmDrivesOneBoundedUnitPerFrameAndKeepsTheCursor() {
         val submit = SettingsUiSource.functions(presenter, "submitPrewarm").single()
         // maxUnitsPerWork 必须覆盖整页计划；仍为 1 会在第一个单元未完成时按 UNIT_LIMIT 误丢弃。

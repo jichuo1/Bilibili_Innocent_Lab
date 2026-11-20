@@ -89,14 +89,12 @@ internal enum class HookDispatchEngine {
  * 业务安装器看到的仍是 [ModernMemberHookCreator]。登记、身份、原子替换、异常模式映射、收回句柄
  * 与故障归因始终由本层负责；只有**回调的调度**可以在两个引擎之间选择（[HookDispatchEngine]）：
  *
- * - 常量替换总是走 SDK 的常量通道：与直接实现一样快（约 4 ns 对 11 ns），并在安装期校验常量类型；
+ * - 常量替换走 SDK 的常量通道，安装期校验常量类型；
  * - 构造器总是走直接引擎：SDK 约定 `HookInvocation.thisObject()` 对构造器恒为 `null`，而本模块的
  *   构造器 Hook 要读取正在构造的对象（构造后登记、补写字段）；
- * - 其余回调默认走直接引擎。在 ART 模拟器上对同一替身链实测（中位数，ns/次）：
- *   `replaceAny` 154 对 701、`after` 79 对 585、`before` 80 对 1119、`before`+`after` 208 对 1612；
- *   SDK 1.0.0 的 `MUTABLE_ARGS` 与 `AROUND` 形状尤其贵（空回调 791 与 1160）。本模块有逐帧级的
- *   Compose 与列表 Hook，这笔开销会直接落在帧时间上，所以不为“统一走 SDK”而退步。
- *   SDK 回调路径同样完整可用并有相同的测试覆盖，调度成本降下来之后把默认值改成 [HookDispatchEngine.SDK] 即可。
+ * - 其余回调默认走直接引擎。1.2.0 在小米 13 Pro 的同一 ART 测试链上，after 读参数的中位
+ *   耗时为直接引擎 956 ns、SDK 2673 ns；before 写参数为 1031 ns、3180 ns。
+ *   更新依赖后用 ModernHookFacadeBenchmarkInstrumentedTest 复测调度形状，宿主帧时间需单独测量。
  */
 internal class ModernHookRuntime(
     private val module: XposedInterface,

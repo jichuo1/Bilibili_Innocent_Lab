@@ -4,8 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
-import android.util.LruCache
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
+import io.github.jichuo1.meguviz.drawable.android.BitmapWeigher
+import io.github.jichuo1.meguviz.drawable.cache.FlightCache
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
 /** 按实际像素尺寸合成，缓存有界；尺寸动画期间继续用原始绘制，不拉伸旧缓存。 */
@@ -14,31 +16,43 @@ internal object HostBackgroundRasterCache {
         // 编辑器释放源图后仍可能淘汰旧条目；计费不能再访问 recycled Bitmap。
         val imageBytes = image?.allocationByteCount ?: 0
     }
-    private val lock = Any()
-    private val cache = object : LruCache<Key, Bitmap>(24 * 1024 * 1024) {
-        override fun sizeOf(key: Key, value: Bitmap) = value.allocationByteCount + key.imageBytes
-    }
-    private val pending = HashMap<Key, MutableList<(Bitmap?) -> Unit>>()
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "host-background-raster").apply { isDaemon = true } }
     private val main = Handler(Looper.getMainLooper())
-
-    fun get(key: Key): Bitmap? = synchronized(lock) { cache.get(key) }
-
-    fun request(key: Key, ready: (Bitmap?) -> Unit) {
-        synchronized(lock) {
-            cache.get(key)?.let { ready(it); return }
-            pending[key]?.let { it += ready; return }
-            pending[key] = mutableListOf(ready)
+    internal class Queue(worker: Executor, main: FlightCache.OwnerPoster, render: (Key) -> Bitmap) {
+        private class Raster(val bitmap: Bitmap, val bytes: Long)
+        private val cache = FlightCache.builder<Key, Raster>(worker, main)
+            .maxEntries(Int.MAX_VALUE).maxWeight(24L * 1024 * 1024).maxFlights(16)
+            .weigher { it.bytes }.build()
+        private val produce = FlightCache.Producer<Key, Raster> { key, _ ->
+            val bitmap = render(key)
+            Raster(bitmap, BitmapWeigher.INSTANCE.weigh(bitmap) + key.imageBytes)
         }
-        worker.execute(HostThreadGuard.runnable("host.background.raster.worker") {
-            val bitmap = runCatching { render(key) }.getOrNull()
-            val callbacks = synchronized(lock) {
-                if (bitmap != null) cache.put(key, bitmap)
-                pending.remove(key).orEmpty()
+
+        fun get(key: Key): Bitmap? = cache.peek(key)?.bitmap
+
+        /** False means that no callback will arrive and the current owner may retry later. */
+        fun request(key: Key, current: () -> Boolean, ready: (Bitmap?) -> Unit): Boolean {
+            val ticket = cache.request(key, produce, object : FlightCache.Subscriber<Raster> {
+                override fun isCurrent() = current()
+                override fun onReady(value: Raster) = ready(value.bitmap)
+                override fun onFailed(failure: Throwable) = ready(null)
+            })
+            return when (ticket.status()) {
+                FlightCache.Status.READY -> { if (current()) ready(ticket.value().bitmap); true }
+                FlightCache.Status.STARTED, FlightCache.Status.JOINED -> true
+                else -> false
             }
-            main.post(HostThreadGuard.runnable("host.background.raster.ready") { callbacks.forEach { it(bitmap) } })
-        })
+        }
     }
+
+    private val queue = Queue(
+        Executor { task -> worker.execute(HostThreadGuard.runnable("host.background.raster.worker") { task.run() }) },
+        FlightCache.OwnerPoster { task -> main.post(HostThreadGuard.runnable("host.background.raster.ready") { task.run() }) },
+        ::render
+    )
+
+    fun get(key: Key) = queue.get(key)
+    fun request(key: Key, current: () -> Boolean = { true }, ready: (Bitmap?) -> Unit) = queue.request(key, current, ready)
 
     internal fun render(key: Key): Bitmap {
         require(key.width > 0 && key.height > 0 && key.width.toLong() * key.height <= 4_000_000)

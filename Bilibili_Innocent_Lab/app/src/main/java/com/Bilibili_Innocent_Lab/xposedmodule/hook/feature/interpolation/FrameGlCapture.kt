@@ -8,6 +8,7 @@ import android.opengl.GLES20
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Surface
+import io.github.jichuo1.meguviz.media.MediaNative
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
@@ -140,7 +141,7 @@ internal class FrameGlCapture(
         pixels.clear()
         GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
         if (GLES20.glGetError() != GLES20.GL_NO_ERROR) return false
-        return FrameInterpolationNative.rgbaToRgb(pixels, width, height, buffer, format.stride) == 0
+        return MediaNative.rgbaToRgb(pixels, width, height, buffer, format.stride) == 0
     }
 
     private fun tearDown() {

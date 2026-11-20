@@ -45,7 +45,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup.MarginLayoutParams
-import android.view.animation.PathInterpolator
+import com.lumen.coacervation.engine.motion.LumenEasing
 import android.widget.CompoundButton
 import android.widget.LinearLayout
 import android.transition.ChangeBounds
@@ -995,12 +995,12 @@ class MainActivity : SkinnedActivity() {
     internal var logLevelDesc: android.widget.TextView? = null
 
     // Material You 标准动效插值器
-    internal val emphasizedDecelerate = PathInterpolator(0.2f, 0f, 0f, 1f)   // 展开（减速收尾）
-    private val emphasizedAccelerate = PathInterpolator(0.3f, 0f, 1f, 1f)   // 收起（加速开始）
+    internal val emphasizedDecelerate = LumenEasing.emphasizedDecelerate()   // 展开（减速收尾）
+    private val emphasizedAccelerate = LumenEasing.emphasizedAccelerate()   // 收起（加速开始）
     // 超长二级菜单使用独立的 Material 3 风格曲线：快速建立反馈，保留更长的柔和收尾。
     // 不复用上方插值器，避免改变弹窗、日志滑块等已有动画的节奏。
-    internal val secondaryExpandInterpolator = PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
-    internal val secondaryCollapseInterpolator = PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
+    internal val secondaryExpandInterpolator = LumenEasing.secondaryExpand()
+    internal val secondaryCollapseInterpolator = LumenEasing.secondaryCollapse()
 
     /** 生成圆角背景（应用 Monet 动态色） */
     private fun roundedColor(color: Int): GradientDrawable =
@@ -3970,6 +3970,7 @@ class MainActivity : SkinnedActivity() {
 
     override fun onStart() {
         super.onStart()
+        settingsHome?.setPrewarmStarted(true)
         UserTermsAuthorizationCoordinator.addListener(userTermsAuthorizationListener)
         RemoteHookConfigStore.addStatusListener(frameworkStatusListener)
         if (!userTermsDecision.isAuthorized) {
@@ -4029,6 +4030,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onStop() {
+        settingsHome?.setPrewarmStarted(false)
         compatibilityPendingRetry?.cancel()
 
         UserTermsAuthorizationCoordinator.removeListener(userTermsAuthorizationListener)
@@ -4036,6 +4038,16 @@ class MainActivity : SkinnedActivity() {
         activationMainHandler.removeCallbacks(frameworkStatusTimeout)
         lspatchActivationReceiptTracker.endSession()
         super.onStop()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) settingsHome?.onLowMemory()
+        super.onTrimMemory(level)
+    }
+
+    override fun onLowMemory() {
+        settingsHome?.onLowMemory()
+        super.onLowMemory()
     }
 
     override fun onPause() {

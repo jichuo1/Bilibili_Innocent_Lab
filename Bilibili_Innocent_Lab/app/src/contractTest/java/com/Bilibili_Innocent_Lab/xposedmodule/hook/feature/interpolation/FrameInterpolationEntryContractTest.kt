@@ -38,6 +38,18 @@ class FrameInterpolationEntryContractTest {
         assertTrue(cache.contains("FrameModelSpec.matches("))
         val bridge = SourceContract.read("$dir/FrameCaptureBridge.kt")
         assertTrue(bridge.contains("if (resolution.permit == null) {"))
+        val routes = SourceContract.read("$dir/FramePlaybackRoutes.kt")
+        val open = routes.after("fun attach(")
+        val qcom = open.indexOf("FrameQcomBridge.create(")
+        val rife = open.indexOf("rife.warmUp(")
+        assertTrue(qcom >= 0 && rife > qcom)
+        val ahb = open.indexOf("FrameQcomBridge.createRife(")
+        val rgb = open.indexOf("FrameCaptureBridge.create(")
+        assertTrue(ahb > qcom && rgb > ahb)
+        assertTrue(open.before("FrameQcomBridge.createRife(").contains("attempt.claimRifeAhb(rife.ahbCandidateLoaded())"))
+        assertTrue(open.before("rife.warmUp(").contains("return Result.Attached(qcom, \"qcom\")"))
+        assertTrue(open.contains("rife.warmUp(windowOnly = !attempt.rifeAhbTried && target != null && windowColor)"))
+        assertFalse(open.before("FrameQcomBridge.create(").contains("FrameInterpolationNative.prepare("))
     }
 
     @Test fun `nothing outside the interpolation package builds a session or opens the backend`() {
@@ -82,6 +94,7 @@ class FrameInterpolationEntryContractTest {
         assertTrue(activation.contains("val external = if (verificationAllowed) host.getExternalFilesDir(null) else null"))
         assertTrue(activation.contains("if (verifying && debugModel != null && File(debugModel, FrameModelSpec.WEIGHTS.fileName).isFile) debugModel"))
         assertTrue(activation.contains("FrameModelCache.materialize(host.noBackupFilesDir)"))
+        assertFalse(activation.contains("holder.warmUp()"))
         val fastActivation = activation.before("private fun prepareActivation(")
         assertFalse(fastActivation.contains("getExternalFilesDir"))
         assertFalse(fastActivation.contains(".isFile"))
@@ -101,9 +114,13 @@ class FrameInterpolationEntryContractTest {
         assertTrue(surface.contains("\"setDisplay\", SurfaceHolder::class.java"))
         assertTrue(surface.contains("mainSurfaces.bind(owner, surface, playerProcess || inMainDisplay.active)"))
         assertTrue(installer.contains("private const val PLAYER_PROCESS = \"tv.danmaku.bili:ijkservice\""))
-        val client = installer.after("if (playerProcess) {").before("hook(\"speed\")")
+        val client = installer.after("if (client != null) {").before("hook(\"speed\")")
         assertTrue(client.contains("listOf(\"setSurface\", \"_setVideoSurface\")"))
-        assertTrue(client.contains("registrar.all(\"\$ID.client.\$method\", CLIENT, method)"))
+        assertTrue(client.contains("registrar.exact(\"\$ID.client.\$method\", client, method, Surface::class.java)"))
+        val rate = client.after("hook(\"client.speed\")")
+        assertTrue(rate.contains("\"setPropertyFloat\", Int::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!"))
+        assertTrue(rate.contains("if (hasThrowable || argOrNull(0) != IJK_PLAYBACK_RATE) return@after"))
+        assertTrue(rate.contains("mainSurfaces.updateSpeed(owner, rate"))
         val configure = installer.after("hook(\"configure\")").before("hook(\"flush\")")
         assertTrue(configure.contains("if (!playerProcess && !mainSurfaces.contains(display))"))
         assertTrue(configure.contains("if (!mime.startsWith(\"video/\"))"))
@@ -118,8 +135,8 @@ class FrameInterpolationEntryContractTest {
         assertTrue(build.contains("\"native-packing/\$abi/VisionTool.zip\""))
         assertTrue(build.contains("zip.setLevel(9)"))
         val excludes = build.after("packaging.jniLibs.excludes += setOf(").before(")")
-        assertTrue(excludes.contains("\"lib/arm64-v8a/libinnocent_frame_interpolation.so\""))
-        assertTrue(excludes.contains("\"lib/armeabi-v7a/libinnocent_frame_interpolation.so\""))
+        assertTrue(excludes.contains("\"lib/arm64-v8a/libmeguviz_media_rife_ncnn.so\""))
+        assertTrue(excludes.contains("\"lib/armeabi-v7a/libmeguviz_media_rife_ncnn.so\""))
     }
 
     @Test fun `clock probes and fault injection require debug verification and never become a trusted clock`() {

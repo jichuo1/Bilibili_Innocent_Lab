@@ -63,12 +63,20 @@ final class ArchiveVerifier {
         }
     }
 
+    static void verifyArchive(InputStream input, ArchiveSpec spec) throws IOException {
+        verifyStream(input, spec.archiveBytes, spec.archiveSha256, "archive");
+    }
+
     static void verifyLibrary(InputStream input, ArchiveSpec spec) throws IOException {
+        verifyStream(input, spec.libraryBytes, spec.librarySha256, "cache");
+    }
+
+    private static void verifyStream(InputStream input, int expectedBytes, String expectedSha256, String subject) throws IOException {
         MessageDigest hash = digest();
         byte[] buffer = new byte[16 * 1024];
         int total = 0;
         while (true) {
-            int count = input.read(buffer, 0, Math.min(buffer.length, spec.libraryBytes - total + 1));
+            int count = input.read(buffer, 0, Math.min(buffer.length, expectedBytes - total + 1));
             if (count < 0) break;
             if (count == 0) {
                 int one = input.read();
@@ -76,12 +84,12 @@ final class ArchiveVerifier {
                 buffer[0] = (byte) one;
                 count = 1;
             }
-            if (count > spec.libraryBytes - total) throw new IOException("cache_oversized");
+            if (count > expectedBytes - total) throw new IOException(subject + "_oversized");
             hash.update(buffer, 0, count);
             total += count;
         }
-        if (total != spec.libraryBytes) throw new IOException("cache_truncated");
-        requireHash(hash.digest(), spec.librarySha256, "cache_sha256");
+        if (total != expectedBytes) throw new IOException(subject + "_truncated");
+        requireHash(hash.digest(), expectedSha256, subject + "_sha256");
     }
 
     static MessageDigest digest() {

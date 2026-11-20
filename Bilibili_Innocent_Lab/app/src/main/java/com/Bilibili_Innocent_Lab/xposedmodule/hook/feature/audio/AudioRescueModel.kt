@@ -7,6 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.*
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.io.File
 import java.io.InputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -31,6 +32,7 @@ internal object AudioRescueModel {
         }
         fun attempt(number: Int) {
             var loading = false
+            var unpublished: AudioSpeechModel? = null
             try {
                 report("materializing", number)
                 val store = AudioAssetStore(hostCodeCache, abi)
@@ -46,16 +48,21 @@ internal object AudioRescueModel {
                 val loader = ModelLoader(moduleApk.canonicalPath, store.directory.canonicalPath,
                     checkNotNull(AudioRescueModel::class.java.classLoader))
                 val type = checkNotNull(Lookup.classOrNull(loader, MODEL_CLASS))
-                val model = store.file(AudioAssetSpec.model).readBytes()
-                val result = checkNotNull(Lookup.constructorOrNull(type, ByteArray::class.java)).newInstance(model) as AudioSpeechModel
+                val constructor = checkNotNull(Lookup.constructorOrNull(type, ByteBuffer::class.java))
+                AudioModelInput.withVerified(store.file(AudioAssetSpec.model)) { bytes ->
+                    unpublished = constructor.newInstance(bytes) as AudioSpeechModel
+                }
+                val result = checkNotNull(unpublished)
                 report("warming", number)
                 result.infer(FloatArray(514), arrayOf(FloatArray(16896), FloatArray(96), FloatArray(1056)))
                 val warm = AudioSpeechEnhancer(48000, 2, result)
                 repeat(12000) { warm.process(0.0, 0.0) }
                 ready = result
+                unpublished = null
                 report("ready", number)
                 worker.shutdown()
             } catch (failure: Throwable) {
+                runCatching { unpublished?.close() }
                 val code = if (loading) "runtime_failed" else (failure as? AudioAssetFailure)?.code ?: "cache_io"
                 report(code, number, "part=${(failure as? AudioAssetFailure)?.part.orEmpty()} cause=${failure.javaClass.simpleName} root=${failure.cause?.javaClass?.simpleName.orEmpty()}")
                 // Native initialisation may poison a classloader; retry preparation failures only.

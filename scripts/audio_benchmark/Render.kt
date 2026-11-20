@@ -49,5 +49,8 @@ fun main(args: Array<String>) {
 
 private object SharedModel {
     private var model: GtcrnSpeechModel? = null
-    fun get(file: File): GtcrnSpeechModel = model ?: GtcrnSpeechModel(file.readBytes()).also { model = it }
+    fun get(file: File): GtcrnSpeechModel = model ?: file.inputStream().channel.use { channel ->
+        val bytes = channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0L, channel.size())
+        GtcrnSpeechModel(bytes).also { model = it }
+    }
 }

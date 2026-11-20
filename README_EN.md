@@ -312,9 +312,9 @@ The combined page and the video page share the same rules, so configuring once c
 
 #### Video frame interpolation `Experimental`
 
-Generates in-between frames on the GPU, turning 30 fps videos into 60 fps and 25 fps into 50 fps, for sources up to 4K. Download the interpolation model in the settings first.
+On supported Qualcomm devices, interpolation uses QCOM hardware motion estimation first. QCOM works without a model download. Other Vulkan GPUs and streams outside the QCOM path can use the RIFE v4.6 model downloaded in settings. BIL checks hardware-buffer interoperability and measures the available processing sizes and synchronization modes against the frame budget. Enable interpolation status prompts to see which backend is active.
 
-- Videos larger than the screen are scaled to what the screen can show before processing, and a speed test on first run sets the highest size this phone can sustain; HDR, protected content and unsupported frame rates play normally; playback falls back to normal when performance cannot keep up, or when thermal control is enabled and the device overheats.
+- The player accepts video up to 4K. Doubling a 30 fps source targets 60 fps. Actual presentation depends on the GPU, driver, display and workload. HDR, protected content and unsupported formats use normal playback.
 - Higher resolutions add a little delay (audio stays in sync) and use more battery.
 - You can set a **frame-rate ceiling** (the real target follows what the system actually outputs and what the phone can sustain), turn on **interpolation status prompts**, and disable thermal control (with a confirmation first).
 

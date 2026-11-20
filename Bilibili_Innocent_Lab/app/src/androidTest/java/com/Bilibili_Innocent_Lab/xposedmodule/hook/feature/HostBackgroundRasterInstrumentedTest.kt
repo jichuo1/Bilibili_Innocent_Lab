@@ -25,6 +25,50 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundRasterInstrumentedTest {
+    @Test fun boundedRasterRequestsJoinDropStaleAndRecoverAfterCapacityAndRenderFailure() {
+        val jobs = ArrayDeque<Runnable>()
+        val delivery = ArrayDeque<Runnable>()
+        val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
+        val config = HostBackgroundConfig(HostBackgroundPreset.AURORA)
+        fun key(index: Int) = HostBackgroundRasterCache.Key(config, false, index + 1, 1, null)
+        val failing = key(5)
+        var renders = 0
+        var failOnce = true
+        val queue = HostBackgroundRasterCache.Queue({ jobs.addLast(it) }, { delivery.addLast(it); true }) {
+            renders++
+            if (it == failing && failOnce) { failOnce = false; error("render failed") }
+            bitmap
+        }
+        try {
+            var live = true
+            val results = mutableListOf<Bitmap?>()
+            assertTrue(queue.request(key(0), { live }) { fail("stale subscriber delivered") })
+            assertTrue(queue.request(key(0), { true }) { results += it })
+            for (i in 1..15) assertTrue(queue.request(key(i), { true }) { results += it })
+            assertEquals(16, jobs.size)
+            assertFalse(queue.request(key(16), { true }) { fail("rejected subscriber delivered") })
+            live = false
+            while (jobs.isNotEmpty()) jobs.removeFirst().run()
+            assertEquals(16, renders)
+            assertTrue(results.isEmpty())
+            while (delivery.isNotEmpty()) delivery.removeFirst().run()
+            assertEquals(15, results.count { it === bitmap })
+            assertEquals(1, results.count { it == null })
+            assertNull(queue.get(failing))
+            assertSame(bitmap, queue.get(key(0)))
+            assertTrue(queue.request(key(0), { true }) { assertSame(bitmap, it) })
+            assertTrue(jobs.isEmpty())
+            assertTrue(queue.request(key(16), { true }) { assertSame(bitmap, it) })
+            jobs.removeFirst().run()
+            delivery.removeFirst().run()
+            assertEquals(17, renders)
+            assertTrue(queue.request(failing, { true }) { assertSame(bitmap, it) })
+            jobs.removeFirst().run()
+            delivery.removeFirst().run()
+            assertSame(bitmap, queue.get(failing))
+            assertEquals(18, renders)
+        } finally { bitmap.recycle() }
+    }
     @Test fun celestialArtworkIsStableAcrossThemeAndSizeChanges() {
         val output = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "host-background-raster-qa").apply { mkdirs() }
         val montage = Bitmap.createBitmap(1080, 1440, Bitmap.Config.ARGB_8888)

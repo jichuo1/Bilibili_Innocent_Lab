@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import io.github.jichuo1.meguviz.ref.scope.CodeScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -8,6 +10,36 @@ import org.junit.Before
 import org.junit.Test
 
 class KavaMemberLookupTest {
+
+    @Test fun `batch scopes close on exceptions and never cross threads or class loaders`() {
+        org.junit.Assume.assumeFalse(BuildConfig.MEGUVIZ_LEGACY_LOOKUP)
+        val loader = javaClass.classLoader!!
+        val other = object : ClassLoader(loader) {}
+        KavaMemberLookup.withLookupBatch(loader) {
+            KavaMemberLookup.withMemberScope(loader) { first ->
+                KavaMemberLookup.withLookupBatch(loader) {
+                    KavaMemberLookup.withMemberScope(loader) { assertSame(first, it) }
+                }
+                lateinit var second: CodeScope
+                org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+                    KavaMemberLookup.withLookupBatch(other) {
+                        KavaMemberLookup.withMemberScope(other) { second = it }
+                        error("interrupted batch")
+                    }
+                }
+                assertEquals(CodeScope.State.CLOSED, second.state())
+                KavaMemberLookup.withMemberScope(loader) { assertSame(first, it) }
+                val thread = java.util.concurrent.FutureTask {
+                    KavaMemberLookup.withMemberScope(loader) { it }
+                }
+                Thread(thread).start()
+                val isolated = thread.get(5, java.util.concurrent.TimeUnit.SECONDS)
+                assertEquals(CodeScope.State.CLOSED, isolated.state())
+                assertEquals(CodeScope.State.OPEN, first.state())
+                first
+            }
+        }.also { assertEquals(CodeScope.State.CLOSED, it.state()) }
+    }
 
     private open class OverloadedBase {
         private fun inherited() = "zero"

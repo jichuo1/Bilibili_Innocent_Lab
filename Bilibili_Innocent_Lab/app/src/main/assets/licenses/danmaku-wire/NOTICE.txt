@@ -8,8 +8,7 @@ libinnocent_danmaku_wire.so（弹幕 wire 过滤内核）第三方声明
    https://github.com/rust-lang/rust/blob/master/LICENSE-APACHE
 
 2. C++ 侧编译工具链与 libc++（静态）
-   与帧插值引擎共用同一 NDK 工具链声明，见
-   assets/licenses/frame-interpolation/NDK-TOOLCHAIN-NOTICE。
+   工具链声明见同目录的 NDK-TOOLCHAIN-NOTICE.txt。
 
 本项目自有部分（danmaku-wire crate、danmaku_wire_jni.cpp）不引入任何第三方 crate
 依赖（Cargo.lock 仅含本包），无额外许可负担。

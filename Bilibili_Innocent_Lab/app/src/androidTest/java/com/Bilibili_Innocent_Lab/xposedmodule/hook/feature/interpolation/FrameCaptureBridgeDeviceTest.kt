@@ -15,6 +15,7 @@ import android.os.Debug
 import android.os.PowerManager
 import android.content.Intent
 import android.util.Log
+import android.view.Surface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -106,6 +107,27 @@ class FrameCaptureBridgeDeviceTest {
 
     @Test fun realDecoder4kIsDownscaledAndInterpolatedTo60() { width = 3840; height = 2160; run(sourceFps = 30, expectedFps = 60) }
 
+    @Test fun qcomFirstDecodesToWindowWithoutRifeModel() {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue("requires a QCOM qualification device", args.getString("qcomDevice") == "true")
+        width = args.getString("width", "1280").toInt()
+        height = args.getString("height", "720").toInt()
+        require(width to height in listOf(320 to 180, 640 to 360, 1280 to 720, 1920 to 1080, 3840 to 2160))
+        val seconds = args.getString("seconds", "8").toInt().coerceIn(4, 30)
+        val clip = File(context.cacheDir, "qcom-window-${width}x${height}-${seconds}s.mp4")
+        val valid = clip.isFile && runCatching {
+            val extractor = MediaExtractor()
+            try {
+                extractor.setDataSource(clip.path)
+                val format = extractor.getTrackFormat(0)
+                format.getInteger(MediaFormat.KEY_WIDTH) == width && format.getInteger(MediaFormat.KEY_HEIGHT) == height &&
+                    format.getLong(MediaFormat.KEY_DURATION) >= (seconds + 2) * 1_000_000L
+            } finally { extractor.release() }
+        }.getOrDefault(false)
+        if (!valid) encodeClip(clip, 30 * (seconds + 3), 30)
+        FrameQcomWindowCheck.run(context, clip, width, height, seconds, ::play)
+    }
+
     /**
      * 大于 720p 的源不再被拒绝：处理尺寸不超过面板、不超过本机实测能力，保持宽高比；超过 4K 的源仍在连接
      * 任何生产者前拒绝。
@@ -129,7 +151,7 @@ class FrameCaptureBridgeDeviceTest {
                 val events = ArrayList<String>()
                 val host = object : FrameCaptureBridge.Host {
                     override fun setAudioDelayUs(delayUs: Long) = Unit
-                    override fun playbackSpeed() = 1.0
+                    override fun playbackRateReader(surface: Surface): () -> Double = { 1.0 }
                     override fun audio() = FrameMediaPolicy.Audio()
                     override fun log(event: String, detail: String) { events += "$event $detail" }
                     override fun context(): android.content.Context = this@FrameCaptureBridgeDeviceTest.context
@@ -283,7 +305,7 @@ class FrameCaptureBridgeDeviceTest {
             override fun maxFps(): Int = maxFps
             override fun onDisplayLimited(codec: MediaCodec, hz: Float) { limited += hz }
             override fun setAudioDelayUs(delayUs: Long) { lastAudioDelay.set(delayUs); if (delayUs > 0) delays += delayUs }
-            override fun playbackSpeed() = 1.0
+            override fun playbackRateReader(surface: Surface): () -> Double = { 1.0 }
             override fun rejectClockForVerification() = rejectClock
             override fun audio() = FrameMediaPolicy.Audio(output = FrameMediaPolicy.AudioOutput.PCM,
                 offloaded = FrameMediaPolicy.Evidence.NO, tunneled = FrameMediaPolicy.Evidence.NO)
@@ -400,6 +422,7 @@ class FrameCaptureBridgeDeviceTest {
             val samples = synchronized(work) { work.toList() }
             val inference = samples.filter { !it.bypassed && it.status == FrameInterpolationBackend.Status.OK }
             val wall = inference.map { it.wallNs }.sorted()
+            val nativeCpu = inference.mapNotNull { it.nativeWorkerCpuNs }
             fun percentile(values: List<Long>, fraction: Double): Double = if (values.isEmpty()) 0.0
                 else values[(kotlin.math.ceil(values.size * fraction).toInt() - 1).coerceIn(values.indices)] / 1e6
             val presentedDelta = afterSeek.presented - beforeSeek.presented
@@ -446,7 +469,9 @@ class FrameCaptureBridgeDeviceTest {
                 .put("workCount", samples.size).put("bypassed", samples.count { it.bypassed })
                 .put("inferenceP50Ms", percentile(wall, .5)).put("inferenceP90Ms", percentile(wall, .9))
                 .put("inferenceP99Ms", percentile(wall, .99)).put("inferenceMaxMs", (wall.lastOrNull() ?: 0L) / 1e6)
-                .put("workerCpuMeanMs", if (inference.isEmpty()) 0.0 else inference.map { it.cpuNs }.average() / 1e6)
+                .put("workerCpuMeanMs", if (inference.isEmpty()) 0.0 else inference.map { it.callerCpuNs }.average() / 1e6)
+                .put("nativeWorkerCpuSamples", nativeCpu.size)
+                .put("nativeWorkerCpuMeanMs", if (nativeCpu.isEmpty()) JSONObject.NULL else nativeCpu.average() / 1e6)
                 .put("processCpuMs", cpuMs).put("late", afterSeek.late).put("missedCommit", afterSeek.missedCommit)
                 .put("steadyLate", afterSeek.late - beforeSeek.late)
                 .put("steadyMissedCommit", afterSeek.missedCommit - beforeSeek.missedCommit)
@@ -613,16 +638,25 @@ class FrameCaptureBridgeDeviceTest {
         val boxBottom = boxY + height * 2 / 9
         val row = ByteArray(width)
         val highMotion = InstrumentationRegistry.getArguments().getString("highMotion") == "true"
+        val gradient = if (highMotion) null else ByteArray(width + height) { (16 + it * 200 / (width + height)).toByte() }
         for (line in 0 until height) {
-            for (x in 0 until width) row[x] = if (highMotion)
-                (if (((x + index * maxOf(1,width/24))/maxOf(1,width/8) + line/maxOf(1,height/6))%2==0) 40 else 220).toByte()
-                else (16 + (x + line) * 200 / (width + height)).toByte()
-            if (line in boxY until boxBottom) for (x in boxX until boxX + boxWidth) row[x] = 235.toByte()
+            if (gradient != null) gradient.copyInto(row, 0, line, line + width)
+            else for (x in 0 until width) {
+                row[x] = (if (((x + index * maxOf(1,width/24))/maxOf(1,width/8) + line/maxOf(1,height/6))%2==0) 40 else 220).toByte()
+            }
+            if (line in boxY until boxBottom) row.fill(235.toByte(), boxX, boxX + boxWidth)
             y.buffer.position(line * y.rowStride)
             y.buffer.put(row, 0, width)
         }
-        for (plane in listOf(u, v)) for (line in 0 until height / 2) for (x in 0 until width / 2)
-            plane.buffer.put(line * plane.rowStride + x * plane.pixelStride, 128.toByte())
+        for (plane in listOf(u, v)) {
+            // Both chroma channels are neutral, including their interleaved representation.
+            val neutral = ByteArray((width / 2 - 1) * plane.pixelStride + 1) { 128.toByte() }
+            val buffer = plane.buffer
+            for (line in 0 until height / 2) {
+                buffer.position(line * plane.rowStride)
+                buffer.put(neutral)
+            }
+        }
     }
 
     private fun sendStatus(key: String, value: String) =

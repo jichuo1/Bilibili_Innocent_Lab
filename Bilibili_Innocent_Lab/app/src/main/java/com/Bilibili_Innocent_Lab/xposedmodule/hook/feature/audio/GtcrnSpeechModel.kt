@@ -4,12 +4,14 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.OrtProvider
+import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicLongArray
 
 /** One immutable session per process; all recurrent state is explicit and track-local. */
-internal class GtcrnSpeechModel(model: ByteArray) : AudioSpeechModel {
+internal class GtcrnSpeechModel(model: ByteBuffer) : AudioSpeechModel {
     private val environment = OrtEnvironment.getEnvironment()
+    private val timings = AtomicLongArray(4)
     private val session = OrtSession.SessionOptions().use { options ->
         options.setIntraOpNumThreads(1)
         options.setInterOpNumThreads(1)
@@ -21,8 +23,8 @@ internal class GtcrnSpeechModel(model: ByteArray) : AudioSpeechModel {
             options.addXnnpack(mapOf("intra_op_num_threads" to "1"))
         environment.createSession(model, options)
     }
-    private val timings = AtomicLongArray(4)
     override fun profile() = LongArray(4) { timings.get(it) }
+    override fun close() = session.close()
 
     override fun infer(spectrum: FloatArray, caches: Array<FloatArray>): FloatArray {
         val arrays = arrayOf(spectrum, *caches)

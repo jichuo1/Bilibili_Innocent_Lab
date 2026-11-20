@@ -9,9 +9,9 @@ class FrameStatusTest {
     private val chinese = InjectedUiLocale.messages(explicitSelectionTag = InjectedUiLocale.TAG_SIMPLIFIED_CHINESE)
 
     @Test fun `active status shows the source and target frame rates`() {
-        assertEquals("插帧已生效：30 → 60 fps", FrameStatus.text(FrameStatus.Active(30f, 60), chinese))
-        assertEquals("Frame interpolation on: 29.97 → 60 fps", FrameStatus.text(FrameStatus.Active(29.97f, 60), english))
-        assertEquals("插帧已生效：50 fps", FrameStatus.text(FrameStatus.Active(null, 50), chinese))
+        assertEquals("插帧已生效：30 → 60 fps · QCOM", FrameStatus.text(FrameStatus.Active(30f, 60, FrameStatus.Backend.QCOM), chinese))
+        assertEquals("Frame interpolation on: 29.97 → 60 fps · RIFE", FrameStatus.text(FrameStatus.Active(29.97f, 60), english))
+        assertEquals("插帧已生效：50 fps · RIFE", FrameStatus.text(FrameStatus.Active(null, 50), chinese))
     }
 
     @Test fun `inactive status names a user facing reason`() {

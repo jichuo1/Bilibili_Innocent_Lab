@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing.FrameNativeLoader
+import io.github.jichuo1.meguviz.media.MediaNative
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
@@ -75,12 +76,20 @@ internal class FrameInterpolationEngineHolder(
 
     /** 引擎就绪后在推理 worker 上调用一次：用于迟接管冷启动时已开始原生播放的解码器。 */
     @Volatile var onReady: (() -> Unit)? = null
-    data class WorkSample(val wallNs: Long, val cpuNs: Long, val bypassed: Boolean, val status: FrameInterpolationBackend.Status)
-    enum class State { IDLE, PREPARING, READY, FAILED }
+    @Volatile var onPreparationChanged: (() -> Unit)? = null
+    data class WorkSample(val wallNs: Long, val callerCpuNs: Long, val nativeWorkerCpuNs: Long?,
+                          val bypassed: Boolean, val status: FrameInterpolationBackend.Status)
+    enum class State { IDLE, PREPARING, MODEL_READY, READY, FAILED }
 
     @Volatile var state = State.IDLE
         private set
     @Volatile private var backend: FrameInterpolationBackend? = null
+    private var modelOnly = false
+    fun ahbCandidateLoaded(): Boolean = backend != null && state != State.PREPARING
+    internal fun windowEngine() = backend.takeIf { ahbCandidateLoaded() }
+    internal fun windowPixelBudgets(): List<Long> =
+        capabilitySizes.map { (w, h) -> w.toLong() * h }.distinct().sortedDescending()
+    internal fun reportWindowProbe(detail: String) = log("rife.ahb.probe", detail)
     /** 因静止画面而省掉的推理次数（诊断）。 */
     val staticSkips = java.util.concurrent.atomic.AtomicLong()
     val sceneCutSkips = java.util.concurrent.atomic.AtomicLong()
@@ -94,7 +103,6 @@ internal class FrameInterpolationEngineHolder(
         private set
     @Volatile var lastNativeUs = 0L
         private set
-    private val warmed = java.util.Collections.synchronizedSet(HashSet<Pair<Int, Int>>())
     // 推理 worker 的 CPU 部分（命令录制、6 MB 输入输出拷贝、场景判定、分块回填）在宿主播放进程里与宿主线程竞争；
     // 以显示优先级运行，减少调度延迟。
     private val executor = ThreadPoolExecutor(1, 1, 30L, TimeUnit.SECONDS, ArrayBlockingQueue(2)) { task ->
@@ -119,8 +127,20 @@ internal class FrameInterpolationEngineHolder(
     fun remeasureCapability(timeoutMs: Long = 30_000L): Boolean {
         val engine = backend ?: return false
         val done = java.util.concurrent.CountDownLatch(1)
-        val accepted = runCatching { executor.execute { try { measureCapability(engine) } finally { done.countDown() } } }.isSuccess
-        return accepted && done.await(timeoutMs, TimeUnit.MILLISECONDS) && ready()
+        var measured = false
+        val accepted = runCatching { executor.execute {
+            try {
+                if (backend === engine) {
+                    measureCapability(engine)
+                    measured = ready()
+                }
+            } catch (failure: Throwable) {
+                log("engine.capability.failed", failure.javaClass.simpleName)
+            } finally {
+                done.countDown()
+            }
+        } }.isSuccess
+        return accepted && done.await(timeoutMs, TimeUnit.MILLISECONDS) && measured
     }
 
     /** No I/O here: enqueue one due recovery on the existing bounded inference worker. */
@@ -134,10 +154,13 @@ internal class FrameInterpolationEngineHolder(
         return accepted
     }
 
-    @Synchronized fun warmUp() {
-        if (state != State.IDLE) return
+    @Synchronized fun warmUp(windowOnly: Boolean = false) {
+        val measureLoaded = state == State.MODEL_READY && !windowOnly
+        if (state != State.IDLE && !measureLoaded) return
+        modelOnly = windowOnly
         state = State.PREPARING
-        val accepted = runCatching { executor.execute { prepareOnWorker(FramePreparationRetry.Work.LOAD) } }.isSuccess
+        val work = if (measureLoaded) FramePreparationRetry.Work.CAPABILITY else FramePreparationRetry.Work.LOAD
+        val accepted = runCatching { executor.execute { prepareOnWorker(work) } }.isSuccess
         if (!accepted) fail("queue")
     }
 
@@ -147,7 +170,6 @@ internal class FrameInterpolationEngineHolder(
             else {
                 backend?.close()
                 backend = null
-                warmed.clear()
                 measuredMs.clear()
                 load()
             }
@@ -169,9 +191,17 @@ internal class FrameInterpolationEngineHolder(
         // 2026-10-19 真机（Adreno 840，宿主稳态）：720p 11 ms、1080p 21 ms、1440p 16 ms、4K 32 ms。
         val modelDirectory = runCatching { modelSource() }.getOrNull() ?: run { fail("model:unavailable"); return }
         val largest = capabilitySizes.maxOf { (width, height) -> width.toLong() * height }
-        val opened = FrameInterpolationBackend.openResearchModel(modelDirectory, FrameInterpolationBackend.Backend.VULKAN,
-            1, fp16 = true, flowScale = 4, gpuIo = true, protectStaticDetails = protectStaticDetails,
+        fun openVulkan(fp16: Boolean) = FrameInterpolationBackend.openResearchModel(
+            modelDirectory, FrameInterpolationBackend.Backend.VULKAN, 1, fp16 = fp16, flowScale = 4,
+            gpuIo = true, protectStaticDetails = protectStaticDetails,
             maxPixels = maxOf(FrameInterpolationBackend.MAX_PIXELS, largest), adaptiveFlow = true)
+        var opened = openVulkan(true)
+        if (opened.status == FrameInterpolationBackend.Status.UNSUPPORTED_BACKEND ||
+            opened.status == FrameInterpolationBackend.Status.MODEL_LOAD_FAILED) {
+            // A driver may accept Vulkan but reject the half-precision model or its pipelines.
+            log("engine.precision", "fp16=${opened.status} retry=fp32")
+            opened = openVulkan(false)
+        }
         val engine = opened.engine
         if (opened.status != FrameInterpolationBackend.Status.OK || engine == null) {
             val terminal = opened.status in setOf(FrameInterpolationBackend.Status.UNSUPPORTED_BACKEND,
@@ -179,29 +209,38 @@ internal class FrameInterpolationEngineHolder(
             fail("model:${opened.status}", if (terminal) null else FramePreparationRetry.Work.LOAD); return
         }
         backend = engine
+        modelName = modelDirectory.name
+        if (modelOnly) {
+            preparationRetry.ready()
+            state = State.MODEL_READY
+            runCatching { onPreparationChanged?.invoke() }
+            return
+        }
         // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在各尺寸上各跑一次。
         // 准备会话内共用一套 scratch（warm 与能力测量），会话结束释放引用。
         withScratch(WARM_SIZES + capabilitySizes) { arena ->
-            val hint = scratchHint(WARM_SIZES + capabilitySizes)
-            for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height, arena, hint)
-            modelName = modelDirectory.name
+            for (size in WARM_SIZES + capabilitySizes) {
+                if (engine.claimWarmup(size)) engine.finishWarmup(size, warm(engine, size, arena))
+                if (backend !== engine) return@withScratch
+            }
             measureCapability(engine, arena)
         }
     }
 
-    /** 以 [sizes] 中最大的一帧为容量提示开一个准备会话；无论结果如何都释放引用。 */
-    private inline fun <T> withScratch(sizes: List<Pair<Int, Int>>, block: (FrameScratchArena) -> T): T {
-        val arena = FrameScratchArena()
-        try {
-            return block(arena)
-        } finally {
-            log("engine.scratch", "allocations=${arena.allocations} bytes=${arena.allocatedBytes} zeroed=${arena.zeroedBytes} sizes=${sizes.size}")
-            arena.close()
+    private fun withScratch(sizes: List<Pair<Int, Int>>, inputs: Int = FrameCapabilityProbe.INPUTS,
+                            block: (FrameScratchArena) -> Unit) {
+        val bytes = sizes.maxOf { (width, height) ->
+            require(width > 0 && height > 0 && width.toLong() * height <= FrameScratchArena.MAX_BYTES / 3)
+            width * height * 3
+        }
+        FrameScratchArena.withMemory(bytes, inputs) { arena ->
+            try {
+                block(arena)
+            } finally {
+                log("engine.scratch", "allocations=1 bytes=${arena.allocatedBytes} sizes=${sizes.size}")
+            }
         }
     }
-
-    private fun scratchHint(sizes: List<Pair<Int, Int>>): Int =
-        sizes.maxOfOrNull { (width, height) -> (width.toLong() * height * 3).coerceAtMost(FrameScratchArena.MAX_BYTES.toLong()).toInt() } ?: 1
 
     @Volatile private var modelName = ""
 
@@ -215,8 +254,8 @@ internal class FrameInterpolationEngineHolder(
             return
         }
         measuredMs.clear()
-        val probe = FrameCapabilityProbe(arena, scratchHint(capabilitySizes)) { left, right, output, width, height, leftId, rightId, flowScale ->
-            engine.process(left, right, output, width, height, 0.5f, leftId = leftId, rightId = rightId, flowScale = flowScale)
+        val probe = FrameCapabilityProbe(arena) { left, right, output, width, height, leftId, rightId, flowScale ->
+            engine.probeInterpolation(left, right, output, width, height, flowScale, leftId, rightId)
         }
         val passing = capabilitySizes.filter { (width, height) ->
             val pixels = width.toLong() * height
@@ -231,6 +270,7 @@ internal class FrameInterpolationEngineHolder(
             if (tier != null) measuredMs[pixels] = chosenMs
             tier != null
         }.map { (width, height) -> width.toLong() * height }
+        if (retireLostDevice(engine)) return
         capability = FrameProcessingSize.Capability(
             standard = passing.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
             high = passing.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
@@ -245,21 +285,34 @@ internal class FrameInterpolationEngineHolder(
     /** 为宿主实际尺寸预热（异步、每尺寸一次）；引擎未就绪时忽略。 */
     fun prewarm(width: Int, height: Int) {
         val engine = backend ?: return
-        if (!warmed.add(width to height)) return
-        runCatching { executor.execute { withScratch(listOf(width to height)) { warm(engine, width, height, it) } } }
+        val size = width to height
+        if (!ready() || !engine.claimWarmup(size)) return
+        runCatching { executor.execute {
+            var status = FrameInterpolationBackend.Status.NOT_LOADED
+            try {
+                if (backend === engine && ready()) {
+                    withScratch(listOf(size), inputs = 2) { arena -> status = warm(engine, size, arena) }
+                }
+            } catch (failure: Throwable) {
+                status = FrameInterpolationBackend.Status.INFERENCE_FAILED
+                log("engine.warm", failure.javaClass.simpleName)
+            } finally {
+                engine.finishWarmup(size, status)
+            }
+        } }.onFailure { engine.finishWarmup(size, FrameInterpolationBackend.Status.BUSY) }
     }
 
-    private fun warm(engine: FrameInterpolationBackend, width: Int, height: Int, arena: FrameScratchArena,
-                     capacityHint: Int = width * height * 3) {
-        warmed += width to height
+    private fun warm(engine: FrameInterpolationBackend, size: Pair<Int, Int>, arena: FrameScratchArena): FrameInterpolationBackend.Status {
+        val (width, height) = size
         val bytes = width * height * 3
         val started = System.nanoTime()
         val status = runCatching {
-            // 三份独立缓冲：两份零内容输入 + 一份输出（与逐次 allocateDirect 的内容一致）。
-            engine.process(arena.zeroed(0, bytes, capacityHint), arena.zeroed(1, bytes, capacityHint), arena.scratch(2, bytes, capacityHint),
-                width, height, 0.5f, flowScale = flowScaleFor(width.toLong() * height))
+            engine.probeInterpolation(arena.input(0, bytes), arena.input(1, bytes), arena.output(bytes),
+                width, height, flowScaleFor(width.toLong() * height))
         }.getOrDefault(FrameInterpolationBackend.Status.INFERENCE_FAILED)
         log("engine.warm", "${width}x$height $status ${(System.nanoTime() - started) / 1_000_000}ms")
+        if (status != FrameInterpolationBackend.Status.OK) retireLostDevice(engine)
+        return status
     }
 
     /**
@@ -281,10 +334,26 @@ internal class FrameInterpolationEngineHolder(
             }
         }
 
+    /** Called on the serial inference worker after a failed job or before publishing a capability result. */
+    private fun retireLostDevice(engine: FrameInterpolationBackend): Boolean {
+        if (backend !== engine || !engine.deviceLost()) return false
+        state = State.FAILED
+        backend = null
+        capability = FrameProcessingSize.Capability(0L, 0L)
+        measuredMs.clear()
+        try {
+            engine.close()
+        } finally {
+            fail("device-lost", FramePreparationRetry.Work.LOAD)
+        }
+        return true
+    }
+
     @Synchronized private fun fail(reason: String, work: FramePreparationRetry.Work? = FramePreparationRetry.Work.LOAD) {
         preparationRetry.failed(work, System.nanoTime())
         state = State.FAILED
         log("engine.failed", reason)
+        runCatching { onPreparationChanged?.invoke() }
         recoveryTask?.cancel(false)
         if (work != null && preparationRetry.canSchedule()) recoveryTask = recoveryExecutor.schedule(
             { retryIfDue(newPlayback = false) }, preparationRetry.delayFor(work), TimeUnit.NANOSECONDS)
@@ -381,24 +450,31 @@ internal class FrameInterpolationEngineHolder(
         FrameInterpolationSession.Worker { task -> runCatching { executor.execute(task) }.isSuccess }
 
     fun synthesizer(): FrameInterpolationSession.Synthesizer = object : FrameInterpolationSession.Synthesizer {
+        private val sessionEngine = backend.takeIf { ready() }
+
         override fun process(left: ByteBuffer, right: ByteBuffer, output: ByteBuffer, format: FrameBufferLedger.Format,
                              alpha: Float, leftId: Long, rightId: Long): FrameInterpolationBackend.Status {
+            val engine = sessionEngine ?: return FrameInterpolationBackend.Status.NOT_LOADED
+            if (backend !== engine || !ready()) return FrameInterpolationBackend.Status.GPU_UNAVAILABLE
             val began = System.nanoTime()
             val cpu = if (workObserver != null) android.os.Debug.threadCpuTimeNanos() else 0L
-            val result = processFrame(left, right, output, format, alpha, leftId, rightId)
+            val result = processFrame(engine, left, right, output, format, alpha, leftId, rightId)
             workObserver?.let { observer -> runCatching {
-                observer(WorkSample(System.nanoTime() - began, android.os.Debug.threadCpuTimeNanos() - cpu,
-                    lastNativeUs == 0L, result))
+                val wallNs = System.nanoTime() - began
+                val callerCpuNs = android.os.Debug.threadCpuTimeNanos() - cpu
+                val nativeCpuNs = if (lastNativeUs > 0L && result == FrameInterpolationBackend.Status.OK)
+                    engine.nativeWorkerCpuNanos() else null
+                observer(WorkSample(wallNs, callerCpuNs, nativeCpuNs, lastNativeUs == 0L, result))
             } }
             return result
         }
 
-        private fun processFrame(left: ByteBuffer, right: ByteBuffer, output: ByteBuffer, format: FrameBufferLedger.Format,
+        private fun processFrame(engine: FrameInterpolationBackend, left: ByteBuffer, right: ByteBuffer,
+                                 output: ByteBuffer, format: FrameBufferLedger.Format,
                                  alpha: Float, leftId: Long, rightId: Long): FrameInterpolationBackend.Status {
-            val engine = backend ?: return FrameInterpolationBackend.Status.NOT_LOADED
             val started = System.nanoTime()
             lastNativeUs = 0L
-            val content = FrameInterpolationNative.analyzeScene(left, right, format.width, format.height, format.stride)
+            val content = MediaNative.analyzeScene(left, right, format.width, format.height, format.stride)
             lastGuardUs = (System.nanoTime() - started) / 1_000L
             if (content < 0) return FrameInterpolationBackend.Status.INVALID_ARGUMENT
             val still = content == 1
@@ -414,7 +490,10 @@ internal class FrameInterpolationEngineHolder(
                 format.stride, format.stride, format.stride, leftId, rightId,
                 flowScale = flowScaleFor(format.width.toLong() * format.height))
             lastNativeUs = (System.nanoTime() - nativeStarted) / 1_000L
-            if (result != FrameInterpolationBackend.Status.OK) return result
+            if (result != FrameInterpolationBackend.Status.OK) {
+                if (retireLostDevice(engine)) return FrameInterpolationBackend.Status.GPU_UNAVAILABLE
+                return result
+            }
             observeLoad(format.width.toLong() * format.height, lastNativeUs)
             // 转场保护：大面积两侧 warp 互相矛盾说明光流整体失效（切镜、闪白、超出光流范围的运动），
             // 此时任何合成都会拉扯变形；改为最近的原帧（与切镜处理一致），逐像素回退只用于局部失效。

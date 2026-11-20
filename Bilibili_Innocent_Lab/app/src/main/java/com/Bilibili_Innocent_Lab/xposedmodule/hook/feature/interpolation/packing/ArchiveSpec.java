@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packin
 final class ArchiveSpec {
     static final int MAX_ARCHIVE_BYTES = 8 * 1024 * 1024;
     static final int MAX_LIBRARY_BYTES = 16 * 1024 * 1024;
-    static final String LIBRARY_NAME = "libinnocent_frame_interpolation.so";
+    static final String LIBRARY_NAME = "libmeguviz_media_rife_ncnn.so";
     final String abi;
     final String entry;
     final int archiveBytes;

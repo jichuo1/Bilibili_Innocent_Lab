@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioPreparationRetry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioModelInput
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -11,6 +12,7 @@ import java.io.File
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
@@ -34,6 +36,21 @@ class AudioAssetsTest {
         fail("size_overflow") { AudioAssetStore.verify(spec(), content.copyOf(1001).inputStream()) }
         fail("hash_mismatch") { AudioAssetStore.verify(spec(), ByteArray(1000).inputStream()) }
         AudioAssetStore.verify(spec(), content.inputStream())
+    }
+
+    @Test fun `the direct ORT input contains exactly the bytes verified on this open`() {
+        val part = spec()
+        val file = temporary.newFile()
+        file.writeBytes(content)
+        val input = ByteBuffer.allocateDirect(content.size)
+        AudioModelInput.readVerified(file, part, input)
+        assertArrayEquals(content, ByteArray(input.remaining()).also { input.get(it) })
+        file.writeBytes(content.copyOf().also { it[0] = 42 })
+        input.clear()
+        fail("hash_mismatch") { AudioModelInput.readVerified(file, part, input) }
+        file.appendBytes(byteArrayOf(10))
+        input.clear()
+        fail("size_overflow") { AudioModelInput.readVerified(file, part, input) }
     }
     @Test fun `failed staged install cannot replace an existing file and removes staging`() {
         val store = store(); val part = spec()
