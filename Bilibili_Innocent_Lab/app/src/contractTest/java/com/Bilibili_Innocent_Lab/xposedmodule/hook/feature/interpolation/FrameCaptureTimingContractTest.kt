@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameCaptureTimingContractTest {
-    @Test fun `a repeated host display uses the published codec input and still calls the platform setter`() {
+    fun `a repeated host display uses the published codec input and still calls the platform setter`() {
         val installer = SourceContract.read("hook/feature/interpolation/FrameInterpolationFeatureInstaller.kt")
         val hook = installer.after("hook(\"output.surface\")").before("hook(\"flush\")")
         val before = hook.after("before {").before("after {")
@@ -23,7 +23,7 @@ class FrameCaptureTimingContractTest {
         assertTrue(registered >= 0 && published.indexOf("outcome.bridge.onPublished()") > registered)
     }
 
-    @Test fun `revoked bridges cannot restore codec output or reset a replacement audio clock`() {
+    fun `revoked bridges cannot restore codec output or reset a replacement audio clock`() {
         val source = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")
         val restore = source.after("private fun onNativeRestored(").before("companion object")
         val guard = restore.indexOf("if (closed.get() || !isCurrent())")
@@ -38,7 +38,7 @@ class FrameCaptureTimingContractTest {
         assertTrue(change.contains("decoderGeneration.commit(codec, ticket)"))
         assertTrue(change.indexOf("externalChanges != 0") in 0 until change.indexOf("codec.setOutputSurface(surface)"))
     }
-    @Test fun `clock rejection enters recovery before its observation window is reset`() {
+    fun `clock rejection enters recovery before its observation window is reset`() {
         val rejection = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")
             .after("if (state == FrameTimeline.ClockState.RESTART_REQUIRED").before("clock.reset()")
         assertTrue("repeated invalid snapshots cannot bypass fallback by starting another epoch",
@@ -49,7 +49,7 @@ class FrameCaptureTimingContractTest {
      * 通知时刻只能经 [FrameArrivalStamp] 使用：它在 PTS 节奏不一致（BufferQueue 顶替、首帧、回跳）时改用锁存之后的时刻，
      * 因此通知时刻不会描述锁存期间换上的更新的帧；锁存时刻必须在可能阻塞的 updateTexImage 之后测得。
      */
-    @Test fun `host clock observation never pairs a notification time with a newer latched frame`() {
+    fun `host clock observation never pairs a notification time with a newer latched frame`() {
         val callback = SourceContract.read("hook/feature/interpolation/FrameGlCapture.kt")
             .after("private fun onFrameAvailable(").before("private fun read(")
         val latch = callback.indexOf("runCatching { texture.updateTexImage() }")
@@ -58,5 +58,17 @@ class FrameCaptureTimingContractTest {
         assertTrue("latch time is measured after the potentially blocking latch", latch >= 0 && observation > latch)
         assertTrue("notification time is only used through FrameArrivalStamp", delivery > observation)
         assertFalse("raw notification time must not reach the clock", callback.contains("listener.onFrame(timestamp, notifiedNs"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameCaptureTimingContractTest) -> Unit) {
+            val s = FrameCaptureTimingContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`a repeated host display uses the published codec input and still calls the platform setter`() }
+        runIsolated { s -> s.`revoked bridges cannot restore codec output or reset a replacement audio clock`() }
+        runIsolated { s -> s.`clock rejection enters recovery before its observation window is reset`() }
+        runIsolated { s -> s.`host clock observation never pairs a notification time with a newer latched frame`() }
     }
 }

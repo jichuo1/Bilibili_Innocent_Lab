@@ -39,7 +39,7 @@ class PlayerSpeedMenuHooksTest {
     private fun legacy() = requireNotNull(PlayerSpeedLocator.speedMenuAdapter(
         PlayerSpeedLocatorTest.LegacySpeedAdapter::class.java))
 
-    @Test fun `modern hooks replace actual arguments and allow adjacent hundredth choices`() {
+    fun `modern hooks replace actual arguments and allow adjacent hundredth choices`() {
         val factory = requireNotNull(PlayerSpeedLocator.speedMenuFactory(
             listOf(PlayerSpeedLocatorTest.SpeedOptionFactory::class.java, PlayerSpeedLocatorTest.SpeedOptionModel::class.java),
             PlayerSpeedLocatorTest.FakeMediaResource::class.java))
@@ -63,7 +63,7 @@ class PlayerSpeedMenuHooksTest {
         assertEquals(listOf(false, true, false, false), adapter.c.map { it.b })
     }
 
-    @Test fun `legacy hook uses custom float array and restores it if host population throws`() {
+    fun `legacy hook uses custom float array and restores it if host population throws`() {
         val h = Harness()
         assertTrue(h.install(PlayerSpeedLocator.SpeedMenuPoint(null, legacy())))
         val adapter = PlayerSpeedLocatorTest.LegacySpeedAdapter(1)
@@ -79,7 +79,7 @@ class PlayerSpeedMenuHooksTest {
         assertEquals(listOf(false, false, true, false), adapter.c.map { it.b })
     }
 
-    @Test fun `failed adapter registration never publishes factory options without precision correction`() {
+    fun `failed adapter registration never publishes factory options without precision correction`() {
         val factory = requireNotNull(PlayerSpeedLocator.speedMenuFactory(
             listOf(PlayerSpeedLocatorTest.SpeedOptionFactory::class.java, PlayerSpeedLocatorTest.SpeedOptionModel::class.java),
             PlayerSpeedLocatorTest.FakeMediaResource::class.java))
@@ -95,7 +95,7 @@ class PlayerSpeedMenuHooksTest {
         assertTrue(missing.registrar.hooks.isEmpty())
     }
 
-    @Test fun `host 2x alias is highlighted without conflating an explicit 1_99 option`() {
+    fun `host 2x alias is highlighted without conflating an explicit 1_99 option`() {
         val point = legacy()
         val adapter = PlayerSpeedLocatorTest.LegacySpeedAdapter(1)
         adapter.d = floatArrayOf(2f, 1f)
@@ -108,7 +108,7 @@ class PlayerSpeedMenuHooksTest {
         assertEquals(listOf(false, true, false), adapter.c.map { it.b })
     }
 
-    @Test fun `invalid and conflicting configurations install no menu hooks and preserve long press capability`() {
+    fun `invalid and conflicting configurations install no menu hooks and preserve long press capability`() {
         for (h in listOf(Harness(default = 150), Harness(spec = "100,bad"), Harness(spec = ""))) {
             assertFalse(h.install(PlayerSpeedLocator.SpeedMenuPoint(null, legacy())))
             assertTrue(h.registrar.hooks.isEmpty())
@@ -117,7 +117,7 @@ class PlayerSpeedMenuHooksTest {
         }
     }
 
-    @Test fun `compact route chooses host native menu only inside the matching opener and cleans up on failure`() {
+    fun `compact route chooses host native menu only inside the matching opener and cleans up on failure`() {
         val route = requireNotNull(PlayerSpeedLocator.speedMenuCompactRoute(
             CompactOwner::class.java, FunctionService::class.java, PlayerSpeedLocatorTest.FakeKeelPlayer::class.java))
         assertNull(PlayerSpeedLocator.speedMenuCompactRoute(
@@ -145,7 +145,7 @@ class PlayerSpeedMenuHooksTest {
         assertSame(window, windowFor(other))
     }
 
-    @Test fun `malformed host items are left untouched and never treated as matching speeds`() {
+    fun `malformed host items are left untouched and never treated as matching speeds`() {
         val point = modern()
         val adapter = PlayerSpeedLocatorTest.ModernSpeedAdapter(1)
         adapter.l0(1f, listOf(PlayerSpeedLocatorTest.SpeedOptionModel(Float.NaN, true)))
@@ -155,5 +155,20 @@ class PlayerSpeedMenuHooksTest {
             listOf(PlayerSpeedLocatorTest.SpeedOptionModel(Float.NaN, true)),
             PlayerSpeedLocatorTest.SpeedOptionModel::class.java.getField("a"),
             PlayerSpeedLocatorTest.SpeedOptionModel::class.java.getField("b"), listOf(1f)))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerSpeedMenuHooksTest) -> Unit) {
+            val s = PlayerSpeedMenuHooksTest()
+            block(s)
+        }
+        runIsolated { s -> s.`modern hooks replace actual arguments and allow adjacent hundredth choices`() }
+        runIsolated { s -> s.`legacy hook uses custom float array and restores it if host population throws`() }
+        runIsolated { s -> s.`failed adapter registration never publishes factory options without precision correction`() }
+        runIsolated { s -> s.`host 2x alias is highlighted without conflating an explicit 1_99 option`() }
+        runIsolated { s -> s.`invalid and conflicting configurations install no menu hooks and preserve long press capability`() }
+        runIsolated { s -> s.`compact route chooses host native menu only inside the matching opener and cleans up on failure`() }
+        runIsolated { s -> s.`malformed host items are left untouched and never treated as matching speeds`() }
     }
 }

@@ -11,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRecommendPurifyFeatureInstallerTest {
-    @Test fun theSameInstalledHomeFilterReadsUpdatedValuesForLaterCards() {
+    fun theSameInstalledHomeFilterReadsUpdatedValuesForLaterCards() {
         var rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHomeRules(setOf("alpha"),
             VideoDurationRange(10, 20), VideoPlayCountRange(1, 2_000))
         val installer = HomeRecommendPurifyFeatureInstaller(false, false, false, false, false, true, "alpha",
@@ -26,7 +26,7 @@ class HomeRecommendPurifyFeatureInstallerTest {
         rules = rules.copy(plays = VideoPlayCountRange(0, 0)); assertFalse(removed())
     }
 
-    @Test fun `partial response registration cannot report complete success`() {
+    fun `partial response registration cannot report complete success`() {
         val base = requireNotNull(VersionAdapter.locateHomeRecommendFeed(javaClass.classLoader!!))
         val points = base.copy(responseItemGetters = listOf(base.responseItemGetters.first(), base.responseItemGetters.first()))
         val statuses = mutableListOf<Pair<String, String>>()
@@ -44,7 +44,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertTrue(result is FeatureInstallResult.Installed && !result.complete)
         assertEquals("partial:1/2", statuses.single().second)
     }
-    @Test
     fun missingDurationHasItsOwnFailureWithoutDowngradingTheWorkingAdFilter() {
         val points = requireNotNull(VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader)))
             .copy(playerArgsGetter = null, playerArgsDurationField = null)
@@ -58,7 +57,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
             (records.last { it.id == "home_recommend_duration_filter" }.result as FeatureInstallResult.Skipped).reasonCode)
     }
 
-    @Test
     fun missingPlayCountGateHasItsOwnFailureWithoutDowngradingTheWorkingAdFilter() {
         val points = requireNotNull(VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader)))
             .copy(playerArgsGetter = null, playerArgsDurationField = null)
@@ -114,7 +112,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         sectionPickEnabled = sectionPickEnabled
     )
 
-    @Test
     fun `classifies ads pictures and game promotions from explicit signals`() {
         assertTrue(
             HomeRecommendPurifyFeatureInstaller.isAdvertisement(
@@ -146,7 +143,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `classifies home feed types only from explicit route signals`() {
         assertTrue(
             HomeRecommendPurifyFeatureInstaller.isLive(
@@ -175,7 +171,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `classifies home banner only from exact structured token`() {
         assertTrue(
             HomeRecommendPurifyFeatureInstaller.isHomeBanner(
@@ -199,7 +194,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `classifies cm_v2 feed ads only from exact card type`() {
         assertTrue(
             HomeRecommendPurifyFeatureInstaller.isCmV2(
@@ -233,7 +227,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `cm_v2 switch installs alone and stays independent from ads switch`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -248,7 +241,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals(listOf("home_recommend_purify_status" to "success"), statuses)
     }
 
-    @Test
     fun `duration-only configuration installs while an empty range stays hook free`() {
         val durationStatuses = mutableListOf<Pair<String, String>>()
         val bannerStatuses = mutableListOf<Pair<String, String>>()
@@ -281,7 +273,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals(listOf("home_recommend_purify_status" to "disabled"), disabledStatuses)
     }
 
-    @Test
     fun `missing duration accessor does not disable an existing content filter`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -306,7 +297,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `shared args getter is invoked once for tag and author dimensions`() {
         val item = ProbeItem()
         val argsGetter = ProbeItem::class.java.getDeclaredMethod("getArgs").apply { isAccessible = true }
@@ -330,7 +320,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals("202", signals.upId)
     }
 
-    @Test
     fun `different args getters are not incorrectly shared`() {
         val item = ProbeItem()
         val accessors = accessors(
@@ -352,7 +341,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals("303", signals.upId)
     }
 
-    @Test
     fun `args read failure remains fail open`() {
         val item = ProbeItem()
         val throwingGetter = ProbeItem::class.java
@@ -375,7 +363,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals(null, signals.upId)
     }
 
-    @Test
     fun `actual response hook preserves fail open and independent rule semantics`() {
         val blocked = HomeFeedCard(HomeFeedArgs(tid = 7L, upName = "目标 UP"), title = "普通")
         val noArgs = HomeFeedCard(null, title = "普通")
@@ -418,7 +405,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals(4, source.size)
     }
 
-    @Test
     fun `actual response hook keeps original list when unreadable dimensions do not match`() {
         val source = listOf(
             HomeFeedCard(null, title = "普通"),
@@ -450,7 +436,6 @@ class HomeRecommendPurifyFeatureInstallerTest {
         assertEquals(1, source[1].argsCalls)
     }
 
-    @Test
     fun `ai declared dimension drops tagged and already confirmed cards and records the tagged aid`() {
         AiDeclaredVideoRegistry.resetForTest()
         try {
@@ -643,6 +628,31 @@ class HomeRecommendPurifyFeatureInstallerTest {
         fun getRid(): Long = rid
         fun getUpName(): String = upName
         fun getUpId(): Long = upId
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeRecommendPurifyFeatureInstallerTest) -> Unit) {
+            val s = HomeRecommendPurifyFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.theSameInstalledHomeFilterReadsUpdatedValuesForLaterCards() }
+        runIsolated { s -> s.`partial response registration cannot report complete success`() }
+        runIsolated { s -> s.missingDurationHasItsOwnFailureWithoutDowngradingTheWorkingAdFilter() }
+        runIsolated { s -> s.missingPlayCountGateHasItsOwnFailureWithoutDowngradingTheWorkingAdFilter() }
+        runIsolated { s -> s.`classifies ads pictures and game promotions from explicit signals`() }
+        runIsolated { s -> s.`classifies home feed types only from explicit route signals`() }
+        runIsolated { s -> s.`classifies home banner only from exact structured token`() }
+        runIsolated { s -> s.`classifies cm_v2 feed ads only from exact card type`() }
+        runIsolated { s -> s.`cm_v2 switch installs alone and stays independent from ads switch`() }
+        runIsolated { s -> s.`duration-only configuration installs while an empty range stays hook free`() }
+        runIsolated { s -> s.`missing duration accessor does not disable an existing content filter`() }
+        runIsolated { s -> s.`shared args getter is invoked once for tag and author dimensions`() }
+        runIsolated { s -> s.`different args getters are not incorrectly shared`() }
+        runIsolated { s -> s.`args read failure remains fail open`() }
+        runIsolated { s -> s.`actual response hook preserves fail open and independent rule semantics`() }
+        runIsolated { s -> s.`actual response hook keeps original list when unreadable dimensions do not match`() }
+        runIsolated { s -> s.`ai declared dimension drops tagged and already confirmed cards and records the tagged aid`() }
     }
 }
 

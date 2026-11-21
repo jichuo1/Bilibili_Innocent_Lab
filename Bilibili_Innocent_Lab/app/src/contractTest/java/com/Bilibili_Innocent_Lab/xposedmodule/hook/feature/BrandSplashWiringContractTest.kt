@@ -8,7 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BrandSplashWiringContractTest {
-    @Test fun independentDefaultOffSettingsWireSkipPriorityAndOfficialPicker() {
+    fun independentDefaultOffSettingsWireSkipPriorityAndOfficialPicker() {
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("BrandSplashSkipFeatureInstaller("))
         assertTrue(hook.contains("BrandSplashCustomFeatureInstaller("))
@@ -19,7 +19,7 @@ class BrandSplashWiringContractTest {
         assertTrue(appearance.contains("FeaturePreferences.BRAND_SPLASH_CUSTOM"))
     }
 
-    @Test fun originalDurationAndCompletionContractsStayUnmodifiedOutsideTheirPage() {
+    fun originalDurationAndCompletionContractsStayUnmodifiedOutsideTheirPage() {
         val skip = SourceContract.read("hook/feature/BrandSplashSkipFeatureInstaller.kt")
         val native = skip.after("private fun installNative").before("private fun installKntr")
         assertTrue(native.contains("instance !== target"))
@@ -30,7 +30,7 @@ class BrandSplashWiringContractTest {
         assertTrue(skip.contains("result = hostUnit"))
     }
 
-    @Test fun customPaintNeverMutatesTheOriginalExitOrLogoAndNeverReadsFilesOnTheUiThread() {
+    fun customPaintNeverMutatesTheOriginalExitOrLogoAndNeverReadsFilesOnTheUiThread() {
         val painter = SourceContract.read("hook/feature/BrandSplashKntrRenderer.kt")
         assertFalse(painter.contains("args[1] ="))
         assertTrue(painter.contains("frame.mainConsumed"))
@@ -46,5 +46,16 @@ class BrandSplashWiringContractTest {
         assertFalse(cache.contains("bitmap.recycle()"))
         val decoder = SourceContract.read("hook/feature/BrandSplashBitmapDecoder.kt")
         assertTrue(decoder.contains("brandSplashBitmapSampleSize(bounds.outWidth, bounds.outHeight)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BrandSplashWiringContractTest) -> Unit) {
+            val s = BrandSplashWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.independentDefaultOffSettingsWireSkipPriorityAndOfficialPicker() }
+        runIsolated { s -> s.originalDurationAndCompletionContractsStayUnmodifiedOutsideTheirPage() }
+        runIsolated { s -> s.customPaintNeverMutatesTheOriginalExitOrLogoAndNeverReadsFilesOnTheUiThread() }
     }
 }

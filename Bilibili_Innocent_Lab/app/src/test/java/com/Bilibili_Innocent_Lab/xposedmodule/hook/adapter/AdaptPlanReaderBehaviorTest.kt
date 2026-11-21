@@ -232,12 +232,12 @@ class AdaptPlanReaderBehaviorTest {
         }
     }
 
-    @Test fun `every conditional reader has a real installer to check against`() {
+    fun `every conditional reader has a real installer to check against`() {
         assertEquals(readers.map { it.first }.toSet(), factories.keys)
         assertTrue(readers.size >= 23)
     }
 
-    @Test fun `all switches off leaves every conditional installer disabled`() {
+    fun `all switches off leaves every conditional installer disabled`() {
         val off = SnapshotHookConfigSource(buildMap {
             for ((_, reader) in readers) for (signal in (reader.gate as Gate.AnyOf).signals) {
                 put(signal.keys.single(), when (signal) { is Flag -> false; is Text -> ""; is NonZero -> 0 })
@@ -246,12 +246,12 @@ class AdaptPlanReaderBehaviorTest {
         assertInertWhenCatalogSaysNotNeeded(off, "all-off")
     }
 
-    @Test fun `random configurations never make an unneeded reader install`() {
+    fun `random configurations never make an unneeded reader install`() {
         val random = Random(20261029L)
         repeat(400) { round -> assertInertWhenCatalogSaysNotNeeded(randomConfig(random, density = 1 + round % 4), "round=$round") }
     }
 
-    @Test fun `switches that cannot start an installer alone are a small documented over-approximation`() {
+    fun `switches that cannot start an installer alone are a small documented over-approximation`() {
         // 目录取超集：单个开关打开后安装器仍然关闭的组合（需要配套关键词/规则/判定器才生效）。
         // 这是安全方向的多定位；记录下来，数量不许悄悄变多。
         val overBroad = sortedSetOf<String>()
@@ -270,5 +270,17 @@ class AdaptPlanReaderBehaviorTest {
         }
         println("over-approximated switches (${overBroad.size}): $overBroad")
         assertTrue("过度放宽的开关太多: $overBroad", overBroad.size <= 12)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptPlanReaderBehaviorTest) -> Unit) {
+            val s = AdaptPlanReaderBehaviorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`every conditional reader has a real installer to check against`() }
+        runIsolated { s -> s.`all switches off leaves every conditional installer disabled`() }
+        runIsolated { s -> s.`random configurations never make an unneeded reader install`() }
+        runIsolated { s -> s.`switches that cannot start an installer alone are a small documented over-approximation`() }
     }
 }

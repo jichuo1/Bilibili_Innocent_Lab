@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.contract
 
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 源码契约（"护栏"）测试的共享底座。
@@ -21,6 +22,7 @@ import java.io.File
  */
 object SourceContract {
     const val JAVA_ROOT = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule"
+    private val readCache = ConcurrentHashMap<String, String>()
 
     /**
      * [path] 可以是以 `src/` 开头的模块内路径，也可以是相对 [JAVA_ROOT] 的路径
@@ -34,7 +36,7 @@ object SourceContract {
             ?: throw AssertionError("contract source not found: $path (cwd ${File(".").absolutePath})")
     }
 
-    fun read(path: String): String = normalize(file(path).readText())
+    fun read(path: String): String = readCache.computeIfAbsent(path) { normalize(file(it).readText()) }
 
     fun normalize(text: String): String = text.replace("\r\n", "\n")
 }

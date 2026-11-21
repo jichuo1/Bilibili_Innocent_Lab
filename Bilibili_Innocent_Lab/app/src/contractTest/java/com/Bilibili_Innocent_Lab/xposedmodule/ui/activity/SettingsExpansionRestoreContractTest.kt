@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsExpansionRestoreContractTest {
-    @Test fun savedExpansionIsPureNamedDataAndIncludesUnbuiltCategories() {
+    fun savedExpansionIsPureNamedDataAndIncludesUnbuiltCategories() {
         val save = SettingsUiSource.function("saveSettingsExpansionState")
         assertTrue(save.contains("settingsExpansionState.snapshot()"))
         assertTrue(save.contains("values.putBoolean(key, expanded)"))
@@ -23,7 +23,7 @@ class SettingsExpansionRestoreContractTest {
         assertTrue(SettingsUiSource.function("onSaveInstanceState").contains("saveSettingsExpansionState(outState)"))
     }
 
-    @Test fun restorationRunsBeforeFirstPageLayoutAndBeforeScrollConsumption() {
+    fun restorationRunsBeforeFirstPageLayoutAndBeforeScrollConsumption() {
         val create = SettingsUiSource.function("onCreate")
         val decode = create.indexOf("restoreSettingsExpansionState(savedInstanceState)")
         val mount = create.indexOf("setMeguvizContentView")
@@ -43,7 +43,7 @@ class SettingsExpansionRestoreContractTest {
         assertTrue(ensure.contains("advancePage(index, untilComplete = true)"))
     }
 
-    @Test fun restoreUsesTheRealMotionSnapProtocolOnlyForTheNewPage() {
+    fun restoreUsesTheRealMotionSnapProtocolOnlyForTheNewPage() {
         val apply = SettingsUiSource.function("applyRestoredSettingsExpansion")
         assertTrue(apply.contains("when (index)"))
         assertTrue(apply.contains("if (category.section !in sections) return@forEach"))
@@ -60,7 +60,7 @@ class SettingsExpansionRestoreContractTest {
         assertTrue(decode.contains("as? Boolean"))
     }
 
-    @Test fun commandsReplaceLogicalTargetsBeforeSameValueOrMissingViewEarlyReturns() {
+    fun commandsReplaceLogicalTargetsBeforeSameValueOrMissingViewEarlyReturns() {
         val secondary = SettingsUiSource.function("setSecondaryMenuExpanded")
         for (name in listOf("PURIFICATION_ADVANCED", "ENHANCEMENT_ADVANCED", "APPEARANCE", "COMPATIBILITY")) {
             val branch = secondary.after("SettingsSearchSection.$name -> {").before("}")
@@ -73,5 +73,17 @@ class SettingsExpansionRestoreContractTest {
         val update = category.indexOf("settingsExpansionState.setCategory(category.name, expanded)")
         assertTrue(update >= 0 && update < category.indexOf("advancedCategorySections[category] ?: return"))
         assertTrue(update < category.indexOf("animateSecondarySection("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsExpansionRestoreContractTest) -> Unit) {
+            val s = SettingsExpansionRestoreContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.savedExpansionIsPureNamedDataAndIncludesUnbuiltCategories() }
+        runIsolated { s -> s.restorationRunsBeforeFirstPageLayoutAndBeforeScrollConsumption() }
+        runIsolated { s -> s.restoreUsesTheRealMotionSnapProtocolOnlyForTheNewPage() }
+        runIsolated { s -> s.commandsReplaceLogicalTargetsBeforeSameValueOrMissingViewEarlyReturns() }
     }
 }

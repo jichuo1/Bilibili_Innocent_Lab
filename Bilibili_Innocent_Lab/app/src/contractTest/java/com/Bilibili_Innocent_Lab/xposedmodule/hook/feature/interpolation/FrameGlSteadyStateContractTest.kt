@@ -14,7 +14,7 @@ import org.junit.Test
 class FrameGlSteadyStateContractTest {
     private fun source(name: String) = SourceContract.read("hook/feature/interpolation/$name")
 
-    @Test fun `capture read path uses cached handles and owned views`() {
+    fun `capture read path uses cached handles and owned views`() {
         val capture = source("FrameGlCapture.kt")
         val read = capture.after("private fun read(").before("private fun tearDown(")
         assertFalse("steady-state read must not query program handles", read.contains("glGetUniformLocation") || read.contains("glGetAttribLocation"))
@@ -27,7 +27,7 @@ class FrameGlSteadyStateContractTest {
         assertTrue("context teardown drops the cached handles", capture.after("private fun tearDown(").before("private companion object").contains("handles.invalidate()"))
     }
 
-    @Test fun `presenter draw path reuses its size holder and still queries the window every draw`() {
+    fun `presenter draw path reuses its size holder and still queries the window every draw`() {
         val presenter = source("FrameGlPresenter.kt")
         val draw = presenter.after("private fun draw(").before("// 诊断：请求的呈现时间戳间隔")
         assertFalse("no per-draw size array", draw.contains("IntArray("))
@@ -42,14 +42,14 @@ class FrameGlSteadyStateContractTest {
         assertTrue(presenter.after("private fun tearDown()").before("private companion object").contains("handles.invalidate()"))
     }
 
-    @Test fun `no shared mutable quad buffer remains in FrameGl`() {
+    fun `no shared mutable quad buffer remains in FrameGl`() {
         val frameGl = source("FrameGl.kt")
         assertFalse("a process-wide FloatBuffer would let GL threads move each other's position", frameGl.contains("FLIPPED_QUAD") || frameGl.contains("duplicate("))
         assertFalse(frameGl.contains("fun bindQuad("))
         assertFalse("location queries live only in the FrameGlApi adapter", frameGl.before("internal object FrameGlEs2").contains("glGetAttribLocation"))
     }
 
-    @Test fun `each renderer builds its own views once and binding allocates nothing`() {
+    fun `each renderer builds its own views once and binding allocates nothing`() {
         val handles = source("FrameGlHandles.kt")
         val views = handles.after("internal class FrameGlQuadViews").before("internal class FrameGlProgramHandles")
         assertTrue(views.contains("allocateDirect(") && views.contains("duplicate()"))
@@ -59,11 +59,24 @@ class FrameGlSteadyStateContractTest {
             && source("FrameGlPresenter.kt").contains("private val handles = FrameGlProgramHandles("))
     }
 
-    @Test fun `legacy transition patch keeps its successor and removal notes`() {
+    fun `legacy transition patch keeps its successor and removal notes`() {
         val handles = source("FrameGlHandles.kt")
         assertTrue(handles.contains("legacy 过渡补丁"))
         assertTrue(handles.contains("接替任务"))
         assertTrue(handles.contains("迁移完成后删除"))
         assertTrue(handles.contains("MeguvizMedia"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameGlSteadyStateContractTest) -> Unit) {
+            val s = FrameGlSteadyStateContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`capture read path uses cached handles and owned views`() }
+        runIsolated { s -> s.`presenter draw path reuses its size holder and still queries the window every draw`() }
+        runIsolated { s -> s.`no shared mutable quad buffer remains in FrameGl`() }
+        runIsolated { s -> s.`each renderer builds its own views once and binding allocates nothing`() }
+        runIsolated { s -> s.`legacy transition patch keeps its successor and removal notes`() }
     }
 }

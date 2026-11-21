@@ -11,7 +11,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class FrameModelFilesTest {
-    @get:Rule val folder = TemporaryFolder()
+    val folder = TemporaryFolder()
     private val payloads = listOf("parameters".toByteArray(), "weights".toByteArray())
     private val parts = payloads.mapIndexed { index, bytes ->
         FrameModelSpec.Part("part$index", bytes.size,
@@ -23,7 +23,7 @@ class FrameModelFilesTest {
         return true
     }
 
-    @Test fun aMidPublicationFailureRetainsVerifiedDownloadsAndRetryOnlyWritesTheMissingPart() {
+    fun aMidPublicationFailureRetainsVerifiedDownloadsAndRetryOnlyWritesTheMissingPart() {
         val directory = folder.newFolder()
         val cached = files.prepare(directory, ::fetch)!!
         val remote = HashMap<String, ByteArray>()
@@ -43,7 +43,7 @@ class FrameModelFilesTest {
         assertEquals(FrameModelFiles.State.READY, files.inspect(remote.keys) { remote.getValue(it).inputStream() })
     }
 
-    @Test fun incompleteAndCorruptModelsNeverBecomeReady() {
+    fun incompleteAndCorruptModelsNeverBecomeReady() {
         assertEquals(FrameModelFiles.State.MISSING, files.inspect(emptySet()) { error("missing") })
         assertEquals(FrameModelFiles.State.INVALID, files.inspect(parts.map { it.remoteName }.toSet()) { byteArrayOf(1).inputStream() })
         val directory = folder.newFolder()
@@ -51,7 +51,7 @@ class FrameModelFilesTest {
         assertTrue(directory.listFiles()!!.isEmpty())
     }
 
-    @Test fun repairingACorruptCacheAtomicallyReplacesOnlyThatModelPart() {
+    fun repairingACorruptCacheAtomicallyReplacesOnlyThatModelPart() {
         val directory = folder.newFolder()
         files.prepare(directory, ::fetch)
         File(directory, parts.first().fileName).writeText("bad")
@@ -59,5 +59,21 @@ class FrameModelFilesTest {
         assertNotNull(files.prepare(directory) { part, target -> downloads++; fetch(part, target) })
         assertEquals(1, downloads)
         assertTrue(parts.all { FrameModelSpec.matches(it, File(directory, it.fileName)) })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameModelFilesTest) -> Unit) {
+            val s = FrameModelFilesTest()
+            s.folder.create()
+            try {
+                block(s)
+            } finally {
+                s.folder.delete()
+            }
+        }
+        runIsolated { s -> s.aMidPublicationFailureRetainsVerifiedDownloadsAndRetryOnlyWritesTheMissingPart() }
+        runIsolated { s -> s.incompleteAndCorruptModelsNeverBecomeReady() }
+        runIsolated { s -> s.repairingACorruptCacheAtomicallyReplacesOnlyThatModelPart() }
     }
 }

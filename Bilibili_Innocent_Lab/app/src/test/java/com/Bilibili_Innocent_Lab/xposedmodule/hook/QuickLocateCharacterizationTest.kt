@@ -26,18 +26,18 @@ class QuickLocateCharacterizationTest {
     private val fixtureLoader: ClassLoader = ClassLoader.getSystemClassLoader()
     private val emptyLoader: ClassLoader = object : ClassLoader(null) {}
 
-    @Test fun `fixture host quick locate result matches the pre-plan baseline`() {
+    fun `fixture host quick locate result matches the pre-plan baseline`() {
         val located = requireNotNull(VersionAdapter.quickLocate(fixtureLoader))
         // 覆盖范围是计划引入的新键，不属于改动前基线。
         val actual = JSONObject(located.toJson().toString()).also { it.remove("cov") }
         assertGolden("golden/quick_locate_fixture.json", actual)
     }
 
-    @Test fun `host without any known class yields no result`() {
+    fun `host without any known class yields no result`() {
         assertNull(VersionAdapter.quickLocate(emptyLoader))
     }
 
-    @Test fun `fixture result is not trivially empty so the baseline is meaningful`() {
+    fun `fixture result is not trivially empty so the baseline is meaningful`() {
         val located = requireNotNull(VersionAdapter.quickLocate(fixtureLoader))
         assertNotNull(located.homeRecommendFeed)
         assertNotNull(located.videoRelate)
@@ -46,7 +46,7 @@ class QuickLocateCharacterizationTest {
         assertTrue(located.diagnostics.size > 40)
     }
 
-    @Test fun `normalization ignores enumeration order but not content`() {
+    fun `normalization ignores enumeration order but not content`() {
         val a = JSONObject("""{"x":[{"m":"b"},{"m":"a"}],"diag":[{"id":"i","state":"FOUND","detail":"b|a"}]}""")
         val b = JSONObject("""{"x":[{"m":"a"},{"m":"b"}],"diag":[{"id":"i","state":"FOUND","detail":"a|b"}]}""")
         val c = JSONObject("""{"x":[{"m":"a"},{"m":"c"}],"diag":[{"id":"i","state":"FOUND","detail":"a|b"}]}""")
@@ -62,13 +62,13 @@ class QuickLocateCharacterizationTest {
      * 同一份结果被判成不一致——CI 上偶发的红就是这样来的（HotSpot 不保证 getDeclaredMethods 的顺序，
      * 单独跑稳定、整套测试同进程里随类加载历史变化；ART 上顺序固定，生产不受影响）。
      */
-    @Test fun `a role prefix belongs to its list and not to whichever element comes first`() {
+    fun `a role prefix belongs to its list and not to whichever element comes first`() {
         val enumeratedOneWay = "widget=W#renamedBind(D)|W#hiddenState()|W#visibleState();header=H#bindA(int)|H#bindB(int);button=B"
         val enumeratedAnotherWay = "widget=W#hiddenState()|W#visibleState()|W#renamedBind(D);header=H#bindB(int)|H#bindA(int);button=B"
         assertEquals(detail(enumeratedOneWay), detail(enumeratedAnotherWay))
     }
 
-    @Test fun `role lists still catch a missing element a moved element or a swapped role`() {
+    fun `role lists still catch a missing element a moved element or a swapped role`() {
         val base = "widget=W#a()|W#b();header=H#c()|H#d();button=B"
         assertTrue(detail(base) != detail("widget=W#a();header=H#c()|H#d();button=B"))
         assertTrue("moved across lists", detail(base) != detail("widget=W#a()|W#b()|H#c();header=H#d();button=B"))
@@ -104,7 +104,7 @@ class QuickLocateCharacterizationTest {
         return out.append(rotate(detail.substring(last))).toString()
     }
 
-    @Test fun `every diagnostic detail of the baseline survives another enumeration order of its lists`() {
+    fun `every diagnostic detail of the baseline survives another enumeration order of its lists`() {
         val golden = JSONObject(requireNotNull(javaClass.classLoader.getResourceAsStream("golden/quick_locate_fixture.json"))
             .use { String(it.readBytes(), Charsets.UTF_8) })
         val all = details(golden)
@@ -115,7 +115,7 @@ class QuickLocateCharacterizationTest {
         all.indices.forEach { assertEquals("detail #$it", detail(all[it]), detail(rotated[it])) }
     }
 
-    @Test fun `comma separated roles keep their element association`() {
+    fun `comma separated roles keep their element association`() {
         val base = "has=M#hasQoe(),get=M#getQoe(),default=Q#getDefaultInstance()"
         assertEquals(detail(base), detail("default=Q#getDefaultInstance(),has=M#hasQoe(),get=M#getQoe()"))
         assertTrue(detail(base) != detail("has=M#getQoe(),get=M#hasQoe(),default=Q#getDefaultInstance()"))
@@ -191,5 +191,21 @@ class QuickLocateCharacterizationTest {
             is String -> JSONObject.quote(value)
             else -> value.toString()
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (QuickLocateCharacterizationTest) -> Unit) {
+            val s = QuickLocateCharacterizationTest()
+            block(s)
+        }
+        runIsolated { s -> s.`fixture host quick locate result matches the pre-plan baseline`() }
+        runIsolated { s -> s.`host without any known class yields no result`() }
+        runIsolated { s -> s.`fixture result is not trivially empty so the baseline is meaningful`() }
+        runIsolated { s -> s.`normalization ignores enumeration order but not content`() }
+        runIsolated { s -> s.`a role prefix belongs to its list and not to whichever element comes first`() }
+        runIsolated { s -> s.`role lists still catch a missing element a moved element or a swapped role`() }
+        runIsolated { s -> s.`every diagnostic detail of the baseline survives another enumeration order of its lists`() }
+        runIsolated { s -> s.`comma separated roles keep their element association`() }
     }
 }

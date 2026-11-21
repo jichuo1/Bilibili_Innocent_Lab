@@ -18,7 +18,7 @@ class GlowChromeBackdropWiringTest {
 
     private val base = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin"
 
-    @Test fun contentIsRecordedOnceAndDrawnOnceOnlyOnHardwareCanvases() {
+    fun contentIsRecordedOnceAndDrawnOnceOnlyOnHardwareCanvases() {
         val target = source("$base/engine/GlowBackdropTarget.kt")
         val draw = target.after("override fun dispatchDraw(canvas: Canvas) {").before("\n    }\n")
         // 软件画布（探针、截图）照常画，不碰内容节点。
@@ -31,7 +31,7 @@ class GlowChromeBackdropWiringTest {
         assertTrue(target.contains("RenderNode(\"BIL-GlowContent\").apply { setClipToBounds(false) }"))
     }
 
-    @Test fun chromeGlassBlursBeforeRefractingAndSamplesInNodeSpace() {
+    fun chromeGlassBlursBeforeRefractingAndSamplesInNodeSpace() {
         val chrome = source("$base/liquid/LiquidChromeBackdropApi31.kt")
         assertTrue(chrome.contains(
             "RenderEffect.createChainEffect(RenderEffect.createRuntimeShaderEffect(shader, \"content\"), blur)"))
@@ -46,7 +46,7 @@ class GlowChromeBackdropWiringTest {
         assertTrue(backend.contains("shader.applyLiquidOpticalUniforms(parameters, density)"))
     }
 
-    @Test fun nodeFailuresStayLocalAndFallBackToWindowGlass() {
+    fun nodeFailuresStayLocalAndFallBackToWindowGlass() {
         val renderer = source("$base/liquid/LiquidActivityRenderer.kt")
         // 只接管主窗口里的悬浮栏；弹窗表面仍走稳定底图的光学副本。
         assertTrue(renderer.contains(
@@ -63,7 +63,7 @@ class GlowChromeBackdropWiringTest {
         assertTrue(renderer.contains("chromeBackdropActive -> CHROME_DETAIL_SEE_THROUGH"))
     }
 
-    @Test fun chromeUnregistersBarsBeforeStoppingTheContentRecording() {
+    fun chromeUnregistersBarsBeforeStoppingTheContentRecording() {
         val chrome = source("$base/engine/GlowFloatingChrome.kt")
         val sync = chrome.after("private fun syncBackdrops(").before("\n    }\n")
         val disabled = sync.after("} else {")
@@ -82,5 +82,17 @@ class GlowChromeBackdropWiringTest {
         assertTrue(disabled.contains("setSurfaceBackdrop(companion, null)"))
         assertTrue(dispose.contains("setSurfaceBackdrop(companion, null)"))
         assertTrue(chrome.contains("if (engineChanged) clearBackdrops(lastEngine)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GlowChromeBackdropWiringTest) -> Unit) {
+            val s = GlowChromeBackdropWiringTest()
+            block(s)
+        }
+        runIsolated { s -> s.contentIsRecordedOnceAndDrawnOnceOnlyOnHardwareCanvases() }
+        runIsolated { s -> s.chromeGlassBlursBeforeRefractingAndSamplesInNodeSpace() }
+        runIsolated { s -> s.nodeFailuresStayLocalAndFallBackToWindowGlass() }
+        runIsolated { s -> s.chromeUnregistersBarsBeforeStoppingTheContentRecording() }
     }
 }

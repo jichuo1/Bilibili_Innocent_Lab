@@ -109,7 +109,7 @@ class GuestMineFollowCountTest {
     private fun adapter(type: Class<*> = State::class.java): GuestMineFollowStateAdapter? =
         GuestMineFollowStateAdapter.resolve(type, requireNotNull(GuestMineFollowStateAdapter.accountPlan(Account::class.java)))
 
-    @Test fun copyUpdatesOnlyFollowingAndLeavesOriginalObjectsUntouched() {
+    fun copyUpdatesOnlyFollowingAndLeavesOriginalObjectsUntouched() {
         val original = state()
         val result = requireNotNull(adapter()?.rewrite(original, 3)) as State
         assertNotSame(original, result)
@@ -124,7 +124,7 @@ class GuestMineFollowCountTest {
         assertSame(result, adapter()?.rewrite(result, 3))
     }
 
-    @Test fun legacyAccountCopyPreservesBothDefaultMasksAndOriginalValues() {
+    fun legacyAccountCopyPreservesBothDefaultMasksAndOriginalValues() {
         val original = LegacyAccount(4, "legacy", listOf("same"), p01 = 91, p31 = 93)
         val state = LegacyState(original, "title")
         val plan = requireNotNull(GuestMineFollowStateAdapter.accountPlan(LegacyAccount::class.java))
@@ -137,7 +137,7 @@ class GuestMineFollowCountTest {
         assertEquals(4L, original.s)
     }
 
-    @Test fun missingOrWrongStateCopiesAreSafelyIgnored() {
+    fun missingOrWrongStateCopiesAreSafelyIgnored() {
         assertNull(adapter(AmbiguousState::class.java))
         val broken = BrokenState(account(), "original")
         assertNull(adapter(BrokenState::class.java)?.rewrite(broken, 1))
@@ -169,7 +169,7 @@ class GuestMineFollowCountTest {
         }
     }
 
-    @Test fun localChangesRefreshTheTrackedStateAndPreserveConcurrentHostChanges() {
+    fun localChangesRefreshTheTrackedStateAndPreserveConcurrentHostChanges() {
         val h = Harness()
         h.source.change(1)
         assertEquals(1L, (h.flow.getValue() as State).account!!.s)
@@ -182,7 +182,7 @@ class GuestMineFollowCountTest {
         assertEquals("seen", h.statuses["guest_mine_follow_count_applied"])
     }
 
-    @Test fun incomingHostStatesAreUpdatedOnlyForTheTrackedGuestSession() {
+    fun incomingHostStatesAreUpdatedOnlyForTheTrackedGuestSession() {
         val h = Harness()
         h.source.change(1)
         val incoming = state(0, "fresh")
@@ -204,7 +204,7 @@ class GuestMineFollowCountTest {
         assertEquals(2L, (h.flow.getValue() as State).account!!.s)
     }
 
-    @Test fun unsupportedBindingIsReportedWithoutChangingTheFlow() {
+    fun unsupportedBindingIsReportedWithoutChangingTheFlow() {
         val h = Harness()
         h.flow.setValue("unexpected")
         h.registrar.invoke("guest.mine.follow_count.selected", h.fragment, arrayOf(null))
@@ -212,16 +212,32 @@ class GuestMineFollowCountTest {
         assertEquals("unexpected", h.flow.getValue())
     }
 
-    @Test fun incompatibleCopyIsReportedWithoutChangingTheHostState() {
+    fun incompatibleCopyIsReportedWithoutChangingTheHostState() {
         val original = BrokenState(account(), "original")
         val h = Harness(original)
         h.source.change(1)
         assertSame(original, h.flow.getValue())
         assertEquals("unavailable", h.statuses["guest_mine_follow_count_copy"])
     }
-    @Test fun repeatedPageBindingDoesNotRegisterTheSharedFlowHookTwice() {
+    fun repeatedPageBindingDoesNotRegisterTheSharedFlowHookTwice() {
         val h = Harness()
         h.registrar.invoke("guest.mine.follow_count.selected", h.fragment, arrayOf(null))
         assertEquals(1, h.registrar.registrationAttempts.count { it.first == h.setterId })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestMineFollowCountTest) -> Unit) {
+            val s = GuestMineFollowCountTest()
+            block(s)
+        }
+        runIsolated { s -> s.copyUpdatesOnlyFollowingAndLeavesOriginalObjectsUntouched() }
+        runIsolated { s -> s.legacyAccountCopyPreservesBothDefaultMasksAndOriginalValues() }
+        runIsolated { s -> s.missingOrWrongStateCopiesAreSafelyIgnored() }
+        runIsolated { s -> s.localChangesRefreshTheTrackedStateAndPreserveConcurrentHostChanges() }
+        runIsolated { s -> s.incomingHostStatesAreUpdatedOnlyForTheTrackedGuestSession() }
+        runIsolated { s -> s.unsupportedBindingIsReportedWithoutChangingTheFlow() }
+        runIsolated { s -> s.incompatibleCopyIsReportedWithoutChangingTheHostState() }
+        runIsolated { s -> s.repeatedPageBindingDoesNotRegisterTheSharedFlowHookTwice() }
     }
 }

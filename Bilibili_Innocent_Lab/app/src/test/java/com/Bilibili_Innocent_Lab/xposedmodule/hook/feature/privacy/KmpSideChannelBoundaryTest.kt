@@ -53,7 +53,7 @@ class KmpSideChannelBoundaryTest {
         assertEquals(2, requireNotNull(IgnetHttpBoundary(session) { ready }.prepare(env)).invoke())
     }
 
-    @Test fun ignetRequestsAreSealedBeforeTheNativeRequestIsBuilt() {
+    fun ignetRequestsAreSealedBeforeTheNativeRequestIsBuilt() {
         val h = ignet()
         val request = h.request("https://app.bilibili.com/x/resource/show/tab/v2?access_key=real&buvid=dev&a=1",
             "GET", "Authorization" to "identify_v1 real", "x-bili-mid" to "42", "Buvid" to "dev", "User-Agent" to "ua")
@@ -64,7 +64,7 @@ class KmpSideChannelBoundaryTest {
         assertEquals(1, request.executed)
     }
 
-    @Test fun reportsAndTelemetryAreWithheldWithAnIoExceptionTheHostReceives() {
+    fun reportsAndTelemetryAreWithheldWithAnIoExceptionTheHostReceives() {
         val h = ignet()
         assertEquals(HookExceptionPolicy.DELIVER_TO_HOST, h.registrar.policies["incognito.ignet.http.execute"])
         for ((url, method) in listOf("https://dataflow.biliapi.com/log/pbmobile/realtime" to "POST",
@@ -78,7 +78,7 @@ class KmpSideChannelBoundaryTest {
         assertEquals("withheld", h.statuses["incognito_transport_ignet_http"])
     }
 
-    @Test fun gameTrackerConfigurationIsAllowedButReportsNeverReachTheNativeEngine() {
+    fun gameTrackerConfigurationIsAllowedButReportsNeverReachTheNativeEngine() {
         val h = ignet()
         val config = h.request("https://line1-log.biligame.net/collector/admin/config", "POST")
         assertTrue(h.execute(config).isSuccess)
@@ -90,7 +90,7 @@ class KmpSideChannelBoundaryTest {
         assertEquals("withheld-ignet", h.statuses["incognito_game_tracker_report"])
     }
 
-    @Test fun thirdPartyMeasurementWithIdentifiersInThePathIsWithheld() {
+    fun thirdPartyMeasurementWithIdentifiersInThePathIsWithheld() {
         val h = ignet()
         val request = h.request("https://g.cn.miaozhen.com/x/k=sample&m1a=example-device-hash&m11=example-id")
         assertTrue(h.execute(request).exceptionOrNull() is IOException)
@@ -98,7 +98,7 @@ class KmpSideChannelBoundaryTest {
         assertTrue(request.closed)
         assertEquals("withheld", h.statuses["incognito_ad_measurement_ignet"])
     }
-    @Test fun unsealedOrEarlyRequestsNeverLeave() {
+    fun unsealedOrEarlyRequestsNeverLeave() {
         val h = ignet()
         val unsealed = IgHttpRequest.Builder().url("https://api.bilibili.com/x/v2/view?aid=1").build()
         assertTrue(h.execute(unsealed).exceptionOrNull() is IOException)
@@ -109,7 +109,7 @@ class KmpSideChannelBoundaryTest {
         assertEquals(0, early.executed)
     }
 
-    @Test fun kmpNeuronProducersAreDiscardedWithoutRunningUploadConditions() {
+    fun kmpNeuronProducersAreDiscardedWithoutRunningUploadConditions() {
         val h = Harness()
         requireNotNull(IncognitoTelemetryHooks(h.session).prepare(h.env)).invoke()
         val produced = h.registrar.hooks.filterKeys { it.startsWith("incognito.kneuron.") }.values.map { it.member.name }.toSet()
@@ -120,5 +120,19 @@ class KmpSideChannelBoundaryTest {
         h.registrar.invoke(id, KNeuron(), arrayOf(false, "event", emptyMap<String, String>(), { condition++; true })) { original++; null }
         assertEquals(0, original)
         assertEquals(0, condition)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KmpSideChannelBoundaryTest) -> Unit) {
+            val s = KmpSideChannelBoundaryTest()
+            block(s)
+        }
+        runIsolated { s -> s.ignetRequestsAreSealedBeforeTheNativeRequestIsBuilt() }
+        runIsolated { s -> s.reportsAndTelemetryAreWithheldWithAnIoExceptionTheHostReceives() }
+        runIsolated { s -> s.gameTrackerConfigurationIsAllowedButReportsNeverReachTheNativeEngine() }
+        runIsolated { s -> s.thirdPartyMeasurementWithIdentifiersInThePathIsWithheld() }
+        runIsolated { s -> s.unsealedOrEarlyRequestsNeverLeave() }
+        runIsolated { s -> s.kmpNeuronProducersAreDiscardedWithoutRunningUploadConditions() }
     }
 }

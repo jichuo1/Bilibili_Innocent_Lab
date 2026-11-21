@@ -8,7 +8,7 @@ import org.junit.Test
 
 /** 公开悬浮窗展示与宿主任务控制必须分离；真实焦点、状态栏和截图行为仍需设备验收。 */
 class AgentIslandWiringContractTest {
-    @Test fun overlayPermissionHasAnExplicitUserSettingsEntryAndASeparatePrivateToggle() {
+    fun overlayPermissionHasAnExplicitUserSettingsEntryAndASeparatePrivateToggle() {
         val manifest = SourceContract.read("src/main/AndroidManifest.xml")
         assertEquals(1, Regex("android.permission.SYSTEM_ALERT_WINDOW").findAll(manifest).count())
         val dialog = SourceContract.read("ui/activity/AgentDialogs.kt")
@@ -22,7 +22,7 @@ class AgentIslandWiringContractTest {
         assertTrue(preferences.contains("getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(\"island\""))
     }
 
-    @Test fun overlayUsesOneBoundedUnfocusedSecureWindowWithoutLaunchingAnotherActivity() {
+    fun overlayUsesOneBoundedUnfocusedSecureWindowWithoutLaunchingAnotherActivity() {
         val overlay = SourceContract.read("agent/ui/AgentIslandOverlay.kt")
         val layout = overlay.after("val layout = WindowManager.LayoutParams(").before("container.addView(view,")
         assertTrue(layout.contains("bounds.width, bounds.height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY"))
@@ -37,7 +37,7 @@ class AgentIslandWiringContractTest {
         assertTrue(overlay.contains("AgentIslandGeometry.panel(currentInput, anchor"))
     }
 
-    @Test fun neutralDisplayChangesReuseTheAttachedWindowAndKeepStopExplicit() {
+    fun neutralDisplayChangesReuseTheAttachedWindowAndKeepStopExplicit() {
         val overlay = SourceContract.read("agent/ui/AgentIslandOverlay.kt")
         val rebuild = overlay.after("private fun rebuild()").before("private fun safeRebuild()")
         assertTrue(rebuild.contains("val container = window as? FrameLayout ?: FrameLayout(context)"))
@@ -55,7 +55,7 @@ class AgentIslandWiringContractTest {
         assertTrue(remove.contains("if (visibleWindow.get() === window) visibleWindow.clear()"))
     }
 
-    @Test fun displayIsRemovedWhenTaskPermissionScreenOrOwnershipIsUnavailable() {
+    fun displayIsRemovedWhenTaskPermissionScreenOrOwnershipIsUnavailable() {
         val overlay = SourceContract.read("agent/ui/AgentIslandOverlay.kt")
         val apply = overlay.after("private fun apply(").before("private fun geometry(")
         assertTrue(apply.contains("!next.running"))
@@ -75,7 +75,7 @@ class AgentIslandWiringContractTest {
         assertTrue(close.contains("stopWatchingMode(opListener)"))
     }
 
-    @Test fun geometryUsesDisplayAreaInsetsWithCutoutAndWaterfallWithoutADoubleCoordinateOffset() {
+    fun geometryUsesDisplayAreaInsetsWithCutoutAndWaterfallWithoutADoubleCoordinateOffset() {
         val overlay = SourceContract.read("agent/ui/AgentIslandOverlay.kt")
         val context = overlay.after("private val context =").before("private val wm =")
         assertTrue(context.contains("getDisplay(Display.DEFAULT_DISPLAY)"))
@@ -95,7 +95,7 @@ class AgentIslandWiringContractTest {
         assertFalse(modern.contains("rootWindowInsets"))
     }
 
-    @Test fun logDialogKeepsTitleFirstAndUsesTheCommonModalPresenter() {
+    fun logDialogKeepsTitleFirstAndUsesTheCommonModalPresenter() {
         val dialog = SourceContract.read("ui/activity/AgentLogDialogs.kt")
         assertTrue(dialog.contains("installDialogElasticInteraction"))
         assertTrue(dialog.contains("createModalContainer()"))
@@ -110,7 +110,7 @@ class AgentIslandWiringContractTest {
         assertFalse(list.contains("AgentController.cancel"))
     }
 
-    @Test fun serviceDisplayLifecycleDoesNotBroadenTheExistingTaskPermissionChain() {
+    fun serviceDisplayLifecycleDoesNotBroadenTheExistingTaskPermissionChain() {
         val service = SourceContract.read("agent/AgentSessionService.kt")
         assertTrue(service.contains("AgentIslandOverlay(this)"))
         assertTrue(service.contains("island?.close(); island = null"))
@@ -130,7 +130,7 @@ class AgentIslandWiringContractTest {
         assertFalse(authorization.contains("islandAllowed"))
     }
 
-    @Test fun islandAndLogsAreNotInjectedIntoTheWindowCopiedForModelVision() {
+    fun islandAndLogsAreNotInjectedIntoTheWindowCopiedForModelVision() {
         val host = SourceContract.read("agent/host/HostAgentWindow.kt")
         assertFalse(host.contains("AgentIsland"))
         assertFalse(host.contains("AgentLogView"))
@@ -139,5 +139,21 @@ class AgentIslandWiringContractTest {
         assertTrue(takeover.contains("if (!hasFocus"))
         assertTrue(takeover.contains("MotionEvent.ACTION_DOWN"))
         assertFalse(takeover.contains("canDrawOverlays"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentIslandWiringContractTest) -> Unit) {
+            val s = AgentIslandWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.overlayPermissionHasAnExplicitUserSettingsEntryAndASeparatePrivateToggle() }
+        runIsolated { s -> s.overlayUsesOneBoundedUnfocusedSecureWindowWithoutLaunchingAnotherActivity() }
+        runIsolated { s -> s.neutralDisplayChangesReuseTheAttachedWindowAndKeepStopExplicit() }
+        runIsolated { s -> s.displayIsRemovedWhenTaskPermissionScreenOrOwnershipIsUnavailable() }
+        runIsolated { s -> s.geometryUsesDisplayAreaInsetsWithCutoutAndWaterfallWithoutADoubleCoordinateOffset() }
+        runIsolated { s -> s.logDialogKeepsTitleFirstAndUsesTheCommonModalPresenter() }
+        runIsolated { s -> s.serviceDisplayLifecycleDoesNotBroadenTheExistingTaskPermissionChain() }
+        runIsolated { s -> s.islandAndLogsAreNotInjectedIntoTheWindowCopiedForModelVision() }
     }
 }

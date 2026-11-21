@@ -22,7 +22,7 @@ class AdaptiveGlowRenderGuardTest {
         "ui/interaction/ElasticInteractionController.kt"
     )
 
-    @Test fun geometryLayerStaysFreeOfAndroidGraphics() {
+    fun geometryLayerStaysFreeOfAndroidGraphics() {
         val policy = source("ui/activity/AdaptiveGlowPolicy.kt")
         val imports = policy.lineSequence().filter { it.startsWith("import ") }.toList()
         assertTrue("纯几何层不得 import android.graphics", imports.none { it.contains("android.graphics") })
@@ -30,7 +30,7 @@ class AdaptiveGlowRenderGuardTest {
             imports.none { it.contains(".Canvas") || it.contains(".Paint") || it.contains(".Shader") })
     }
 
-    @Test fun surfacesNeverBuildAShaderOrGoOffscreen() {
+    fun surfacesNeverBuildAShaderOrGoOffscreen() {
         for (path in surfaces) {
             val text = source(path)
             assertTrue("$path 不得自建 RadialGradient（shader 只在 TouchGlowRenderer 构造）",
@@ -41,7 +41,7 @@ class AdaptiveGlowRenderGuardTest {
         }
     }
 
-    @Test fun rendererBuildsTheShaderExactlyOnceAndOutsideDraw() {
+    fun rendererBuildsTheShaderExactlyOnceAndOutsideDraw() {
         val renderer = source("ui/widget/TouchGlowRenderer.kt")
         assertEquals("shader 只准建一次", 1, Regex("RadialGradient\\(").findAll(renderer).count())
         val buildIndex = renderer.indexOf("RadialGradient(")
@@ -55,7 +55,7 @@ class AdaptiveGlowRenderGuardTest {
             !renderer.substring(drawIndex).contains("drawCircle(0f, 0f, radius, paint)"))
     }
 
-    @Test fun allThreeSurfacesShareTheSameGeometry() {
+    fun allThreeSurfacesShareTheSameGeometry() {
         assertTrue(source("ui/activity/ModernNavigationBar.kt").contains("GlowState"))
         assertTrue(source("ui/activity/LogSegmentScrubBar.kt").contains("GlowState"))
         assertTrue(source("ui/interaction/ElasticInteractionController.kt").contains("GlowState"))
@@ -71,7 +71,7 @@ class AdaptiveGlowRenderGuardTest {
      * 计入越界量（+|t|）与可触达空间（-|t|），堆积强度被弹簧振荡调制出跳变
      * （用户 2026-09-21 抓帧实证）。三处宿主同一修正。
      */
-    @Test fun touchPositionIsConvertedToTheCurrentFrame() {
+    fun touchPositionIsConvertedToTheCurrentFrame() {
         val controller = source("ui/interaction/ElasticInteractionController.kt")
         assertTrue("TouchHighlight 触点必须减去视图平移",
             controller.contains("val touchX = centerX - viewShiftX"))
@@ -85,5 +85,18 @@ class AdaptiveGlowRenderGuardTest {
             scrub.contains("val touchX = centerX - viewShiftX"))
         assertTrue("scrub 条必须把应用平移增量传给 GlowView",
             scrub.contains("viewShiftX = translationX - initialOffsetX"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptiveGlowRenderGuardTest) -> Unit) {
+            val s = AdaptiveGlowRenderGuardTest()
+            block(s)
+        }
+        runIsolated { s -> s.geometryLayerStaysFreeOfAndroidGraphics() }
+        runIsolated { s -> s.surfacesNeverBuildAShaderOrGoOffscreen() }
+        runIsolated { s -> s.rendererBuildsTheShaderExactlyOnceAndOutsideDraw() }
+        runIsolated { s -> s.allThreeSurfacesShareTheSameGeometry() }
+        runIsolated { s -> s.touchPositionIsConvertedToTheCurrentFrame() }
     }
 }

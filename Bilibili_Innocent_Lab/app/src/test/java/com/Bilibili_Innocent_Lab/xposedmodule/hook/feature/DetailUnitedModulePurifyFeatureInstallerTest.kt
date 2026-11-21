@@ -74,21 +74,21 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
 
     // ---------- 安装期 ----------
 
-    @Test fun `skips without touching the host when every subitem is off`() {
+    fun `skips without touching the host when every subitem is off`() {
         val result = DetailUnitedModulePurifyFeatureInstaller(emptySet()).install(environment())
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("detail_united_module_status" to "disabled"), statuses)
         assertTrue(evidence.isEmpty())
     }
 
-    @Test fun `skips in non main processes`() {
+    fun `skips in non main processes`() {
         val result = DetailUnitedModulePurifyFeatureInstaller(allKeys)
             .install(environment(process = "tv.danmaku.bili:web"))
         assertEquals(FeatureInstallResult.Skipped("non-main-process"), result)
         assertTrue(statuses.isEmpty())
     }
 
-    @Test fun `degrades when the class loader is missing`() {
+    fun `degrades when the class loader is missing`() {
         val env = HookEnvironment(
             processName = "tv.danmaku.bili",
             classLoader = null,
@@ -105,7 +105,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         assertTrue("detail_united_module_missing" in errors)
     }
 
-    @Test fun `degrades when the viewunite classes are absent`() {
+    fun `degrades when the viewunite classes are absent`() {
         val empty = object : ClassLoader(null) {}
         val result = DetailUnitedModulePurifyFeatureInstaller(allKeys)
             .install(environment(loader = empty))
@@ -113,7 +113,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         assertTrue("detail_united_module_missing" in errors)
     }
 
-    @Test fun `installs both routes and reports every enabled subitem`() {
+    fun `installs both routes and reports every enabled subitem`() {
         val installer = DetailUnitedModulePurifyFeatureInstaller(allKeys)
         assertEquals(policy.capabilityIds, installer.capabilityIds)
         assertEquals(
@@ -124,7 +124,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         assertEquals(policy.capabilityIds.toSet(), capabilities.map { it.first }.toSet())
     }
 
-    @Test fun `only the enabled subitems are reported as capabilities`() {
+    fun `only the enabled subitems are reported as capabilities`() {
         val installer = DetailUnitedModulePurifyFeatureInstaller(setOf(policy.HONOR.preferenceKey))
         assertEquals(listOf(policy.HONOR.capabilityId), installer.capabilityIds)
         installer.install(environment())
@@ -133,7 +133,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
 
     // ---------- 模块删除 ----------
 
-    @Test fun `removes only the modules whose type matches an enabled subitem`() {
+    fun `removes only the modules whose type matches an enabled subitem`() {
         val original = reply(
             listOf(
                 Module(ModuleType.UGC_INTRODUCTION_VALUE, "简介"),
@@ -150,7 +150,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         assertEquals(listOf("简介", "荣誉", "话题", "UP行"), modulesOf(original))
     }
 
-    @Test fun `removes every enabled module type in one copy and keeps order`() {
+    fun `removes every enabled module type in one copy and keeps order`() {
         val original = reply(
             listOf(
                 Module(ModuleType.HONOR_VALUE, "荣誉"),
@@ -166,7 +166,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 正常视频没有这些模块：不能分配副本，也不能报 APPLIED。 */
-    @Test fun `returns the same instance when nothing matches`() {
+    fun `returns the same instance when nothing matches`() {
         val original = reply(listOf(Module(ModuleType.UGC_INTRODUCTION_VALUE, "简介")))
         val result = cleaner().clean(original, environment())
         assertSame(original, result)
@@ -174,7 +174,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 只给真的删掉的子项记证据——「报了 APPLIED」必须等于「真的删掉了一个东西」。 */
-    @Test fun `evidence is reported only for the subitems actually present`() {
+    fun `evidence is reported only for the subitems actually present`() {
         val original = reply(listOf(Module(ModuleType.HONOR_VALUE, "荣誉")))
         cleaner(upVipLabel = false).clean(original, environment())
         val applied = evidence.filter { it.second == FeatureRuntimeStage.APPLIED }.map { it.first }
@@ -184,7 +184,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 评论页之类没有 introduction 的 tab 必须原样留下，不能被改写或丢弃。 */
-    @Test fun `tabs without an introduction are left untouched`() {
+    fun `tabs without an introduction are left untouched`() {
         val reply = reply(
             modules = listOf(Module(ModuleType.HONOR_VALUE, "荣誉")),
             extraTabs = listOf(TabModule("reply", null), TabModule("catalog", null))
@@ -197,25 +197,25 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         assertFalse(updated.tab.tabModuleList[1].hasIntroduction())
     }
 
-    @Test fun `a reply without a tab is passed through untouched`() {
+    fun `a reply without a tab is passed through untouched`() {
         val original = ViewReply(null, Owner("UP", null))
         assertSame(original, cleaner().clean(original, environment()))
     }
 
     /** 默认实例是进程级单例，改写它会污染整个宿主进程。 */
-    @Test fun `the default instance is never rewritten`() {
+    fun `the default instance is never rewritten`() {
         val original = ViewReply.getDefaultInstance()
         assertSame(original, cleaner().clean(original, environment()))
     }
 
-    @Test fun `a foreign payload is passed through untouched`() {
+    fun `a foreign payload is passed through untouched`() {
         val original = "not a reply"
         assertSame(original, cleaner().clean(original, environment()))
         assertTrue(evidence.isEmpty())
     }
 
     /** build 失败必须交付原响应，不能让详情页白屏。 */
-    @Test fun `fails open to the original reply when the copy cannot be built`() {
+    fun `fails open to the original reply when the copy cannot be built`() {
         val original = reply(listOf(Module(ModuleType.HONOR_VALUE, "荣誉")), failBuild = true)
         val result = cleaner(upVipLabel = false).clean(original, environment())
         assertSame(original, result)
@@ -235,7 +235,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
             ) { unmatched += it }
         )
 
-    @Test fun `removes a guidance bar whose url is a trending search jump`() {
+    fun `removes a guidance bar whose url is a trending search jump`() {
         val original = reply(
             listOf(
                 Module(ModuleType.UGC_INTRODUCTION_VALUE, "简介"),
@@ -256,7 +256,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
      *
      * 光按类型删会把用户没要求隐藏的活动条一起拿掉，所以 URL 对不上必须原样放行。
      */
-    @Test fun `an ordinary activity guidance bar is left untouched`() {
+    fun `an ordinary activity guidance bar is left untouched`() {
         val original = reply(
             listOf(Module(ModuleType.ACTIVITY_GUIDANCE_BAR_VALUE, "活动条",
                 ActivityGuidanceBar("https://www.bilibili.com/blackboard/activity.html")))
@@ -265,7 +265,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 没匹配上的引导条只记**一次** URL：留给真机确认判据，又不会每条响应刷日志。 */
-    @Test fun `the url of an unmatched guidance bar is logged exactly once`() {
+    fun `the url of an unmatched guidance bar is logged exactly once`() {
         val unmatched = mutableListOf<String>()
         val cleaner = bannerCleaner(unmatched)
         val original = reply(
@@ -284,7 +284,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
      * 这条测试和 `an ordinary activity guidance bar is left untouched` 一起
      * 界定了范围：**跳搜索的引导条都清，不跳搜索的一律不动。**
      */
-    @Test fun `guidance bars are matched by category so every from variant is covered`() {
+    fun `guidance bars are matched by category so every from variant is covered`() {
         listOf(
             "bilibili://search?from=apphotword_search_huangtiao",
             "bilibili://search?from=app_comment_topic_search",
@@ -300,14 +300,14 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 类型对上但载荷缺失（oneof 是别的分支）时也不能动。 */
-    @Test fun `a guidance bar type without a payload is left untouched`() {
+    fun `a guidance bar type without a payload is left untouched`() {
         val original = reply(listOf(Module(ModuleType.ACTIVITY_GUIDANCE_BAR_VALUE, "空载荷")))
         assertSame(original, bannerCleaner().clean(original, environment()))
     }
 
     // ---------- 视频提及（游戏推广卡）协议层总闸 ----------
 
-    @Test fun `removes the video mentions module when the game card switch is on`() {
+    fun `removes the video mentions module when the game card switch is on`() {
         val cleaner = requireNotNull(
             UnitedModuleReplyCleaner.resolve(
                 javaClass.classLoader!!,
@@ -332,7 +332,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
      * 那条路径按 `prefs.getBoolean(key, false)`（默认关）过滤；
      * 混进去会把老用户的默认行为从"开"悄悄改成"关"，是行为回退。
      */
-    @Test fun `default-on switches stay out of the default-off key list`() {
+    fun `default-on switches stay out of the default-off key list`() {
         DetailUnitedModulePurifyPolicy.defaultOnTargets.forEach { target ->
             assertFalse(
                 target.preferenceKey,
@@ -357,7 +357,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
 
     // ---------- 好物商品卡协议层总闸 ----------
 
-    @Test fun `removes the merchandise module when the goods switch is on`() {
+    fun `removes the merchandise module when the goods switch is on`() {
         val cleaner = requireNotNull(
             UnitedModuleReplyCleaner.resolve(
                 javaClass.classLoader!!,
@@ -381,7 +381,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
      *
      * 视频提及与好物是两个独立开关，用户可能只关一个。
      */
-    @Test fun `each default-on target removes only its own module type`() {
+    fun `each default-on target removes only its own module type`() {
         val modules = listOf(
             Module(ModuleType.VIDEO_MENTIONS_VALUE, "提及"),
             Module(ModuleType.MERCHANDISE_VALUE, "好物"),
@@ -408,7 +408,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
 
     // ---------- UP 会员标 ----------
 
-    @Test fun `clears the uploader vip badge without dropping the uploader row`() {
+    fun `clears the uploader vip badge without dropping the uploader row`() {
         val original = reply(vip = Vip("年度大会员"))
         val updated = cleaner(targets = emptyList()).clean(original, environment()) as ViewReply
         assertNotSame(original, updated)
@@ -419,13 +419,13 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         assertTrue(original.owner.hasVip())
     }
 
-    @Test fun `a reply whose uploader has no vip badge is passed through untouched`() {
+    fun `a reply whose uploader has no vip badge is passed through untouched`() {
         val original = reply(vip = null)
         assertSame(original, cleaner(targets = emptyList()).clean(original, environment()))
     }
 
     /** 两条链共用同一次 ViewReply 副本：一次响应最多复制一次顶层消息。 */
-    @Test fun `modules and the vip badge are written back in one reply copy`() {
+    fun `modules and the vip badge are written back in one reply copy`() {
         val original = reply(listOf(Module(ModuleType.HONOR_VALUE, "荣誉")), vip = Vip("大会员"))
         val updated = cleaner().clean(original, environment()) as ViewReply
         assertEquals(emptyList<String>(), modulesOf(updated))
@@ -438,7 +438,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     // ---------- 判据与降级 ----------
 
     /** 每条子项的枚举常量名必须真的存在；写错（比如加下划线）会静默失效。 */
-    @Test fun `every module target resolves a distinct integer type constant`() {
+    fun `every module target resolves a distinct integer type constant`() {
         val values = policy.moduleTargets.map { target ->
             val field = ModuleType::class.java.getDeclaredField(target.typeConstant)
             assertEquals(target.typeConstant, Int::class.javaPrimitiveType, field.type)
@@ -448,12 +448,12 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 话题标签的枚举名没有下划线，单独钉住，别人重构时容易顺手写成 SPECIAL_TAG_VALUE。 */
-    @Test fun `the topic tag constant is spelled without an underscore`() {
+    fun `the topic tag constant is spelled without an underscore`() {
         assertEquals("SPECIALTAG_VALUE", policy.TOPIC_TAGS.typeConstant)
     }
 
     /** 某个枚举常量在将来版本消失时，只有那一项降级，其余照常删。 */
-    @Test fun `an unknown type constant degrades only its own subitem`() {
+    fun `an unknown type constant degrades only its own subitem`() {
         val bogus = DetailUnitedModulePurifyPolicy.ModuleTarget(
             "detail_united_bogus", "bogus_key", "NO_SUCH_VALUE"
         )
@@ -468,7 +468,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 常量类型漂移（int 变别的）也必须被拒绝，不能拿一个 String 去比 int。 */
-    @Test fun `a type constant that is not an int is rejected`() {
+    fun `a type constant that is not an int is rejected`() {
         val drifted = DetailUnitedModulePurifyPolicy.ModuleTarget(
             "detail_united_drifted", "drifted_key", "NOT_AN_INT_VALUE"
         )
@@ -479,7 +479,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         )
     }
 
-    @Test fun `resolution returns null when nothing at all can be wired`() {
+    fun `resolution returns null when nothing at all can be wired`() {
         val empty = object : ClassLoader(null) {}
         assertNull(UnitedModuleReplyCleaner.resolve(empty, policy.moduleTargets, upVipLabel = true))
     }
@@ -492,7 +492,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
      * 键集合故意是重叠的（同一个用户开关驱动多层），但 capability id 必须完全不相交，
      * 否则诊断里就分不出"是哪一层真的生效了"。
      */
-    @Test fun `the three layers share preference keys but never share capability ids`() {
+    fun `the three layers share preference keys but never share capability ids`() {
         val united = policy.capabilityIds.toSet()
         val legacy = DetailModulePurifyPolicy.targets.map { it.capabilityId }.toSet() +
             DetailModulePurifyPolicy.TopicTags.CAPABILITY_ID
@@ -517,7 +517,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
      * 所以协议层这条按 `ModuleType.SPECIALTAG` 删模块的路径是主路径，
      * 谁把它删掉，这条测试会立刻拦住。
      */
-    @Test fun `the topic tag feature keeps a primary path free of obfuscated class names`() {
+    fun `the topic tag feature keeps a primary path free of obfuscated class names`() {
         val primary = policy.TOPIC_TAGS
         assertEquals(FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS, primary.preferenceKey)
         assertEquals("SPECIALTAG_VALUE", primary.typeConstant)
@@ -535,7 +535,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
         )
     }
 
-    @Test fun `every subitem is wired into both catalogs under this installer`() {
+    fun `every subitem is wired into both catalogs under this installer`() {
         (policy.moduleTargets.map { it.capabilityId to it.preferenceKey } +
             (DetailUnitedModulePurifyPolicy.UpVipLabel.CAPABILITY_ID to DetailUnitedModulePurifyPolicy.UpVipLabel.PREFERENCE_KEY)
             ).forEach { (capabilityId, preferenceKey) ->
@@ -549,7 +549,7 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
     }
 
     /** 挂点必须是 viewunite 那条，不能又挂回 view.v1——那是原来不生效的根源。 */
-    @Test fun `the policy anchors on the viewunite protocol face`() {
+    fun `the policy anchors on the viewunite protocol face`() {
         assertTrue(policy.MOSS_CLASS.startsWith("com.bapis.bilibili.app.viewunite.v1."))
         assertTrue(policy.REPLY_CLASS.startsWith("com.bapis.bilibili.app.viewunite."))
         listOf(policy.TAB_CLASS, policy.TAB_MODULE_CLASS, policy.INTRODUCTION_TAB_CLASS,
@@ -557,5 +557,49 @@ class DetailUnitedModulePurifyFeatureInstallerTest {
             assertTrue(it, it.startsWith("com.bapis.bilibili.app.viewunite."))
             assertFalse(it, it.contains(".view.v1."))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DetailUnitedModulePurifyFeatureInstallerTest) -> Unit) {
+            val s = DetailUnitedModulePurifyFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips without touching the host when every subitem is off`() }
+        runIsolated { s -> s.`skips in non main processes`() }
+        runIsolated { s -> s.`degrades when the class loader is missing`() }
+        runIsolated { s -> s.`degrades when the viewunite classes are absent`() }
+        runIsolated { s -> s.`installs both routes and reports every enabled subitem`() }
+        runIsolated { s -> s.`only the enabled subitems are reported as capabilities`() }
+        runIsolated { s -> s.`removes only the modules whose type matches an enabled subitem`() }
+        runIsolated { s -> s.`removes every enabled module type in one copy and keeps order`() }
+        runIsolated { s -> s.`returns the same instance when nothing matches`() }
+        runIsolated { s -> s.`evidence is reported only for the subitems actually present`() }
+        runIsolated { s -> s.`tabs without an introduction are left untouched`() }
+        runIsolated { s -> s.`a reply without a tab is passed through untouched`() }
+        runIsolated { s -> s.`the default instance is never rewritten`() }
+        runIsolated { s -> s.`a foreign payload is passed through untouched`() }
+        runIsolated { s -> s.`fails open to the original reply when the copy cannot be built`() }
+        runIsolated { s -> s.`removes a guidance bar whose url is a trending search jump`() }
+        runIsolated { s -> s.`an ordinary activity guidance bar is left untouched`() }
+        runIsolated { s -> s.`the url of an unmatched guidance bar is logged exactly once`() }
+        runIsolated { s -> s.`guidance bars are matched by category so every from variant is covered`() }
+        runIsolated { s -> s.`a guidance bar type without a payload is left untouched`() }
+        runIsolated { s -> s.`removes the video mentions module when the game card switch is on`() }
+        runIsolated { s -> s.`default-on switches stay out of the default-off key list`() }
+        runIsolated { s -> s.`removes the merchandise module when the goods switch is on`() }
+        runIsolated { s -> s.`each default-on target removes only its own module type`() }
+        runIsolated { s -> s.`clears the uploader vip badge without dropping the uploader row`() }
+        runIsolated { s -> s.`a reply whose uploader has no vip badge is passed through untouched`() }
+        runIsolated { s -> s.`modules and the vip badge are written back in one reply copy`() }
+        runIsolated { s -> s.`every module target resolves a distinct integer type constant`() }
+        runIsolated { s -> s.`the topic tag constant is spelled without an underscore`() }
+        runIsolated { s -> s.`an unknown type constant degrades only its own subitem`() }
+        runIsolated { s -> s.`a type constant that is not an int is rejected`() }
+        runIsolated { s -> s.`resolution returns null when nothing at all can be wired`() }
+        runIsolated { s -> s.`the three layers share preference keys but never share capability ids`() }
+        runIsolated { s -> s.`the topic tag feature keeps a primary path free of obfuscated class names`() }
+        runIsolated { s -> s.`every subitem is wired into both catalogs under this installer`() }
+        runIsolated { s -> s.`the policy anchors on the viewunite protocol face`() }
     }
 }

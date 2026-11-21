@@ -8,7 +8,7 @@ import org.junit.Test
 
 /** 纯策略不能证明 Android 监听器接线；长期所有权与单操作期限必须保持不同边界。 */
 class AgentLongTaskWiringContractTest {
-    @Test fun persistentInputAndAccessibilityListenersUseRenewableTaskOwnership() {
+    fun persistentInputAndAccessibilityListenersUseRenewableTaskOwnership() {
         val window = SourceContract.read("agent/host/HostAgentWindow.kt")
         val input = window.after("private inner class TaskCallback").before("// 此 View 注入宿主窗口")
         assertTrue(input.contains("ownedCallback.get() === this"))
@@ -22,7 +22,7 @@ class AgentLongTaskWiringContractTest {
         assertTrue(service.contains("AgentController.cancel(this, \"accessibility_disconnected\")"))
     }
 
-    @Test fun serviceLifetimeSurvivesRenewalWhileActionsAndResponsesKeepTheirOwnDeadline() {
+    fun serviceLifetimeSurvivesRenewalWhileActionsAndResponsesKeepTheirOwnDeadline() {
         val runtime = SourceContract.read("agent/host/HostAgentRuntime.kt")
         val connected = runtime.after("override fun onServiceConnected").before("override fun onServiceDisconnected")
         assertTrue(connected.contains("session.isTaskActive(lease, now())"))
@@ -36,7 +36,7 @@ class AgentLongTaskWiringContractTest {
         assertTrue(capture.contains("session.isActive(lease, now())"))
     }
 
-    @Test fun renewableExpiryReadsLatestTaskDeadlineAndOldGenerationCleanupIsScoped() {
+    fun renewableExpiryReadsLatestTaskDeadlineAndOldGenerationCleanupIsScoped() {
         val runtime = SourceContract.read("agent/host/HostAgentRuntime.kt")
         val expiry = runtime.after("private fun scheduleExpiry(").before("private fun bind(")
         assertTrue(expiry.contains("session.current(now())"))
@@ -47,5 +47,16 @@ class AgentLongTaskWiringContractTest {
         assertTrue(release.contains("it.generation == lease.generation"))
         assertTrue(release.contains("cacheGeneration == lease.generation"))
         assertTrue(release.contains("windows.releaseTask(lease)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentLongTaskWiringContractTest) -> Unit) {
+            val s = AgentLongTaskWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.persistentInputAndAccessibilityListenersUseRenewableTaskOwnership() }
+        runIsolated { s -> s.serviceLifetimeSurvivesRenewalWhileActionsAndResponsesKeepTheirOwnDeadline() }
+        runIsolated { s -> s.renewableExpiryReadsLatestTaskDeadlineAndOldGenerationCleanupIsScoped() }
     }
 }

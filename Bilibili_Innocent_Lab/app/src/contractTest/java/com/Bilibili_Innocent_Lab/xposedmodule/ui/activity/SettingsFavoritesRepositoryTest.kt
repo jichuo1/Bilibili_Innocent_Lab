@@ -14,7 +14,7 @@ class SettingsFavoritesRepositoryTest {
         fun next() = pending.removeFirst().run()
     }
 
-    @Test fun queuedAddRemoveAndMoveFinishBeforeRecreatedReadIncludingSaveFailure() {
+    fun queuedAddRemoveAndMoveFinishBeforeRecreatedReadIncludingSaveFailure() {
         data class Case(
             val name: String,
             val change: (SettingsFavoritesState) -> SettingsFavoritesState,
@@ -71,7 +71,7 @@ class SettingsFavoritesRepositoryTest {
         }
     }
 
-    @Test fun multipleRecreatedReadersCannotOvertakeAnEarlierMutation() {
+    fun multipleRecreatedReadersCannotOvertakeAnEarlierMutation() {
         val executor = ControlledExecutor()
         val queue = SettingsFavoritesTaskQueue(executor)
         var version = 0
@@ -85,7 +85,7 @@ class SettingsFavoritesRepositoryTest {
         assertTrue(executor.pending.isEmpty())
     }
 
-    @Test fun failedTaskDoesNotStrandTheNextRead() {
+    fun failedTaskDoesNotStrandTheNextRead() {
         val executor = ControlledExecutor()
         val queue = SettingsFavoritesTaskQueue(executor)
         var read = false
@@ -96,7 +96,7 @@ class SettingsFavoritesRepositoryTest {
         assertTrue(read)
     }
 
-    @Test fun repositoryQueuesApplicationContextAndOperationDataWithWeakUiDelivery() {
+    fun repositoryQueuesApplicationContextAndOperationDataWithWeakUiDelivery() {
         val repository = SettingsUiSource.file("SettingsFavoritesRepository")
         val presenter = SettingsUiSource.file("SettingsHomePresenter")
         val dialog = SettingsUiSource.function("showSettingsFavoritesDialog")
@@ -111,7 +111,7 @@ class SettingsFavoritesRepositoryTest {
         assertTrue(presenter.contains("if (disposed || activity.isFinishing || activity.isDestroyed) return"))
     }
 
-    @Test fun userGesturesCancelPendingRestoreAndStretchWaitsForHorizontalSettling() {
+    fun userGesturesCancelPendingRestoreAndStretchWaitsForHorizontalSettling() {
         val presenter = SettingsUiSource.file("SettingsHomePresenter")
         val scroll = SettingsUiSource.file("SettingsHomeScrollView")
         assertTrue(presenter.contains("pager.selectedPage == index && pager.isSettled"))
@@ -127,5 +127,18 @@ class SettingsFavoritesRepositoryTest {
         assertTrue(move.contains("dy > slop && dy > dx * 1.2f"))
         assertTrue(move.contains("onUserScroll()"))
         assertTrue(scroll.contains("return super.dispatchTouchEvent(event)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsFavoritesRepositoryTest) -> Unit) {
+            val s = SettingsFavoritesRepositoryTest()
+            block(s)
+        }
+        runIsolated { s -> s.queuedAddRemoveAndMoveFinishBeforeRecreatedReadIncludingSaveFailure() }
+        runIsolated { s -> s.multipleRecreatedReadersCannotOvertakeAnEarlierMutation() }
+        runIsolated { s -> s.failedTaskDoesNotStrandTheNextRead() }
+        runIsolated { s -> s.repositoryQueuesApplicationContextAndOperationDataWithWeakUiDelivery() }
+        runIsolated { s -> s.userGesturesCancelPendingRestoreAndStretchWaitsForHorizontalSettling() }
     }
 }

@@ -17,7 +17,7 @@ class HostLayerCopyOrderContractTest {
         .after("is LayerDrawable -> {\n                if (!nativeContainers")
         .before("is GradientDrawable -> {\n                // 宿主的纯色矩形入口")
 
-    @Test fun planIsComputedOnTheOriginalBeforeAnyCopy() {
+    fun planIsComputedOnTheOriginalBeforeAnyCopy() {
         val branch = layerBranch()
         assertEquals(1, Regex("""newDrawable\(\)""").findAll(branch).count())
         assertTrue(branch.indexOf("HostLayerNeutralPlan.of(") in 0 until branch.indexOf("newDrawable()"))
@@ -25,7 +25,7 @@ class HostLayerCopyOrderContractTest {
         assertTrue(branch.indexOf("} ?: return") in 0 until branch.indexOf("newDrawable()"))
     }
 
-    @Test fun copyBranchNoLongerReadsLayerGeometryDirectly() {
+    fun copyBranchNoLongerReadsLayerGeometryDirectly() {
         val branch = layerBranch()
         for (read in listOf("getLayerHeight", "getLayerWidth", "getLayerInset", "numberOfLayers")) {
             assertFalse("复制分支不应再自行读取 $read", branch.contains(read))
@@ -34,10 +34,21 @@ class HostLayerCopyOrderContractTest {
         assertTrue(branch.contains("view.background = copy"))
     }
 
-    @Test fun planningViewDoesNotRetainTheHostDrawable() {
+    fun planningViewDoesNotRetainTheHostDrawable() {
         val source = SourceContract.read("hook/hostui/background/HostBackgroundPages.kt")
         val branch = layerBranch()
         assertTrue(branch.contains("finally { reads.release() }"))
         assertTrue(source.after("fun release()").before("private fun layers()").contains("layers = null"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostLayerCopyOrderContractTest) -> Unit) {
+            val s = HostLayerCopyOrderContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.planIsComputedOnTheOriginalBeforeAnyCopy() }
+        runIsolated { s -> s.copyBranchNoLongerReadsLayerGeometryDirectly() }
+        runIsolated { s -> s.planningViewDoesNotRetainTheHostDrawable() }
     }
 }

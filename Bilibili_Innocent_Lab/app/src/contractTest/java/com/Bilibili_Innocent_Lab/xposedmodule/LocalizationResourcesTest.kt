@@ -16,7 +16,6 @@ class LocalizationResourcesTest {
             ?: error("Unable to locate app/src/main/res from ${File(".").absolutePath}")
     }
 
-    @Test
     fun `all released locales have the same string keys and placeholders`() {
         val base = readStrings(File(resRoot, "values/strings.xml"))
         val translations = listOf(
@@ -38,7 +37,6 @@ class LocalizationResourcesTest {
         }
     }
 
-    @Test
     fun `guest browsing copy states the restart boundary in every locale`() {
         val restart = mapOf(
             "values" to "Restart Bilibili to apply.",
@@ -61,14 +59,12 @@ class LocalizationResourcesTest {
             .forEach { assertTrue(it, incognito.contains(it)) }
     }
 
-    @Test
     fun `default English resources do not contain Han characters`() {
         val base = readStrings(File(resRoot, "values/strings.xml"))
         val unexpected = base.filterValues { HAN_REGEX.containsMatchIn(it) }.keys
         assertTrue("Default English strings contain Han characters: $unexpected", unexpected.isEmpty())
     }
 
-    @Test
     fun `locale config exposes only complete released locales`() {
         val file = File(resRoot, "xml/locales_config.xml")
         assertTrue("Missing locale config: $file", file.isFile)
@@ -84,7 +80,6 @@ class LocalizationResourcesTest {
         assertEquals(setOf("en", "zh-CN", "zh-Hant"), locales)
     }
 
-    @Test
     fun `user terms ui and body are complete in every released locale`() {
         val locales = mapOf(
             "en" to File(resRoot, "values/strings.xml"),
@@ -112,7 +107,6 @@ class LocalizationResourcesTest {
         }
     }
 
-    @Test
     fun `simplified Chinese terms preserve maintainer supplied core notice`() {
         val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
         val body = strings.getValue(USER_TERMS_BODY).replace("\\n", "\n")
@@ -124,7 +118,6 @@ class LocalizationResourcesTest {
         assertEquals("我已阅读完毕并知情同意", strings.getValue("user_terms_accept"))
     }
 
-    @Test
     fun `telemetry benefit copy preserves voluntary choice and the current control path`() {
         val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
         listOf(USER_TERMS_BODY, "telemetry_info_body").forEach { key ->
@@ -137,7 +130,6 @@ class LocalizationResourcesTest {
             "项目与更新 → 匿名适配遥测 → 遥测说明与用户控制"))
     }
 
-    @Test
     fun `Chinese telemetry summary uses full width parentheses while English keeps Latin punctuation`() {
         for (locale in listOf("values-zh-rCN", "values-b+zh+Hant")) {
             val label = readStrings(File(resRoot, "$locale/strings.xml")).getValue("telemetry_enabled_summary")
@@ -243,5 +235,21 @@ class LocalizationResourcesTest {
             "附加免责声明与风险提示详见：$PROJECT_URL",
             "请确保阅读完毕摘要内容和完整附加内容，而后决定。"
         ).joinToString("\n\n")
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LocalizationResourcesTest) -> Unit) {
+            val s = LocalizationResourcesTest()
+            block(s)
+        }
+        runIsolated { s -> s.`all released locales have the same string keys and placeholders`() }
+        runIsolated { s -> s.`guest browsing copy states the restart boundary in every locale`() }
+        runIsolated { s -> s.`default English resources do not contain Han characters`() }
+        runIsolated { s -> s.`locale config exposes only complete released locales`() }
+        runIsolated { s -> s.`user terms ui and body are complete in every released locale`() }
+        runIsolated { s -> s.`simplified Chinese terms preserve maintainer supplied core notice`() }
+        runIsolated { s -> s.`telemetry benefit copy preserves voluntary choice and the current control path`() }
+        runIsolated { s -> s.`Chinese telemetry summary uses full width parentheses while English keeps Latin punctuation`() }
     }
 }

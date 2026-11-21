@@ -9,7 +9,7 @@ import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
 class DiagnosticReportCodecTest {
-    @Test fun `query failures round trip as bounded reasons without changing host evidence`() {
+    fun `query failures round trip as bounded reasons without changing host evidence`() {
         com.Bilibili_Innocent_Lab.xposedmodule.runtime.ReceiptQueryFailure.entries.forEach { reason ->
             val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs().copy(hostQueryFailure = reason)))
             DiagnosticReportCodec.validate(bytes)
@@ -21,7 +21,6 @@ class DiagnosticReportCodecTest {
         assertTrue(runCatching { DiagnosticReportCodec.validate(json.toString().toByteArray(StandardCharsets.UTF_8)) }.isFailure)
     }
 
-    @Test
     fun `LSPatch display states retain compatible bounded activation wire values`() {
         val expected = mapOf(
             ActivationDisplayState.ACTIVE_LSPATCH to DiagnosticActivationState.ACTIVE_LSPOSED,
@@ -40,7 +39,6 @@ class DiagnosticReportCodecTest {
         }
     }
 
-    @Test
     fun `format four separates framework build commit acknowledgement and host receipt`() {
         val state = inputs().copy(
             frameworkName = "Vector", frameworkVersion = "2.2 (3110) c4a701aa",
@@ -63,7 +61,6 @@ class DiagnosticReportCodecTest {
         assertFalse(json.getJSONObject("framework").has("moduleUserId"))
     }
 
-    @Test
     fun `unavailable metadata stays null and unbounded failures are not exported`() {
         val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs().copy(
             frameworkFailureCode = "exception with a private path"
@@ -76,7 +73,6 @@ class DiagnosticReportCodecTest {
         assertFalse(bytes.toString(StandardCharsets.UTF_8).contains("private path"))
     }
 
-    @Test(expected = IllegalArgumentException::class)
     fun `unknown verification claims are rejected`() {
         val bytes = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs()))
         val json = JSONObject(bytes.toString(StandardCharsets.UTF_8))
@@ -84,7 +80,6 @@ class DiagnosticReportCodecTest {
         DiagnosticReportCodec.validate(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
-    @Test
     fun `encoded report validates and declares its privacy exclusions`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -117,7 +112,6 @@ class DiagnosticReportCodecTest {
         assertTrue(text.contains("installedHookCount"))
     }
 
-    @Test
     fun `report schema never contains user values paths logs or exception details`() {
         val text = DiagnosticReportCodec.encode(
             ModuleHealthEvaluator.evaluate(
@@ -144,8 +138,23 @@ class DiagnosticReportCodecTest {
         assertFalse(text.contains("IllegalStateException"))
     }
 
-    @Test(expected = IllegalArgumentException::class)
     fun `oversized report is rejected before parsing`() {
         DiagnosticReportCodec.validate(ByteArray(DiagnosticReportCodec.MAX_FILE_BYTES + 1))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DiagnosticReportCodecTest) -> Unit) {
+            val s = DiagnosticReportCodecTest()
+            block(s)
+        }
+        runIsolated { s -> s.`query failures round trip as bounded reasons without changing host evidence`() }
+        runIsolated { s -> s.`LSPatch display states retain compatible bounded activation wire values`() }
+        runIsolated { s -> s.`format four separates framework build commit acknowledgement and host receipt`() }
+        runIsolated { s -> s.`unavailable metadata stays null and unbounded failures are not exported`() }
+        runIsolated { s -> try { s.`unknown verification claims are rejected`(); org.junit.Assert.fail("Expected IllegalArgumentException") } catch (_: IllegalArgumentException) {} }
+        runIsolated { s -> s.`encoded report validates and declares its privacy exclusions`() }
+        runIsolated { s -> s.`report schema never contains user values paths logs or exception details`() }
+        runIsolated { s -> try { s.`oversized report is rejected before parsing`(); org.junit.Assert.fail("Expected IllegalArgumentException") } catch (_: IllegalArgumentException) {} }
     }
 }

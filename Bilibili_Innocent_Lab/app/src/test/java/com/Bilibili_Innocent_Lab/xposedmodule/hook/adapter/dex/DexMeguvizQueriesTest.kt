@@ -13,7 +13,7 @@ import org.junit.Test
  * 多规则型（PLAYER_SPEED_MENU/STORY_QUALITY_DEFAULT/COMMENT_REPLY_MAPPER）不得退化成单条空规则。
  */
 class DexMeguvizQueriesTest {
-    @Test fun `every query produces bounded rules with a non-empty where condition`() {
+    fun `every query produces bounded rules with a non-empty where condition`() {
         for (query in DexAssistQuery.entries) {
             val rules = DexMeguvizQueries.rules(query)
             assertTrue("$query must produce at least one rule", rules.isNotEmpty())
@@ -30,7 +30,7 @@ class DexMeguvizQueriesTest {
         assertEquals("catalog size is pinned so additions update this guard deliberately", 36, DexAssistQuery.entries.size)
     }
 
-    @Test fun `multi-rule queries keep their fan-out rules`() {
+    fun `multi-rule queries keep their fan-out rules`() {
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.PLAYER_SPEED_MENU).size > 1)
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.STORY_QUALITY_DEFAULT).size > 1)
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.COMMENT_REPLY_MAPPER).size > 1)
@@ -38,7 +38,7 @@ class DexMeguvizQueriesTest {
         assertEquals(2, DexMeguvizQueries.rules(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS).size)
     }
 
-    @Test fun `owner member and declaration rules address exact descriptors`() {
+    fun `owner member and declaration rules address exact descriptors`() {
         val member = JSONObject(DexMeguvizQueries.ownerMembers("Lcom/example/Owner;").toString(Charsets.UTF_8))
         assertEquals("Lcom/example/Owner;", member.getJSONObject("where").getString("owner"))
         val declaration = JSONObject(
@@ -47,5 +47,16 @@ class DexMeguvizQueriesTest {
         assertEquals("Lcom/example/Owner;", declaration.getString("owner"))
         assertEquals("run", declaration.getString("name"))
         assertEquals("(I)V", declaration.getString("prototype"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DexMeguvizQueriesTest) -> Unit) {
+            val s = DexMeguvizQueriesTest()
+            block(s)
+        }
+        runIsolated { s -> s.`every query produces bounded rules with a non-empty where condition`() }
+        runIsolated { s -> s.`multi-rule queries keep their fan-out rules`() }
+        runIsolated { s -> s.`owner member and declaration rules address exact descriptors`() }
     }
 }

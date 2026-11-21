@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ModalTitleDescriptionTest {
-    @Test fun descriptionsFadeContinuouslyAndAreAlreadyVisibleBeforeFinalRelease() {
+    fun descriptionsFadeContinuouslyAndAreAlreadyVisibleBeforeFinalRelease() {
         assertEquals(1f, ModalTitleMotionSpec.descriptionWeight(0f), 0f)
         assertEquals(.5f, ModalTitleMotionSpec.descriptionWeight(.15f), .000001f)
         assertEquals(0f, ModalTitleMotionSpec.descriptionWeight(.3f), 0f)
@@ -20,7 +20,7 @@ class ModalTitleDescriptionTest {
         assertEquals(1f, ModalTitleMotionSpec.descriptionWeight(Float.NaN), 0f)
     }
 
-    @Test fun descriptionsStayAboveTheMorphAndMergedRowsNeverRedrawTheTitle() {
+    fun descriptionsStayAboveTheMorphAndMergedRowsNeverRedrawTheTitle() {
         val code = SettingsUiSource.file("ModalTitleDescriptions")
         assertFalse(code.contains("source.overlay"))
         assertTrue(code.contains("Block(source, 1,"))
@@ -36,7 +36,7 @@ class ModalTitleDescriptionTest {
         }
     }
 
-    @Test fun closeRestoresDescriptionsBeforeHandingBackTheNativeText() {
+    fun closeRestoresDescriptionsBeforeHandingBackTheNativeText() {
         val source = SettingsUiSource.file("ModalTitleMotion")
         val closed = SettingsUiSource.functions(source, "closed").single()
         assertTrue(closed.indexOf("descriptions.apply(0f)") < closed.indexOf("descriptions.dispose()"))
@@ -46,7 +46,7 @@ class ModalTitleDescriptionTest {
         assertFalse(expanded.contains("restoreSourceText()"))
     }
 
-    @Test fun returningTitleWaitsForTheSourceWindowFrameBeforeDialogRemoval() {
+    fun returningTitleWaitsForTheSourceWindowFrameBeforeDialogRemoval() {
         val source = SettingsUiSource.file("ModalTitleMotion")
         val finish = SettingsUiSource.functions(source, "finishAfterSourceDraw").single()
         assertTrue(finish.contains("registerFrameCommitCallback"))
@@ -59,7 +59,7 @@ class ModalTitleDescriptionTest {
         assertTrue(descriptions.contains("windowX - rootLocation[0], windowY - rootLocation[1]"))
     }
 
-    @Test fun sourceTextIsNotBorrowedBeforeTheDialogHasItsFirstFrame() {
+    fun sourceTextIsNotBorrowedBeforeTheDialogHasItsFirstFrame() {
         val controller = SettingsUiSource.file("IconAnchoredMotionController")
         assertFalse(SettingsUiSource.functions(controller, "prepareFirstFrame").single().contains("titleMotion?.prepare"))
         val entry = SettingsUiSource.functions(controller, "startEntry").single()
@@ -71,7 +71,7 @@ class ModalTitleDescriptionTest {
         assertTrue(draw.contains("descriptions.hideNative()"))
     }
 
-    @Test fun overlappingPanelsCannotRevealADescriptionStillHeldByAnotherPanel() {
+    fun overlappingPanelsCannotRevealADescriptionStillHeldByAnotherPanel() {
         val owners = ModalTitleColorOwners<Any, Float>()
         val view = Any(); val old = Any(); val next = Any()
         owners.acquire(view, old, .72f)
@@ -82,5 +82,19 @@ class ModalTitleDescriptionTest {
         assertEquals(.5f, owners.weight(view), 0f)
         assertEquals(.72f, owners.release(view, next)!!, 0f)
         assertEquals(1f, owners.weight(view), 0f)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalTitleDescriptionTest) -> Unit) {
+            val s = ModalTitleDescriptionTest()
+            block(s)
+        }
+        runIsolated { s -> s.descriptionsFadeContinuouslyAndAreAlreadyVisibleBeforeFinalRelease() }
+        runIsolated { s -> s.descriptionsStayAboveTheMorphAndMergedRowsNeverRedrawTheTitle() }
+        runIsolated { s -> s.closeRestoresDescriptionsBeforeHandingBackTheNativeText() }
+        runIsolated { s -> s.returningTitleWaitsForTheSourceWindowFrameBeforeDialogRemoval() }
+        runIsolated { s -> s.sourceTextIsNotBorrowedBeforeTheDialogHasItsFirstFrame() }
+        runIsolated { s -> s.overlappingPanelsCannotRevealADescriptionStillHeldByAnotherPanel() }
     }
 }

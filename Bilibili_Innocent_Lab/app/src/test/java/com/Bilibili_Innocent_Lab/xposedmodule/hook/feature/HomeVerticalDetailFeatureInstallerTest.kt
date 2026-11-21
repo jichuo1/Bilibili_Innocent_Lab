@@ -10,14 +10,12 @@ import org.junit.Test
 
 class HomeVerticalDetailFeatureInstallerTest {
 
-    @Test
     fun `layer status compares only the installed layers with the expected landings`() {
         assertEquals("success", HomeVerticalDetailFeatureInstaller.layerStatus(5, 5))
         assertEquals("partial:4/5", HomeVerticalDetailFeatureInstaller.layerStatus(4, 5))
         assertEquals("success", HomeVerticalDetailFeatureInstaller.layerStatus(0, 0))
     }
 
-    @Test
     fun `rewrites only a valid story route and preserves query`() {
         assertEquals(
             "bilibili://video/BV1xx411c7mD?from=feed#page",
@@ -43,7 +41,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `normalizes every identified video route but preserves story roots and conflicts`() {
         assertEquals(
             "bilibili://video/123456789?aid=123456789&from=search#page",
@@ -81,7 +78,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `fails closed when the unit android jar exposes no activity launch hook`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val environment = HookEnvironment(
@@ -111,7 +107,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `builds complete united launch contract only for numeric story with cid`() {
         val plan = planOf(
             HomeVerticalActivityLaunchSnapshot(
@@ -135,7 +130,6 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     /** 每条放行都必须给出可归因的有界原因，不允许静默返回。 */
-    @Test
     fun `reports a bounded reason for every united skip`() {
         assertEquals(
             HomeVerticalLaunchSkip.MISSING_PRELOAD_CID,
@@ -204,7 +198,6 @@ class HomeVerticalDetailFeatureInstallerTest {
      * 又改写成"再开一个详情页"。两种启动形态（共享 / 不共享播放器）的 extras 都带
      * `from_spmid = united.player-video-detail.0.0`，所以判据只认来源埋点。
      */
-    @Test
     fun `lets the detail page vertical switch button reach the story page`() {
         val detailSpmid = "united.player-video-detail.0.0"
         // 详情页发起的 Story 启动带 avid/cid extra；身份与 cid 都齐全，旧实现会照改写。
@@ -242,7 +235,6 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     /** 放行只针对详情页播放器这一个来源；首页卡片、搜索、动态等入口的替换一律不受影响。 */
-    @Test
     fun `keeps replacing story launches from every other origin`() {
         val base = HomeVerticalActivityLaunchSnapshot(
             dataUri = "bilibili://story/123456789",
@@ -279,7 +271,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         }
     }
 
-    @Test
     fun `detail page origin predicate is an exact match not a prefix`() {
         assertTrue(HomeVerticalDetailRoutePolicy.isDetailPageVerticalSwitch("united.player-video-detail.0.0"))
         assertFalse(HomeVerticalDetailRoutePolicy.isDetailPageVerticalSwitch(null))
@@ -305,7 +296,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         fun attachBaseContext(base: android.content.Context?) = Unit
     }
 
-    @Test
     fun `legacy backend needs its own onCreate while united does not`() {
         assertTrue(HomeVerticalDetailBackend.LEGACY.requiresOnCreate)
         assertFalse(HomeVerticalDetailBackend.UNITED.requiresOnCreate)
@@ -316,7 +306,6 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     /** 宿主同时注册了 story_translucent；它与 story 的身份契约一致，不应整条放行。 */
-    @Test
     fun `handles story translucent on both backends`() {
         val legacy = planOf(
             HomeVerticalActivityLaunchSnapshot(
@@ -338,7 +327,6 @@ class HomeVerticalDetailFeatureInstallerTest {
     }
 
     /** 宿主注册了裸 bilibili://story；身份来自查询串或 Intent 结构化字段时同样要接管。 */
-    @Test
     fun `recovers identity from query string and intent extras without a path token`() {
         val fromQuery = planOf(
             HomeVerticalActivityLaunchSnapshot(
@@ -376,7 +364,6 @@ class HomeVerticalDetailFeatureInstallerTest {
      * DASH manifest。旧上限 4096/8192 会把每一条带预加载的 URI 整条丢弃，且因为拒绝发生在
      * 静默的入口门禁上，失败连日志都没有。
      */
-    @Test
     fun `handles a real world story uri with an inlined dash manifest`() {
         val dashPadding = "%22base_url%22%3A%22https%3A%2F%2Fupos-sz-mirrorcos.bilivideo.com" +
             "%2Fupgcxcode%2F90%2F37%2F41429503790%2F41429503790-1-100022.m4s%22%2C"
@@ -412,7 +399,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `falls back to legacy detail activity contract without united cid`() {
         val plan = planOf(
             HomeVerticalActivityLaunchSnapshot(
@@ -425,7 +411,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         assertEquals("bilibili://video/BV1xx411c7mD?from=feed", plan.detailUri)
     }
 
-    @Test
     fun `parses bounded preload cid and only sanitizes forced story hints`() {
         assertEquals(
             987654321L,
@@ -448,7 +433,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `mutates annotated concrete fields behind abstract getters and clears uri cache`() {
         val card = AnnotatedCard(
             cardGoto = "vertical_av",
@@ -469,7 +453,6 @@ class HomeVerticalDetailFeatureInstallerTest {
         assertEquals("bilibili://video/BV1xx411c7mD", card.getUri())
     }
 
-    @Test
     fun `rolls back earlier route writes when a later writer fails`() {
         val card = ThrowingUriCard()
         val snapshot = card.snapshot()
@@ -573,5 +556,30 @@ class HomeVerticalDetailFeatureInstallerTest {
         fun setUri(value: String) {
             error("simulated host setter failure")
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeVerticalDetailFeatureInstallerTest) -> Unit) {
+            val s = HomeVerticalDetailFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`layer status compares only the installed layers with the expected landings`() }
+        runIsolated { s -> s.`rewrites only a valid story route and preserves query`() }
+        runIsolated { s -> s.`normalizes every identified video route but preserves story roots and conflicts`() }
+        runIsolated { s -> s.`fails closed when the unit android jar exposes no activity launch hook`() }
+        runIsolated { s -> s.`builds complete united launch contract only for numeric story with cid`() }
+        runIsolated { s -> s.`reports a bounded reason for every united skip`() }
+        runIsolated { s -> s.`lets the detail page vertical switch button reach the story page`() }
+        runIsolated { s -> s.`keeps replacing story launches from every other origin`() }
+        runIsolated { s -> s.`detail page origin predicate is an exact match not a prefix`() }
+        runIsolated { s -> s.`legacy backend needs its own onCreate while united does not`() }
+        runIsolated { s -> s.`handles story translucent on both backends`() }
+        runIsolated { s -> s.`recovers identity from query string and intent extras without a path token`() }
+        runIsolated { s -> s.`handles a real world story uri with an inlined dash manifest`() }
+        runIsolated { s -> s.`falls back to legacy detail activity contract without united cid`() }
+        runIsolated { s -> s.`parses bounded preload cid and only sanitizes forced story hints`() }
+        runIsolated { s -> s.`mutates annotated concrete fields behind abstract getters and clears uri cache`() }
+        runIsolated { s -> s.`rolls back earlier route writes when a later writer fails`() }
     }
 }

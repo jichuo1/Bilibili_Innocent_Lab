@@ -12,7 +12,7 @@ import org.junit.Test
 class PrivacyHostGuardContractTest {
     private fun read(file: String) = SourceContract.read("hook/feature/privacy/$file")
 
-    @Test fun schedulersRunInsideTheGuard() {
+    fun schedulersRunInsideTheGuard() {
         val threads = read("PrivacyHostThreads.kt")
         assertTrue(threads.contains("HostThreadGuard.run(key) { super.dispatchMessage(msg) }"))
         assertTrue(threads.contains("HostThreadGuard.run(key) { task.run() }"))
@@ -30,7 +30,7 @@ class PrivacyHostGuardContractTest {
         }
     }
 
-    @Test fun hostViewEntriesAreGuarded() {
+    fun hostViewEntriesAreGuarded() {
         mapOf(
             "GuestLibraryHostHooks.kt" to listOf("guest.mine.avatar.click", "guest.mine.sign_in.click"),
             "GuestFollowListPage.kt" to listOf("guest.follow_list.row.click"),
@@ -53,7 +53,7 @@ class PrivacyHostGuardContractTest {
             read("GuestNativeHistoryHooks.kt").contains("HostThreadGuard.call(\"guest.history.banner.predraw\", true)"))
     }
 
-    @Test fun hostCalledProxiesReturnTypedDefaults() {
+    fun hostCalledProxiesReturnTypedDefaults() {
         listOf("GuestHostFavoriteSnackbar.kt", "GuestNativeListHttpHooks.kt", "GuestNativeFollowGroupMenu.kt")
             .forEach { file ->
                 val source = read(file)
@@ -62,5 +62,16 @@ class PrivacyHostGuardContractTest {
                 assertFalse(file, source.contains("return@newProxyInstance null"))
             }
         assertTrue(read("IncognitoNetworkHooks.kt").contains("else -> hostProxyDefaultValue(m.returnType)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PrivacyHostGuardContractTest) -> Unit) {
+            val s = PrivacyHostGuardContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.schedulersRunInsideTheGuard() }
+        runIsolated { s -> s.hostViewEntriesAreGuarded() }
+        runIsolated { s -> s.hostCalledProxiesReturnTypedDefaults() }
     }
 }

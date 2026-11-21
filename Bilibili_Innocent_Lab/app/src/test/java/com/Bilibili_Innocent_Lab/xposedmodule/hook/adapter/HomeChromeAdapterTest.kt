@@ -11,13 +11,13 @@ class HomeChromeAdapterTest {
     private val top = HookPoint("tv.danmaku.bili.khome.widget.topbar.Renamed", "render",
         listOf("model.HomeState", "androidx.compose.ui.Modifier", "androidx.compose.runtime.Composer", "int"))
 
-    @Test fun cacheRoundTripRetainsCompleteDescriptorsWithoutEncodingRuntimeInstances() {
+    fun cacheRoundTripRetainsCompleteDescriptorsWithoutEncodingRuntimeInstances() {
         val points = mapOf("top" to top)
         assertEquals(points, HomeChromeAdapter.fromJson(HomeChromeAdapter.toJson(points)))
         assertEquals(emptyMap<String, HookPoint>(), HomeChromeAdapter.fromJson(JSONObject()))
     }
 
-    @Test fun cacheCannotAddOtherPagesOrAnUnverifiedFieldBoundary() {
+    fun cacheCannotAddOtherPagesOrAnUnverifiedFieldBoundary() {
         assertNull(HomeChromeAdapter.fromJson(JSONObject().put("player", top.toJson())))
         assertNull(HomeChromeAdapter.fromJson(JSONObject().put("top", top.copy(className = "java.lang.String").toJson())))
         assertNull(HomeChromeAdapter.fromJson(JSONObject().put("top", top.copy(viewField = "root").toJson())))
@@ -26,7 +26,7 @@ class HomeChromeAdapterTest {
         assertFalse(HomeChromeAdapter.validCache(mapOf("top" to top.copy(paramClassNames = listOf("")))))
     }
 
-    @Test fun disabledChromeDoesNotLoadHostClassesOrPlanNativeWork() {
+    fun disabledChromeDoesNotLoadHostClassesOrPlanNativeWork() {
         val trap = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> = error("disabled feature loaded $name")
         }
@@ -36,20 +36,20 @@ class HomeChromeAdapterTest {
         assertFalse(HomeChromeAdapter.semanticsNeedsQuery(trap, null, true, true, true))
     }
 
-    @Test fun failedOrUnfinishedDexPreparationNeverBecomesPermanentNegativeCache() {
+    fun failedOrUnfinishedDexPreparationNeverBecomesPermanentNegativeCache() {
         assertFalse(HomeChromeAdapter.conclusive(null))
         DexAssistResult.Reason.entries.filterNot { it in setOf(
             DexAssistResult.Reason.NO_MATCH, DexAssistResult.Reason.TOO_MANY_MATCHES)
         }.forEach { reason -> assertFalse(reason.name, HomeChromeAdapter.conclusive(DexAssistResult.Unavailable(reason))) }
     }
 
-    @Test fun completedAbsenceAndAmbiguityAreConclusiveWithoutInventingAHook() {
+    fun completedAbsenceAndAmbiguityAreConclusiveWithoutInventingAHook() {
         assertTrue(HomeChromeAdapter.conclusive(DexAssistResult.Candidates(emptyList())))
         assertTrue(HomeChromeAdapter.conclusive(DexAssistResult.Unavailable(DexAssistResult.Reason.NO_MATCH)))
         assertTrue(HomeChromeAdapter.conclusive(DexAssistResult.Unavailable(DexAssistResult.Reason.TOO_MANY_MATCHES)))
     }
 
-    @Test fun centeringWithoutGlassPlansOnlyItsThreeSemanticBoundaries() {
+    fun centeringWithoutGlassPlansOnlyItsThreeSemanticBoundaries() {
         val loader = object : ClassLoader(null) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
                 if (name == "tv.danmaku.bili.khome.vm.HomeFrameViewModel") return Any::class.java
@@ -65,7 +65,7 @@ class HomeChromeAdapterTest {
         assertFalse(HomeChromeAdapter.enabled("top_right_actions", true, false, false))
     }
 
-    @Test fun contentBridgeCacheRetainsItsTwoParameterAbi() {
+    fun contentBridgeCacheRetainsItsTwoParameterAbi() {
         val point = HookPoint("tv.danmaku.bili.khome.widget.topbar.RenamedLambda", "invoke",
             listOf("java.lang.Object", "java.lang.Object"))
         val points = mapOf("top_content" to point)
@@ -73,7 +73,7 @@ class HomeChromeAdapterTest {
         assertFalse(HomeChromeAdapter.validCache(mapOf("top_content" to point.copy(paramClassNames = listOf("java.lang.Object")))))
     }
 
-    @Test fun secondRowBackdropIsOptionalInOldCachesAndRetainedInNewCaches() {
+    fun secondRowBackdropIsOptionalInOldCachesAndRetainedInNewCaches() {
         val backdrop = HookPoint("tv.danmaku.bili.khome.widget.topbar.y", "e",
             listOf("Qo1.e", "kotlin.jvm.functions.Function1", "androidx.compose.runtime.Composer", "int"))
         val points = mapOf("top" to top, "top_backdrop" to backdrop)
@@ -82,5 +82,21 @@ class HomeChromeAdapterTest {
         assertTrue(HomeChromeAdapter.enabled("top_backdrop", true, false, false))
         assertFalse(HomeChromeAdapter.enabled("top_backdrop", false, false, true))
         assertEquals("top_backdrop", HomeChromeAdapter.families[DexAssistQuery.HOME_CHROME_TOP_BACKDROP])
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeChromeAdapterTest) -> Unit) {
+            val s = HomeChromeAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.cacheRoundTripRetainsCompleteDescriptorsWithoutEncodingRuntimeInstances() }
+        runIsolated { s -> s.cacheCannotAddOtherPagesOrAnUnverifiedFieldBoundary() }
+        runIsolated { s -> s.disabledChromeDoesNotLoadHostClassesOrPlanNativeWork() }
+        runIsolated { s -> s.failedOrUnfinishedDexPreparationNeverBecomesPermanentNegativeCache() }
+        runIsolated { s -> s.completedAbsenceAndAmbiguityAreConclusiveWithoutInventingAHook() }
+        runIsolated { s -> s.centeringWithoutGlassPlansOnlyItsThreeSemanticBoundaries() }
+        runIsolated { s -> s.contentBridgeCacheRetainsItsTwoParameterAbi() }
+        runIsolated { s -> s.secondRowBackdropIsOptionalInOldCachesAndRetainedInNewCaches() }
     }
 }

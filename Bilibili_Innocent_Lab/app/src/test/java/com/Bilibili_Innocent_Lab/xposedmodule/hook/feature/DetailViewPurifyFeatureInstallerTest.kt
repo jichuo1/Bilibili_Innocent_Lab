@@ -30,14 +30,14 @@ class DetailViewPurifyFeatureInstallerTest {
 
     private val allKeys = DetailViewPurifyPolicy.preferenceKeys.toSet()
 
-    @Test fun `skips without touching the host when every subitem is off`() {
+    fun `skips without touching the host when every subitem is off`() {
         val result = DetailViewPurifyFeatureInstaller(emptySet()).install(environment())
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("detail_view_purify_status" to "disabled"), statuses)
         assertTrue(capabilities.isEmpty())
     }
 
-    @Test fun `skips in non main processes`() {
+    fun `skips in non main processes`() {
         val result = DetailViewPurifyFeatureInstaller(allKeys)
             .install(environment(process = "tv.danmaku.bili:web"))
         assertEquals(FeatureInstallResult.Skipped("non-main-process"), result)
@@ -45,14 +45,14 @@ class DetailViewPurifyFeatureInstallerTest {
     }
 
     /** 宿主没有 RecyclerView（或它被混淆改名）时整条降级，并留下诊断。 */
-    @Test fun `degrades when the recycler view class is absent`() {
+    fun `degrades when the recycler view class is absent`() {
         val empty = object : ClassLoader(null) {}
         val result = DetailViewPurifyFeatureInstaller(allKeys).install(environment(loader = empty))
         assertEquals(FeatureInstallResult.Skipped("not-applicable-host"), result)
         assertTrue("detail_view_purify_missing" in errors)
     }
 
-    @Test fun `degrades when the class loader is missing`() {
+    fun `degrades when the class loader is missing`() {
         val env = HookEnvironment(
             processName = "tv.danmaku.bili",
             classLoader = null,
@@ -68,7 +68,7 @@ class DetailViewPurifyFeatureInstallerTest {
         )
     }
 
-    @Test fun `only the enabled rules are reported as capabilities`() {
+    fun `only the enabled rules are reported as capabilities`() {
         assertEquals(
             DetailViewPurifyPolicy.rules.map { it.capabilityId },
             DetailViewPurifyFeatureInstaller(allKeys).capabilityIds
@@ -87,7 +87,7 @@ class DetailViewPurifyFeatureInstallerTest {
      *
      * 只解析出一部分就装，等于每次子项挂载都白跑一次 `findViewById`，永远找不到东西。
      */
-    @Test fun `a rule needs every one of its resource names resolved`() {
+    fun `a rule needs every one of its resource names resolved`() {
         val rule = DetailViewPurifyPolicy.STAFF_FOLLOW
         val all = rule.idNames.associateWith { 100 }
         assertTrue(DetailViewPurifyPolicy.usable(rule, all))
@@ -98,7 +98,7 @@ class DetailViewPurifyFeatureInstallerTest {
     }
 
     /** 关注按钮按 item 根 id 过滤（最便宜）；热搜横条的 item 根没有 id，只能靠结构指纹。 */
-    @Test fun `rules declare the cheapest available discriminator`() {
+    fun `rules declare the cheapest available discriminator`() {
         assertEquals("vfl_avatar", DetailViewPurifyPolicy.STAFF_FOLLOW.itemIdName)
         assertEquals("fl_follow_container", DetailViewPurifyPolicy.STAFF_FOLLOW.hideIdName)
         assertEquals(null, DetailViewPurifyPolicy.HOT_BANNER.itemIdName)
@@ -122,7 +122,7 @@ class DetailViewPurifyFeatureInstallerTest {
      * 24 个存档宿主的 layout 扫描结果写在 `HOT_BANNER_MUST_NOT_MATCH` 里；
      * 谁想精简 requiredIdNames，这条测试会立刻告诉他动的是哪一道防线。
      */
-    @Test fun `every near miss component is excluded by more than one required id`() {
+    fun `every near miss component is excluded by more than one required id`() {
         val required = DetailViewPurifyPolicy.HOT_BANNER.requiredIdNames
         DetailViewPurifyPolicy.HOT_BANNER_MUST_NOT_MATCH.forEach { (component, missing) ->
             val blocking = missing.filter { it in required }
@@ -140,7 +140,7 @@ class DetailViewPurifyFeatureInstallerTest {
      * - 隐 **item 根**（热搜横条）：`LinearLayoutManager` 不跳过 GONE 的孩子，
      *   只 `GONE` 会留下整格空白（实测 175px），必须走 [ItemCollapseBook] 折叠尺寸。
      */
-    @Test fun `only the item root rules are collapsed instead of merely hidden`() {
+    fun `only the item root rules are collapsed instead of merely hidden`() {
         assertFalse(DetailViewPurifyPolicy.STAFF_FOLLOW.hidesItemRoot)
         assertTrue(DetailViewPurifyPolicy.HOT_BANNER.hidesItemRoot)
         DetailViewPurifyPolicy.rules.forEach { rule ->
@@ -149,7 +149,7 @@ class DetailViewPurifyFeatureInstallerTest {
     }
 
     /** 判别一律不看文字：热搜横条的文案「热搜第N名 · …」每次都不同。 */
-    @Test fun `no rule matches on user visible text`() {
+    fun `no rule matches on user visible text`() {
         DetailViewPurifyPolicy.rules.forEach { rule ->
             rule.idNames.forEach { name ->
                 assertTrue(name, name.matches(Regex("[A-Za-z_][A-Za-z0-9_]*")))
@@ -159,7 +159,7 @@ class DetailViewPurifyFeatureInstallerTest {
     }
 
     /** 定位只靠 androidx 类名与资源名，不许出现任何宿主业务类名。 */
-    @Test fun `the policy anchors on resource names and androidx classes only`() {
+    fun `the policy anchors on resource names and androidx classes only`() {
         assertEquals("androidx.recyclerview.widget.RecyclerView",
             DetailViewPurifyPolicy.RECYCLER_VIEW_CLASS)
         assertTrue(DetailViewPurifyPolicy.CHILD_ATTACH_LISTENER_CLASS
@@ -173,7 +173,7 @@ class DetailViewPurifyFeatureInstallerTest {
         }
     }
 
-    @Test fun `every rule is wired into both catalogs under this installer`() {
+    fun `every rule is wired into both catalogs under this installer`() {
         DetailViewPurifyPolicy.rules.forEach { rule ->
             val spec = SettingsCatalog.byStorageKey[rule.preferenceKey]
             assertTrue("missing catalog entry for ${rule.preferenceKey}", spec != null)
@@ -186,9 +186,30 @@ class DetailViewPurifyFeatureInstallerTest {
     }
 
     /** 面板把两层的键拼给 UI，但两层各自的白名单不能互相污染。 */
-    @Test fun `the view layer keys are disjoint from the protocol layer keys`() {
+    fun `the view layer keys are disjoint from the protocol layer keys`() {
         val protocol = DetailModulePurifyPolicy.preferenceKeys.toSet()
         val view = DetailViewPurifyPolicy.preferenceKeys.toSet()
         assertTrue(protocol.intersect(view).isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DetailViewPurifyFeatureInstallerTest) -> Unit) {
+            val s = DetailViewPurifyFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips without touching the host when every subitem is off`() }
+        runIsolated { s -> s.`skips in non main processes`() }
+        runIsolated { s -> s.`degrades when the recycler view class is absent`() }
+        runIsolated { s -> s.`degrades when the class loader is missing`() }
+        runIsolated { s -> s.`only the enabled rules are reported as capabilities`() }
+        runIsolated { s -> s.`a rule needs every one of its resource names resolved`() }
+        runIsolated { s -> s.`rules declare the cheapest available discriminator`() }
+        runIsolated { s -> s.`every near miss component is excluded by more than one required id`() }
+        runIsolated { s -> s.`only the item root rules are collapsed instead of merely hidden`() }
+        runIsolated { s -> s.`no rule matches on user visible text`() }
+        runIsolated { s -> s.`the policy anchors on resource names and androidx classes only`() }
+        runIsolated { s -> s.`every rule is wired into both catalogs under this installer`() }
+        runIsolated { s -> s.`the view layer keys are disjoint from the protocol layer keys`() }
     }
 }

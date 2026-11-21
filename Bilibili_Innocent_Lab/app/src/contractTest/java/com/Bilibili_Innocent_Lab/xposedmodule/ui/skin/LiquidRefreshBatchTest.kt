@@ -10,7 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class LiquidRefreshBatchTest {
-    @Test fun preDrawReadsFinalTransformsOnceAndMergesNewContentInTheSameWindow() {
+    fun preDrawReadsFinalTransformsOnceAndMergesNewContentInTheSameWindow() {
         val batch = LiquidRefreshBatch()
         var position = 0
         var scans = 0
@@ -26,7 +26,7 @@ class LiquidRefreshBatchTest {
         repeat(120) { assertEquals("Idle pre-draw never starts more work", 0, batch.take()) }
     }
 
-    @Test fun dialogAndActivityPendingRefreshesAreIndependent() {
+    fun dialogAndActivityPendingRefreshesAreIndependent() {
         val activity = LiquidRefreshBatch(); val dialog = LiquidRefreshBatch()
         activity.mark(false); dialog.mark(true)
         assertEquals(LiquidRefreshBatch.CONTENT, dialog.take())
@@ -36,7 +36,7 @@ class LiquidRefreshBatchTest {
         assertEquals(LiquidRefreshBatch.POSITION, dialog.take())
     }
 
-    @Test fun onlyFinitePureTranslationMayUseTheUnscaledScreenAabb() {
+    fun onlyFinitePureTranslationMayUseTheUnscaledScreenAabb() {
         fun matrix() = floatArrayOf(1f, 0f, 123.25f, 0f, 1f, -89.5f, 0f, 0f, 1f)
         assertTrue(LiquidRefreshVisibilityPolicy.isTranslationOnly(matrix()))
         for ((index, value) in listOf(0 to .98f, 1 to .2f, 3 to -.2f, 4 to 1.1f, 6 to .01f, 7 to .01f, 8 to .9f, 2 to Float.NaN)) {
@@ -52,7 +52,7 @@ class LiquidRefreshBatchTest {
      * 内容节点 + 稳定底图，截图换一张不改变它的像素；其余内容变化（底图、后端、回弹强度）
      * 仍然刷新所有表面。
      */
-    @Test fun captureOnlyChangesSkipNodeBackedChromeButNothingElse() {
+    fun captureOnlyChangesSkipNodeBackedChromeButNothingElse() {
         val batch = LiquidRefreshBatch()
         assertTrue(batch.mark(contentChanged = true, captureOnly = true))
         assertFalse("同一批次重复标记不再调度", batch.mark(contentChanged = true, captureOnly = true))
@@ -75,7 +75,7 @@ class LiquidRefreshBatchTest {
         assertFalse(LiquidRefreshBatch.surfaceContentChanged(position, captureIndependent = false))
     }
 
-    @Test fun onlyTheCaptureCommitIsCaptureOnlyAndNodeUseIsTrackedPerDraw() {
+    fun onlyTheCaptureCommitIsCaptureOnlyAndNodeUseIsTrackedPerDraw() {
         val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/liquid/LiquidActivityRenderer.kt"
         val renderer = SourceContract.read(path)
         // 定义一处 + 调用一处：只有截图提交走 captureOnly。
@@ -97,5 +97,18 @@ class LiquidRefreshBatchTest {
         assertTrue(flush.contains("if (surfaceMoved && !contentChanged) suppressRealtimeSamplingWhileScrolling()"))
         val trigger = renderer.after("private fun triggerSurfaceFrame(").before("private fun flushSurfaceRefresh(")
         assertTrue(trigger.contains("if (captureOnly && isCaptureIndependent(view)) continue"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidRefreshBatchTest) -> Unit) {
+            val s = LiquidRefreshBatchTest()
+            block(s)
+        }
+        runIsolated { s -> s.preDrawReadsFinalTransformsOnceAndMergesNewContentInTheSameWindow() }
+        runIsolated { s -> s.dialogAndActivityPendingRefreshesAreIndependent() }
+        runIsolated { s -> s.onlyFinitePureTranslationMayUseTheUnscaledScreenAabb() }
+        runIsolated { s -> s.captureOnlyChangesSkipNodeBackedChromeButNothingElse() }
+        runIsolated { s -> s.onlyTheCaptureCommitIsCaptureOnlyAndNodeUseIsTrackedPerDraw() }
     }
 }

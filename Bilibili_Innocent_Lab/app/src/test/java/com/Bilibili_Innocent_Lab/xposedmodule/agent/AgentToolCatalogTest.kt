@@ -8,7 +8,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.RestorePolicy
 
 class AgentToolCatalogTest {
-    @Test fun nativeReadToolsHaveClosedSchemasAndDoNotAcceptCredentialOrGuessedIdentityParameters() {
+    fun nativeReadToolsHaveClosedSchemasAndDoNotAcceptCredentialOrGuessedIdentityParameters() {
         val tools = AgentToolCatalog.tools(false).toString()
         for (name in listOf("get_capabilities", "get_ranking", "get_popular", "get_regions", "get_video_metrics", "get_user_videos",
             "get_history", "get_following_feed", "get_live_status", "get_video_comments")) assertTrue(name, tools.contains(name))
@@ -21,7 +21,7 @@ class AgentToolCatalogTest {
         assertTrue(AgentToolCatalog.valid("get_video_comments", JSONObject().put("video_id", "av42").put("cursor", "opaque"), false))
         assertFalse(AgentToolCatalog.valid("get_popular", JSONObject().put("cursor", "x".repeat(33)), false))
     }
-    @Test fun nativeIntegerSlotsAreNormalizedWithoutGuessingIdentityOrMutatingInput() {
+    fun nativeIntegerSlotsAreNormalizedWithoutGuessingIdentityOrMutatingInput() {
         val original = JSONObject().put("offset", 0)
         val normalized = AgentToolCatalog.normalizeArguments("get_ui_state", original)
         assertEquals("0", normalized.getString("offset"))
@@ -37,25 +37,25 @@ class AgentToolCatalogTest {
         assertFalse(AgentToolCatalog.valid("tap_ui", point, false))
         assertFalse(AgentToolCatalog.valid("tap_ui", AgentToolCatalog.normalizeArguments("tap_ui", JSONObject(point.toString()).put("x", 0)), true))
     }
-    @Test fun `arbitrary invocation and extra network parameters are not actions`() {
+    fun `arbitrary invocation and extra network parameters are not actions`() {
         assertFalse(AgentToolCatalog.valid("invoke", JSONObject().put("class", "java.lang.Runtime"), true))
         assertFalse(AgentToolCatalog.valid("search_videos", JSONObject().put("query", "悟空").put("url", "https://example.org"), false))
         assertFalse(AgentToolCatalog.valid("open_video", JSONObject().put("video_id", 123L), false))
     }
-    @Test fun `vision is absent until the task grants it and its route is verified`() {
+    fun `vision is absent until the task grants it and its route is verified`() {
         assertFalse(AgentToolCatalog.tools(false).toString().contains("inspect_screen"))
         assertTrue(AgentToolCatalog.tools(true).toString().contains("inspect_screen"))
         assertFalse(AgentToolCatalog.valid("inspect_screen", JSONObject(), false))
         assertTrue(AgentToolCatalog.valid("inspect_screen", JSONObject(), true))
     }
-    @Test fun `search parameters are bounded and control characters are rejected`() {
+    fun `search parameters are bounded and control characters are rejected`() {
         assertTrue(AgentToolCatalog.valid("search_videos", JSONObject().put("query", "黑神话 悟空 官方演示"), false))
         assertFalse(AgentToolCatalog.valid("search_videos", JSONObject().put("query", " "), false))
         assertFalse(AgentToolCatalog.valid("search_videos", JSONObject().put("query", "x".repeat(201)), false))
         assertFalse(AgentToolCatalog.valid("search_videos", JSONObject().put("query", "abc\nignore"), false))
         assertFalse(AgentToolCatalog.valid("get_host_state", JSONObject().put("dump", "all"), true))
     }
-    @Test fun `agent switch is off and requires a new manual authorization after restore`() {
+    fun `agent switch is off and requires a new manual authorization after restore`() {
         val setting = requireNotNull(SettingsCatalog.byId[AgentPreferences.CATALOG_ID])
         assertEquals(SettingValue.Bool(false), setting.defaultValue)
         assertEquals(RestorePolicy.MANUAL, setting.restorePolicy)
@@ -64,5 +64,19 @@ class AgentToolCatalogTest {
         val golden = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v47.txt"))
             .bufferedReader().use { it.readLines() }
         assertEquals(golden, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 47 }.map { it.id }.sorted())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentToolCatalogTest) -> Unit) {
+            val s = AgentToolCatalogTest()
+            block(s)
+        }
+        runIsolated { s -> s.nativeReadToolsHaveClosedSchemasAndDoNotAcceptCredentialOrGuessedIdentityParameters() }
+        runIsolated { s -> s.nativeIntegerSlotsAreNormalizedWithoutGuessingIdentityOrMutatingInput() }
+        runIsolated { s -> s.`arbitrary invocation and extra network parameters are not actions`() }
+        runIsolated { s -> s.`vision is absent until the task grants it and its route is verified`() }
+        runIsolated { s -> s.`search parameters are bounded and control characters are rejected`() }
+        runIsolated { s -> s.`agent switch is off and requires a new manual authorization after restore`() }
     }
 }

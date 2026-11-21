@@ -16,7 +16,7 @@ class MonetSeedPolicyTest {
 
     private val grey = 0xFF656565.toInt()
 
-    @Test fun wallpaperWinsWhenAvailableSoSuccessfulExtractionIsUnchanged() {
+    fun wallpaperWinsWhenAvailableSoSuccessfulExtractionIsUnchanged() {
         assertEquals(0xFF2277EE.toInt(), MonetSeedPolicy.resolve(
             wallpaper = 0xFF2277EE.toInt(),
             systemAccent = 0xFFAA3366.toInt(),
@@ -25,7 +25,7 @@ class MonetSeedPolicyTest {
         ))
     }
 
-    @Test fun platformAccentCoversWallpaperExtractionReturningNull() {
+    fun platformAccentCoversWallpaperExtractionReturningNull() {
         assertEquals(0xFFAA3366.toInt(), MonetSeedPolicy.resolve(
             wallpaper = null,
             systemAccent = 0xFFAA3366.toInt(),
@@ -34,17 +34,17 @@ class MonetSeedPolicyTest {
         ))
     }
 
-    @Test fun theCachedSeedCoversBothLiveSourcesBeingUnavailable() {
+    fun theCachedSeedCoversBothLiveSourcesBeingUnavailable() {
         assertEquals(0xFF11CC44.toInt(), MonetSeedPolicy.resolve(
             wallpaper = null, systemAccent = null, cached = 0xFF11CC44.toInt(), fallback = grey
         ))
     }
 
-    @Test fun greyIsOnlyTheLastResort() {
+    fun greyIsOnlyTheLastResort() {
         assertEquals(grey, MonetSeedPolicy.resolve(null, null, null, grey))
     }
 
-    @Test fun onlyLiveSourcesAreWrittenBackToTheCache() {
+    fun onlyLiveSourcesAreWrittenBackToTheCache() {
         assertTrue(MonetSeedPolicy.shouldRemember(live = 0xFF2277EE.toInt(), cached = null))
         assertTrue(MonetSeedPolicy.shouldRemember(0xFF2277EE.toInt(), cached = 0xFF11CC44.toInt()))
         // 没有实时来源时不得写缓存——灰兜底一旦写进去，取色恢复后仍会被它压着。
@@ -60,10 +60,24 @@ class MonetSeedPolicyTest {
      * 判据不引 m3color：那个库是 Java 21 字节码，JVM 单测（17）加载不了它的类。
      * 三通道相等即 HCT chroma 恒为 0，TonalSpot 由它推出的整套调色板必然全灰。
      */
-    @Test fun theGreyFallbackIsAchromaticBySeedConstruction() {
+    fun theGreyFallbackIsAchromaticBySeedConstruction() {
         val r = (grey shr 16) and 0xFF
         val g = (grey shr 8) and 0xFF
         val b = grey and 0xFF
         assertTrue("兜底种子三通道相等 ⇒ chroma≡0 ⇒ 推导出的强调色全部去饱和", r == g && g == b)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (MonetSeedPolicyTest) -> Unit) {
+            val s = MonetSeedPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.wallpaperWinsWhenAvailableSoSuccessfulExtractionIsUnchanged() }
+        runIsolated { s -> s.platformAccentCoversWallpaperExtractionReturningNull() }
+        runIsolated { s -> s.theCachedSeedCoversBothLiveSourcesBeingUnavailable() }
+        runIsolated { s -> s.greyIsOnlyTheLastResort() }
+        runIsolated { s -> s.onlyLiveSourcesAreWrittenBackToTheCache() }
+        runIsolated { s -> s.theGreyFallbackIsAchromaticBySeedConstruction() }
     }
 }

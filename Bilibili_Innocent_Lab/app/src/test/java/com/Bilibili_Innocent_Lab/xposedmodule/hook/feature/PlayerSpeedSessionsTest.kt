@@ -79,7 +79,7 @@ class PlayerSpeedSessionsTest {
         }
     }
 
-    @Test fun mediaChangesResetOnlyBaseAndSameVideoPreservesManualSelection() {
+    fun mediaChangesResetOnlyBaseAndSameVideoPreservesManualSelection() {
         val manager = Manager()
         val session = PlayerSpeedSessions(2f)
         session.capture(manager, speed())
@@ -96,7 +96,7 @@ class PlayerSpeedSessionsTest {
         assertEquals(2f, manager.speed(), 0f)
     }
 
-    @Test fun oneTimesExplicitlyResetsNewVideosAndPlayersDoNotShareState() {
+    fun oneTimesExplicitlyResetsNewVideosAndPlayersDoNotShareState() {
         val session = PlayerSpeedSessions(1f)
         val first = Manager(); val second = Manager()
         session.capture(first, speed()); session.capture(second, speed())
@@ -107,7 +107,7 @@ class PlayerSpeedSessionsTest {
         assertEquals(1f, second.base.value)
     }
 
-    @Test fun unregisteredOrAmbiguousBaseIsNeverGuessed() {
+    fun unregisteredOrAmbiguousBaseIsNeverGuessed() {
         val session = PlayerSpeedSessions(2f); val manager = Manager()
         assertFalse(session.applyForMedia(manager, "a", speed()))
         manager.temporary.value = 1f
@@ -116,7 +116,7 @@ class PlayerSpeedSessionsTest {
         assertEquals(1f, manager.base.value)
     }
 
-    @Test fun legacyNewMediaGetsDefaultButManualAndRepeatedPrepareStayUnchanged() {
+    fun legacyNewMediaGetsDefaultButManualAndRepeatedPrepareStayUnchanged() {
         val h = Harness(); val core = Core(); val (listener, context) = h.attach(core)
         h.ready(listener); assertEquals(2f, core.current, 0f)
         h.set(core, 1.5f)
@@ -126,7 +126,7 @@ class PlayerSpeedSessionsTest {
         assertNotNull(context)
     }
 
-    @Test fun followupCoreSharingTheSameContextDoesNotResetCurrentVideo() {
+    fun followupCoreSharingTheSameContextDoesNotResetCurrentVideo() {
         val h = Harness(); val context = Context(); val first = Core()
         val (listener, _) = h.attach(first, context); h.ready(listener)
         val next = Core().apply { current = 1.5f }
@@ -135,7 +135,7 @@ class PlayerSpeedSessionsTest {
         assertEquals(1.5f, next.current, 0f)
     }
 
-    @Test fun modernPreparedRestorationUsesCurrentTemporaryOrManuallySelectedBase() {
+    fun modernPreparedRestorationUsesCurrentTemporaryOrManuallySelectedBase() {
         val h = Harness(); val core = Core(); val (listener, context) = h.attach(core)
         val manager = Manager()
         h.session.capture(manager, speed()); h.session.bind(core, manager)
@@ -148,7 +148,7 @@ class PlayerSpeedSessionsTest {
         assertNotNull(context)
     }
 
-    @Test fun exceptionsAlwaysClearScopeAndFailedWritesCanRetry() {
+    fun exceptionsAlwaysClearScopeAndFailedWritesCanRetry() {
         val h = Harness(); val core = Core(); val (listener, context) = h.attach(core)
         val failure = IllegalStateException("host")
         assertSame(failure, assertThrows(IllegalStateException::class.java) { h.ready(listener) {
@@ -159,7 +159,7 @@ class PlayerSpeedSessionsTest {
         assertNotNull(context)
     }
 
-    @Test fun nestedCallbacksAndOtherPlayersCannotConsumeOuterScope() {
+    fun nestedCallbacksAndOtherPlayersCannotConsumeOuterScope() {
         val h = Harness(); val one = Core(); val two = Core()
         val (a, c1) = h.attach(one); val (b, c2) = h.attach(two)
         h.ready(a) {
@@ -172,7 +172,7 @@ class PlayerSpeedSessionsTest {
         assertNotNull(c1); assertNotNull(c2)
     }
 
-    @Test fun liveUnknownSourcesAndMissingMediaIdentityAreUntouched() {
+    fun liveUnknownSourcesAndMissingMediaIdentityAreUntouched() {
         val h = Harness(); val core = Core(); val (listener, context) = h.attach(core)
         for (source in listOf("live","music","unknown","")) {
             core.resource.source = source; core.current = 1.25f
@@ -184,7 +184,7 @@ class PlayerSpeedSessionsTest {
         assertNotNull(context)
     }
 
-    @Test fun actualModernCallbackUsesBoundMediaNotQueuedArgumentsAndRejectsInvalidIdentity() {
+    fun actualModernCallbackUsesBoundMediaNotQueuedArgumentsAndRejectsInvalidIdentity() {
         val h = Harness(); val owner = Owner()
         val point = PlayerSpeedSessionLocator.Modern(
             Owner::class.java.getMethod("run", Playable::class.java, Any::class.java),
@@ -210,13 +210,13 @@ class PlayerSpeedSessionsTest {
         })
     }
 
-    @Test fun invalidSpeedsNeverCreateRuntimePolicy() {
+    fun invalidSpeedsNeverCreateRuntimePolicy() {
         for (value in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY, 0.09f, 8.01f)) {
             assertThrows(IllegalArgumentException::class.java) { PlayerSpeedSessions(value) }
         }
     }
 
-    @Test fun sharedPlayerOrEarlyUserChoiceSurvivesFirstBindingButNotNextVideo() {
+    fun sharedPlayerOrEarlyUserChoiceSurvivesFirstBindingButNotNextVideo() {
         val session = PlayerSpeedSessions(2f); val manager = Manager()
         session.capture(manager, speed())
         PlayerSpeedFeatureInstaller.applyDefaultSpeed(manager, speed(), 2f)
@@ -228,7 +228,7 @@ class PlayerSpeedSessionsTest {
         assertEquals(2f, manager.base.value)
     }
 
-    @Test fun failingMediaReadInsideSetterDoesNotCrashOrChangeTheHostCall() {
+    fun failingMediaReadInsideSetterDoesNotCrashOrChangeTheHostCall() {
         val h = Harness(); val core = Core(); val (listener, context) = h.attach(core)
         core.resource.throwAt = 2
         h.ready(listener)
@@ -239,11 +239,33 @@ class PlayerSpeedSessionsTest {
         assertNotNull(context)
     }
 
-    @Test fun failedInitialVerificationCannotBeReusedAsAnApprovedBase() {
+    fun failedInitialVerificationCannotBeReusedAsAnApprovedBase() {
         val session = PlayerSpeedSessions(2f); val manager = Manager()
         session.capture(manager, speed())
         session.discardCapture(manager)
         assertFalse(session.applyForMedia(manager, "1:1", speed()))
         assertEquals(1f, manager.base.value)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerSpeedSessionsTest) -> Unit) {
+            val s = PlayerSpeedSessionsTest()
+            block(s)
+        }
+        runIsolated { s -> s.mediaChangesResetOnlyBaseAndSameVideoPreservesManualSelection() }
+        runIsolated { s -> s.oneTimesExplicitlyResetsNewVideosAndPlayersDoNotShareState() }
+        runIsolated { s -> s.unregisteredOrAmbiguousBaseIsNeverGuessed() }
+        runIsolated { s -> s.legacyNewMediaGetsDefaultButManualAndRepeatedPrepareStayUnchanged() }
+        runIsolated { s -> s.followupCoreSharingTheSameContextDoesNotResetCurrentVideo() }
+        runIsolated { s -> s.modernPreparedRestorationUsesCurrentTemporaryOrManuallySelectedBase() }
+        runIsolated { s -> s.exceptionsAlwaysClearScopeAndFailedWritesCanRetry() }
+        runIsolated { s -> s.nestedCallbacksAndOtherPlayersCannotConsumeOuterScope() }
+        runIsolated { s -> s.liveUnknownSourcesAndMissingMediaIdentityAreUntouched() }
+        runIsolated { s -> s.actualModernCallbackUsesBoundMediaNotQueuedArgumentsAndRejectsInvalidIdentity() }
+        runIsolated { s -> s.invalidSpeedsNeverCreateRuntimePolicy() }
+        runIsolated { s -> s.sharedPlayerOrEarlyUserChoiceSurvivesFirstBindingButNotNextVideo() }
+        runIsolated { s -> s.failingMediaReadInsideSetterDoesNotCrashOrChangeTheHostCall() }
+        runIsolated { s -> s.failedInitialVerificationCannotBeReusedAsAnApprovedBase() }
     }
 }

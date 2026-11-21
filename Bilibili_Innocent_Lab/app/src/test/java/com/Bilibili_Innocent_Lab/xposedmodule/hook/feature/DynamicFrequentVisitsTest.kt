@@ -21,7 +21,7 @@ class DynamicFrequentVisitsTest {
         fun video(reply: DynVideoReply) = registrar.invoke("dynamic.purify.sync.executeDynVideo") { reply } as DynVideoReply
     }
 
-    @Test fun bothTabsDropWholeContainerWithoutChangingDynamicOrTopicData() {
+    fun bothTabsDropWholeContainerWithoutChangingDynamicOrTopicData() {
         val h = Harness()
         val up = CardVideoUpList(listOf(UpListItem(0,1)),listOf(UpListItem(1,2)))
         val source = DynAllReply(ups = up)
@@ -41,7 +41,7 @@ class DynamicFrequentVisitsTest {
         assertTrue("dynamic_frequent_visits_hidden" to FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun absentDefaultAndAlreadyFilteredRepliesKeepIdentity() {
+    fun absentDefaultAndAlreadyFilteredRepliesKeepIdentity() {
         val h = Harness()
         val absent = DynAllReply(upPresent = false)
         assertSame(absent,h.all(absent))
@@ -50,7 +50,7 @@ class DynamicFrequentVisitsTest {
         assertSame(once,h.all(once))
     }
 
-    @Test fun failedBuildOrNoOpClearNeverPublishesPartialChanges() {
+    fun failedBuildOrNoOpClearNeverPublishesPartialChanges() {
         for (source in listOf(DynAllReply(failBuild = true),DynAllReply(failClear = true))) {
             val h = Harness(topic = true)
             assertSame(source,h.all(source))
@@ -60,7 +60,7 @@ class DynamicFrequentVisitsTest {
         }
     }
 
-    @Test fun wholeRemovalDoesNotReadLiveItemOrPositionDependencies() {
+    fun wholeRemovalDoesNotReadLiveItemOrPositionDependencies() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == UpListItem::class.java.name || name == DynamicItem::class.java.name) throw ClassNotFoundException(name)
@@ -73,7 +73,7 @@ class DynamicFrequentVisitsTest {
         assertFalse("dynamic_up_list_live_removed" in h.installer.capabilityIds)
     }
 
-    @Test fun disablingWholeRemovalRestoresExistingLiveFilterAndTopicRemainsIndependent() {
+    fun disablingWholeRemovalRestoresExistingLiveFilterAndTopicRemainsIndependent() {
         val up = CardVideoUpList(listOf(UpListItem(0,1),UpListItem(1,2)))
         val liveOnly = Harness(hide = false,live = true).all(DynAllReply(ups = up))
         assertTrue(liveOnly.hasUpList()); assertEquals(1,liveOnly.ups.first.size)
@@ -82,7 +82,7 @@ class DynamicFrequentVisitsTest {
         assertTrue(Harness(hide = false).registrar.hooks.isEmpty())
     }
 
-    @Test fun missingOneReplyIsPartialAndDoesNotDisableOtherTab() {
+    fun missingOneReplyIsPartialAndDoesNotDisableOtherTab() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == DynVideoReply::class.java.name) throw ClassNotFoundException(name)
@@ -94,7 +94,7 @@ class DynamicFrequentVisitsTest {
         assertFalse(h.all(DynAllReply()).hasUpList())
     }
 
-    @Test fun asyncBothTabsPreserveCallbackProtocolAndOriginalArguments() {
+    fun asyncBothTabsPreserveCallbackProtocolAndOriginalArguments() {
         val h = Harness()
         val replies = mutableListOf<Any?>(); val errors = mutableListOf<Throwable>(); var completed = 0
         val handler = object : MossResponseHandler {
@@ -116,10 +116,26 @@ class DynamicFrequentVisitsTest {
         assertEquals(listOf(failure,failure),errors); assertEquals(2,completed)
     }
 
-    @Test fun originalHostExceptionsAreNotSwallowedBySyncFilter() {
+    fun originalHostExceptionsAreNotSwallowedBySyncFilter() {
         val h = Harness(); val failure = IllegalArgumentException("host failure")
         assertSame(failure,assertThrows(IllegalArgumentException::class.java) {
             h.registrar.invoke("dynamic.purify.sync.executeDynAll") { throw failure }
         })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DynamicFrequentVisitsTest) -> Unit) {
+            val s = DynamicFrequentVisitsTest()
+            block(s)
+        }
+        runIsolated { s -> s.bothTabsDropWholeContainerWithoutChangingDynamicOrTopicData() }
+        runIsolated { s -> s.absentDefaultAndAlreadyFilteredRepliesKeepIdentity() }
+        runIsolated { s -> s.failedBuildOrNoOpClearNeverPublishesPartialChanges() }
+        runIsolated { s -> s.wholeRemovalDoesNotReadLiveItemOrPositionDependencies() }
+        runIsolated { s -> s.disablingWholeRemovalRestoresExistingLiveFilterAndTopicRemainsIndependent() }
+        runIsolated { s -> s.missingOneReplyIsPartialAndDoesNotDisableOtherTab() }
+        runIsolated { s -> s.asyncBothTabsPreserveCallbackProtocolAndOriginalArguments() }
+        runIsolated { s -> s.originalHostExceptionsAreNotSwallowedBySyncFilter() }
     }
 }

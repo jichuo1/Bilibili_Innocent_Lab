@@ -8,7 +8,7 @@ import org.junit.Test
 
 /** Module UI and inset handling share the Activity window owner. */
 class BilWindowOwnershipContractTest {
-    @Test fun uiBindingBorrowsTheWindowSessionUsedForInsets() {
+    fun uiBindingBorrowsTheWindowSessionUsedForInsets() {
         val mount = SourceContract.read("ui/meguviz/SettingsScope.kt")
             .after("internal fun SkinnedActivity.setMeguvizContentView")
         assertTrue(mount.contains("AndroidUiBinding.open(moduleWindowSession(), parent)"))
@@ -21,7 +21,7 @@ class BilWindowOwnershipContractTest {
         assertTrue(activity.after("override fun onDestroy()").contains("windowOwner?.close()"))
     }
 
-    @Test fun settingsPageReceivesInsetOwnershipBeforeReplacingListener() {
+    fun settingsPageReceivesInsetOwnershipBeforeReplacingListener() {
         val presenter = SourceContract.read("ui/activity/SettingsHomePresenter.kt")
             .after("private fun installTopInset()")
             .before("private fun applyScrollInsets()")
@@ -36,5 +36,15 @@ class BilWindowOwnershipContractTest {
             .before("override fun close()")
         assertTrue(delegate.contains("rootView !== root"))
         assertTrue(delegate.contains("previous?.handOffToExternalOwner()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BilWindowOwnershipContractTest) -> Unit) {
+            val s = BilWindowOwnershipContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.uiBindingBorrowsTheWindowSessionUsedForInsets() }
+        runIsolated { s -> s.settingsPageReceivesInsetOwnershipBeforeReplacingListener() }
     }
 }

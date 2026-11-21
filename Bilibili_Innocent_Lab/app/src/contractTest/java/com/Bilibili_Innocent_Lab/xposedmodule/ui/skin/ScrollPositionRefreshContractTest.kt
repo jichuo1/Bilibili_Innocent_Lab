@@ -10,7 +10,7 @@ class ScrollPositionRefreshContractTest {
     private fun source(relative: String) = SourceContract.read(
         "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/$relative.kt")
 
-    @Test fun actualScrollOffsetsReachTheActiveRendererSynchronously() {
+    fun actualScrollOffsetsReachTheActiveRendererSynchronously() {
         val scroll = source("activity/SettingsHomeScrollView")
             .after("override fun onScrollChanged(").before("override fun executeKeyEvent(")
         assertTrue(scroll.indexOf("super.onScrollChanged") < scroll.indexOf("onScrollPositionChanged?.invoke(this)"))
@@ -23,7 +23,7 @@ class ScrollPositionRefreshContractTest {
         assertTrue(source("skin/runtime/ActivitySkinSession").contains("activeEngine.notifyScrollPositionChanged(scrollHost)"))
     }
 
-    @Test fun secondaryPagesForwardActualScrollOffsetsLikeTheHomePage() {
+    fun secondaryPagesForwardActualScrollOffsetsLikeTheHomePage() {
         val bind = source("skin/activity/SkinnedActivity")
             .after("protected fun bindPreparedSkinScrollHost(scrollHost: View)")
             .before("/** 悬浮胶囊下方的内容层")
@@ -41,7 +41,7 @@ class ScrollPositionRefreshContractTest {
         assertTrue(freeCopy.contains("bindPreparedSkinScrollHost(it)"))
     }
 
-    @Test fun scopedRefreshOnlyInvalidatesOldVisibleDescendantRecords() {
+    fun scopedRefreshOnlyInvalidatesOldVisibleDescendantRecords() {
         val scoped = source("skin/liquid/LiquidActivityRenderer")
             .after("override fun notifyScrollPositionChanged(scrollHost: View)")
             .before("override fun notifyPositionChanged()")
@@ -56,7 +56,7 @@ class ScrollPositionRefreshContractTest {
         }
     }
 
-    @Test fun windowLateNotificationsFlushOnceAndOnDrawOnlyResetsFlags() {
+    fun windowLateNotificationsFlushOnceAndOnDrawOnlyResetsFlags() {
         val renderer = source("skin/liquid/LiquidActivityRenderer")
         val window = renderer.after("private fun registerRefreshWindow(").before("private fun removeRefreshWindow(")
         assertTrue(window.contains("state?.batch?.beforeDraw()"))
@@ -76,7 +76,7 @@ class ScrollPositionRefreshContractTest {
         assertFalse(generic.contains("flushSurfaceRefresh"))
     }
 
-    @Test fun materialFallbackUsesTheSameActualScrollScopeWithoutStartingCaptureWork() {
+    fun materialFallbackUsesTheSameActualScrollScopeWithoutStartingCaptureWork() {
         val renderer = source("skin/material/FrostedMaterialRenderer")
         val notify = renderer.after("override fun notifyScrollPositionChanged(scrollHost: View)")
             .before("private fun onPositionChanged()")
@@ -85,5 +85,18 @@ class ScrollPositionRefreshContractTest {
         assertFalse(notify.contains("capture("))
         val flush = renderer.after("private fun flushPositionChanges(").before("fun releaseMemory()")
         assertTrue(flush.contains("ScrollSurfaceScope.contains(view, scrollHost)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ScrollPositionRefreshContractTest) -> Unit) {
+            val s = ScrollPositionRefreshContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.actualScrollOffsetsReachTheActiveRendererSynchronously() }
+        runIsolated { s -> s.secondaryPagesForwardActualScrollOffsetsLikeTheHomePage() }
+        runIsolated { s -> s.scopedRefreshOnlyInvalidatesOldVisibleDescendantRecords() }
+        runIsolated { s -> s.windowLateNotificationsFlushOnceAndOnDrawOnlyResetsFlags() }
+        runIsolated { s -> s.materialFallbackUsesTheSameActualScrollScopeWithoutStartingCaptureWork() }
     }
 }

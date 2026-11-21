@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TelemetryDevicePolicyTest {
-    @Test fun productLabelsAreBoundedAndCanonical() {
+    fun productLabelsAreBoundedAndCanonical() {
         assertEquals("xiaomi", TelemetryDevicePolicy.productLabel(" Xiaomi ", true))
         assertEquals("SM-S9280", TelemetryDevicePolicy.productLabel("SM-S9280"))
         assertEquals("小米 14", TelemetryDevicePolicy.productLabel("小米  14"))
@@ -15,7 +15,7 @@ class TelemetryDevicePolicyTest {
         }
     }
 
-    @Test fun romDetectionRequiresEvidenceAndPrioritizesSpecificFamilies() {
+    fun romDetectionRequiresEvidenceAndPrioritizesSpecificFamilies() {
         assertEquals("unknown", TelemetryDevicePolicy.romFamily(emptyMap(), "Xiaomi"))
         assertEquals("hyperos", TelemetryDevicePolicy.romFamily(mapOf(
             "ro.mi.os.version.name" to "OS2.0", "ro.miui.ui.version.name" to "V816"
@@ -35,14 +35,14 @@ class TelemetryDevicePolicyTest {
         assertEquals("unknown", TelemetryDevicePolicy.romFamily(mapOf("ro.build.version.oneui" to "0"), null))
     }
 
-    @Test fun oldTelemetryConsentDoesNotAuthorizeExpandedDataAndCoreTermsStayIndependent() {
+    fun oldTelemetryConsentDoesNotAuthorizeExpandedDataAndCoreTermsStayIndependent() {
         listOf(-1, 0, 1, 2, 3, 4, 6).forEach { assertFalse(TelemetryPolicy.disclosureAuthorizesUpload(it)) }
         assertTrue(TelemetryPolicy.disclosureAuthorizesUpload(5))
         assertEquals(2, com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore.CURRENT_TERMS_VERSION)
         assertFalse(TelemetryPolicy.termsChoice(true, false))
     }
 
-    @Test fun oplusFamilySplitsByVendorBecauseTheRomPropertyIsNowShared() {
+    fun oplusFamilySplitsByVendorBecauseTheRomPropertyIsNowShared() {
         val oplus = mapOf("ro.build.version.oplusrom" to "15.0")
         assertEquals("coloros", TelemetryDevicePolicy.romFamily(oplus, null, "OPPO"))
         assertEquals("oxygenos", TelemetryDevicePolicy.romFamily(oplus, null, "OnePlus"))
@@ -58,7 +58,7 @@ class TelemetryDevicePolicyTest {
         ))
     }
 
-    @Test fun honorAndSamsungNoLongerFallIntoUnknown() {
+    fun honorAndSamsungNoLongerFallIntoUnknown() {
         // MagicOS 机器上 emui 属性同样存在，判定顺序必须把荣耀排在华为之前。
         assertEquals("magicos", TelemetryDevicePolicy.romFamily(mapOf(
             "ro.build.version.magic" to "MagicOS 9.0.0", "ro.build.version.emui" to "MagicUI_7.0.0"
@@ -78,7 +78,7 @@ class TelemetryDevicePolicyTest {
         ))
     }
 
-    @Test fun customRomEvidenceOutranksLeftoverVendorProperties() {
+    fun customRomEvidenceOutranksLeftoverVendorProperties() {
         assertEquals("aosp", TelemetryDevicePolicy.romFamily(
             mapOf("ro.modversion" to "15.0", "ro.miui.ui.version.name" to "V14"), null, "Xiaomi"
         ))
@@ -91,7 +91,7 @@ class TelemetryDevicePolicyTest {
         }
     }
 
-    @Test fun probeBudgetStaysBoundedWhileTheAllowlistCoversMoreFamilies() {
+    fun probeBudgetStaysBoundedWhileTheAllowlistCoversMoreFamilies() {
         val vendors = listOf(
             "Xiaomi", "Redmi", "OPPO", "OnePlus", "realme", "vivo", "iQOO", "samsung",
             "HUAWEI", "HONOR", "Meizu", "ZTE", "nubia", "Lenovo", "motorola", "Nothing",
@@ -111,7 +111,7 @@ class TelemetryDevicePolicyTest {
         assertTrue(TelemetryDevicePolicy.probeKeys("Xiaomi", null).contains("ro.mi.os.version.code"))
     }
 
-    @Test fun everyDetectableFamilyIsAReportableCode() {
+    fun everyDetectableFamilyIsAReportableCode() {
         val samples = mapOf(
             "ro.lineage.version" to "lineageos", "ro.modversion" to "aosp",
             "ro.mi.os.version.code" to "hyperos", "ro.miui.ui.version.name" to "miui",
@@ -132,7 +132,7 @@ class TelemetryDevicePolicyTest {
         assertEquals("xos", TelemetryDevicePolicy.romFamily(mapOf("ro.tranos.version" to "1"), null, "Infinix"))
     }
 
-    @Test fun propertyAllowlistContainsNoUniqueIdentifierOrFullBuildDump() {
+    fun propertyAllowlistContainsNoUniqueIdentifierOrFullBuildDump() {
         // 白名单可以随家族增长，**单机实际探测量**才是隐私与耗时边界。
         assertTrue(TelemetryDevicePolicy.MAX_PROBE_KEYS <= 12)
         assertEquals(
@@ -143,5 +143,22 @@ class TelemetryDevicePolicyTest {
             it.contains("serial") || it.contains("fingerprint") || it.contains("android_id") ||
                 it.contains("imei") || it.contains("mac") || it.contains("uuid")
         })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TelemetryDevicePolicyTest) -> Unit) {
+            val s = TelemetryDevicePolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.productLabelsAreBoundedAndCanonical() }
+        runIsolated { s -> s.romDetectionRequiresEvidenceAndPrioritizesSpecificFamilies() }
+        runIsolated { s -> s.oldTelemetryConsentDoesNotAuthorizeExpandedDataAndCoreTermsStayIndependent() }
+        runIsolated { s -> s.oplusFamilySplitsByVendorBecauseTheRomPropertyIsNowShared() }
+        runIsolated { s -> s.honorAndSamsungNoLongerFallIntoUnknown() }
+        runIsolated { s -> s.customRomEvidenceOutranksLeftoverVendorProperties() }
+        runIsolated { s -> s.probeBudgetStaysBoundedWhileTheAllowlistCoversMoreFamilies() }
+        runIsolated { s -> s.everyDetectableFamilyIsAReportableCode() }
+        runIsolated { s -> s.propertyAllowlistContainsNoUniqueIdentifierOrFullBuildDump() }
     }
 }

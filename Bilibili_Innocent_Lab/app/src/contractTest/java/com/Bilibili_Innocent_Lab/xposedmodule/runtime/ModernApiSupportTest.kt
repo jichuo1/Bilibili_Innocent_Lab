@@ -8,7 +8,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModernApiSupportTest {
-    @Test
     fun `module metadata requires API 102 with static scope and no reload`() {
         val root = sequenceOf(File("src/main"), File("app/src/main")).first(File::isDirectory)
         val properties = Properties().apply {
@@ -23,7 +22,6 @@ class ModernApiSupportTest {
             "resources/META-INF/xposed/scope.list").readLines().filter(String::isNotBlank))
     }
 
-    @Test
     fun `framework initiated hot reload is refused explicitly and diagnostics are drained at snapshot time`() {
         val entry = SourceContract.read("hook/HookEntry.kt")
         val refusal = entry.substringAfter("override fun onHotReloading(").substringBefore("override fun onPackageReady(")
@@ -36,5 +34,15 @@ class ModernApiSupportTest {
         assertTrue(snapshot.indexOf("absorbHookFaults()") in 0 until snapshot.indexOf("synchronized(lock)"))
         assertTrue(SourceContract.read("hook/feature/FeatureInstaller.kt")
             .contains("registrar = FeatureScopedRegistrar(environment.registrar, installer.id)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModernApiSupportTest) -> Unit) {
+            val s = ModernApiSupportTest()
+            block(s)
+        }
+        runIsolated { s -> s.`module metadata requires API 102 with static scope and no reload`() }
+        runIsolated { s -> s.`framework initiated hot reload is refused explicitly and diagnostics are drained at snapshot time`() }
     }
 }

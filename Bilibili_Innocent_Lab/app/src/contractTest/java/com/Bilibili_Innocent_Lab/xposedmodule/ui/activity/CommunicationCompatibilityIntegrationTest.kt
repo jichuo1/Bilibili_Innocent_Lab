@@ -14,7 +14,7 @@ class CommunicationCompatibilityIntegrationTest {
     }
     private fun runtime(name: String) = source("java/com/Bilibili_Innocent_Lab/xposedmodule/runtime/compat/$name.kt")
 
-    @Test fun newSettingIsDefaultOffAndCannotBeAutomaticallyRestored() {
+    fun newSettingIsDefaultOffAndCannotBeAutomaticallyRestored() {
         val spec = SettingsCatalog.byId.getValue("communication.compatibility.enabled")
         assertEquals(SettingValue.Bool(false), spec.defaultValue)
         assertEquals(RestorePolicy.MANUAL, spec.restorePolicy)
@@ -23,7 +23,7 @@ class CommunicationCompatibilityIntegrationTest {
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 22 }.map { it.id }.sorted())
     }
-    @Test fun switchAndRetryHintShareTheSameWarningAndTitle() {
+    fun switchAndRetryHintShareTheSameWarningAndTitle() {
         val settings = SettingsUiSource.function("experimentalFeaturesCard")
         assertTrue(settings.contains("showCommunicationCompatibilityConfirmDialog(anchor = button)"))
         assertTrue(SettingsUiSource.function("createCommunicationCompatibilityHint")
@@ -34,7 +34,7 @@ class CommunicationCompatibilityIntegrationTest {
         assertTrue(dialog.contains("dismissWithAnimation(dialog, container) { setCommunicationCompatibilityEnabled(true) }"))
         assertTrue(dialog.contains("presentModalDialog(dialog, container, anchor)"))
     }
-    @Test fun retryPageUsesResultTrackingAndAnAnimatedInitiallyHiddenHint() {
+    fun retryPageUsesResultTrackingAndAnAnimatedInitiallyHiddenHint() {
         assertTrue(SettingsUiSource.function("showPendingTermsPage").contains("retryPendingTermsWithCompatibility()"))
         assertTrue(SettingsUiSource.function("createCommunicationCompatibilityHint").contains("visibility = View.GONE"))
         val animation = SettingsUiSource.function("updateCommunicationCompatibilityHint")
@@ -42,7 +42,7 @@ class CommunicationCompatibilityIntegrationTest {
         assertTrue(animation.contains("translationY"))
         assertTrue(animation.contains("shouldOffer(pending,"))
     }
-    @Test fun bothModesUseTheOriginalKernelIdentityValidator() {
+    fun bothModesUseTheOriginalKernelIdentityValidator() {
         val manifest = source("AndroidManifest.xml")
         assertTrue(Regex("CompatibilityReceiptService\"\\s+android:enabled=\"true\"\\s+android:exported=\"true\"").containsMatchIn(manifest))
         val service = runtime("CompatibilityReceiptService")
@@ -55,7 +55,7 @@ class CommunicationCompatibilityIntegrationTest {
         assertTrue(registry.contains("info.applicationInfo?.uid != uid"))
         assertTrue(registry.contains("HostReceiptPayload.validate"))
     }
-    @Test fun relayIsBoundedAndDoesNotUseAStartedOrForegroundService() {
+    fun relayIsBoundedAndDoesNotUseAStartedOrForegroundService() {
         val publisher = runtime("CompatibilityReceiptPublisher")
         assertTrue(publisher.contains("BIND_WINDOW_MS"))
         assertTrue(publisher.contains("BIND_COOLDOWN_MS"))
@@ -63,5 +63,18 @@ class CommunicationCompatibilityIntegrationTest {
         assertTrue(publisher.contains("unbindService"))
         assertFalse(publisher.contains("startService("))
         assertFalse(publisher.contains("startForegroundService("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommunicationCompatibilityIntegrationTest) -> Unit) {
+            val s = CommunicationCompatibilityIntegrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.newSettingIsDefaultOffAndCannotBeAutomaticallyRestored() }
+        runIsolated { s -> s.switchAndRetryHintShareTheSameWarningAndTitle() }
+        runIsolated { s -> s.retryPageUsesResultTrackingAndAnAnimatedInitiallyHiddenHint() }
+        runIsolated { s -> s.bothModesUseTheOriginalKernelIdentityValidator() }
+        runIsolated { s -> s.relayIsBoundedAndDoesNotUseAStartedOrForegroundService() }
     }
 }

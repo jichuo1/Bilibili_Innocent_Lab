@@ -94,7 +94,7 @@ class GuestHostFollowConfirmationTest {
         }
     }
 
-    @Test fun followedAuthorUsesHostConfirmationAndOnlyConfirmedActionChangesTheLibrary() {
+    fun followedAuthorUsesHostConfirmationAndOnlyConfirmedActionChangesTheLibrary() {
         val h = Harness()
         h.store.following = true
         assertTrue(h.controller.canHandle(h.helper))
@@ -116,7 +116,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.network)
     }
 
-    @Test fun menuUnfollowUsesTheOriginalSessionAndHostConfirmation() {
+    fun menuUnfollowUsesTheOriginalSessionAndHostConfirmation() {
         val h = Harness()
         h.store.following = true
         var action: (() -> Unit)? = null
@@ -137,7 +137,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.network)
     }
 
-    @Test fun menuUnfollowCannotUseANewerSessionOrReboundCallback() {
+    fun menuUnfollowCannotUseANewerSessionOrReboundCallback() {
         val h = Harness()
         h.store.following = true
         var action: (() -> Unit)? = null
@@ -157,7 +157,7 @@ class GuestHostFollowConfirmationTest {
         assertTrue(h.store.writes.isEmpty())
         assertEquals(0, h.helper.network)
     }
-    @Test fun unfollowedAuthorIsFollowedWithoutShowingTheUnfollowDialog() {
+    fun unfollowedAuthorIsFollowedWithoutShowingTheUnfollowDialog() {
         val h = Harness()
         h.click()
         h.store.finishRead()
@@ -166,7 +166,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.dialogs)
     }
 
-    @Test fun dismissedDialogLeavesFollowingUntouchedAndOtherHelpersKeepHostBehavior() {
+    fun dismissedDialogLeavesFollowingUntouchedAndOtherHelpersKeepHostBehavior() {
         val h = Harness()
         h.store.following = true
         h.click()
@@ -183,7 +183,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(1, unrelated.network)
     }
 
-    @Test fun staleSessionOrReboundCallbackNeverMutatesLocalStateOrCallsTheNetwork() {
+    fun staleSessionOrReboundCallbackNeverMutatesLocalStateOrCallsTheNetwork() {
         val stale = Harness()
         stale.store.following = true
         stale.click()
@@ -204,7 +204,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, rebound.helper.network)
     }
 
-    @Test fun delayedReadDoesNotShowAStaleDialogAndLegacyOwnerIsRecognized() {
+    fun delayedReadDoesNotShowAStaleDialogAndLegacyOwnerIsRecognized() {
         val h = Harness()
         h.helper.i = LegacyVideoOwner()
         assertTrue(h.controller.canHandle(h.helper))
@@ -216,7 +216,7 @@ class GuestHostFollowConfirmationTest {
         assertTrue(h.store.writes.isEmpty())
     }
 
-    @Test fun renamedOwnerCallbackKeepsTheHostConfirmationWhenKnownClassesAreMissing() {
+    fun renamedOwnerCallbackKeepsTheHostConfirmationWhenKnownClassesAreMissing() {
         val h = Harness(knownOwners = false)
         h.helper.i = FutureOwnerService.RenamedCallback()
         h.store.following = true
@@ -234,13 +234,13 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.network)
     }
 
-    @Test fun missingOwnerServiceAndKnownCallbacksDoNotInstallConfirmation() {
+    fun missingOwnerServiceAndKnownCallbacksDoNotInstallConfirmation() {
         assertThrows(IllegalArgumentException::class.java) {
             Harness(knownOwners = false, ownerServiceName = "missing.OwnerService")
         }
     }
 
-    @Test fun unknownHostShapeUsesFallbackAndDoesNotUnfollowUntilConfirmed() {
+    fun unknownHostShapeUsesFallbackAndDoesNotUnfollowUntilConfirmed() {
         val store = Store().apply { following = true }
         val registrar = PlayerPortTestRegistrar()
         val loader = javaClass.classLoader!!
@@ -264,7 +264,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(listOf(false), results)
     }
 
-    @Test fun hostDialogFailureUsesFallbackAndBlocksALateHostNetworkAction() {
+    fun hostDialogFailureUsesFallbackAndBlocksALateHostNetworkAction() {
         val h = Harness()
         h.store.following = true
         h.helper.throwOnDialog = true
@@ -279,7 +279,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(listOf(42L to false), h.store.writes)
     }
 
-    @Test fun fallbackConfirmationDoesNotApplyAfterSessionChanges() {
+    fun fallbackConfirmationDoesNotApplyAfterSessionChanges() {
         val h = Harness()
         h.store.following = true
         h.helper.throwOnDialog = true
@@ -291,7 +291,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.network)
     }
 
-    @Test fun hookRegistrationFailureUsesFallback() {
+    fun hookRegistrationFailureUsesFallback() {
         val h = Harness("guest.video.follow.confirmed")
         h.store.following = true
         h.click()
@@ -302,7 +302,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(listOf(42L to false), h.store.writes)
     }
 
-    @Test fun unavailableFallbackDoesNotUnfollowOrRunHostNetworkAction() {
+    fun unavailableFallbackDoesNotUnfollowOrRunHostNetworkAction() {
         val h = Harness()
         h.store.following = true
         h.store.fallbackAvailable = false
@@ -315,7 +315,7 @@ class GuestHostFollowConfirmationTest {
         assertEquals(0, h.helper.network)
     }
 
-    @Test fun resolverAcceptsOnlyTheTwoVerifiedCompleteHostShapes() {
+    fun resolverAcceptsOnlyTheTwoVerifiedCompleteHostShapes() {
         val context = HostContext::class.java
         val old = GuestHostFollowConfirmation.resolveMethods(OldHelper::class.java, context)
         assertEquals("w", old?.first?.name)
@@ -324,5 +324,28 @@ class GuestHostFollowConfirmationTest {
         assertEquals("b", newer?.first?.name)
         assertEquals("c", newer?.second?.name)
         assertNull(GuestHostFollowConfirmation.resolveMethods(AmbiguousHelper::class.java, context))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestHostFollowConfirmationTest) -> Unit) {
+            val s = GuestHostFollowConfirmationTest()
+            block(s)
+        }
+        runIsolated { s -> s.followedAuthorUsesHostConfirmationAndOnlyConfirmedActionChangesTheLibrary() }
+        runIsolated { s -> s.menuUnfollowUsesTheOriginalSessionAndHostConfirmation() }
+        runIsolated { s -> s.menuUnfollowCannotUseANewerSessionOrReboundCallback() }
+        runIsolated { s -> s.unfollowedAuthorIsFollowedWithoutShowingTheUnfollowDialog() }
+        runIsolated { s -> s.dismissedDialogLeavesFollowingUntouchedAndOtherHelpersKeepHostBehavior() }
+        runIsolated { s -> s.staleSessionOrReboundCallbackNeverMutatesLocalStateOrCallsTheNetwork() }
+        runIsolated { s -> s.delayedReadDoesNotShowAStaleDialogAndLegacyOwnerIsRecognized() }
+        runIsolated { s -> s.renamedOwnerCallbackKeepsTheHostConfirmationWhenKnownClassesAreMissing() }
+        runIsolated { s -> s.missingOwnerServiceAndKnownCallbacksDoNotInstallConfirmation() }
+        runIsolated { s -> s.unknownHostShapeUsesFallbackAndDoesNotUnfollowUntilConfirmed() }
+        runIsolated { s -> s.hostDialogFailureUsesFallbackAndBlocksALateHostNetworkAction() }
+        runIsolated { s -> s.fallbackConfirmationDoesNotApplyAfterSessionChanges() }
+        runIsolated { s -> s.hookRegistrationFailureUsesFallback() }
+        runIsolated { s -> s.unavailableFallbackDoesNotUnfollowOrRunHostNetworkAction() }
+        runIsolated { s -> s.resolverAcceptsOnlyTheTwoVerifiedCompleteHostShapes() }
     }
 }

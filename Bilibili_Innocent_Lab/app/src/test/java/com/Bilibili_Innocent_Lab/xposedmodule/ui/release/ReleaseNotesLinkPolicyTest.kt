@@ -6,7 +6,6 @@ import org.junit.Test
 
 class ReleaseNotesLinkPolicyTest {
 
-    @Test
     fun `allows normalized https links without credentials`() {
         assertEquals(
             "https://github.com/jichuo1/Bilibili_Innocent_Lab/issues/12",
@@ -20,7 +19,6 @@ class ReleaseNotesLinkPolicyTest {
         )
     }
 
-    @Test
     fun `resolves repository relative and github root links`() {
         assertEquals(
             "https://github.com/jichuo1/Bilibili_Innocent_Lab/issues/7",
@@ -34,7 +32,6 @@ class ReleaseNotesLinkPolicyTest {
         )
     }
 
-    @Test
     fun `rejects active content local schemes credentials and nonstandard ports`() {
         assertNull(ReleaseNotesLinkPolicy.resolveDestination("javascript:alert(1)"))
         assertNull(ReleaseNotesLinkPolicy.resolveDestination("intent://host/#Intent;end"))
@@ -42,5 +39,16 @@ class ReleaseNotesLinkPolicyTest {
         assertNull(ReleaseNotesLinkPolicy.resolveDestination("https://user@example.com/path"))
         assertNull(ReleaseNotesLinkPolicy.resolveDestination("https://example.com:8443/path"))
         assertNull(ReleaseNotesLinkPolicy.resolveDestination("https://example.com/path\\escape"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ReleaseNotesLinkPolicyTest) -> Unit) {
+            val s = ReleaseNotesLinkPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.`allows normalized https links without credentials`() }
+        runIsolated { s -> s.`resolves repository relative and github root links`() }
+        runIsolated { s -> s.`rejects active content local schemes credentials and nonstandard ports`() }
     }
 }

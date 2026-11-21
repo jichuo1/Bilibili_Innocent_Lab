@@ -46,9 +46,9 @@ class PlayerEndPageRecommendTest {
     private fun environment(registrar: PlayerPortTestRegistrar, events:MutableList<FeatureRuntimeStage> = mutableListOf()) =
         HookEnvironment("tv.danmaku.bili",loader,HookPointRegistry(loader),registrar,{_,_->},{_,_->},{_,_->},
             runtimeEvidence={feature,stage,_->assertEquals(id,feature);events+=stage})
-    @Before fun reset() { Reply.broken=false;Reply.mask=null;Reply.factoryCalls=0 }
+    fun reset() { Reply.broken=false;Reply.mask=null;Reply.factoryCalls=0 }
 
-    @Test fun `copy only removes end page cards and preserves the original and unrelated fields`() {
+    fun `copy only removes end page cards and preserves the original and unrelated fields`() {
         val policy=PlayerEndPageRecommendPolicy(access())
         for (cards in listOf(listOf("one"),listOf("one","two"))) {
             val original=Reply(cards,"unrelated replay metadata")
@@ -60,12 +60,12 @@ class PlayerEndPageRecommendTest {
             val calls=Reply.factoryCalls;assertNull(policy.clean(copy));assertEquals(calls,Reply.factoryCalls)
         }
     }
-    @Test fun `null empty default and different replies do not copy`() {
+    fun `null empty default and different replies do not copy`() {
         val policy=PlayerEndPageRecommendPolicy(access())
         listOf(null,Reply(emptyList()),Reply.getDefaultInstance(),"different reply").forEach { assertNull(policy.clean(it)) }
         assertEquals(0,Reply.factoryCalls)
     }
-    @Test fun `getter fallback cannot hide cards or fake successful raw readback inside the primary cleaner`() {
+    fun `getter fallback cannot hide cards or fake successful raw readback inside the primary cleaner`() {
         val policy=PlayerEndPageRecommendPolicy(access())
         Reply.mask={ !policy.transformingResponse }
         val original=Reply(listOf("card"));assertEquals(0,original.getRelatesCount())
@@ -74,14 +74,14 @@ class PlayerEndPageRecommendTest {
         assertThrows(IllegalStateException::class.java) { policy.clean(original) }
         assertFalse(policy.transformingResponse);assertEquals(listOf("card"),original.cards)
     }
-    @Test fun `nested and failed reads always restore the original-read guard`() {
+    fun `nested and failed reads always restore the original-read guard`() {
         val policy=PlayerEndPageRecommendPolicy(access())
         assertThrows(IllegalStateException::class.java) {
             policy.withOriginalReads { policy.withOriginalReads { assertTrue(policy.transformingResponse) };error("failure") }
         }
         assertFalse(policy.transformingResponse)
     }
-    @Test fun `actual sync callback replaces only successful populated responses`() {
+    fun `actual sync callback replaces only successful populated responses`() {
         val registrar=PlayerPortTestRegistrar();val events=mutableListOf<FeatureRuntimeStage>()
         assertEquals(FeatureInstallResult.Installed(5),PlayerEndPageRecommendFeatureInstaller(true){access()}.install(environment(registrar,events)))
         events.clear();val original=Reply(listOf("card"))
@@ -95,7 +95,7 @@ class PlayerEndPageRecommendTest {
         assertSame(original,registrar.invoke("$id.sync") {original});assertFalse(FeatureRuntimeStage.APPLIED in events)
         assertTrue(FeatureRuntimeStage.ERROR in events)
     }
-    @Test fun `merged service output is cleared after detail and endpoint lists are combined`() {
+    fun `merged service output is cleared after detail and endpoint lists are combined`() {
         val registrar=PlayerPortTestRegistrar();val events=mutableListOf<FeatureRuntimeStage>()
         PlayerEndPageRecommendFeatureInstaller(true){access()}.install(environment(registrar,events))
         events.clear()
@@ -104,7 +104,7 @@ class PlayerEndPageRecommendTest {
         assertTrue(filtered.isEmpty())
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED,FeatureRuntimeStage.APPLIED),events)
     }
-    @Test fun `912 plus merger in the service package is the merged list unit`() {
+    fun `912 plus merger in the service package is the merged list unit`() {
         // 9.12.0+：service 只剩 d()/e(String)，合并搬到同包混淆类 d#a(List, List)。
         val access=PlayerEndPageRecommendLocator.resolve(Reply::class.java,null,null,null,
             endpagefixture.UGCEndPageRelatedRecommendService::class.java)
@@ -118,7 +118,7 @@ class PlayerEndPageRecommendTest {
         assertTrue(filtered.isEmpty())
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED,FeatureRuntimeStage.APPLIED),events)
     }
-    @Test fun `old rendered service output is treated as the merged list coverage unit`() {
+    fun `old rendered service output is treated as the merged list coverage unit`() {
         val access=PlayerEndPageRecommendLocator.resolve(Reply::class.java,null,null,null,RenderService::class.java)
         assertEquals("render",access.mergedList!!.name)
         val registrar=PlayerPortTestRegistrar();val events=mutableListOf<FeatureRuntimeStage>()
@@ -129,7 +129,7 @@ class PlayerEndPageRecommendTest {
         assertTrue(filtered.isEmpty())
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED,FeatureRuntimeStage.APPLIED),events)
     }
-    @Test fun `async proxy transforms onNext and preserves host completion and exceptions`() {
+    fun `async proxy transforms onNext and preserves host completion and exceptions`() {
         val registrar=PlayerPortTestRegistrar();PlayerEndPageRecommendFeatureInstaller(true){access()}.install(environment(registrar))
         var received:Reply?=null;var completed=0;val failure=IllegalStateException("delegate error")
         val delegate=object:Handler {
@@ -146,7 +146,7 @@ class PlayerEndPageRecommendTest {
         }
         assertTrue(received!!.cards.isEmpty());assertEquals(1,completed);assertEquals(1,original.cards.size)
     }
-    @Test fun `getter fallbacks do not repeat applied after primary copy has been cleaned`() {
+    fun `getter fallbacks do not repeat applied after primary copy has been cleaned`() {
         val registrar=PlayerPortTestRegistrar();val events=mutableListOf<FeatureRuntimeStage>()
         PlayerEndPageRecommendFeatureInstaller(true){access()}.install(environment(registrar,events))
         val copy=registrar.invoke("$id.sync") {Reply(listOf("card"))} as Reply
@@ -159,19 +159,19 @@ class PlayerEndPageRecommendTest {
         assertEquals(0,registrar.invoke("$id.count",raw){raw.getRelatesCount()})
         assertTrue(FeatureRuntimeStage.APPLIED in events);assertEquals(1,raw.cards.size)
     }
-    @Test fun `missing copy machinery preserves independent getter protection with partial coverage`() {
+    fun `missing copy machinery preserves independent getter protection with partial coverage`() {
         val access=PlayerEndPageRecommendLocator.resolve(ReadOnlyReply::class.java,null,null,null)
         assertFalse(access.canCopy)
         val registrar=PlayerPortTestRegistrar()
         assertEquals(FeatureInstallResult.Installed(2,false),PlayerEndPageRecommendFeatureInstaller(true){access}.install(environment(registrar)))
         assertEquals(setOf("$id.list","$id.count"),registrar.hooks.keys)
     }
-    @Test fun `one failed registration remains in the five-path denominator`() {
+    fun `one failed registration remains in the five-path denominator`() {
         val registrar=PlayerPortTestRegistrar("$id.async")
         assertEquals(FeatureInstallResult.Installed(4,false),PlayerEndPageRecommendFeatureInstaller(true){access()}.install(environment(registrar)))
         assertEquals(4,registrar.hooks.size)
     }
-    @Test fun `disabled other process absent and incorrect structures install no unsafe hook`() {
+    fun `disabled other process absent and incorrect structures install no unsafe hook`() {
         val registrar=PlayerPortTestRegistrar();val environment=environment(registrar)
         val never:(ClassLoader?)->PlayerEndPageRecommendLocator.Access?={error("must not resolve")}
         assertEquals(FeatureInstallResult.Skipped("disabled"),PlayerEndPageRecommendFeatureInstaller(false,resolve = never).install(environment))
@@ -181,5 +181,27 @@ class PlayerEndPageRecommendTest {
         assertNull(wrong.list);assertNull(wrong.count)
         assertEquals(FeatureInstallResult.Skipped("no-safe-hook-point"),PlayerEndPageRecommendFeatureInstaller(true){wrong}.install(environment))
         assertTrue(registrar.hooks.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerEndPageRecommendTest) -> Unit) {
+            val s = PlayerEndPageRecommendTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.`copy only removes end page cards and preserves the original and unrelated fields`() }
+        runIsolated { s -> s.`null empty default and different replies do not copy`() }
+        runIsolated { s -> s.`getter fallback cannot hide cards or fake successful raw readback inside the primary cleaner`() }
+        runIsolated { s -> s.`nested and failed reads always restore the original-read guard`() }
+        runIsolated { s -> s.`actual sync callback replaces only successful populated responses`() }
+        runIsolated { s -> s.`merged service output is cleared after detail and endpoint lists are combined`() }
+        runIsolated { s -> s.`912 plus merger in the service package is the merged list unit`() }
+        runIsolated { s -> s.`old rendered service output is treated as the merged list coverage unit`() }
+        runIsolated { s -> s.`async proxy transforms onNext and preserves host completion and exceptions`() }
+        runIsolated { s -> s.`getter fallbacks do not repeat applied after primary copy has been cleaned`() }
+        runIsolated { s -> s.`missing copy machinery preserves independent getter protection with partial coverage`() }
+        runIsolated { s -> s.`one failed registration remains in the five-path denominator`() }
+        runIsolated { s -> s.`disabled other process absent and incorrect structures install no unsafe hook`() }
     }
 }

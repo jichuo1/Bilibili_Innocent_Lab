@@ -65,14 +65,14 @@ class HostLayerNeutralPlanTest {
     private fun gradient(top: Int = 0, height: Int = -1) =
         Layer(top = top, height = height, kind = HostLayerKind.NEUTRAL_PLAIN_GRADIENT)
 
-    @Test fun transparentOrUnrelatedLayersProduceNoPlanAndNoCopy() {
+    fun transparentOrUnrelatedLayersProduceNoPlanAndNoCopy() {
         val layers = FakeLayers(listOf(Layer(), Layer(kind = HostLayerKind.OTHER)))
         assertNull(HostLayerNeutralPlan.of(layers, 1080, 200, 12))
         assertEquals("扫描原件不复制", 0, layers.copies)
         assertNull(HostLayerNeutralPlan.of(FakeLayers(emptyList()), 1080, 200, 12))
     }
 
-    @Test fun fullWidthNeutralLayerNeedsOneCopyAndOnlyThatLayerChanges() {
+    fun fullWidthNeutralLayerNeedsOneCopyAndOnlyThatLayerChanges() {
         val layers = FakeLayers(listOf(
             Layer(kind = HostLayerKind.NEUTRAL_COLOR),
             Layer(kind = HostLayerKind.OTHER),
@@ -83,7 +83,7 @@ class HostLayerNeutralPlanTest {
         assertArrayEquals(intArrayOf(0, 2), plan.cleared)
     }
 
-    @Test fun partialSizeLayersAreKeptEvenWhenNeutral() {
+    fun partialSizeLayersAreKeptEvenWhenNeutral() {
         val layers = FakeLayers(listOf(
             Layer(height = 20, kind = HostLayerKind.NEUTRAL_COLOR),      // 分隔线
             Layer(width = 300, kind = HostLayerKind.NEUTRAL_COLOR),      // 窄于 90% 宽
@@ -93,7 +93,7 @@ class HostLayerNeutralPlanTest {
         assertArrayEquals(intArrayOf(2), plan.cleared)
     }
 
-    @Test fun borderedInputKeepsTheLineAndRestrictsTheBaseLayer() {
+    fun borderedInputKeepsTheLineAndRestrictsTheBaseLayer() {
         val layers = FakeLayers(listOf(gradient(), gradient(top = 3)))
         val plan = HostLayerNeutralPlan.of(layers, 1080, 200, 12)!!
         assertTrue(plan.isBorderedInput)
@@ -101,14 +101,14 @@ class HostLayerNeutralPlanTest {
         assertEquals(0, plan.cleared.size)
     }
 
-    @Test fun lineTallerThanTheLimitFallsBackToClearingFullSizeLayers() {
+    fun lineTallerThanTheLimitFallsBackToClearingFullSizeLayers() {
         val layers = FakeLayers(listOf(gradient(), gradient(top = 13)))
         val plan = HostLayerNeutralPlan.of(layers, 1080, 200, 12)!!
         assertFalse(plan.isBorderedInput)
         assertArrayEquals(intArrayOf(0, 1), plan.cleared)
     }
 
-    @Test fun alreadyProcessedBorderedInputIsIdempotent() {
+    fun alreadyProcessedBorderedInputIsIdempotent() {
         val original = FakeLayers(listOf(gradient(), gradient(top = 3)))
         val first = HostLayerNeutralPlan.of(original, 1080, 200, 12)!!
         val processed = original.copy().also { apply(it, first) }
@@ -116,7 +116,7 @@ class HostLayerNeutralPlanTest {
         assertNull(HostLayerNeutralPlan.of(processed, 1080, 200, 12))
     }
 
-    @Test fun planMatchesTheCopyFirstLogicOnRandomLayerSets() {
+    fun planMatchesTheCopyFirstLogicOnRandomLayerSets() {
         val random = Random(20261029L)
         val kinds = HostLayerKind.values()
         var sawPlan = 0
@@ -153,5 +153,20 @@ class HostLayerNeutralPlanTest {
         // 随机集合应同时覆盖两种结果，避免恒真比较。
         assertTrue("有计划的样本: $sawPlan", sawPlan > 500)
         assertTrue("无计划的样本: $sawNoPlan", sawNoPlan > 500)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostLayerNeutralPlanTest) -> Unit) {
+            val s = HostLayerNeutralPlanTest()
+            block(s)
+        }
+        runIsolated { s -> s.transparentOrUnrelatedLayersProduceNoPlanAndNoCopy() }
+        runIsolated { s -> s.fullWidthNeutralLayerNeedsOneCopyAndOnlyThatLayerChanges() }
+        runIsolated { s -> s.partialSizeLayersAreKeptEvenWhenNeutral() }
+        runIsolated { s -> s.borderedInputKeepsTheLineAndRestrictsTheBaseLayer() }
+        runIsolated { s -> s.lineTallerThanTheLimitFallsBackToClearingFullSizeLayers() }
+        runIsolated { s -> s.alreadyProcessedBorderedInputIsIdempotent() }
+        runIsolated { s -> s.planMatchesTheCopyFirstLogicOnRandomLayerSets() }
     }
 }

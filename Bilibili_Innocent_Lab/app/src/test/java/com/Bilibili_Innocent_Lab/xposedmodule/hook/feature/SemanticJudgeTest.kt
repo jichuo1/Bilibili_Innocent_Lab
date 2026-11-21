@@ -40,7 +40,6 @@ class SemanticJudgeTest {
     ) = SemanticJudge("k", rules, blockThreshold = threshold, transport = transport,
         background = background, clock = clock, cache = cache)
 
-    @Test
     fun `request shares rules and guidance in state and references them per question`() {
         val body = JSONObject(JevRequestCodec.encode(listOf("转发抽奖", "日常"), rules).toString(StandardCharsets.UTF_8))
 
@@ -59,7 +58,6 @@ class SemanticJudgeTest {
         assertEquals(setOf("block", "keep"), question.getJSONObject("criteria").keys().asSequence().toSet())
     }
 
-    @Test
     fun `each violation type is its own question and per rule scores merge by max`() {
         val two = rules.take(2)
         val body = JSONObject(JevRequestCodec.encode(listOf("转发抽奖", "日常"), two).toString(StandardCharsets.UTF_8))
@@ -85,7 +83,6 @@ class SemanticJudgeTest {
         assertTrue(scores[2].isNaN()) // 该条目一题都没答 = UNKNOWN
     }
 
-    @Test
     fun `answer keys must match a complete entry or entry rule identity`() {
         val malformed = listOf("x_item_0_1", "item_0_1_extra", "item_0_1_2", "item_0_-1", "item_0suffix")
         fun answer(score: Double) = JSONObject().put("type", "noul").put("noul", score)
@@ -97,7 +94,6 @@ class SemanticJudgeTest {
         assertEquals(0.3f, scores[1], 1e-6f)
     }
 
-    @Test
     fun `block score prefers the probability distribution and falls back to choice`() {
         val payload = JSONObject().put(
             "answers",
@@ -118,7 +114,6 @@ class SemanticJudgeTest {
         assertNull(JevRequestCodec.decodeBlockScores("{\"detail\":\"x\"}", 1))
     }
 
-    @Test
     fun `wait mode fetches once then serves from cache`() {
         var calls = 0
         val judge = judge { _, _, _ -> calls += 1; 200 to answers(0.95, 0.05) }
@@ -129,7 +124,6 @@ class SemanticJudgeTest {
         assertEquals(1, calls)
     }
 
-    @Test
     fun `cache only never touches the network`() {
         var calls = 0
         val judge = judge { _, _, _ -> calls += 1; 200 to answers(0.99) }
@@ -137,7 +131,6 @@ class SemanticJudgeTest {
         assertEquals(0, calls)
     }
 
-    @Test
     fun `sensitivity is applied on read so changing it needs no new request`() {
         var calls = 0
         val cache = SemanticScoreCache()
@@ -151,7 +144,6 @@ class SemanticJudgeTest {
         assertTrue(SemanticSensitivity.LOW.blockThreshold > SemanticSensitivity.MEDIUM.blockThreshold)
     }
 
-    @Test
     fun `prefetch returns immediately and deduplicates in-flight texts`() {
         var calls = 0
         val queued = mutableListOf<Runnable>()
@@ -171,7 +163,6 @@ class SemanticJudgeTest {
         assertNull(reported)
     }
 
-    @Test
     fun `rejected prefetch releases in-flight keys`() {
         var accept = false
         val judge = judge(background = { if (accept) { it.run(); true } else false }) { _, _, _ -> 200 to answers(0.0) }
@@ -182,7 +173,6 @@ class SemanticJudgeTest {
         assertEquals(listOf(keep), judge.evaluate(listOf("日常"), SemanticMode.CACHE_ONLY))
     }
 
-    @Test
     fun `http failure fails open and enters cooldown`() {
         var now = 1_000L
         var calls = 0
@@ -199,13 +189,11 @@ class SemanticJudgeTest {
         assertEquals(2, calls)
     }
 
-    @Test
     fun `network exception fails open`() {
         val judge = judge { _, _, _ -> error("boom") }
         assertEquals(listOf(unknown), judge.evaluate(listOf("抽奖"), SemanticMode.WAIT))
     }
 
-    @Test
     fun `batches are split into concurrent chunks and finished chunks are always collected`() {
         val sizes = mutableListOf<Int>()
         val judge = judge { body, _, budget ->
@@ -225,7 +213,6 @@ class SemanticJudgeTest {
         assertEquals(unknown, verdicts.last())
     }
 
-    @Test
     fun `wait mode returns at the hard deadline and late results land in the cache`() {
         val queued = mutableListOf<Runnable>()
         val judge = SemanticJudge("k", rules, timeoutMs = 50,
@@ -242,7 +229,6 @@ class SemanticJudgeTest {
         assertEquals(listOf(block), judge.evaluate(listOf("抽奖"), SemanticMode.CACHE_ONLY))
     }
 
-    @Test
     fun `repeated texts inside one batch share a single verdict`() {
         var calls = 0
         var asked = 0
@@ -267,7 +253,6 @@ class SemanticJudgeTest {
         assertEquals(rules.size, asked)
     }
 
-    @Test
     fun `texts already in flight are not requested twice across paths`() {
         var calls = 0
         val queued = mutableListOf<Runnable>()
@@ -280,7 +265,6 @@ class SemanticJudgeTest {
         assertEquals(1, calls)
     }
 
-    @Test
     fun `shared settings need a key and valid endpoint and judges need at least one rule`() {
         fun settings(key: String = "abc", endpoint: String = "", sensitivity: String = "", wait: Boolean = false) =
             SemanticSettings.from(key, endpoint, sensitivity, wait)
@@ -304,7 +288,6 @@ class SemanticJudgeTest {
         assertEquals(SemanticSensitivity.DEFAULT, SemanticSensitivity.fromId("max"))
     }
 
-    @Test
     fun `batch size is configurable per surface and capped`() {
         val sizes = mutableListOf<Int>()
         val transport: (ByteArray, String, Int) -> Pair<Int, String>? = { body, _, _ ->
@@ -334,7 +317,6 @@ class SemanticJudgeTest {
         assertCapped(JevBackend.MAX_QUESTIONS)
     }
 
-    @Test
     fun `rule selections are canonical and unknown ids are ignored`() {
         SemanticSurface.entries.forEach { surface ->
             val presets = SemanticPresets.of(surface)
@@ -355,7 +337,6 @@ class SemanticJudgeTest {
         assertTrue(SemanticPresets.defaultSelection(surface).length <= SemanticPresets.MAX_SELECTION_LENGTH)
     }
 
-    @Test
     fun `changing the selection changes the cache identity`() {
         var calls = 0
         val cache = SemanticScoreCache()
@@ -368,7 +349,6 @@ class SemanticJudgeTest {
         assertEquals(1, calls)
     }
 
-    @Test
     fun `title reader only uses the card title or basic info title`() {
         assertEquals("直接标题", SemanticTitleReader.read(DirectCard()))
         assertEquals("基础信息标题", SemanticTitleReader.read(UnitedCard()))
@@ -378,7 +358,6 @@ class SemanticJudgeTest {
         assertEquals(null, SemanticTitleReader.read(DirectCard(title = "  ")))
     }
 
-    @Test
     fun `list memo reuses resolved results and retries unresolved ones`() {
         var now = 0L
         var computes = 0
@@ -407,7 +386,6 @@ class SemanticJudgeTest {
         assertEquals(5, computes)
     }
 
-    @Test
     fun `single card judgement never blocks the caller`() {
         var calls = 0
         val judge = SemanticJudge("k", rules, waitFirstScreen = true,
@@ -437,7 +415,6 @@ class SemanticJudgeTest {
         fun getButton(): DirectCard = DirectCard("去看看")
     }
 
-    @Test
     fun `third party endpoint is normalized`() {
         assertEquals("https://relay.example.com/v1/systemone", SemanticJudge.normalizeEndpoint("https://relay.example.com/"))
         assertEquals("https://relay.example.com/v1/systemone", SemanticJudge.normalizeEndpoint("https://relay.example.com/v1"))
@@ -447,7 +424,6 @@ class SemanticJudgeTest {
         assertNull(SemanticJudge.normalizeEndpoint("not a URL"))
     }
 
-    @Test
     fun `semantic verdict only adds removals after every rule`() {
         val plan = DynamicPurifyPolicy.Plan(
             keywords = emptySet(),
@@ -463,5 +439,37 @@ class SemanticJudgeTest {
         val rulesOnly = plan.copy(authorRules = AuthorRuleSet.parse("777"), semanticEnabled = false)
         assertTrue(DynamicPurifyPolicy.shouldRemove(DynamicPurifyPolicy.Signals(authorMid = 777L), rulesOnly))
         assertFalse(DynamicPurifyPolicy.shouldRemove(DynamicPurifyPolicy.Signals(semanticBlocked = true), rulesOnly))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SemanticJudgeTest) -> Unit) {
+            val s = SemanticJudgeTest()
+            block(s)
+        }
+        runIsolated { s -> s.`request shares rules and guidance in state and references them per question`() }
+        runIsolated { s -> s.`each violation type is its own question and per rule scores merge by max`() }
+        runIsolated { s -> s.`answer keys must match a complete entry or entry rule identity`() }
+        runIsolated { s -> s.`block score prefers the probability distribution and falls back to choice`() }
+        runIsolated { s -> s.`wait mode fetches once then serves from cache`() }
+        runIsolated { s -> s.`cache only never touches the network`() }
+        runIsolated { s -> s.`sensitivity is applied on read so changing it needs no new request`() }
+        runIsolated { s -> s.`prefetch returns immediately and deduplicates in-flight texts`() }
+        runIsolated { s -> s.`rejected prefetch releases in-flight keys`() }
+        runIsolated { s -> s.`http failure fails open and enters cooldown`() }
+        runIsolated { s -> s.`network exception fails open`() }
+        runIsolated { s -> s.`batches are split into concurrent chunks and finished chunks are always collected`() }
+        runIsolated { s -> s.`wait mode returns at the hard deadline and late results land in the cache`() }
+        runIsolated { s -> s.`repeated texts inside one batch share a single verdict`() }
+        runIsolated { s -> s.`texts already in flight are not requested twice across paths`() }
+        runIsolated { s -> s.`shared settings need a key and valid endpoint and judges need at least one rule`() }
+        runIsolated { s -> s.`batch size is configurable per surface and capped`() }
+        runIsolated { s -> s.`rule selections are canonical and unknown ids are ignored`() }
+        runIsolated { s -> s.`changing the selection changes the cache identity`() }
+        runIsolated { s -> s.`title reader only uses the card title or basic info title`() }
+        runIsolated { s -> s.`list memo reuses resolved results and retries unresolved ones`() }
+        runIsolated { s -> s.`single card judgement never blocks the caller`() }
+        runIsolated { s -> s.`third party endpoint is normalized`() }
+        runIsolated { s -> s.`semantic verdict only adds removals after every rule`() }
     }
 }

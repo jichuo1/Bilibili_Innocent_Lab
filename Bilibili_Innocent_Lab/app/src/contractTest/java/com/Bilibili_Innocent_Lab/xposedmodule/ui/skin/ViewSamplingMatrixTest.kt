@@ -32,7 +32,7 @@ class ViewSamplingMatrixTest {
         assertEquals(y, actual.second, .002f)
     }
 
-    @Test fun nonCentralPivotAndUnequalScaleDoNotScaleTheBackdropWithTheButton() {
+    fun nonCentralPivotAndUnequalScaleDoNotScaleTheBackdropWithTheButton() {
         val source = transform(12f, 24f)
         val target = transform(100f, 200f, .8f, 1.25f, 10f, 30f)
         val shader = FloatArray(9)
@@ -43,7 +43,7 @@ class ViewSamplingMatrixTest {
         assertPoint(212f, 324f, map(target, local.first, local.second))
     }
 
-    @Test fun ancestorRotationTranslationAndScrollComposeInTheCorrectOrder() {
+    fun ancestorRotationTranslationAndScrollComposeInTheCorrectOrder() {
         val child = transform(8f, -3f, 1.3f, .7f, 7f, 19f, 25f)
         // Layout left/top minus the parent's scroll are outside the child's pivot transform.
         SamplingMatrixMath.translateAfter(child, 40f - 11f, 70f - 23f)
@@ -65,7 +65,7 @@ class ViewSamplingMatrixTest {
         }
     }
 
-    @Test fun separateDialogAndActivityWindowsUseTheirOwnOffsets() {
+    fun separateDialogAndActivityWindowsUseTheirOwnOffsets() {
         val source = transform(18f, 46f)
         val target = transform(-27f, 191f, 1.2f, .6f, 13f, 8f)
         val shader = FloatArray(9)
@@ -74,7 +74,7 @@ class ViewSamplingMatrixTest {
         assertPoint(98f, 196f, map(target, local.first, local.second))
     }
 
-    @Test fun rootScreenCalibrationRetainsFractionalPivotsAndWindowPan() {
+    fun rootScreenCalibrationRetainsFractionalPivotsAndWindowPan() {
         val root = transform(10.3f, -8.6f, .85f, 1.1f, 13f, 7f, 12f)
         val actual = root.copyOf()
         val origin = map(root, 0f, 0f)
@@ -85,7 +85,7 @@ class ViewSamplingMatrixTest {
         assertPoint(expected.first + 83f, expected.second - 18f, map(actual, 15f, 21f))
     }
 
-    @Test fun perspectiveAndAliasedScratchRemainInvertibleWhileInvalidTransformsFailClosed() {
+    fun perspectiveAndAliasedScratchRemainInvertibleWhileInvalidTransformsFailClosed() {
         val projective = floatArrayOf(1.1f, .2f, 7f, -.1f, .8f, 9f, .001f, -.0004f, 1f)
         val inverse = projective.copyOf()
         assertTrue(SamplingMatrixMath.invert(inverse, inverse))
@@ -99,7 +99,7 @@ class ViewSamplingMatrixTest {
         assertFalse(SamplingMatrixMath.bitmapToTarget(identity(), identity(), Float.NaN, 1f, FloatArray(9), FloatArray(9)))
     }
 
-    @Test fun fullFootprintsDetectScaleChangesEvenWhenTheScreenOriginDoesNotMove() {
+    fun fullFootprintsDetectScaleChangesEvenWhenTheScreenOriginDoesNotMove() {
         val first = transform(100f, 200f)
         val pressed = transform(100f, 200f, .98f, .98f)
         assertEquals(map(first, 0f, 0f), map(pressed, 0f, 0f))
@@ -107,7 +107,7 @@ class ViewSamplingMatrixTest {
         assertTrue(SamplingMatrixMath.equal(first, first.copyOf()))
     }
 
-    @Test fun rendererUsesTheSharedTransformForDrawingAndFullFootprintsWithoutNewCapture() {
+    fun rendererUsesTheSharedTransformForDrawingAndFullFootprintsWithoutNewCapture() {
         fun source(relative: String): String {
             val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/$relative.kt"
             return SourceContract.read(path)
@@ -125,5 +125,20 @@ class ViewSamplingMatrixTest {
         assertTrue(helper.contains("parent?.scrollX"))
         assertTrue(helper.contains("parent?.scrollY"))
         assertFalse(helper.contains(".transformMatrixToGlobal("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ViewSamplingMatrixTest) -> Unit) {
+            val s = ViewSamplingMatrixTest()
+            block(s)
+        }
+        runIsolated { s -> s.nonCentralPivotAndUnequalScaleDoNotScaleTheBackdropWithTheButton() }
+        runIsolated { s -> s.ancestorRotationTranslationAndScrollComposeInTheCorrectOrder() }
+        runIsolated { s -> s.separateDialogAndActivityWindowsUseTheirOwnOffsets() }
+        runIsolated { s -> s.rootScreenCalibrationRetainsFractionalPivotsAndWindowPan() }
+        runIsolated { s -> s.perspectiveAndAliasedScratchRemainInvertibleWhileInvalidTransformsFailClosed() }
+        runIsolated { s -> s.fullFootprintsDetectScaleChangesEvenWhenTheScreenOriginDoesNotMove() }
+        runIsolated { s -> s.rendererUsesTheSharedTransformForDrawingAndFullFootprintsWithoutNewCapture() }
     }
 }

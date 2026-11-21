@@ -18,7 +18,7 @@ class HomeTopBarFeatureInstallerTest {
         companion object { const val GAME = "action://game_center/home/menu" }
     }
 
-    @Test fun `shared static routes never identify a different menu instance as game center`() {
+    fun `shared static routes never identify a different menu instance as game center`() {
         assertFalse(HomeTopBarFeatureInstaller.isGameMenuItem(SharedRouteItem("action://scan")))
         assertTrue(HomeTopBarFeatureInstaller.isGameMenuItem(SharedRouteItem("action://game_center/home/menu?from=home")))
         assertFalse(HomeTopBarFeatureInstaller.isGameMenuItem(SharedRouteItem("action://scan")))
@@ -41,7 +41,6 @@ class HomeTopBarFeatureInstallerTest {
     )
     private var errors = 0
 
-    @Test
     fun `recognizes only exact game center action from adapted config field`() {
         assertTrue(
             HomeTopBarFeatureInstaller.hasGameMenuAction(
@@ -58,7 +57,6 @@ class HomeTopBarFeatureInstallerTest {
         assertFalse(HomeTopBarFeatureInstaller.hasGameMenuAction(a(), "missing"))
     }
 
-    @Test
     fun `the same action predicate serves both layers so they never drift apart`() {
         assertTrue(
             HomeTopBarFeatureInstaller.isGameMenuItem(
@@ -83,7 +81,6 @@ class HomeTopBarFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `compose layer drops only the game entry and keeps list order`() {
         val im = TopRightItem("消息", "bilibili://link/im_home")
         val game = TopRightItem("游戏", "action://game_center/home/menu?from=home")
@@ -95,7 +92,6 @@ class HomeTopBarFeatureInstallerTest {
         assertSame(more, kept[1])
     }
 
-    @Test
     fun `compose layer returns null when there is nothing to drop so the argument is left alone`() {
         val filter = ComposeTopRightFilter()
         val untouched = listOf(TopRightItem("消息", "bilibili://link/im_home"))
@@ -105,14 +101,12 @@ class HomeTopBarFeatureInstallerTest {
         assertFalse(filter.isDegraded)
     }
 
-    @Test
     fun `compose layer tolerates null elements instead of dropping them`() {
         val game = TopRightItem("游戏", "action://game_center/home/menu")
         val kept = ComposeTopRightFilter().filter(listOf(null, game, null), environment)
         assertEquals(listOf(null, null), kept)
     }
 
-    @Test
     fun `compose layer stops after one failure and never touches the argument again`() {
         // 反射读不到字段时 KavaMemberLookup 会抛；这条路径每次列表变化都走，
         // 反复抛会刷满宿主日志，所以必须一次就停手。
@@ -125,14 +119,12 @@ class HomeTopBarFeatureInstallerTest {
         assertEquals(errorsAfterFirst, errors)
     }
 
-    @Test
     fun `layer state distinguishes absent anchor from failed registration`() {
         assertEquals("ok", HomeTopBarFeatureInstaller.layerState(present = true, installed = true))
         assertEquals("failed", HomeTopBarFeatureInstaller.layerState(present = true, installed = false))
         assertEquals("absent", HomeTopBarFeatureInstaller.layerState(present = false, installed = false))
     }
 
-    @Test
     fun `home top bar points survive a json round trip with the compose layer`() {
         val point = VersionAdapter.HookPoint("A", "b", null)
         val composePoint = VersionAdapter.HookPoint("C", "invoke", null)
@@ -143,7 +135,6 @@ class HomeTopBarFeatureInstallerTest {
         assertEquals(composePoint, restored.composeGameMenu)
     }
 
-    @Test
     fun `an older cache without the compose key degrades that layer instead of failing`() {
         // 抬 RULE_VERSION 会让旧缓存整体失效，但解析本身也不许因为缺键就炸。
         val legacy = VersionAdapter.HomeTopBarPoints(
@@ -196,7 +187,6 @@ class HomeTopBarFeatureInstallerTest {
         "home.TopRight", "invoke", listOf("java.util.List", "kotlin.coroutines.Continuation")
     )
 
-    @Test
     fun `both game center layers install side by side`() {
         val (result, ids, statuses) = installGameLayers(menuPoint, composePoint)
         assertEquals(listOf("home.top_bar.game_menu", "home.top_bar.game_compose"), ids)
@@ -204,13 +194,12 @@ class HomeTopBarFeatureInstallerTest {
         assertTrue("home_game_menu_layers" to "menu=ok,compose=ok" in statuses)
     }
 
-    @Test fun `an existing menu layer failure cannot be reported as complete by its sibling`() {
+    fun `an existing menu layer failure cannot be reported as complete by its sibling`() {
         val (result, _, _) = installGameLayers(menuPoint, composePoint, "home.top_bar.game_menu")
         assertTrue(result is FeatureInstallResult.Installed)
         assertFalse((result as FeatureInstallResult.Installed).complete)
     }
 
-    @Test
     fun `either layer alone still counts as ready`() {
         // 老宿主只有菜单路径、Compose 顶栏放量后可能只剩新路径：要求"两条都装上"
         // 会让正常情况永久报 partial，那反而会掩盖真正的失效。
@@ -225,7 +214,6 @@ class HomeTopBarFeatureInstallerTest {
         assertTrue("home_game_menu_layers" to "menu=absent,compose=ok" in composeStatuses)
     }
 
-    @Test
     fun `losing both layers is reported instead of passing silently`() {
         val (result, ids, statuses) = installGameLayers(null, null)
         assertTrue(ids.isEmpty())
@@ -233,7 +221,6 @@ class HomeTopBarFeatureInstallerTest {
         assertTrue("home_game_menu_layers" to "menu=absent,compose=absent" in statuses)
     }
 
-    @Test
     fun `the locator picks the typed invoke and never the bridge overload`() {
         // 端到端跑定位器：夹具里两个 invoke 同名同参数个数，只有参数 0 的类型能分开它们。
         val points = VersionAdapter.locateHomeTopBar(javaClass.classLoader!!)
@@ -247,5 +234,28 @@ class HomeTopBarFeatureInstallerTest {
         assertEquals("invoke", compose.methodName)
         // 桥接方法的参数 0 是 Object，被签名判据排除；命中的必须是 List 那个。
         assertEquals(listOf("java.util.List", "kotlin.coroutines.Continuation"), compose.paramClassNames)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeTopBarFeatureInstallerTest) -> Unit) {
+            val s = HomeTopBarFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`shared static routes never identify a different menu instance as game center`() }
+        runIsolated { s -> s.`recognizes only exact game center action from adapted config field`() }
+        runIsolated { s -> s.`the same action predicate serves both layers so they never drift apart`() }
+        runIsolated { s -> s.`compose layer drops only the game entry and keeps list order`() }
+        runIsolated { s -> s.`compose layer returns null when there is nothing to drop so the argument is left alone`() }
+        runIsolated { s -> s.`compose layer tolerates null elements instead of dropping them`() }
+        runIsolated { s -> s.`compose layer stops after one failure and never touches the argument again`() }
+        runIsolated { s -> s.`layer state distinguishes absent anchor from failed registration`() }
+        runIsolated { s -> s.`home top bar points survive a json round trip with the compose layer`() }
+        runIsolated { s -> s.`an older cache without the compose key degrades that layer instead of failing`() }
+        runIsolated { s -> s.`both game center layers install side by side`() }
+        runIsolated { s -> s.`an existing menu layer failure cannot be reported as complete by its sibling`() }
+        runIsolated { s -> s.`either layer alone still counts as ready`() }
+        runIsolated { s -> s.`losing both layers is reported instead of passing silently`() }
+        runIsolated { s -> s.`the locator picks the typed invoke and never the bridge overload`() }
     }
 }

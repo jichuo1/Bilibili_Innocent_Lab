@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AudioRescueWriteTest {
-    @Test fun `metrics prove mono on accepted encoded bytes without moving buffer positions`() {
+    fun `metrics prove mono on accepted encoded bytes without moving buffer positions`() {
         val writer = AudioRescueWrite(AudioRescueProcessor(48000, 2, AudioRescueConfig(channels = 1)), 2)
         val caller = ByteBuffer.wrap(bytes(16000, 0, -8000, 4000))
         val pending = writer.prepare(caller, 0, 8)!!
@@ -21,7 +21,7 @@ class AudioRescueWriteTest {
         assertEquals(0, caller.position()); assertEquals(4, replacement.position())
     }
 
-    @Test fun `metrics exclude unwritten spikes and report actual quantized float short and eight bit output`() {
+    fun `metrics exclude unwritten spikes and report actual quantized float short and eight bit output`() {
         val writer = AudioRescueWrite(AudioRescueProcessor(48000, 2, AudioRescueConfig(peakGuard = true)), 4)
         val pending = writer.prepare(floatArrayOf(.01f, .01f, 1f, -1f), 0, 4)!!
         val stats = writer.metrics(pending, 2)!!
@@ -36,7 +36,7 @@ class AudioRescueWriteTest {
         assertEquals(.5, byteStats.outputPeak, 0.0)
     }
 
-    @Test fun `metrics do not advance DSP state and reject failed or out of bounds writes`() {
+    fun `metrics do not advance DSP state and reject failed or out of bounds writes`() {
         val p = processor()
         val writer = AudioRescueWrite(p, 4)
         val pending = writer.prepare(floatArrayOf(1f, .2f), 0, 2)!!
@@ -49,7 +49,7 @@ class AudioRescueWriteTest {
     private fun bytes(vararg samples: Short): ByteArray = ByteBuffer.allocate(samples.size * 2)
         .order(ByteOrder.nativeOrder()).also { b -> samples.forEach { b.putShort(it) } }.array()
 
-    @Test fun `short writes copy the selected range and retain caller data`() {
+    fun `short writes copy the selected range and retain caller data`() {
         val caller = shortArrayOf(321, 32767, 0, -32768, 0, 123)
         val original = caller.copyOf()
         val writer = AudioRescueWrite(processor(), 2)
@@ -59,7 +59,7 @@ class AudioRescueWriteTest {
         assertArrayEquals(original, caller)
     }
 
-    @Test fun `byte writes preserve offsets input and result byte units`() {
+    fun `byte writes preserve offsets input and result byte units`() {
         val input = byteArrayOf(42, 19) + bytes(32767, 0, -32768, 0) + byteArrayOf(83)
         val original = input.copyOf()
         val writer = AudioRescueWrite(processor(), 2)
@@ -69,7 +69,7 @@ class AudioRescueWriteTest {
         assertArrayEquals(original, input)
     }
 
-    @Test fun `partial accepted prefix commits exactly the reference DSP state`() {
+    fun `partial accepted prefix commits exactly the reference DSP state`() {
         val input = FloatArray(4800) { if (it < 400) .04f else 1f }
         val actualProcessor = processor()
         val expectedProcessor = processor()
@@ -85,7 +85,7 @@ class AudioRescueWriteTest {
         assertArrayEquals(expectedProcessor.checkpoint(), actualProcessor.checkpoint(), 0.0)
     }
 
-    @Test fun `errors zero and invalid returns restore DSP and preserve buffer position`() {
+    fun `errors zero and invalid returns restore DSP and preserve buffer position`() {
         for (accepted in listOf(-6, -3, 0, 999)) {
             val p = processor(); val initial = p.checkpoint()
             val writer = AudioRescueWrite(p, 2)
@@ -97,7 +97,7 @@ class AudioRescueWriteTest {
         }
     }
 
-    @Test fun `heap direct and readonly buffers retain bytes order limit and advance accepted bytes only`() {
+    fun `heap direct and readonly buffers retain bytes order limit and advance accepted bytes only`() {
         for (kind in 0..2) {
             val source = bytes(123, 456, 32767, 0, -32768, 0)
             val mutable = (if (kind == 1) ByteBuffer.allocateDirect(source.size) else ByteBuffer.allocate(source.size))
@@ -118,20 +118,20 @@ class AudioRescueWriteTest {
         }
     }
 
-    @Test fun `PCM unsigned eight bit silence stays centered and mono fills both ears`() {
+    fun `PCM unsigned eight bit silence stays centered and mono fills both ears`() {
         val p = AudioRescueProcessor(48000, 2, AudioRescueConfig(channels = 1))
         val writer = AudioRescueWrite(p, 3)
         val pending = writer.prepare(byteArrayOf(128.toByte(), 128.toByte(), 255.toByte(), 129.toByte()), 0, 4)!!
         assertArrayEquals(byteArrayOf(128.toByte(), 128.toByte(), 192.toByte(), 192.toByte()), pending.data as ByteArray)
     }
 
-    @Test fun `PCM sixteen bit identity roundtrip preserves full signed range`() {
+    fun `PCM sixteen bit identity roundtrip preserves full signed range`() {
         val writer = AudioRescueWrite(AudioRescueProcessor(48000, 1, AudioRescueConfig()), 2)
         val input = bytes(Short.MIN_VALUE, -1, 0, 1, Short.MAX_VALUE)
         assertArrayEquals(input, writer.prepare(input, 0, input.size)!!.data as ByteArray)
     }
 
-    @Test fun `float buffer writes use byte units and sanitize nonfinite input`() {
+    fun `float buffer writes use byte units and sanitize nonfinite input`() {
         val data = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder())
             .putFloat(Float.NaN).putFloat(Float.POSITIVE_INFINITY).putFloat(1f).putFloat(-1f).apply { flip() }
         val p = processor()
@@ -145,7 +145,7 @@ class AudioRescueWriteTest {
         assertEquals(0, data.position())
     }
 
-    @Test fun `invalid ranges unknown encodings surround misalignment and huge writes stay with Android`() {
+    fun `invalid ranges unknown encodings surround misalignment and huge writes stay with Android`() {
         val writer = AudioRescueWrite(processor(), 2)
         val input = ByteArray(16)
         for ((offset, count) in listOf(-1 to 4, 0 to -1, 0 to 0, 0 to 3, 15 to 4, Int.MAX_VALUE to 4, 0 to Int.MAX_VALUE))
@@ -155,5 +155,25 @@ class AudioRescueWriteTest {
         assertNull(AudioRescueWrite(processor(), 5).prepare(input, 0, 16))
         assertNull(writer.prepare(ByteBuffer.allocate(2), 0, 4))
         assertNull(writer.prepare("not PCM", 0, 4))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AudioRescueWriteTest) -> Unit) {
+            val s = AudioRescueWriteTest()
+            block(s)
+        }
+        runIsolated { s -> s.`metrics prove mono on accepted encoded bytes without moving buffer positions`() }
+        runIsolated { s -> s.`metrics exclude unwritten spikes and report actual quantized float short and eight bit output`() }
+        runIsolated { s -> s.`metrics do not advance DSP state and reject failed or out of bounds writes`() }
+        runIsolated { s -> s.`short writes copy the selected range and retain caller data`() }
+        runIsolated { s -> s.`byte writes preserve offsets input and result byte units`() }
+        runIsolated { s -> s.`partial accepted prefix commits exactly the reference DSP state`() }
+        runIsolated { s -> s.`errors zero and invalid returns restore DSP and preserve buffer position`() }
+        runIsolated { s -> s.`heap direct and readonly buffers retain bytes order limit and advance accepted bytes only`() }
+        runIsolated { s -> s.`PCM unsigned eight bit silence stays centered and mono fills both ears`() }
+        runIsolated { s -> s.`PCM sixteen bit identity roundtrip preserves full signed range`() }
+        runIsolated { s -> s.`float buffer writes use byte units and sanitize nonfinite input`() }
+        runIsolated { s -> s.`invalid ranges unknown encodings surround misalignment and huge writes stay with Android`() }
     }
 }

@@ -9,7 +9,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReleaseHighlightsTest {
-    @Test fun experimentalBufferSettingsHaveOneManualAnnouncementAndAllCompanionIdsAreReviewed() {
+    fun experimentalBufferSettingsHaveOneManualAnnouncementAndAllCompanionIdsAreReviewed() {
         val batch = ReleaseHighlightsCatalog.batches.single { batch ->
             batch.entries.any { it.id == "player-buffer-strategy" }
         }
@@ -19,18 +19,18 @@ class ReleaseHighlightsTest {
         assertEquals(SettingsCatalog.specs.filter { it.introducedCatalogVersion == 51 }.map { it.id }.toSet(),
             target.alsoCovers + target.settingId)
     }
-    @Test fun freshInstallEstablishesBaselineWithoutClaimingItWasShown() {
+    fun freshInstallEstablishesBaselineWithoutClaimingItWasShown() {
         val state = ReleaseHighlightsPolicy.bootstrap(5,false)
         assertEquals(5,state.baseline); assertEquals(0,state.presented)
         assertNull(ReleaseHighlightsPolicy.pendingFrom(state,5))
         assertEquals(5,ReleaseHighlightsPolicy.pendingFrom(state,6))
     }
-    @Test fun firstRolloutOnExistingInstallShowsOnlyCurrentBatchNotAnInventedHistory() {
+    fun firstRolloutOnExistingInstallShowsOnlyCurrentBatchNotAnInventedHistory() {
         val state = ReleaseHighlightsPolicy.bootstrap(5,true)
         assertEquals(4,ReleaseHighlightsPolicy.pendingFrom(state,5))
         assertEquals(0,state.presented)
     }
-    @Test fun actualPresentationIsMonotonicAcrossReopenDowngradeAndSameContentChannels() {
+    fun actualPresentationIsMonotonicAcrossReopenDowngradeAndSameContentChannels() {
         val pending = ReleaseHighlightsState(0,0)
         assertEquals(0,ReleaseHighlightsPolicy.pendingFrom(pending,1))
         val shown = ReleaseHighlightsPolicy.presented(pending,1)
@@ -39,14 +39,14 @@ class ReleaseHighlightsTest {
         assertEquals(1,ReleaseHighlightsPolicy.pendingFrom(shown,3))
         assertNull(ReleaseHighlightsPolicy.pendingFrom(ReleaseHighlightsState(1,9),4))
     }
-    @Test fun installDatesAreOnlyConservativeBootstrapEvidence() {
+    fun installDatesAreOnlyConservativeBootstrapEvidence() {
         assertFalse(ReleaseHighlightsPolicy.upgraded(null,null))
         assertFalse(ReleaseHighlightsPolicy.upgraded(0,9))
         assertFalse(ReleaseHighlightsPolicy.upgraded(10,10))
         assertFalse(ReleaseHighlightsPolicy.upgraded(10,9))
         assertTrue(ReleaseHighlightsPolicy.upgraded(10,11))
     }
-    @Test fun skippedReleasesCombineAndDeduplicateButDoNotAutomaticallyShowMaintenance() {
+    fun skippedReleasesCombineAndDeduplicateButDoNotAutomaticallyShowMaintenance() {
         fun entry(id: String, res: Int) = ReleaseHighlight(id,HighlightKind.NEW,res,standaloneTitleRes=1)
         val batches = listOf(ReleaseHighlightsBatch(1,listOf(entry("a",1))),
             ReleaseHighlightsBatch(2,listOf(entry("a",2),entry("b",3))),
@@ -58,7 +58,7 @@ class ReleaseHighlightsTest {
         assertEquals(2,state.presented)
         assertNull(ReleaseHighlightsPolicy.pendingFrom(state,3))
     }
-    @Test fun termsFocusLayoutAndOtherDialogsAllGateAutomaticPresentation() {
+    fun termsFocusLayoutAndOtherDialogsAllGateAutomaticPresentation() {
         assertTrue(ReleaseHighlightsPolicy.canShow(true,true,true,true,false,false))
         assertFalse(ReleaseHighlightsPolicy.canShow(false,true,true,true,false,false))
         assertFalse(ReleaseHighlightsPolicy.canShow(true,false,true,true,false,false))
@@ -67,7 +67,7 @@ class ReleaseHighlightsTest {
         assertFalse(ReleaseHighlightsPolicy.canShow(true,true,true,true,true,false))
         assertFalse(ReleaseHighlightsPolicy.canShow(true,true,true,true,false,true))
     }
-    @Test fun invalidOrFutureStoreFormatsNeverTurnIntoAnUnreadLoopOrDowngrade() {
+    fun invalidOrFutureStoreFormatsNeverTurnIntoAnUnreadLoopOrDowngrade() {
         assertNull(ReleaseHighlightsStore.decode(emptyMap<String,Any>()))
         assertNull(ReleaseHighlightsStore.decode(mapOf("schema" to 2,"baseline" to 0,"presented" to 99)))
         assertNull(ReleaseHighlightsStore.decode(mapOf("schema" to 1,"baseline" to "0","presented" to 1)))
@@ -75,7 +75,7 @@ class ReleaseHighlightsTest {
         assertEquals(ReleaseHighlightsState(2,100),
             ReleaseHighlightsStore.decode(mapOf("schema" to 1,"baseline" to 2,"presented" to 100)))
     }
-    @Test fun stableDestinationsAreIndependentOfTitlesIndicesAndObjectRecreation() {
+    fun stableDestinationsAreIndependentOfTitlesIndicesAndObjectRecreation() {
         val registry = SettingsDestinationRegistry<Any>()
         val old = Any(); val current = Any()
         registry.bind("feature.stable",old); registry.bind("feature.stable",old)
@@ -88,7 +88,7 @@ class ReleaseHighlightsTest {
         registry.clear()
         assertNull(registry.resolve("feature.stable") { true })
     }
-    @Test fun bundledHighlightsAreBoundedLocalizedAndReferenceRealSettings() {
+    fun bundledHighlightsAreBoundedLocalizedAndReferenceRealSettings() {
         assertEquals("Review bundled highlights when changing the release version",
             BuildConfig.VERSION_CODE,ReleaseHighlightsCatalog.REVIEWED_VERSION_CODE)
         val batches = ReleaseHighlightsCatalog.batches
@@ -112,12 +112,12 @@ class ReleaseHighlightsTest {
         assertTrue(covered.all { it in SettingsCatalog.byId })
         assertTrue((targets.map { it.settingId }.toSet() + covered).containsAll(newer))
     }
-    @Test fun presentationStateIsNotAnExportedOrHostConfigurationSetting() {
+    fun presentationStateIsNotAnExportedOrHostConfigurationSetting() {
         assertFalse(SettingsCatalog.specs.any { it.storageKey.startsWith("highlights_") })
         assertFalse(RemoteHookConfigContract.persistedKeys.any { it.startsWith("highlights_") })
         assertFalse(ReleaseHighlightsStore.PREF_FILE in RemoteHookConfigContract.persistedKeys)
     }
-    @Test fun compactAndLargeFontLayoutsNeverReserveMoreThanTheWindowBudget() {
+    fun compactAndLargeFontLayoutsNeverReserveMoreThanTheWindowBudget() {
         assertEquals(ReleaseHighlightsLayout.Budget(380,false),
             ReleaseHighlightsLayout.budget(800,44,140,12,380,96))
         assertEquals(ReleaseHighlightsLayout.Budget(252,true),
@@ -125,7 +125,7 @@ class ReleaseHighlightsTest {
         assertEquals(ReleaseHighlightsLayout.Budget(1,true),
             ReleaseHighlightsLayout.budget(20,44,200,12,380,96))
     }
-    @Test fun outstandingUpdateRequestsHavePriorityEvenBeforeTheirResultDialogExists() {
+    fun outstandingUpdateRequestsHavePriorityEvenBeforeTheirResultDialogExists() {
         val coordinator = com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator()
         val channel = com.Bilibili_Innocent_Lab.xposedmodule.runtime.GitHubReleaseChecker.UpdateChannel.STABLE
         coordinator.submit(com.Bilibili_Innocent_Lab.xposedmodule.runtime.UpdateCheckCoordinator.Request(channel,true))
@@ -134,5 +134,26 @@ class ReleaseHighlightsTest {
         coordinator.complete(channel,channel)
         assertFalse(coordinator.isBusy())
         assertTrue(ReleaseHighlightsPolicy.canShow(true,true,true,true,false,false,coordinator.isBusy()))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ReleaseHighlightsTest) -> Unit) {
+            val s = ReleaseHighlightsTest()
+            block(s)
+        }
+        runIsolated { s -> s.experimentalBufferSettingsHaveOneManualAnnouncementAndAllCompanionIdsAreReviewed() }
+        runIsolated { s -> s.freshInstallEstablishesBaselineWithoutClaimingItWasShown() }
+        runIsolated { s -> s.firstRolloutOnExistingInstallShowsOnlyCurrentBatchNotAnInventedHistory() }
+        runIsolated { s -> s.actualPresentationIsMonotonicAcrossReopenDowngradeAndSameContentChannels() }
+        runIsolated { s -> s.installDatesAreOnlyConservativeBootstrapEvidence() }
+        runIsolated { s -> s.skippedReleasesCombineAndDeduplicateButDoNotAutomaticallyShowMaintenance() }
+        runIsolated { s -> s.termsFocusLayoutAndOtherDialogsAllGateAutomaticPresentation() }
+        runIsolated { s -> s.invalidOrFutureStoreFormatsNeverTurnIntoAnUnreadLoopOrDowngrade() }
+        runIsolated { s -> s.stableDestinationsAreIndependentOfTitlesIndicesAndObjectRecreation() }
+        runIsolated { s -> s.bundledHighlightsAreBoundedLocalizedAndReferenceRealSettings() }
+        runIsolated { s -> s.presentationStateIsNotAnExportedOrHostConfigurationSetting() }
+        runIsolated { s -> s.compactAndLargeFontLayoutsNeverReserveMoreThanTheWindowBudget() }
+        runIsolated { s -> s.outstandingUpdateRequestsHavePriorityEvenBeforeTheirResultDialogExists() }
     }
 }

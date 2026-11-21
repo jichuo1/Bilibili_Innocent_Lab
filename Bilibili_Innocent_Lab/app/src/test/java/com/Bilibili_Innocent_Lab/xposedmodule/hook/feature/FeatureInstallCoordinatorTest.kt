@@ -7,7 +7,6 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FeatureInstallCoordinatorTest {
-    @Test
     fun independentLeafResultsDoNotInheritParentSuccessAndLateEvidenceCanReplaceUnknown() {
         val events = mutableListOf<FeatureInstallRecord>()
         var late: (() -> Unit)? = null
@@ -33,7 +32,6 @@ class FeatureInstallCoordinatorTest {
         assertEquals(FeatureInstallResult.Installed(1), events.last { it.id == "deferred" }.result)
     }
 
-    @Test
     fun abortedInstallerKeepsProvenLeavesAndMarksRemainingLeavesFailed() {
         val events = mutableListOf<FeatureInstallRecord>()
         val environment = HookEnvironment("test", javaClass.classLoader,
@@ -51,7 +49,6 @@ class FeatureInstallCoordinatorTest {
         assertNotNull(events.last { it.id == "unfinished" }.failure)
     }
 
-    @Test
     fun runtimeDiagnosticsFailureDoesNotEscapeIntoBusinessCallback() {
         val environment = HookEnvironment("test", javaClass.classLoader,
             HookPointRegistry(javaClass.classLoader), TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> },
@@ -61,7 +58,6 @@ class FeatureInstallCoordinatorTest {
     }
 
 
-    @Test
     fun `keeps order and isolates installer failure`() {
         val order = mutableListOf<String>()
         val loggedFailures = mutableListOf<String>()
@@ -103,7 +99,6 @@ class FeatureInstallCoordinatorTest {
         assertEquals(true, loggedFailures.single().contains("broken"))
     }
 
-    @Test
     fun `diagnostic callback failure never interrupts feature installation`() {
         val environment = HookEnvironment(
             processName = "test",
@@ -125,7 +120,6 @@ class FeatureInstallCoordinatorTest {
         assertEquals(FeatureInstallResult.Installed(2), records.single().result)
     }
 
-    @Test
     fun `free-form skip reasons collapse to bounded diagnostic codes`() {
         assertEquals(
             FeatureSkipReason.MISSING_ADAPTER_POINT,
@@ -143,5 +137,19 @@ class FeatureInstallCoordinatorTest {
             FeatureSkipReason.OTHER,
             FeatureInstallResult.Skipped("future-unclassified-reason").reasonCode
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FeatureInstallCoordinatorTest) -> Unit) {
+            val s = FeatureInstallCoordinatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.independentLeafResultsDoNotInheritParentSuccessAndLateEvidenceCanReplaceUnknown() }
+        runIsolated { s -> s.abortedInstallerKeepsProvenLeavesAndMarksRemainingLeavesFailed() }
+        runIsolated { s -> s.runtimeDiagnosticsFailureDoesNotEscapeIntoBusinessCallback() }
+        runIsolated { s -> s.`keeps order and isolates installer failure`() }
+        runIsolated { s -> s.`diagnostic callback failure never interrupts feature installation`() }
+        runIsolated { s -> s.`free-form skip reasons collapse to bounded diagnostic codes`() }
     }
 }

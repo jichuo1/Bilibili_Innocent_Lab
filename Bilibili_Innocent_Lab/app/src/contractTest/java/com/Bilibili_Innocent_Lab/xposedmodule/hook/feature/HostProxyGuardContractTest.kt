@@ -12,7 +12,7 @@ import org.junit.Test
  * 回调体必须走 HostThreadGuard，未知方法必须按返回类型给零值（返回 null 会让基本类型调用处 NPE）。
  */
 class HostProxyGuardContractTest {
-    @Test fun detailViewAttachCallbackIsGuarded() {
+    fun detailViewAttachCallbackIsGuarded() {
         val handler = SourceContract.read("hook/feature/DetailViewPurifyFeatureInstaller.kt")
             .after("private class Handler(").before("private companion object")
         assertTrue(handler.contains("HostThreadGuard.run(\"detail_view_purify.attached\")"))
@@ -20,11 +20,21 @@ class HostProxyGuardContractTest {
         assertFalse(handler.contains("else -> null"))
     }
 
-    @Test fun legacyMenuClickIsGuarded() {
+    fun legacyMenuClickIsGuarded() {
         val proxy = SourceContract.read("hook/feature/LegacyFeedbackPanel.kt")
             .after("Proxy.newProxyInstance(").before("ctor.newInstance(")
         assertTrue(proxy.contains("HostThreadGuard.run(\"section_pick.legacy_click\") { entry.click() }"))
         assertTrue(proxy.contains("else -> hostProxyDefaultValue(method.returnType)"))
         assertFalse(proxy.contains("else -> null"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostProxyGuardContractTest) -> Unit) {
+            val s = HostProxyGuardContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.detailViewAttachCallbackIsGuarded() }
+        runIsolated { s -> s.legacyMenuClickIsGuarded() }
     }
 }

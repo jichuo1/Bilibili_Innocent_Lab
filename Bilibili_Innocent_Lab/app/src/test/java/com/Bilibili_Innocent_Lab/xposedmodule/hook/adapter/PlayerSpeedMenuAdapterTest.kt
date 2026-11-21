@@ -15,7 +15,7 @@ class PlayerSpeedMenuAdapterTest {
     private val loader = javaClass.classLoader!!
     private val method = RenamedSpeedAdapter::class.java.getDeclaredMethod("populate", Float::class.javaPrimitiveType)
 
-    @Test fun `semantic candidate discovers a renamed adapter and cached member is revalidated`() {
+    fun `semantic candidate discovers a renamed adapter and cached member is revalidated`() {
         assertNull(PlayerSpeedLocator.speedMenu(loader))
         val selected = requireNotNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(listOf(method))))
         assertEquals(method.declaringClass.name, selected.adapter?.className)
@@ -28,7 +28,7 @@ class PlayerSpeedMenuAdapterTest {
         assertTrue(PlayerSpeedMenuAdapter.needsQuery(loader, stale, enabled = true, attempted = false))
     }
 
-    @Test fun `disabled complete and negative cached states do not trigger a session query`() {
+    fun `disabled complete and negative cached states do not trigger a session query`() {
         var calls = 0
         val session = DexAssistSession(DexAssistEngine { calls++; DexAssistResult.Candidates(listOf(method)) },
             listOf("test.apk"), loader, setOf(PlayerSpeedMenuAdapter.query))
@@ -43,7 +43,7 @@ class PlayerSpeedMenuAdapterTest {
         assertEquals(1, calls)
     }
 
-    @Test fun `ambiguous oversized and unavailable results fail closed`() {
+    fun `ambiguous oversized and unavailable results fail closed`() {
         val other = OtherRenamedSpeedAdapter::class.java.getDeclaredMethod("populate", Float::class.javaPrimitiveType)
         assertNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(listOf(method, other))))
         assertNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(List(33) { method })))
@@ -52,7 +52,7 @@ class PlayerSpeedMenuAdapterTest {
         assertNull(PlayerSpeedMenuAdapter.locate(loader, session, null, enabled = true, planned = true))
     }
 
-    @Test fun `cache rejects foreign owners wildcard signatures and incomplete factory models`() {
+    fun `cache rejects foreign owners wildcard signatures and incomplete factory models`() {
         val valid = PlayerSpeedMenuPoints(adapter = HookPoint(method.declaringClass.name, method.name, listOf("float")))
         assertTrue(valid.isStructurallyValid())
         val bad = listOf(
@@ -69,7 +69,7 @@ class PlayerSpeedMenuAdapterTest {
         }
     }
 
-    @Test fun `root package three parameter factory requires its linked option model`() {
+    fun `root package three parameter factory requires its linked option model`() {
         val factory = FlatPlayerSpeedFactory::class.java.getDeclaredMethod("options", MediaResource::class.java,
             Int::class.javaObjectType, Int::class.javaPrimitiveType)
         assertNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(listOf(factory))))
@@ -79,5 +79,18 @@ class PlayerSpeedMenuAdapterTest {
         assertEquals(factory, PlayerSpeedMenuAdapter.resolve(loader, points)?.factory?.factoryMethod)
         assertNull(PlayerSpeedMenuPoints.fromJson(points.copy(factory = points.factory!!.copy(paramClassNames =
             listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int"))).toJson()))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerSpeedMenuAdapterTest) -> Unit) {
+            val s = PlayerSpeedMenuAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.`semantic candidate discovers a renamed adapter and cached member is revalidated`() }
+        runIsolated { s -> s.`disabled complete and negative cached states do not trigger a session query`() }
+        runIsolated { s -> s.`ambiguous oversized and unavailable results fail closed`() }
+        runIsolated { s -> s.`cache rejects foreign owners wildcard signatures and incomplete factory models`() }
+        runIsolated { s -> s.`root package three parameter factory requires its linked option model`() }
     }
 }

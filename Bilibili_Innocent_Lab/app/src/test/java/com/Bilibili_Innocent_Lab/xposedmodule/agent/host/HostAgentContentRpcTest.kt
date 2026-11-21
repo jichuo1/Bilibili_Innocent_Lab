@@ -25,7 +25,7 @@ class HostAgentContentRpcTest {
         com.bapis.bilibili.app.archive.v1.Arc(id, "投稿$id", 120, mid?.let { Author(it, "作者") }), uri)
     private fun failure(block: () -> Unit): String? = runCatching(block).exceptionOrNull()?.message
 
-    @Before fun reset() {
+    fun reset() {
         CallOptions.ignoreTimeout = false
         HistoryMoss.calls = 0
         HistoryMoss.lastRequest = null
@@ -37,7 +37,7 @@ class HostAgentContentRpcTest {
         SpaceMoss.reply = SearchArchiveReply(emptyList(), 0)
     }
 
-    @Test fun `missing host schema disables only affected capability and never invokes network`() {
+    fun `missing host schema disables only affected capability and never invokes network`() {
         val parent = javaClass.classLoader!!
         val missing = object : ClassLoader(parent) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -56,7 +56,7 @@ class HostAgentContentRpcTest {
         assertEquals("comments_rpc_unavailable", failure { content.comments("av1", null, 1000) })
     }
 
-    @Test fun `history projects twenty video facts and never exposes raw routing parameters`() {
+    fun `history projects twenty video facts and never exposes raw routing parameters`() {
         HistoryMoss.reply = CursorV2Reply(listOf(item(900, ugc = false), item(800, uri = "bilibili://video/801")) +
             (1L..100L).map { item(it, "<em>视频</em>\u0000" + "长".repeat(500), "bilibili://video/$it?secret=untrusted") },
             Cursor(1000, 3), true)
@@ -82,7 +82,7 @@ class HostAgentContentRpcTest {
         assertNull(result.next)
     }
 
-    @Test fun `history uses opaque cursor in exactly one RPC and stops repeating backend cursor`() {
+    fun `history uses opaque cursor in exactly one RPC and stops repeating backend cursor`() {
         HistoryMoss.reply = CursorV2Reply(listOf(item(1), item(1), item(2)), Cursor(123, 2), true)
         val content = rpc()
         assertEquals("hc1:123:2", content.history(null, 100).next)
@@ -99,7 +99,7 @@ class HostAgentContentRpcTest {
         assertEquals(3, HistoryMoss.calls)
     }
 
-    @Test fun `cursor and user ID failures happen before any native request`() {
+    fun `cursor and user ID failures happen before any native request`() {
         val content = rpc()
         for (raw in listOf("", "uv1:2", "hc1:0:0", "hc1:-1:0", "hc1:9223372036854775808:0", "hc1:1:2147483648", "hc1:1:1\n")) {
             assertEquals("invalid_history_cursor", failure { content.history(raw, 100) })
@@ -114,7 +114,7 @@ class HostAgentContentRpcTest {
         assertEquals(0, SpaceMoss.calls)
     }
 
-    @Test fun `UP archive query binds exact author requests twenty and rejects identity conflicts`() {
+    fun `UP archive query binds exact author requests twenty and rejects identity conflicts`() {
         SpaceMoss.reply = SearchArchiveReply(listOf(archive(500, 43), archive(600, uri = "bilibili://video/601"),
             archive(0)) + (1L..100L).map { archive(it) }, 100)
         val result = rpc().userVideos("42", null, 0)
@@ -135,7 +135,7 @@ class HostAgentContentRpcTest {
         assertNull(result.next)
     }
 
-    @Test fun `UP pagination is bounded and never fabricates unknown owner or terminal pages`() {
+    fun `UP pagination is bounded and never fabricates unknown owner or terminal pages`() {
         val content = rpc()
         SpaceMoss.reply = SearchArchiveReply(listOf(archive(1, null)), 40)
         assertEquals("uv1:2", content.userVideos("42", null, 100).next)
@@ -149,7 +149,7 @@ class HostAgentContentRpcTest {
         assertNull(content.userVideos("42", null, 100).next)
     }
 
-    @Test fun `native timeout drift is rejected without executing either endpoint`() {
+    fun `native timeout drift is rejected without executing either endpoint`() {
         val content = rpc()
         assertTrue(content.historyAvailable)
         assertTrue(content.userVideosAvailable)
@@ -158,5 +158,21 @@ class HostAgentContentRpcTest {
         assertEquals("rpc_timeout_unavailable", failure { content.userVideos("42", null, 100) })
         assertEquals(0, HistoryMoss.calls)
         assertEquals(0, SpaceMoss.calls)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostAgentContentRpcTest) -> Unit) {
+            val s = HostAgentContentRpcTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.`missing host schema disables only affected capability and never invokes network`() }
+        runIsolated { s -> s.`history projects twenty video facts and never exposes raw routing parameters`() }
+        runIsolated { s -> s.`history uses opaque cursor in exactly one RPC and stops repeating backend cursor`() }
+        runIsolated { s -> s.`cursor and user ID failures happen before any native request`() }
+        runIsolated { s -> s.`UP archive query binds exact author requests twenty and rejects identity conflicts`() }
+        runIsolated { s -> s.`UP pagination is bounded and never fabricates unknown owner or terminal pages`() }
+        runIsolated { s -> s.`native timeout drift is rejected without executing either endpoint`() }
     }
 }

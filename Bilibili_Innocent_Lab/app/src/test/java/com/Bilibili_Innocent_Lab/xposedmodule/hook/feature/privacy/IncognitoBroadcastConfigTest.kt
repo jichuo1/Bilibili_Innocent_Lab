@@ -49,7 +49,7 @@ class IncognitoBroadcastConfigTest {
             ConfigImpl(), arrayOf(key)) { true }
     }
 
-    @Test fun onlyBroadcastSwitchesAreDisabledAndOtherConfigIsUntouched() {
+    fun onlyBroadcastSwitchesAreDisabledAndOtherConfigIsUntouched() {
         val h = Harness()
         assertEquals(false, h.kmp("grpc_broadcast_enable"))
         assertEquals(false, h.kmp("grpc_stream_biz_enabled"))
@@ -62,7 +62,7 @@ class IncognitoBroadcastConfigTest {
         assertEquals("disabled", h.statuses["incognito_broadcast_kmp_room"])
     }
 
-    @Test fun concreteJavaConfigIsHookedBeforeTheCallerUsesTheUnchangedObject() {
+    fun concreteJavaConfigIsHookedBeforeTheCallerUsesTheUnchangedObject() {
         val h = Harness()
         val config = DerivedConfig()
         assertSame(config, h.provide(config))
@@ -77,7 +77,7 @@ class IncognitoBroadcastConfigTest {
         assertEquals("disabled", h.statuses["incognito_broadcast_java_global"])
     }
 
-    @Test fun failedDynamicRegistrationPreservesTheHostResultAndCanBeRetried() {
+    fun failedDynamicRegistrationPreservesTheHostResultAndCanBeRetried() {
         val h = Harness()
         val config = DerivedConfig()
         val id = "incognito.broadcast.java.${ConfigImpl::class.java.name}"
@@ -91,14 +91,14 @@ class IncognitoBroadcastConfigTest {
         assertEquals(2, h.registrar.registrationAttempts.count { it.first == id })
     }
 
-    @Test fun diagnosticsCannotRestoreTheOriginalConfigValue() {
+    fun diagnosticsCannotRestoreTheOriginalConfigValue() {
         val h = Harness(failStatus = true)
         assertEquals(false, h.kmp("grpc_broadcast_enable"))
         h.provide(ConfigImpl())
         assertEquals(false, h.java("grpc_stream_biz_room_enabled"))
     }
 
-    @Test fun observedBroadcastIsReportedWithoutChangingTheNativeCall() {
+    fun observedBroadcastIsReportedWithoutChangingTheNativeCall() {
         val h = Harness(stack = { arrayOf(StackTraceElement("fixture.Modern", "invokeSuspend", "Host.kt", 1)) })
         var calls = 0
         val result = h.registrar.invoke("incognito.broadcast.observe", RpcEngine(), arrayOf("host", 443, "proxy")) {
@@ -112,18 +112,33 @@ class IncognitoBroadcastConfigTest {
         assertEquals(1, h.stages.count { it == FeatureRuntimeStage.ERROR })
     }
 
-    @Test fun unrelatedNativeCallDoesNotRaiseABroadcastAlarm() {
+    fun unrelatedNativeCallDoesNotRaiseABroadcastAlarm() {
         val h = Harness(stack = { arrayOf(StackTraceElement("other.Caller", "invokeSuspend", "Host.kt", 1)) })
         assertEquals(17L, h.registrar.invoke("incognito.broadcast.observe", RpcEngine(), arrayOf("host", 443, "proxy")) { 17L })
         assertFalse(h.statuses.containsKey("incognito_broadcast_tunnel_attempt"))
         assertFalse(FeatureRuntimeStage.ERROR in h.stages)
     }
 
-    @Test fun unknownHostStructureRegistersNothing() {
+    fun unknownHostStructureRegistersNothing() {
         val h = Harness()
         val fresh = PlayerPortTestRegistrar()
         val env = h.env.copy(registrar = fresh)
         assertNull(IncognitoBroadcastConfig(names.copy(runtimeHelper = "missing.Host")).prepare(env))
         assertTrue(fresh.hooks.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (IncognitoBroadcastConfigTest) -> Unit) {
+            val s = IncognitoBroadcastConfigTest()
+            block(s)
+        }
+        runIsolated { s -> s.onlyBroadcastSwitchesAreDisabledAndOtherConfigIsUntouched() }
+        runIsolated { s -> s.concreteJavaConfigIsHookedBeforeTheCallerUsesTheUnchangedObject() }
+        runIsolated { s -> s.failedDynamicRegistrationPreservesTheHostResultAndCanBeRetried() }
+        runIsolated { s -> s.diagnosticsCannotRestoreTheOriginalConfigValue() }
+        runIsolated { s -> s.observedBroadcastIsReportedWithoutChangingTheNativeCall() }
+        runIsolated { s -> s.unrelatedNativeCallDoesNotRaiseABroadcastAlarm() }
+        runIsolated { s -> s.unknownHostStructureRegistersNothing() }
     }
 }

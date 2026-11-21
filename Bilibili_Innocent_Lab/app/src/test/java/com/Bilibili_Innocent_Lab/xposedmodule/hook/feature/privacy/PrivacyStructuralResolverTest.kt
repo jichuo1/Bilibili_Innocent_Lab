@@ -21,14 +21,14 @@ class PrivacyStructuralResolverTest {
         fun ambiguousB(): Boolean = false
     }
 
-    @Test fun stableNameResolvesExactMethodAndField() {
+    fun stableNameResolvesExactMethodAndField() {
         assertNotNull(PrivacyStructuralResolver.method(Host::class.java, "takesString", String::class.java))
         assertNull(PrivacyStructuralResolver.method(Host::class.java, "takesString"))
         assertNotNull(PrivacyStructuralResolver.field(Host::class.java, "flag"))
         assertNull(PrivacyStructuralResolver.field(Host::class.java, "missing"))
     }
 
-    @Test fun uniqueMethodMatchesTheSingleShapeAndFailsClosedWhenAmbiguous() {
+    fun uniqueMethodMatchesTheSingleShapeAndFailsClosedWhenAmbiguous() {
         val only = PrivacyStructuralResolver.uniqueMethod(Host::class.java) {
             it.returnType == java.lang.Long.TYPE && it.parameterCount == 0
         }
@@ -43,7 +43,7 @@ class PrivacyStructuralResolverTest {
         })
     }
 
-    @Test fun uniqueFieldMatchesShapeAndFailsClosedWhenAmbiguous() {
+    fun uniqueFieldMatchesShapeAndFailsClosedWhenAmbiguous() {
         assertEquals("flag", PrivacyStructuralResolver.uniqueField(Host::class.java) {
             it.type == java.lang.Boolean.TYPE
         }?.name)
@@ -51,7 +51,7 @@ class PrivacyStructuralResolverTest {
         assertNull(PrivacyStructuralResolver.uniqueField(Host::class.java) { it.type == String::class.java })
     }
 
-    @Test fun superclassScopeIsOptIn() {
+    fun superclassScopeIsOptIn() {
         assertNull(PrivacyStructuralResolver.uniqueMethod(Host::class.java, includeSuperclasses = false) {
             it.name == "parentOnly"
         })
@@ -60,8 +60,21 @@ class PrivacyStructuralResolverTest {
         })
     }
 
-    @Test fun typeResolvesByStableName() {
+    fun typeResolvesByStableName() {
         assertEquals(Host::class.java, PrivacyStructuralResolver.type(javaClass.classLoader!!, Host::class.java.name))
         assertNull(PrivacyStructuralResolver.type(javaClass.classLoader!!, "does.not.Exist"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PrivacyStructuralResolverTest) -> Unit) {
+            val s = PrivacyStructuralResolverTest()
+            block(s)
+        }
+        runIsolated { s -> s.stableNameResolvesExactMethodAndField() }
+        runIsolated { s -> s.uniqueMethodMatchesTheSingleShapeAndFailsClosedWhenAmbiguous() }
+        runIsolated { s -> s.uniqueFieldMatchesShapeAndFailsClosedWhenAmbiguous() }
+        runIsolated { s -> s.superclassScopeIsOptIn() }
+        runIsolated { s -> s.typeResolvesByStableName() }
     }
 }

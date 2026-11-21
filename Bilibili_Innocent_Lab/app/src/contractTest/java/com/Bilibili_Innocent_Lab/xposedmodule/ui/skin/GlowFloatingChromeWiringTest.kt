@@ -18,7 +18,7 @@ class GlowFloatingChromeWiringTest {
 
     private val base = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui"
 
-    @Test fun contentContainerHoldsOnlyThePagerAndSitsBelowBothBars() {
+    fun contentContainerHoldsOnlyThePagerAndSitsBelowBothBars() {
         val home = source("$base/activity/SettingsHomePresenter.kt")
         // 探针录的是"栏下方有什么"：栏必须是内容容器的兄弟，不能被录进去。
         val target = home.indexOf("backdropTarget.addView(pager, FrameLayout.LayoutParams(-1, -1))")
@@ -33,7 +33,7 @@ class GlowFloatingChromeWiringTest {
         assertTrue(home.contains("skinContentSource(pager)"))
     }
 
-    @Test fun chromeFollowsPagerMotionAndIsDisposedWithThePresenter() {
+    fun chromeFollowsPagerMotionAndIsDisposedWithThePresenter() {
         val home = source("$base/activity/SettingsHomePresenter.kt")
         val position = home.after("pager.onPositionChanged = {").before("}")
         assertTrue(position.contains("floatingChrome?.onContentMoved()"))
@@ -45,7 +45,7 @@ class GlowFloatingChromeWiringTest {
         assertTrue(home.contains("header, GlowScrollEdge.TOP"))
     }
 
-    @Test fun chromeRemovesEveryObserverItAdds() {
+    fun chromeRemovesEveryObserverItAdds() {
         val chrome = source("$base/skin/engine/GlowFloatingChrome.kt")
         for (kind in listOf("ScrollChangedListener", "GlobalLayoutListener", "PreDrawListener")) {
             assertEquals(kind, 1, Regex("addOn$kind\\(").findAll(chrome).count())
@@ -57,7 +57,7 @@ class GlowFloatingChromeWiringTest {
         assertTrue(dispose.contains("removeCallbacks(probeRunnable)"))
     }
 
-    @Test fun dissolveDrawsTheVisibleRootBitmapNotTheOpticalCopy() {
+    fun dissolveDrawsTheVisibleRootBitmapNotTheOpticalCopy() {
         val source = source("$base/skin/liquid/LiquidBackdropSource.kt")
         val presentation = source.after("fun drawPresentationRegion(").before("\n    }\n")
         // 溶解区必须与根背景逐像素一致：根背景画的是 bitmap，不使用光学副本。
@@ -69,7 +69,7 @@ class GlowFloatingChromeWiringTest {
         assertTrue(presentation.contains("PorterDuff.Mode.DST_IN"))
     }
 
-    @Test fun everyBackdropReplacementAdvancesTheGeneration() {
+    fun everyBackdropReplacementAdvancesTheGeneration() {
         val renderer = source("$base/skin/liquid/LiquidActivityRenderer.kt")
         val assignments = Regex("\\bbackdropSource = (created|source)\\b").findAll(renderer).count()
         assertEquals(3, assignments)
@@ -82,7 +82,7 @@ class GlowFloatingChromeWiringTest {
             .startsWith("backdropGeneration++"))
     }
 
-    @Test fun softwareCanvasDrawsNeverRefreshTheRecordedFootprint() {
+    fun softwareCanvasDrawsNeverRefreshTheRecordedFootprint() {
         // 探针在软件画布上录内容：若表面也登记，footprint 的"上次录制位置"被刷新却没有重录，
         // 滚动后该表面不再失效，玻璃里的背景停在旧位置（Phase A review 发现）。
         val drawables = source("$base/skin/liquid/LiquidSurfaceDrawables.kt")
@@ -91,7 +91,7 @@ class GlowFloatingChromeWiringTest {
         assertEquals(1, Regex("registerSurfaceView\\(").findAll(drawables).count())
     }
 
-    @Test fun legibilityOnlyThickensFloatingSurfaces() {
+    fun legibilityOnlyThickensFloatingSurfaces() {
         val renderer = source("$base/skin/liquid/LiquidActivityRenderer.kt")
         assertTrue(renderer.contains(
             "legibility = if (role == SurfaceRole.FLOATING && host != null) surfaceLegibility[host] else null"))
@@ -101,12 +101,28 @@ class GlowFloatingChromeWiringTest {
     }
 
     /** 顶栏胶囊本体没有文字：补偿只加在圆按钮上，本体保持清透；底栏的标签压在玻璃上，照旧加厚。 */
-    @Test fun topCapsuleBodyStaysClearWhileItsButtonsCarryCompensation() {
+    fun topCapsuleBodyStaysClearWhileItsButtonsCarryCompensation() {
         val chrome = SourceContract.read("ui/skin/engine/GlowFloatingChrome.kt")
         assertTrue(chrome.contains("glow?.setSurfaceLegibility(surface.host, value.takeIf { surface.thickenHost })"))
         assertTrue(chrome.contains("surface.companions.forEach { glow?.setSurfaceLegibility(it, value) }"))
         val home = SourceContract.read("ui/activity/SettingsHomePresenter.kt")
         assertTrue(home.contains("companions = icons, thickenHost = false"))
         assertTrue(home.contains("chrome.attach(dock, GlowScrollEdge.BOTTOM, activity.getColor(R.color.colorTextGray)) { boost ->"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GlowFloatingChromeWiringTest) -> Unit) {
+            val s = GlowFloatingChromeWiringTest()
+            block(s)
+        }
+        runIsolated { s -> s.contentContainerHoldsOnlyThePagerAndSitsBelowBothBars() }
+        runIsolated { s -> s.chromeFollowsPagerMotionAndIsDisposedWithThePresenter() }
+        runIsolated { s -> s.chromeRemovesEveryObserverItAdds() }
+        runIsolated { s -> s.dissolveDrawsTheVisibleRootBitmapNotTheOpticalCopy() }
+        runIsolated { s -> s.everyBackdropReplacementAdvancesTheGeneration() }
+        runIsolated { s -> s.softwareCanvasDrawsNeverRefreshTheRecordedFootprint() }
+        runIsolated { s -> s.legibilityOnlyThickensFloatingSurfaces() }
+        runIsolated { s -> s.topCapsuleBodyStaysClearWhileItsButtonsCarryCompensation() }
     }
 }

@@ -36,7 +36,7 @@ class HomeExtraCardIntegrationTest {
             }, logInfo = { _, _ -> }, logError = { _, _ -> }, reportStatus = { _, _ -> },
             runtimeEvidence = { id, stage, _ -> evidence += id to stage })
 
-    @Test fun bothFlagsFilterIndependentlyWithoutMutatingTheHostList() {
+    fun bothFlagsFilterIndependentlyWithoutMutatingTheHostList() {
         val ordinary = Card("av")
         val pgc = Card("bangumi")
         val special = Card("special_s")
@@ -64,7 +64,7 @@ class HomeExtraCardIntegrationTest {
         }
     }
 
-    @Test fun noMatchKeepsIdentityAndHostExceptionsAreNeverConvertedToSuccess() {
+    fun noMatchKeepsIdentityAndHostExceptionsAreNeverConvertedToSuccess() {
         val recorded = PlayerPortTestRegistrar()
         val evidence = mutableListOf<Pair<String, FeatureRuntimeStage>>()
         installer(true, true).install(environment(recorded, evidence))
@@ -77,7 +77,7 @@ class HomeExtraCardIntegrationTest {
         assertFalse(evidence.any { it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun missingSpecialReadersDoNotDisableTheWorkingPgcRoute() {
+    fun missingSpecialReadersDoNotDisableTheWorkingPgcRoute() {
         val records = mutableListOf<FeatureInstallRecord>()
         val recorded = PlayerPortTestRegistrar()
         val env = environment(recorded, mutableListOf()).copy(installationEvidence = { records += it })
@@ -95,4 +95,15 @@ class HomeExtraCardIntegrationTest {
      */
     private fun getterHooks(recorded: PlayerPortTestRegistrar) =
         recorded.hooks.keys.filter { it != HomeFeedSmallCards.GROUPING_HOOK_ID }.also { assertTrue(it.isNotEmpty()) }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeExtraCardIntegrationTest) -> Unit) {
+            val s = HomeExtraCardIntegrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.bothFlagsFilterIndependentlyWithoutMutatingTheHostList() }
+        runIsolated { s -> s.noMatchKeepsIdentityAndHostExceptionsAreNeverConvertedToSuccess() }
+        runIsolated { s -> s.missingSpecialReadersDoNotDisableTheWorkingPgcRoute() }
+    }
 }

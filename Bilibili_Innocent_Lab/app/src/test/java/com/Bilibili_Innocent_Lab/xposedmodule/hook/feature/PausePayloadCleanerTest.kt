@@ -36,7 +36,7 @@ class PausePayloadCleanerTest {
     private fun cleaner() =
         requireNotNull(PausePayloadCleaner.resolve(PlayPauseReply::class.java))
 
-    @Test fun `clears the ad payload and keeps the pause bar`() {
+    fun `clears the ad payload and keeps the pause bar`() {
         val original = PlayPauseReply("广告", "进度条")
         val updated = cleaner().clearAds(original, environment()) as PlayPauseReply
 
@@ -50,13 +50,13 @@ class PausePayloadCleanerTest {
     }
 
     /** 只有进度条、没有广告的响应：不分配副本，也不记 APPLIED。 */
-    @Test fun `a reply with only a pause bar is returned unchanged`() {
+    fun `a reply with only a pause bar is returned unchanged`() {
         val original = PlayPauseReply(null, "进度条")
         assertSame(original, cleaner().clearAds(original, environment()))
         assertTrue(evidence.none { it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun `evidence is reported only when an ad payload was actually removed`() {
+    fun `evidence is reported only when an ad payload was actually removed`() {
         cleaner().clearAds(PlayPauseReply("广告", "进度条"), environment())
         val stages = evidence.filter { it.first == PausedAdFeatureInstaller.ID }.map { it.second }
         assertTrue(FeatureRuntimeStage.OBSERVED in stages)
@@ -64,19 +64,19 @@ class PausePayloadCleanerTest {
     }
 
     /** 默认实例是进程级单例，改写它会污染整个宿主进程。 */
-    @Test fun `the default instance is never rewritten`() {
+    fun `the default instance is never rewritten`() {
         val original = PlayPauseReply.getDefaultInstance()
         assertSame(original, cleaner().clearAds(original, environment()))
     }
 
-    @Test fun `a foreign payload is passed through untouched`() {
+    fun `a foreign payload is passed through untouched`() {
         val original = "not a reply"
         assertSame(original, cleaner().clearAds(original, environment()))
         assertTrue(evidence.isEmpty())
     }
 
     /** build 失败必须交付原响应——暂停页宁可有广告，也不能白屏。 */
-    @Test fun `fails open to the original reply when the copy cannot be built`() {
+    fun `fails open to the original reply when the copy cannot be built`() {
         val original = PlayPauseReply("广告", "进度条", true)
         assertSame(original, cleaner().clearAds(original, environment()))
         assertTrue("paused_p4_clean_err" in errors)
@@ -84,16 +84,32 @@ class PausePayloadCleanerTest {
     }
 
     /** 形状不符（没有 hasAds / clearAds）时整条降级，不硬上。 */
-    @Test fun `resolution fails closed when the reply shape does not match`() {
+    fun `resolution fails closed when the reply shape does not match`() {
         assertEquals(null, PausePayloadCleaner.resolve(String::class.java))
         assertNotNull(PausePayloadCleaner.resolve(PlayPauseReply::class.java))
     }
 
     /** 判据只许动 ads；`hasBar` 常量留在这里就是为了钉住"它不在改写范围内"。 */
-    @Test fun `the policy touches the ad payload only`() {
+    fun `the policy touches the ad payload only`() {
         assertEquals("hasAds", PausedAdFeatureInstaller.HAS_ADS)
         assertEquals("clearAds", PausedAdFeatureInstaller.CLEAR_ADS)
         assertEquals("hasBar", PausedAdFeatureInstaller.PAUSE_BAR_PRESENCE)
         assertFalse(PausedAdFeatureInstaller.CLEAR_ADS.contains("Bar"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PausePayloadCleanerTest) -> Unit) {
+            val s = PausePayloadCleanerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`clears the ad payload and keeps the pause bar`() }
+        runIsolated { s -> s.`a reply with only a pause bar is returned unchanged`() }
+        runIsolated { s -> s.`evidence is reported only when an ad payload was actually removed`() }
+        runIsolated { s -> s.`the default instance is never rewritten`() }
+        runIsolated { s -> s.`a foreign payload is passed through untouched`() }
+        runIsolated { s -> s.`fails open to the original reply when the copy cannot be built`() }
+        runIsolated { s -> s.`resolution fails closed when the reply shape does not match`() }
+        runIsolated { s -> s.`the policy touches the ad payload only`() }
     }
 }

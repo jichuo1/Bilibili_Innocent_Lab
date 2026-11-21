@@ -13,7 +13,7 @@ import org.junit.Test
 class CommentLongPressDispatchContractTest {
     private val source = SourceContract.read("hook/HookEntry.kt")
 
-    @Test fun downWithoutAnyRegisteredCommentRootSkipsTheAncestorWalkAfterCleaningTheOldSession() {
+    fun downWithoutAnyRegisteredCommentRootSkipsTheAncestorWalkAfterCleaningTheOldSession() {
         val down = source.after("// 新手势落在非简介 View 时终止旧简介会话。").before("root?.let { beginOrRetargetCommentTouch(v, it, ev) }")
         val cleanup = down.indexOf("clearCommentTouchSession(resetHandled = true)")
         val empty = down.indexOf("commentRootRefs.isEmpty()")
@@ -24,14 +24,14 @@ class CommentLongPressDispatchContractTest {
         assertTrue(down.substring(empty, walk).contains("return@before"))
     }
 
-    @Test fun movePathStaysConstantTimeAndMoreButtonPassthroughIsKept() {
+    fun movePathStaysConstantTimeAndMoreButtonPassthroughIsKept() {
         assertTrue(source.contains("祖先链查找仅在 DOWN 执行；MOVE 热路径不加锁、不遍历。"))
         assertTrue(source.contains("commentMoreButtonPassthroughDownTime = ev.downTime"))
         assertTrue(source.contains("if (root != null &&\n                                                (isCommentMoreButton(v) || isCommentActionsContainer(v)))")
             || source.contains("isCommentMoreButton(v) || isCommentActionsContainer(v)"))
     }
 
-    @Test fun retargetingNeverReschedulesTheSameSessionDirectly() {
+    fun retargetingNeverReschedulesTheSameSessionDirectly() {
         val retarget = source.after("private fun beginOrRetargetCommentTouch(").before("private fun activeCommentTouchTarget(")
         assertTrue(retarget.contains("freeCopyGesture.schedule(freeCopyGesture.sessionId, freeCopyDueDelayMs(), freeCopyPoster(handler))"))
         assertFalse("no per-level removeCallbacks/postDelayed of the long-press runnable", retarget.contains("removeCallbacks("))
@@ -45,7 +45,7 @@ class CommentLongPressDispatchContractTest {
         assertTrue(due.contains("freeCopyGesture.downTime, freeCopyGesture.observedAtMs"))
     }
 
-    @Test fun everyEndOfTheSessionCancelsThroughTheDetectorAndFiringResetsIt() {
+    fun everyEndOfTheSessionCancelsThroughTheDetectorAndFiringResetsIt() {
         val clear = source.after("private fun clearCommentTouchSession(").before("/** DOWN 在 dispatch 链上会依次经过祖先与子 View")
         assertTrue(clear.contains("freeCopyGesture.cancelSchedule("))
         assertFalse(clear.contains("removeCallbacks(commentLongPressRunnable)"))
@@ -55,9 +55,22 @@ class CommentLongPressDispatchContractTest {
             Regex("""postDelayed\(freeCopyLongPressRunnable""").findAll(source).count())
     }
 
-    @Test fun detectorMarksTheSessionOnlyAfterTheMessageIsReallyQueued() {
+    fun detectorMarksTheSessionOnlyAfterTheMessageIsReallyQueued() {
         val detector = SourceContract.read("hook/feature/FreeCopyGestureDetector.kt")
         val schedule = detector.after("fun schedule(").before("/** 取消")
         assertTrue(schedule.indexOf("if (!poster.post(") in 0 until schedule.indexOf("scheduledSessionId = sessionId"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentLongPressDispatchContractTest) -> Unit) {
+            val s = CommentLongPressDispatchContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.downWithoutAnyRegisteredCommentRootSkipsTheAncestorWalkAfterCleaningTheOldSession() }
+        runIsolated { s -> s.movePathStaysConstantTimeAndMoreButtonPassthroughIsKept() }
+        runIsolated { s -> s.retargetingNeverReschedulesTheSameSessionDirectly() }
+        runIsolated { s -> s.everyEndOfTheSessionCancelsThroughTheDetectorAndFiringResetsIt() }
+        runIsolated { s -> s.detectorMarksTheSessionOnlyAfterTheMessageIsReallyQueued() }
     }
 }

@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class HostChromeAppearanceTest {
-    @Test fun prismKeepsItsIdentityOnOlderDevicesAndPreservesTheSoftBackend() {
+    fun prismKeepsItsIdentityOnOlderDevicesAndPreservesTheSoftBackend() {
         val prism = HostChromeAppearance.read("prism", "software", bottom = true, enabled = true)
         assertEquals(HostGlassMaterial.PRISM, prism.material)
         assertEquals(HostGlassRenderer.AUTO, prism.effectiveRenderer)
@@ -19,19 +19,19 @@ class HostChromeAppearanceTest {
             org.junit.Assert.assertTrue(spec.accepts(com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue.Text("prism")))
         }
     }
-    @Test fun existingUsersAndOldBackupsKeepTheirSeparateBackends() {
+    fun existingUsersAndOldBackupsKeepTheirSeparateBackends() {
         assertEquals(HostChromeAppearance(), HostChromeAppearance.read(null, null, bottom = false, enabled = true))
         assertEquals(HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE),
             HostChromeAppearance.read("soft", "legacy", bottom = true, enabled = true))
     }
 
-    @Test fun firstEnableUsesAutomaticButExplicitChoicesSurviveDisabling() {
+    fun firstEnableUsesAutomaticButExplicitChoicesSurviveDisabling() {
         assertEquals(HostGlassRenderer.AUTO, HostChromeAppearance.read(null, null, bottom = true, enabled = false).renderer)
         assertEquals(HostGlassRenderer.SOFTWARE, HostChromeAppearance.read("soft", "software", bottom = false, enabled = false).renderer)
         assertEquals(HostGlassRenderer.AUTO, HostChromeAppearance.read("soft", "auto", bottom = true, enabled = true).renderer)
     }
 
-    @Test fun liquidTemporarilyUsesGpuWithoutErasingThePreviousSoftwareChoice() {
+    fun liquidTemporarilyUsesGpuWithoutErasingThePreviousSoftwareChoice() {
         val original = HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE)
         val liquid = original.copy(material = HostGlassMaterial.LIQUID)
         assertEquals(HostGlassRenderer.AUTO, liquid.effectiveRenderer)
@@ -40,7 +40,7 @@ class HostChromeAppearanceTest {
         assertEquals(liquid, liquid.compatible(33))
     }
 
-    @Test fun barsShareOriginalBlurStrengthWithASeparateSoftwareFallbackRadius() {
+    fun barsShareOriginalBlurStrengthWithASeparateSoftwareFallbackRadius() {
         val soft = HostSurfaceStyle.floating(false, 22f)
         assertEquals(LumenSurfaceMaterial.FROSTED, soft.material)
         assertEquals(17f, soft.sampling.blurRadiusDp, 0f)
@@ -51,5 +51,18 @@ class HostChromeAppearanceTest {
         assertEquals(soft.sampling.blurRadiusDp, liquid.sampling.blurRadiusDp, 0f)
         val software = HostSurfaceStyle.floating(false, 32f, HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE))
         assertEquals(LumenSurfaceBackend.SOFTWARE, software.sampling.backend)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostChromeAppearanceTest) -> Unit) {
+            val s = HostChromeAppearanceTest()
+            block(s)
+        }
+        runIsolated { s -> s.prismKeepsItsIdentityOnOlderDevicesAndPreservesTheSoftBackend() }
+        runIsolated { s -> s.existingUsersAndOldBackupsKeepTheirSeparateBackends() }
+        runIsolated { s -> s.firstEnableUsesAutomaticButExplicitChoicesSurviveDisabling() }
+        runIsolated { s -> s.liquidTemporarilyUsesGpuWithoutErasingThePreviousSoftwareChoice() }
+        runIsolated { s -> s.barsShareOriginalBlurStrengthWithASeparateSoftwareFallbackRadius() }
     }
 }

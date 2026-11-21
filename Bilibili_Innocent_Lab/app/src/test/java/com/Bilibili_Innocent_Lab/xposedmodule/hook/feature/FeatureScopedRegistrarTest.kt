@@ -25,7 +25,6 @@ class FeatureScopedRegistrarTest {
         }
     }
 
-    @Test
     fun `a coordinated installer stamps its own id on every hook it registers`() {
         val recorder = Recorder()
         val environment = HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), recorder,
@@ -47,14 +46,23 @@ class FeatureScopedRegistrarTest {
         )
     }
 
-    @Test
     fun `a hook registered outside any installer has no owner`() {
         val creator = ModernMemberHookCreator(Target::class.java.getDeclaredMethod("run"))
         assertNull(creator.faultOwner)
     }
 
-    @Test
     fun `the default exception policy is unchanged by scoping`() {
         assertEquals(HookExceptionPolicy.PROTECT_HOST, HookExceptionPolicy.values().first())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FeatureScopedRegistrarTest) -> Unit) {
+            val s = FeatureScopedRegistrarTest()
+            block(s)
+        }
+        runIsolated { s -> s.`a coordinated installer stamps its own id on every hook it registers`() }
+        runIsolated { s -> s.`a hook registered outside any installer has no owner`() }
+        runIsolated { s -> s.`the default exception policy is unchanged by scoping`() }
     }
 }

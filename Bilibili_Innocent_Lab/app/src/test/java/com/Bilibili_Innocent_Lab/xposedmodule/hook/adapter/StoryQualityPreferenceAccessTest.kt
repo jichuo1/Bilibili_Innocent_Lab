@@ -106,7 +106,7 @@ class StoryQualityPreferenceAccessTest {
     private fun resolve(base: Class<*>, hostLoader: ClassLoader = loader) =
         StoryQualityPreferenceAccess.resolve(hostLoader, base)
 
-    @Test fun `resolves actual host interface and private marker factory without guessing suffixes`() {
+    fun `resolves actual host interface and private marker factory without guessing suffixes`() {
         val access = requireNotNull(resolve(com.bilibili.player.tangram.basic.d::class.java))
         assertSame(com.bilibili.player.tangram.basic.d.a.a, access.auto)
         for (qn in listOf(0, 16, 32, 64, 80, 127)) {
@@ -117,19 +117,19 @@ class StoryQualityPreferenceAccessTest {
         assertNull(access.fixed(-1))
     }
 
-    @Test fun `rejects indirect implementations of an interface family`() {
+    fun `rejects indirect implementations of an interface family`() {
         assertNull(resolve(IndirectInterface::class.java))
     }
 
-    @Test fun `rejects additional interface contracts on family members`() {
+    fun `rejects additional interface contracts on family members`() {
         assertNull(resolve(AdditionalInterface::class.java))
     }
 
-    @Test fun `interface constructors still must preserve the requested quality`() {
+    fun `interface constructors still must preserve the requested quality`() {
         assertNull(resolve(ChangedInterface::class.java))
     }
 
-    @Test fun `resolves structural subtypes and round trips supported qualities`() {
+    fun `resolves structural subtypes and round trips supported qualities`() {
         val access = requireNotNull(resolve(Plain::class.java))
         assertSame(Plain.Automatic, access.auto)
         assertTrue(access.isAuto(Plain.Automatic))
@@ -144,19 +144,19 @@ class StoryQualityPreferenceAccessTest {
         assertNull(access.qualityOf(null))
     }
 
-    @Test fun `does not assign semantics by obfuscated suffix`() {
+    fun `does not assign semantics by obfuscated suffix`() {
         val access = requireNotNull(resolve(Reversed::class.java))
         assertSame(Reversed.b, access.auto)
         assertEquals(80, access.qualityOf(access.fixed(80)))
     }
 
-    @Test fun `accepts private int factory plus a consistent public marker bridge`() {
+    fun `accepts private int factory plus a consistent public marker bridge`() {
         val access = requireNotNull(resolve(Bridged::class.java))
         assertEquals(116, access.qualityOf(access.fixed(116)))
         assertSame(Bridged.Automatic, access.auto)
     }
 
-    @Test fun `supports marker only factory from the actual host loader`() {
+    fun `supports marker only factory from the actual host loader`() {
         val access = requireNotNull(resolve(MarkerOnly::class.java))
         assertEquals(120, access.qualityOf(access.fixed(120)))
         val hidesMarker = object : ClassLoader(loader) {
@@ -168,32 +168,32 @@ class StoryQualityPreferenceAccessTest {
         assertNull(resolve(MarkerOnly::class.java, hidesMarker))
     }
 
-    @Test fun `supports R8 interface strategy with direct stateless implementations`() {
+    fun `supports R8 interface strategy with direct stateless implementations`() {
         val access = requireNotNull(resolve(Optimized::class.java))
         assertSame(Optimized.Automatic, access.auto)
         assertEquals(80, access.qualityOf(access.fixed(80)))
         assertNull(resolve(InheritedState::class.java))
     }
 
-    @Test fun `rejects factories that fail the quality round trip`() {
+    fun `rejects factories that fail the quality round trip`() {
         assertNull(resolve(ChangedQn::class.java))
         assertNull(resolve(InconsistentBridge::class.java))
     }
 
-    @Test fun `rejects ambiguous or unknown strategy families`() {
+    fun `rejects ambiguous or unknown strategy families`() {
         assertNull(resolve(MultipleFixed::class.java))
         assertNull(resolve(MultipleAuto::class.java))
         assertNull(resolve(UnknownSubtype::class.java))
         assertNull(resolve(Any::class.java))
     }
 
-    @Test fun `rejects wrong field constructor and mutable quality abi`() {
+    fun `rejects wrong field constructor and mutable quality abi`() {
         assertNull(resolve(WrongField::class.java))
         assertNull(resolve(WrongFactory::class.java))
         assertNull(resolve(MutableQn::class.java))
     }
 
-    @Test fun `rejects a base or subtype that cannot resolve in the host loader`() {
+    fun `rejects a base or subtype that cannot resolve in the host loader`() {
         val rejectsBase = object : ClassLoader(loader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
                 if (name == Plain::class.java.name) throw ClassNotFoundException(name)
@@ -208,5 +208,26 @@ class StoryQualityPreferenceAccessTest {
         }
         assertNull(resolve(Plain::class.java, rejectsBase))
         assertNull(resolve(Plain::class.java, rejectsChild))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (StoryQualityPreferenceAccessTest) -> Unit) {
+            val s = StoryQualityPreferenceAccessTest()
+            block(s)
+        }
+        runIsolated { s -> s.`resolves actual host interface and private marker factory without guessing suffixes`() }
+        runIsolated { s -> s.`rejects indirect implementations of an interface family`() }
+        runIsolated { s -> s.`rejects additional interface contracts on family members`() }
+        runIsolated { s -> s.`interface constructors still must preserve the requested quality`() }
+        runIsolated { s -> s.`resolves structural subtypes and round trips supported qualities`() }
+        runIsolated { s -> s.`does not assign semantics by obfuscated suffix`() }
+        runIsolated { s -> s.`accepts private int factory plus a consistent public marker bridge`() }
+        runIsolated { s -> s.`supports marker only factory from the actual host loader`() }
+        runIsolated { s -> s.`supports R8 interface strategy with direct stateless implementations`() }
+        runIsolated { s -> s.`rejects factories that fail the quality round trip`() }
+        runIsolated { s -> s.`rejects ambiguous or unknown strategy families`() }
+        runIsolated { s -> s.`rejects wrong field constructor and mutable quality abi`() }
+        runIsolated { s -> s.`rejects a base or subtype that cannot resolve in the host loader`() }
     }
 }

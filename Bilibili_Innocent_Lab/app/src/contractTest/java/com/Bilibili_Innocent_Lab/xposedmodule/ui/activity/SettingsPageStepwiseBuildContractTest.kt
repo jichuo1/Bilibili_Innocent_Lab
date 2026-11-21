@@ -14,7 +14,7 @@ import org.junit.Test
 class SettingsPageStepwiseBuildContractTest {
     private val presenter = SettingsUiSource.file("SettingsHomePresenter")
 
-    @Test fun detachingStoppingAndLowMemoryReleaseBothIdleAdmissionAndQueuedWork() {
+    fun detachingStoppingAndLowMemoryReleaseBothIdleAdmissionAndQueuedWork() {
         val detach = SettingsUiSource.functions(presenter, "onViewDetachedFromWindow")
             .single { it.contains("prewarmer?.onDetached()") }
         assertTrue(detach.contains("cancelPrewarmAdmission()"))
@@ -33,7 +33,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertTrue(stop.before("super.onStop()").contains("settingsHome?.setPrewarmStarted(false)"))
     }
 
-    @Test fun prewarmDrivesOneBoundedUnitPerFrameAndKeepsTheCursor() {
+    fun prewarmDrivesOneBoundedUnitPerFrameAndKeepsTheCursor() {
         val submit = SettingsUiSource.functions(presenter, "submitPrewarm").single()
         // maxUnitsPerWork 必须覆盖整页计划；仍为 1 会在第一个单元未完成时按 UNIT_LIMIT 误丢弃。
         assertTrue(submit.contains("maxUnitsPerWork = SettingsPagePlan.MAX_UNITS"))
@@ -51,7 +51,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertFalse(discard.contains("plans["))
     }
 
-    @Test fun userFacingEntriesCompleteThePageSynchronouslyBeforeUse() {
+    fun userFacingEntriesCompleteThePageSynchronouslyBeforeUse() {
         val ensure = SettingsUiSource.functions(presenter, "ensurePage").single()
         assertTrue(ensure.contains("advancePage(index, untilComplete = true)"))
         val advance = SettingsUiSource.functions(presenter, "advancePage").single()
@@ -62,7 +62,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertTrue(presenter.contains("plans.fill(null)"))
     }
 
-    @Test fun everyCardRegistersItsAdvancedCategoriesAsDeferredStepsInOrder() {
+    fun everyCardRegistersItsAdvancedCategoriesAsDeferredStepsInOrder() {
         for ((card, count) in listOf("purifySettingsCard" to 9, "enhancementSettingsCard" to 6)) {
             val body = SettingsUiSource.function(card)
             val deferred = Regex("""deferStep \{ (\w+)\(advancedCategoryScope\(AdvancedSettingsCategory\.(\w+)\)""").findAll(body).toList()
@@ -74,7 +74,7 @@ class SettingsPageStepwiseBuildContractTest {
         }
     }
 
-    @Test fun pagePlansReadPreferenceSnapshotsAtStepTimeNotAtPlanCreation() {
+    fun pagePlansReadPreferenceSnapshotsAtStepTimeNotAtPlanCreation() {
         val plan = SettingsUiSource.function("settingsPagePlan")
         assertFalse("预读的快照会被后续步骤当作过期值使用", plan.contains("val uiSettings ="))
         assertTrue(plan.contains("fun uiSettings() = ModuleUiSettings.read("))
@@ -93,7 +93,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertTrue("读取点必须位于某个 deferStep 块内", SettingsStepModel.deferredBlockContaining(experimental, read))
     }
 
-    @Test fun modulePageIsSplitIntoIndependentCardsInTheOriginalOrder() {
+    fun modulePageIsSplitIntoIndependentCardsInTheOriginalOrder() {
         val plan = SettingsUiSource.function("settingsPagePlan")
         val module = plan.after("4 -> listOf(").before("else -> error")
         val order = listOf("activationPageCard(this)", "settingsBackupEntryCard(this)", "module:backup-gap",
@@ -109,7 +109,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertEquals(4, Regex("""with\(page\(\)\) \{""").findAll(module).count())
     }
 
-    @Test fun finishRunsOncePerPageAfterAllSteps() {
+    fun finishRunsOncePerPageAfterAllSteps() {
         val plan = SettingsUiSource.function("settingsPagePlan")
         val finish = plan.after("return SettingsPagePlan(steps) {")
         for (call in listOf("applyRestoredSettingsExpansion(index)", "styleHomeControls(parent)", "settingDependencies.start(settingModelPreferences)",
@@ -130,7 +130,7 @@ class SettingsPageStepwiseBuildContractTest {
         if (it is SettingsStepModel.Deferred) 1 + deferredCount(it.body) else 0
     }
 
-    @Test fun everyDeferStepIsTheTailOfItsBlockSoNothingRunsAheadOfDeferredContent() {
+    fun everyDeferStepIsTheTailOfItsBlockSoNothingRunsAheadOfDeferredContent() {
         val model = SettingsStepModel()
         val counts = splitCards.associateWith { deferredCount(model.function(it)) }
         assertTrue("deferStep must be the last thing a block registers: ${model.violations}", model.violations.isEmpty())
@@ -144,7 +144,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertEquals(1, counts.getValue("hostBottomBarAppearanceRows"))
     }
 
-    @Test fun splitCardsExecuteInSourceOrderThroughTheRealPlanWhetherCompletedOrInterrupted() {
+    fun splitCardsExecuteInSourceOrderThroughTheRealPlanWhetherCompletedOrInterrupted() {
         val model = SettingsStepModel()
         for (card in splitCards) {
             val nodes = model.function(card)
@@ -156,7 +156,7 @@ class SettingsPageStepwiseBuildContractTest {
         }
     }
 
-    @Test fun pageLevelOrderOfCardsAndGapsIsUnchangedAndPagesStayWithinTheStepBound() {
+    fun pageLevelOrderOfCardsAndGapsIsUnchangedAndPagesStayWithinTheStepBound() {
         val model = SettingsStepModel()
         for (page in 1..4) {
             val collapsed = model.pageSteps(page, expand = false)
@@ -173,7 +173,7 @@ class SettingsPageStepwiseBuildContractTest {
         }
     }
 
-    @Test fun pagesHaveTheExpectedStepCountsAndNoOversizedStep() {
+    fun pagesHaveTheExpectedStepCountsAndNoOversizedStep() {
         val model = SettingsStepModel()
         val executed = (1..4).map { model.execute(model.pageSteps(it, expand = true)) }
         // 净化 = 壳 + 9 个分类；增强 = 壳 + 6 个；美化 = 壳 + 6 个区段（含省电）+ 底栏再推迟的 1 段；
@@ -190,7 +190,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertTrue("experimental steps: $experimental", experimental.max() <= EXPERIMENTAL_STEP_MAX)
     }
 
-    @Test fun cardShellsOnlyBuildContainersAndLeaveTheContentToDeferredSteps() {
+    fun cardShellsOnlyBuildContainersAndLeaveTheContentToDeferredSteps() {
         val beautification = SettingsUiSource.function("beautificationSettingsCard")
         val beautificationShell = SettingsStepModel.shell(beautification)
         for (content in listOf("materialSwitch(", "isChecked", "Rows(", "hostAppearanceHeading(", "textView(")) {
@@ -233,7 +233,7 @@ class SettingsPageStepwiseBuildContractTest {
         assertFalse(SettingsStepModel.deferredBlockContaining(bottom, bottom.indexOf("hostGlassConfigurationRows(this, bottom = true)")))
     }
 
-    @Test fun splitCardsStillMountTheirSectionsInTheOriginalOrder() {
+    fun splitCardsStillMountTheirSectionsInTheOriginalOrder() {
         val model = SettingsStepModel()
         // 这些 key 是拆分前各区段的第一个（或标志性的）控件；执行日志里它们的先后就是区段的构建顺序。
         val anchors = mapOf(
@@ -261,5 +261,26 @@ class SettingsPageStepwiseBuildContractTest {
         const val BEAUTIFICATION_STEP_MAX = 10
         /** 拆分后实验性卡最大一步的控件挂载数上界：拆分前一步约 57 个，现在最大一步（卡片壳）12 个。 */
         const val EXPERIMENTAL_STEP_MAX = 13
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsPageStepwiseBuildContractTest) -> Unit) {
+            val s = SettingsPageStepwiseBuildContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.detachingStoppingAndLowMemoryReleaseBothIdleAdmissionAndQueuedWork() }
+        runIsolated { s -> s.prewarmDrivesOneBoundedUnitPerFrameAndKeepsTheCursor() }
+        runIsolated { s -> s.userFacingEntriesCompleteThePageSynchronouslyBeforeUse() }
+        runIsolated { s -> s.everyCardRegistersItsAdvancedCategoriesAsDeferredStepsInOrder() }
+        runIsolated { s -> s.pagePlansReadPreferenceSnapshotsAtStepTimeNotAtPlanCreation() }
+        runIsolated { s -> s.modulePageIsSplitIntoIndependentCardsInTheOriginalOrder() }
+        runIsolated { s -> s.finishRunsOncePerPageAfterAllSteps() }
+        runIsolated { s -> s.everyDeferStepIsTheTailOfItsBlockSoNothingRunsAheadOfDeferredContent() }
+        runIsolated { s -> s.splitCardsExecuteInSourceOrderThroughTheRealPlanWhetherCompletedOrInterrupted() }
+        runIsolated { s -> s.pageLevelOrderOfCardsAndGapsIsUnchangedAndPagesStayWithinTheStepBound() }
+        runIsolated { s -> s.pagesHaveTheExpectedStepCountsAndNoOversizedStep() }
+        runIsolated { s -> s.cardShellsOnlyBuildContainersAndLeaveTheContentToDeferredSteps() }
+        runIsolated { s -> s.splitCardsStillMountTheirSectionsInTheOriginalOrder() }
     }
 }

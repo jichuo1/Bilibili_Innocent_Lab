@@ -16,13 +16,13 @@ class GuestMineMenuHooksTest {
     private val statuses = linkedMapOf<String, String>()
     private val favoritesTarget = GuestMineMenuHooks.FAVORITES_TARGET
 
-    @Before fun reset() {
+    fun reset() {
         statuses.clear()
         BLRouter.registered.clear()
         BLRouter.lookups = 0
     }
 
-    @After fun cleanUp() {
+    fun cleanUp() {
         BLRouter.registered.clear()
     }
 
@@ -38,7 +38,7 @@ class GuestMineMenuHooksTest {
 
     private fun row(uri: String, needLogin: Int = 1) = MenuGroupV2.Item("row", 1L, uri, needLogin)
 
-    @Test fun guestPassesTheLoginCheckOnLibraryRowsOnly() {
+    fun guestPassesTheLoginCheckOnLibraryRowsOnly() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(2, GuestMineMenuHooks({ true }).install(environment(registrar)))
         assertEquals("installed", statuses["guest_mine_menu"])
@@ -54,7 +54,7 @@ class GuestMineMenuHooksTest {
         assertEquals(0, registrar.needLogin(row("bilibili://main/drawer/offline", needLogin = 0)))
     }
 
-    @Test fun loggedInUsersKeepTheHostAnswers() {
+    fun loggedInUsersKeepTheHostAnswers() {
         var guest = false
         val registrar = PlayerPortTestRegistrar()
         GuestMineMenuHooks({ guest }).install(environment(registrar))
@@ -69,7 +69,7 @@ class GuestMineMenuHooksTest {
         assertEquals(0, registrar.needLogin(row("bilibili://user_center/favourite")))
     }
 
-    @Test fun favoritesRowGetsTheRegisteredTargetForAGuest() {
+    fun favoritesRowGetsTheRegisteredTargetForAGuest() {
         val registrar = PlayerPortTestRegistrar()
         GuestMineMenuHooks({ true }).install(environment(registrar))
         BLRouter.registered += favoritesTarget
@@ -83,7 +83,7 @@ class GuestMineMenuHooksTest {
         assertEquals("bilibili://user_center/wallet", registrar.uri(row("bilibili://user_center/wallet")))
     }
 
-    @Test fun favoritesRowKeepsTheHostUriWhereTheTargetIsNotRegistered() {
+    fun favoritesRowKeepsTheHostUriWhereTheTargetIsNotRegistered() {
         val registrar = PlayerPortTestRegistrar()
         GuestMineMenuHooks({ true }).install(environment(registrar))
         // BLRouter.registered stays empty: this build has no such route.
@@ -93,7 +93,7 @@ class GuestMineMenuHooksTest {
         assertEquals(0, registrar.needLogin(row("bilibili://user_center/favourite")))
     }
 
-    @Test fun theRouterIsAskedOncePerTargetNotOncePerRow() {
+    fun theRouterIsAskedOncePerTargetNotOncePerRow() {
         val registrar = PlayerPortTestRegistrar()
         GuestMineMenuHooks({ true }).install(environment(registrar))
         BLRouter.registered += favoritesTarget
@@ -101,14 +101,14 @@ class GuestMineMenuHooksTest {
         assertEquals(1, BLRouter.lookups)
     }
 
-    @Test fun theSubstitutedTargetIsStillTreatedAsALibraryRow() {
+    fun theSubstitutedTargetIsStillTreatedAsALibraryRow() {
         // getUri is hooked too, so needLogin may be asked about the item after its URI was already replaced.
         val registrar = PlayerPortTestRegistrar()
         GuestMineMenuHooks({ true }).install(environment(registrar))
         assertEquals(0, registrar.needLogin(row(favoritesTarget)))
     }
 
-    @Test fun installingAloneDoesNotClaimAnyCallWasChanged() {
+    fun installingAloneDoesNotClaimAnyCallWasChanged() {
         val registrar = PlayerPortTestRegistrar()
         GuestMineMenuHooks({ false }).install(environment(registrar))
         registrar.needLogin(row("bilibili://user_center/favourite"))
@@ -118,7 +118,7 @@ class GuestMineMenuHooksTest {
         assertNull(statuses["guest_mine_menu_favorites_rewritten"])
     }
 
-    @Test fun missingRouterStillWaivesTheLoginCheckButNeverRewrites() {
+    fun missingRouterStillWaivesTheLoginCheckButNeverRewrites() {
         val withoutRouter = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
                 if (name.startsWith("com.bilibili.lib.blrouter.")) throw ClassNotFoundException(name)
@@ -132,7 +132,7 @@ class GuestMineMenuHooksTest {
         assertEquals(0, registrar.needLogin(row("bilibili://user_center/favourite")))
     }
 
-    @Test fun missingItemClassInstallsNothingAndReportsAbsent() {
+    fun missingItemClassInstallsNothingAndReportsAbsent() {
         val registrar = PlayerPortTestRegistrar()
         val hooks = GuestMineMenuHooks({ true }, "com.bilibili.lib.homepage.mine.NoSuchItem")
         assertEquals(0, hooks.install(environment(registrar)))
@@ -140,11 +140,34 @@ class GuestMineMenuHooksTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun anItemWithoutNeedLoginIsNotHooked() {
+    fun anItemWithoutNeedLoginIsNotHooked() {
         val registrar = PlayerPortTestRegistrar()
         val hooks = GuestMineMenuHooks({ true }, "fixtures.privacy.minemenu.ItemWithoutNeedLogin")
         assertEquals(0, hooks.install(environment(registrar)))
         assertEquals("absent", statuses["guest_mine_menu"])
         assertTrue(registrar.hooks.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestMineMenuHooksTest) -> Unit) {
+            val s = GuestMineMenuHooksTest()
+            s.reset()
+            try {
+                block(s)
+            } finally {
+                s.cleanUp()
+            }
+        }
+        runIsolated { s -> s.guestPassesTheLoginCheckOnLibraryRowsOnly() }
+        runIsolated { s -> s.loggedInUsersKeepTheHostAnswers() }
+        runIsolated { s -> s.favoritesRowGetsTheRegisteredTargetForAGuest() }
+        runIsolated { s -> s.favoritesRowKeepsTheHostUriWhereTheTargetIsNotRegistered() }
+        runIsolated { s -> s.theRouterIsAskedOncePerTargetNotOncePerRow() }
+        runIsolated { s -> s.theSubstitutedTargetIsStillTreatedAsALibraryRow() }
+        runIsolated { s -> s.installingAloneDoesNotClaimAnyCallWasChanged() }
+        runIsolated { s -> s.missingRouterStillWaivesTheLoginCheckButNeverRewrites() }
+        runIsolated { s -> s.missingItemClassInstallsNothingAndReportsAbsent() }
+        runIsolated { s -> s.anItemWithoutNeedLoginIsNotHooked() }
     }
 }

@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidBackgroundPreviewContractTest {
-    @Test fun previewWaitsForLayoutAndUsesBoundedViewDimensions() {
+    fun previewWaitsForLayoutAndUsesBoundedViewDimensions() {
         val preview = SourceContract.read("ui/activity/AppearanceDialogs.kt")
             .after("private fun MainActivity.loadLiquidBackgroundPreview(")
             .before("private fun MainActivity.restoreAutomaticLiquidBackground(")
@@ -22,7 +22,7 @@ class LiquidBackgroundPreviewContractTest {
         assertFalse(preview.contains("targetHeight = 360"))
     }
 
-    @Test fun staleOrDetachedPreviewCannotAcceptDecodedBitmap() {
+    fun staleOrDetachedPreviewCannotAcceptDecodedBitmap() {
         val preview = SourceContract.read("ui/activity/AppearanceDialogs.kt")
             .after("private fun MainActivity.loadLiquidBackgroundPreview(")
             .before("private fun MainActivity.restoreAutomaticLiquidBackground(")
@@ -31,5 +31,15 @@ class LiquidBackgroundPreviewContractTest {
         assertTrue(delivery.contains("!isFinishing && !isDestroyed && dialog.isShowing"))
         assertTrue(delivery.contains("liquidBackgroundDialog === dialog && preview.isAttachedToWindow"))
         assertTrue(delivery.contains("else bitmap.recycle()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidBackgroundPreviewContractTest) -> Unit) {
+            val s = LiquidBackgroundPreviewContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.previewWaitsForLayoutAndUsesBoundedViewDimensions() }
+        runIsolated { s -> s.staleOrDetachedPreviewCannotAcceptDecodedBitmap() }
     }
 }

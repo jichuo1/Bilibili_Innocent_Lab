@@ -31,7 +31,7 @@ class GuestFavoritesRouteHooksTest {
     private val fragment = StoryFragment()
     private val openedFolders = mutableListOf<Triple<Any?, String, Long>>()
 
-    @Before fun reset() {
+    fun reset() {
         statuses.clear()
         opened.clear()
         openedFolders.clear()
@@ -76,7 +76,7 @@ class GuestFavoritesRouteHooksTest {
         GuestFavoritesRouteHooks(guest, FRAGMENT_ROUTER, { true }, { kntr }, { target, uri, id ->
             openedFolders += Triple(target, uri, id); canOpenFolder })
 
-    @Test fun aGuestTappingAFolderCardOpensItsDetailPageAndIsAnsweredAsHandled() {
+    fun aGuestTappingAFolderCardOpensItsDetailPageAndIsAnsweredAsHandled() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(2, folderHooks().install(environment(registrar)))
         assertEquals("installed", statuses["guest_favorites_folder_route"])
@@ -88,7 +88,7 @@ class GuestFavoritesRouteHooksTest {
         assertEquals("seen", statuses["guest_favorites_folder_route_opened"])
     }
 
-    @Test fun sharedFragmentRoutePropagatesHostErrorsWithoutRetrying() {
+    fun sharedFragmentRoutePropagatesHostErrorsWithoutRetrying() {
         val registrar = PlayerPortTestRegistrar()
         folderHooks().install(environment(registrar))
         assertEquals(HookExceptionPolicy.DELIVER_TO_HOST, folderPolicy)
@@ -102,7 +102,7 @@ class GuestFavoritesRouteHooksTest {
         }
         assertEquals(1, calls)
     }
-    @Test fun onlyPlaylistDetailRoutesAreTakenOverByTheFolderHook() {
+    fun onlyPlaylistDetailRoutesAreTakenOverByTheFolderHook() {
         val registrar = PlayerPortTestRegistrar()
         folderHooks().install(environment(registrar))
         for (uri in listOf("bilibili://video/100", "bilibili://login", "bilibili://music/playlist/detail/0",
@@ -115,7 +115,7 @@ class GuestFavoritesRouteHooksTest {
         assertTrue(openedFolders.isEmpty())
     }
 
-    @Test fun aLoggedInUserKeepsTheHostRouteForFolderCards() {
+    fun aLoggedInUserKeepsTheHostRouteForFolderCards() {
         val registrar = PlayerPortTestRegistrar()
         folderHooks(guest = { false }).install(environment(registrar))
         assertEquals(StoryCode.FOUND_STUB, registrar.routeToFragment("bilibili://music/playlist/detail/5").code)
@@ -123,7 +123,7 @@ class GuestFavoritesRouteHooksTest {
         assertNull(statuses["guest_favorites_folder_route_opened"])
     }
 
-    @Test fun whenTheDetailPageCannotBeOpenedTheHostRouteStillRuns() {
+    fun whenTheDetailPageCannotBeOpenedTheHostRouteStillRuns() {
         val registrar = PlayerPortTestRegistrar()
         folderHooks(canOpenFolder = false).install(environment(registrar))
         assertEquals(StoryCode.FOUND_STUB, registrar.routeToFragment("bilibili://music/playlist/detail/5").code)
@@ -131,14 +131,14 @@ class GuestFavoritesRouteHooksTest {
         assertNull(statuses["guest_favorites_folder_route_opened"])
     }
 
-    @Test fun aBuildWithoutTheFragmentOverloadStillGetsTheFavoritesRoute() {
+    fun aBuildWithoutTheFragmentOverloadStillGetsTheFavoritesRoute() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(1, hooks().install(environment(registrar)))
         assertEquals("absent", statuses["guest_favorites_folder_route"])
         assertEquals("installed", statuses["guest_favorites_route"])
     }
 
-    @Test fun folderIdsAreReadFromThePlaylistDetailLink() {
+    fun folderIdsAreReadFromThePlaylistDetailLink() {
         assertEquals(7L, GuestFavoritesRouteHooks.folderIdOf("bilibili://music/playlist/detail/7"))
         assertEquals(7L, GuestFavoritesRouteHooks.folderIdOf("bilibili://music/playlist/detail/7/?type=11"))
         assertNull(GuestFavoritesRouteHooks.folderIdOf("bilibili://music/playlist/detail/-1"))
@@ -147,7 +147,7 @@ class GuestFavoritesRouteHooksTest {
         assertFalse(GuestFavoritesRouteHooks.openFolder(null, "bilibili://music/playlist/detail/7", 7L))
     }
 
-    @Test fun aGuestTappingFavoritesOpensTheNativePageAndIsAnsweredAsHandled() {
+    fun aGuestTappingFavoritesOpensTheNativePageAndIsAnsweredAsHandled() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(1, hooks().install(environment(registrar)))
         assertEquals("installed", statuses["guest_favorites_route"])
@@ -164,7 +164,7 @@ class GuestFavoritesRouteHooksTest {
         assertEquals("seen", statuses["guest_favorites_route_opened"])
     }
 
-    @Test fun otherRoutesAreLeftToTheHost() {
+    fun otherRoutesAreLeftToTheHost() {
         val registrar = PlayerPortTestRegistrar()
         hooks().install(environment(registrar))
         for (uri in listOf("bilibili://login", "bilibili://user_center/watch_later_v2", "bilibili://main/drawer/history",
@@ -177,7 +177,7 @@ class GuestFavoritesRouteHooksTest {
         assertNull(statuses["guest_favorites_route_opened"])
     }
 
-    @Test fun aBuildWithTheKntrRouteIsLeftToTheMenuHook() {
+    fun aBuildWithTheKntrRouteIsLeftToTheMenuHook() {
         kntr = true
         val registrar = PlayerPortTestRegistrar()
         hooks().install(environment(registrar))
@@ -185,7 +185,7 @@ class GuestFavoritesRouteHooksTest {
         assertTrue(opened.isEmpty())
     }
 
-    @Test fun aLoggedInUserKeepsTheHostRoute() {
+    fun aLoggedInUserKeepsTheHostRoute() {
         val registrar = PlayerPortTestRegistrar()
         hooks(guest = { false }).install(environment(registrar))
         assertEquals(StoryCode.FOUND_STUB, registrar.routeTo("bilibili://user_center/favourite").code)
@@ -193,7 +193,7 @@ class GuestFavoritesRouteHooksTest {
         assertNull(statuses["guest_favorites_route_opened"])
     }
 
-    @Test fun whenThePageCannotBeOpenedTheHostRouteStillRuns() {
+    fun whenThePageCannotBeOpenedTheHostRouteStillRuns() {
         canOpen = false
         val registrar = PlayerPortTestRegistrar()
         hooks().install(environment(registrar))
@@ -202,7 +202,7 @@ class GuestFavoritesRouteHooksTest {
         assertNull(statuses["guest_favorites_route_opened"])
     }
 
-    @Test fun aNullContextIsPassedOnSoTheProductionOpenerCanRefuseIt() {
+    fun aNullContextIsPassedOnSoTheProductionOpenerCanRefuseIt() {
         val registrar = PlayerPortTestRegistrar()
         hooks().install(environment(registrar))
         registrar.routeTo("bilibili://user_center/favourite", with = null)
@@ -210,7 +210,7 @@ class GuestFavoritesRouteHooksTest {
         assertFalse(GuestFavoritesRouteHooks.openFavorites(null))
     }
 
-    @Test fun anUnknownRouterInstallsNothingAndReportsAbsent() {
+    fun anUnknownRouterInstallsNothingAndReportsAbsent() {
         val registrar = PlayerPortTestRegistrar()
         val none = GuestVideoFavoriteHooks.RouterNames("no.Such.Router", "no.Such.Request", "no.Such.Response", "no.Such.Code")
         assertEquals(0, hooks(names = none).install(environment(registrar)))
@@ -222,5 +222,28 @@ class GuestFavoritesRouteHooksTest {
         const val PKG = "fixtures.privacy.videofavorite.storyrouter"
         val ROUTER = GuestVideoFavoriteHooks.RouterNames("$PKG.StoryRouter", "$PKG.StoryRequest", "$PKG.StoryResponse", "$PKG.StoryCode")
         val FRAGMENT_ROUTER = ROUTER.copy(fragment = "$PKG.StoryFragment")
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestFavoritesRouteHooksTest) -> Unit) {
+            val s = GuestFavoritesRouteHooksTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.aGuestTappingAFolderCardOpensItsDetailPageAndIsAnsweredAsHandled() }
+        runIsolated { s -> s.sharedFragmentRoutePropagatesHostErrorsWithoutRetrying() }
+        runIsolated { s -> s.onlyPlaylistDetailRoutesAreTakenOverByTheFolderHook() }
+        runIsolated { s -> s.aLoggedInUserKeepsTheHostRouteForFolderCards() }
+        runIsolated { s -> s.whenTheDetailPageCannotBeOpenedTheHostRouteStillRuns() }
+        runIsolated { s -> s.aBuildWithoutTheFragmentOverloadStillGetsTheFavoritesRoute() }
+        runIsolated { s -> s.folderIdsAreReadFromThePlaylistDetailLink() }
+        runIsolated { s -> s.aGuestTappingFavoritesOpensTheNativePageAndIsAnsweredAsHandled() }
+        runIsolated { s -> s.otherRoutesAreLeftToTheHost() }
+        runIsolated { s -> s.aBuildWithTheKntrRouteIsLeftToTheMenuHook() }
+        runIsolated { s -> s.aLoggedInUserKeepsTheHostRoute() }
+        runIsolated { s -> s.whenThePageCannotBeOpenedTheHostRouteStillRuns() }
+        runIsolated { s -> s.aNullContextIsPassedOnSoTheProductionOpenerCanRefuseIt() }
+        runIsolated { s -> s.anUnknownRouterInstallsNothingAndReportsAbsent() }
     }
 }

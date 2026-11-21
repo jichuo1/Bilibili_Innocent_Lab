@@ -23,7 +23,7 @@ class DynamicCopyOnWriteTest {
             .invoke(installer, environment, reply, feed, null, plan) as DynAllReply
     }
 
-    @Test fun `missing dynamic item carrier does not disable topic and UP list filtering`() {
+    fun `missing dynamic item carrier does not disable topic and UP list filtering`() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == DynamicItem::class.java.name) throw ClassNotFoundException(name)
@@ -37,7 +37,7 @@ class DynamicCopyOnWriteTest {
         assertEquals(2, original.ups.first.size)
     }
 
-    @Test fun `UP list failure cannot clear either original list change positions or remove topic`() {
+    fun `UP list failure cannot clear either original list change positions or remove topic`() {
         for (failure in listOf("position", "second", "build")) {
             stages.clear()
             val first = UpListItem(0, 10, failure == "position")
@@ -50,7 +50,7 @@ class DynamicCopyOnWriteTest {
         }
     }
 
-    @Test fun `UP list copies preserve two rows and continuously renumber without touching source`() {
+    fun `UP list copies preserve two rows and continuously renumber without touching source`() {
         val first = UpListItem(0, 10)
         val second = UpListItem(0, 30)
         val original = DynAllReply(ups = CardVideoUpList(listOf(first, UpListItem(1, 20)), listOf(second)))
@@ -63,9 +63,21 @@ class DynamicCopyOnWriteTest {
         assertSame(original.items, updated.items)
     }
 
-    @Test fun `unchanged and default replies preserve identity`() {
+    fun `unchanged and default replies preserve identity`() {
         val original = DynAllReply(topic = false)
         assertSame(original, purify(original))
         assertSame(DynAllReply.getDefaultInstance(), purify(DynAllReply.getDefaultInstance()))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DynamicCopyOnWriteTest) -> Unit) {
+            val s = DynamicCopyOnWriteTest()
+            block(s)
+        }
+        runIsolated { s -> s.`missing dynamic item carrier does not disable topic and UP list filtering`() }
+        runIsolated { s -> s.`UP list failure cannot clear either original list change positions or remove topic`() }
+        runIsolated { s -> s.`UP list copies preserve two rows and continuously renumber without touching source`() }
+        runIsolated { s -> s.`unchanged and default replies preserve identity`() }
     }
 }

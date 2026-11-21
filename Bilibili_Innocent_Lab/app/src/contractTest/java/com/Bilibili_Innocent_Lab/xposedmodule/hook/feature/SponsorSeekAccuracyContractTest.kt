@@ -17,20 +17,31 @@ class SponsorSeekAccuracyContractTest {
     private val detail = SourceContract.read("hook/feature/sponsor/SponsorPlayerSessions.kt")
     private val story = SourceContract.read("hook/feature/sponsor/StorySponsorSessions.kt")
 
-    @Test fun theAccurateFlagIsOneNamedConstantThatIsTrue() {
+    fun theAccurateFlagIsOneNamedConstantThatIsTrue() {
         assertTrue(access.contains("const val ACCURATE_SEEK = true"))
         assertFalse(access.contains("const val ACCURATE_SEEK = false"))
     }
 
-    @Test fun theDetailPageSeekPassesTheConstantAndNeverALiteralFalse() {
+    fun theDetailPageSeekPassesTheConstantAndNeverALiteralFalse() {
         val seek = detail.after("override fun seek(").before("fun start()")
         assertTrue(seek.contains("access.seek.invoke(wrapper, targetMs, SponsorPlayerAccess.ACCURATE_SEEK)"))
         assertFalse(seek.contains("targetMs, false"))
     }
 
-    @Test fun theStorySeekPassesTheConstantAndNeverALiteralFalse() {
+    fun theStorySeekPassesTheConstantAndNeverALiteralFalse() {
         val seek = story.after("override fun seek(targetMs: Int)").before("fun start()")
         assertTrue(seek.contains("access.core.seek.invoke(it, targetMs, SponsorPlayerAccess.ACCURATE_SEEK)"))
         assertFalse(seek.contains("targetMs, false"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorSeekAccuracyContractTest) -> Unit) {
+            val s = SponsorSeekAccuracyContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.theAccurateFlagIsOneNamedConstantThatIsTrue() }
+        runIsolated { s -> s.theDetailPageSeekPassesTheConstantAndNeverALiteralFalse() }
+        runIsolated { s -> s.theStorySeekPassesTheConstantAndNeverALiteralFalse() }
     }
 }

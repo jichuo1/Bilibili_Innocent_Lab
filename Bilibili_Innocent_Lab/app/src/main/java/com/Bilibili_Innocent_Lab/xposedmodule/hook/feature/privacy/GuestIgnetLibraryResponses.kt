@@ -40,7 +40,8 @@ internal class GuestIgnetLibraryResponses(
     /** Local JSON for a read path and its query, or null when the library has no answer for it. */
     private val answer: (path: String, params: Map<String, String>) -> String?,
     private val requestClass: String = REQUEST,
-    private val responseClass: String = RESPONSE
+    private val responseClass: String = RESPONSE,
+    private val drainTimeoutMs: Long = DRAIN_TIMEOUT_MS
 ) {
     /** A replaced body; read by the engine's single reader coroutine, guarded anyway. */
     private class Body(val bytes: ByteArray) {
@@ -61,7 +62,12 @@ internal class GuestIgnetLibraryResponses(
      * form often sits in the host's `StreamDataProvider` instead of `mBody`. The provider blocks on the host's coroutine
      * channel, so it is drained on its own thread with a time and size bound; a form that cannot be read fails the write.
      */
-    internal class PendingWrite(val path: String, private val query: Map<String, String>, private val stream: ((Int) -> ByteArray?)?) {
+    internal class PendingWrite(
+        val path: String,
+        private val query: Map<String, String>,
+        private val stream: ((Int) -> ByteArray?)?,
+        private val drainTimeoutMs: Long = DRAIN_TIMEOUT_MS
+    ) {
         fun params(): Map<String, String> {
             val produce = stream ?: return query
             val out = java.io.ByteArrayOutputStream()
@@ -77,7 +83,7 @@ internal class GuestIgnetLibraryResponses(
                 }.onFailure { failure[0] = it }
             }, "bil-guest-form").apply { isDaemon = true }
             reader.start()
-            reader.join(DRAIN_TIMEOUT_MS)
+            reader.join(drainTimeoutMs)
             check(!reader.isAlive) { "form not readable in time" }
             failure[0]?.let { throw it }
             val text = synchronized(out) { String(out.toByteArray(), Charsets.UTF_8) }
@@ -140,7 +146,7 @@ internal class GuestIgnetLibraryResponses(
                         setUrl.invoke(target, HARMLESS_READ)
                         streamField.set(target, null)
                         toGet.invoke(target)
-                        setObjectExtra(WRITE, PendingWrite(write.first, write.second, stream?.let { s -> { size: Int -> produce.invoke(s, size) as ByteArray? } }))
+                        setObjectExtra(WRITE, PendingWrite(write.first, write.second, stream?.let { s -> { size: Int -> produce.invoke(s, size) as ByteArray? } }, drainTimeoutMs))
                     }.onFailure { env.logError("guest_ignet_library_write", "[BIL] Local list write not prepared: ${it.javaClass.simpleName}") }
                 }
                 after {
@@ -241,7 +247,7 @@ internal class GuestIgnetLibraryResponses(
         private const val WRITE = "bil.guest.ignet.write"
         private const val CHUNK = 8192
         private const val MAX_FORM = 64 * 1024
-        private const val DRAIN_TIMEOUT_MS = 3000L
+        internal const val DRAIN_TIMEOUT_MS = 3000L
 
         /** (path, query) of a guest list read this class answers, or null for anything else. */
         fun listRead(method: String?, url: String?): Pair<String, Map<String, String>>? {

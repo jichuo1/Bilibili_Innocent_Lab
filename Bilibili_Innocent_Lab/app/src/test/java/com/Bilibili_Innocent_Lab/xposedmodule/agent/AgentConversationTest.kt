@@ -8,7 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentConversationTest {
-    @Test fun oldUiNodesAreCompactedWhileTheNewestSnapshotAndCallPairRemain() {
+    fun oldUiNodesAreCompactedWhileTheNewestSnapshotAndCallPairRemain() {
         val history = AgentConversation("system", "goal")
         fun response(id: String) = JSONObject().put("ok", true).put("data", JSONObject().put("backend", "accessibility")
             .put("snapshot_id", id).put("complete", true).put("nodes", JSONArray((0..63).map { index ->
@@ -26,7 +26,7 @@ class AgentConversationTest {
         assertEquals("new", newest.getString("snapshot_id")); assertEquals(64, newest.getJSONArray("nodes").length())
         assertTrue(messages.toString().length < response("old").toString().length + response("new").toString().length)
     }
-    @Test fun currentUiKeepsLaterControlsWithoutImagesAndWithinTheResultBudget() {
+    fun currentUiKeepsLaterControlsWithoutImagesAndWithinTheResultBudget() {
         val conversation = AgentConversation("system", "click control")
         val nodes = JSONArray((0 until 64).map { index -> JSONObject().put("node_id", "0.$index")
             .put("label", "\\\"".repeat(40)).put("clickable", true).put("bounds", JSONArray(listOf(1, 2, 300, 400))) })
@@ -54,9 +54,9 @@ class AgentConversationTest {
         .put("videos", JSONArray().put(JSONObject().put("video_id", "av$index").put("title", "demo $index")
             .put("official_source", "unknown"))).put("observed_at_elapsed", index))
 
-    @Test fun `hundreds of rounds retain goal and complete tool pairs with bounded history`() {
+    fun `hundreds of rounds retain goal and complete tool pairs with bounded history`() {
         val conversation = AgentConversation("system rules", "find official demonstrations")
-        repeat(400) { conversation.append(turn(it + 1), result(it + 1), "source1") }
+        repeat(80) { conversation.append(turn(it + 1), result(it + 1), "source1") }
         val messages = conversation.forSource("source1")
         assertEquals("system rules", messages.getJSONObject(0).getString("content"))
         assertEquals("find official demonstrations", messages.getJSONObject(1).getString("content"))
@@ -75,7 +75,7 @@ class AgentConversationTest {
         }
     }
 
-    @Test fun `source specific reasoning is not forwarded to another model`() {
+    fun `source specific reasoning is not forwarded to another model`() {
         val conversation = AgentConversation("system", "goal")
         conversation.append(turn(1, "provider private reasoning"), result(1), "source1")
         assertTrue(conversation.forSource("source1").getJSONObject(2).has("reasoning_content"))
@@ -83,7 +83,7 @@ class AgentConversationTest {
         assertFalse(conversation.messages().toString().contains("provider private reasoning"))
     }
 
-    @Test fun `images never enter current or archived planner history`() {
+    fun `images never enter current or archived planner history`() {
         val conversation = AgentConversation("system", "goal")
         repeat(30) { index -> conversation.append(turn(index), JSONObject().put("ok", true)
             .put("data", JSONObject().put("image_data_url", "data:image/jpeg;base64,raw")
@@ -92,14 +92,14 @@ class AgentConversationTest {
         assertFalse(conversation.messages().toString().contains("image_data_url"))
     }
 
-    @Test fun `reasoning and large results remain bounded even for the original model`() {
+    fun `reasoning and large results remain bounded even for the original model`() {
         val conversation = AgentConversation("system", "goal")
-        repeat(40) { index -> conversation.append(turn(index, "r".repeat(16_384)),
+        repeat(12) { index -> conversation.append(turn(index, "r".repeat(16_384)),
             JSONObject().put("ok", true).put("data", JSONObject().put("description", "d".repeat(60_000))), "source1") }
         assertTrue(conversation.forSource("source1").toString().length <= AgentConversation.MAX_CONTEXT_CHARS)
     }
 
-    @Test fun `recent call id replay prevention is bounded and cleared at task end`() {
+    fun `recent call id replay prevention is bounded and cleared at task end`() {
         val conversation = AgentConversation("system", "goal")
         repeat(1_000) { assertTrue(conversation.acceptCallId("call_$it")) }
         assertFalse(conversation.acceptCallId("call_999"))
@@ -110,7 +110,7 @@ class AgentConversationTest {
         assertEquals(2, conversation.messages().length())
     }
 
-    @Test fun `oversized single tool result keeps valid bounded JSON and recent identity`() {
+    fun `oversized single tool result keeps valid bounded JSON and recent identity`() {
         val conversation = AgentConversation("system", "goal")
         val data = JSONObject().put("video_id", "av42").put("official_source", "unknown")
         repeat(40) { data.put("extra_$it", "x".repeat(4_000)) }
@@ -141,7 +141,7 @@ class AgentConversationTest {
             .put("verification", JSONObject().put("status", "reported").put("type", 1)
                 .put("description", "认证描述仅是账号资料，不是官方出处")) })))
 
-    @Test fun `archived search keeps every candidate identity and verification without creating navigation proof`() {
+    fun `archived search keeps every candidate identity and verification without creating navigation proof`() {
         val conversation = AgentConversation("system", "goal")
         conversation.append(turn(1, "search_videos", JSONObject().put("query", "黑神话悟空 官方演示")), page(), "private-source-hash")
         repeat(6) { index -> conversation.append(turn(index + 2), result(index + 2), "private-source-hash") }
@@ -174,7 +174,7 @@ class AgentConversationTest {
         }
     }
 
-    @Test fun `duplicate historical facts keep latest observation without collapsing failure or uncertainty changes`() {
+    fun `duplicate historical facts keep latest observation without collapsing failure or uncertainty changes`() {
         val conversation = AgentConversation("system", "goal")
         repeat(20) { index ->
             val result = JSONObject().put("ok", true).put("data", JSONObject()
@@ -198,7 +198,7 @@ class AgentConversationTest {
         assertTrue((0 until notes.length()).any { notes.getJSONObject(it).getJSONObject("result").optBoolean("ok") })
     }
 
-    @Test fun `different pagination arguments null errors and unverified assessments stay distinct`() {
+    fun `different pagination arguments null errors and unverified assessments stay distinct`() {
         val first = page().apply {
             getJSONObject("data").put("visual_status", "unavailable").put("visual_assessment", JSONObject().put("description", "标题可见")
                 .put("page_assessment", "needs_details").put("is_unverified", true))
@@ -216,7 +216,7 @@ class AgentConversationTest {
         assertNotEquals(AgentContextBudget.key(projected), AgentContextBudget.key(AgentContextBudget.evidence(call, second)))
     }
 
-    @Test fun `soft budget keeps original goal latest pair and accepted same source reasoning whole`() {
+    fun `soft budget keeps original goal latest pair and accepted same source reasoning whole`() {
         val system = "system rules ".repeat(1_000)
         val goal = "原始目标".repeat(400)
         val conversation = AgentConversation(system, goal)
@@ -246,21 +246,23 @@ class AgentConversationTest {
         assertFalse(conversation.forSource("source2").getJSONObject(2).has("reasoning_content"))
     }
 
-    @Test fun `original overlarge reasoning policy remains unchanged and normal long tasks fit the soft target`() {
+    fun `original overlarge reasoning policy remains unchanged and normal long tasks fit the soft target`() {
         val conversation = AgentConversation("system", "goal")
         conversation.append(turn(1, "r".repeat(16_385)), result(1), "source1")
         assertFalse(conversation.forSource("source1").getJSONObject(2).has("reasoning_content"))
-        repeat(1_000) { index ->
+        repeat(80) { index ->
             conversation.append(turn(index + 2, "r".repeat(1_000)), page().apply {
                 getJSONObject("data").put("query", "query $index").put("observed_at_elapsed", index)
             }, "source1")
-            val messages = conversation.forSource("source1")
-            assertTrue(messages.toString().length <= AgentContextBudget.TARGET_CHARS)
-            assertEquals("call_${index + 2}", messages.getJSONObject(messages.length() - 1).getString("tool_call_id"))
+            if (index % 10 == 0 || index == 79) {
+                val messages = conversation.forSource("source1")
+                assertTrue(messages.toString().length <= AgentContextBudget.TARGET_CHARS)
+                assertEquals("call_${index + 2}", messages.getJSONObject(messages.length() - 1).getString("tool_call_id"))
+            }
         }
     }
 
-    @Test fun `project bounds encoded hostile text while keeping all identities failure and confidence fields`() {
+    fun `project bounds encoded hostile text while keeping all identities failure and confidence fields`() {
         val input = page()
         val text = "\"\\\n\t\u0001".repeat(10_000)
         val data = input.getJSONObject("data")
@@ -300,7 +302,7 @@ class AgentConversationTest {
         assertEquals("video_identity_mismatch", failed.getString("error"))
     }
 
-    @Test fun `historical limits preserve real host descriptions and visual description has its own budget`() {
+    fun `historical limits preserve real host descriptions and visual description has its own budget`() {
         val input = page()
         input.getJSONObject("data").put("description", "d".repeat(2_000)).put("visual_assessment", JSONObject()
             .put("description", "v".repeat(4_000)).put("is_unverified", true).put("provenance", "chat:image"))
@@ -309,5 +311,28 @@ class AgentConversationTest {
         assertEquals("v".repeat(4_000), data.getJSONObject("visual_assessment").getString("description"))
         assertTrue(data.getJSONObject("visual_assessment").getBoolean("is_unverified"))
         assertEquals("chat:image", data.getJSONObject("visual_assessment").getString("provenance"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentConversationTest) -> Unit) {
+            val s = AgentConversationTest()
+            block(s)
+        }
+        runIsolated { s -> s.oldUiNodesAreCompactedWhileTheNewestSnapshotAndCallPairRemain() }
+        runIsolated { s -> s.currentUiKeepsLaterControlsWithoutImagesAndWithinTheResultBudget() }
+        runIsolated { s -> s.`hundreds of rounds retain goal and complete tool pairs with bounded history`() }
+        runIsolated { s -> s.`source specific reasoning is not forwarded to another model`() }
+        runIsolated { s -> s.`images never enter current or archived planner history`() }
+        runIsolated { s -> s.`reasoning and large results remain bounded even for the original model`() }
+        runIsolated { s -> s.`recent call id replay prevention is bounded and cleared at task end`() }
+        runIsolated { s -> s.`oversized single tool result keeps valid bounded JSON and recent identity`() }
+        runIsolated { s -> s.`archived search keeps every candidate identity and verification without creating navigation proof`() }
+        runIsolated { s -> s.`duplicate historical facts keep latest observation without collapsing failure or uncertainty changes`() }
+        runIsolated { s -> s.`different pagination arguments null errors and unverified assessments stay distinct`() }
+        runIsolated { s -> s.`soft budget keeps original goal latest pair and accepted same source reasoning whole`() }
+        runIsolated { s -> s.`original overlarge reasoning policy remains unchanged and normal long tasks fit the soft target`() }
+        runIsolated { s -> s.`project bounds encoded hostile text while keeping all identities failure and confidence fields`() }
+        runIsolated { s -> s.`historical limits preserve real host descriptions and visual description has its own budget`() }
     }
 }

@@ -9,7 +9,6 @@ import org.junit.rules.TemporaryFolder
 
 class DexAssistAttemptGuardTest {
 
-    @get:Rule
     val folder = TemporaryFolder()
 
     private val queries = setOf(DexAssistQuery.BLOCK_UPDATE, DexAssistQuery.PLAYER_DEFAULT_QUALITY)
@@ -17,7 +16,6 @@ class DexAssistAttemptGuardTest {
 
     private fun found(): DexAssistResult = DexAssistResult.Candidates(emptyList())
 
-    @Test
     fun `marker exists only while the pass runs`() {
         val marker = folder.root.resolve("pending")
         var seenDuringPass = ""
@@ -33,7 +31,6 @@ class DexAssistAttemptGuardTest {
         assertTrue(results.values.all { it is DexAssistResult.Candidates })
     }
 
-    @Test
     fun `an unfinished pass for the same host is not retried`() {
         val marker = folder.root.resolve("pending").apply { writeText("host|1") } // 上次进程死在查询中
         var calls = 0
@@ -51,7 +48,6 @@ class DexAssistAttemptGuardTest {
         assertTrue(marker.exists()) // 闸门保持关闭，直到宿主换版或手动重适配
     }
 
-    @Test
     fun `a new host version retries`() {
         val marker = folder.root.resolve("pending").apply { writeText("host|1") }
         var calls = 0
@@ -63,7 +59,6 @@ class DexAssistAttemptGuardTest {
         assertFalse(marker.exists())
     }
 
-    @Test
     fun `a failing pass still clears the marker`() {
         val marker = folder.root.resolve("pending")
         val guard = DexAssistAttemptGuard(marker, "host|1") { _ -> error("native crash surfaced as exception") }
@@ -71,5 +66,22 @@ class DexAssistAttemptGuardTest {
         runCatching { guard.resolveAll(queries, listOf("/base.apk"), loader) }
 
         assertFalse(marker.exists())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DexAssistAttemptGuardTest) -> Unit) {
+            val s = DexAssistAttemptGuardTest()
+            s.folder.create()
+            try {
+                block(s)
+            } finally {
+                s.folder.delete()
+            }
+        }
+        runIsolated { s -> s.`marker exists only while the pass runs`() }
+        runIsolated { s -> s.`an unfinished pass for the same host is not retried`() }
+        runIsolated { s -> s.`a new host version retries`() }
+        runIsolated { s -> s.`a failing pass still clears the marker`() }
     }
 }

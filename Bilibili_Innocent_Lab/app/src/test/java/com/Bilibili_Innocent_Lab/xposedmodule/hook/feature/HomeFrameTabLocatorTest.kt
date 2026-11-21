@@ -29,7 +29,6 @@ class HomeFrameTabLocatorTest {
         tabId: String = "t_$id"
     ) = n(id, name, uri, icon, "$icon?selected", defaultSelected, 0, tabId)
 
-    @Test
     fun `locates tab data through view model generics and serial names only`() {
         val model = model()
         assertEquals(k::class.java, model.dataClass)
@@ -46,7 +45,6 @@ class HomeFrameTabLocatorTest {
         assertFalse(model.item.isDefaultSelected(tab("2", "动态", "bilibili://following/home")))
     }
 
-    @Test
     fun `hosts without the new frame are absent rather than failed`() {
         val withoutFrame = object : ClassLoader(loader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -57,7 +55,7 @@ class HomeFrameTabLocatorTest {
         assertSame(HomeFrameTabLocator.Resolution.Absent, HomeFrameTabLocator.resolve(withoutFrame))
     }
 
-    @Test fun `game menu filters the independent top slot and permits zero menu entries`() {
+    fun `game menu filters the independent top slot and permits zero menu entries`() {
         val registrar = PlayerPortTestRegistrar()
         HomeTopBarFeatureInstaller(true, false, null).install(environment(registrar))
         assertEquals("a", model().slot(HomeFrameTabLocator.ELEMENT_TOP)!!.field.name)
@@ -81,7 +79,6 @@ class HomeFrameTabLocatorTest {
         assertSame(untouched, other.a)
     }
 
-    @Test
     fun `field order follows dex sorting by name then type descriptor`() {
         assertEquals(listOf("a", "b", "c", "d", "e"), HomeFrameTabLocator.orderedInstanceFields(k::class.java).map { it.name })
         assertEquals("I", HomeFrameTabLocator.descriptorOf(Int::class.javaPrimitiveType!!))
@@ -89,7 +86,6 @@ class HomeFrameTabLocatorTest {
         assertEquals("[J", HomeFrameTabLocator.descriptorOf(LongArray::class.java))
     }
 
-    @Test
     fun `list hook filters once at the outermost constructor and never drops the default tab`() {
         val model = model()
         val slot = model.slot(HomeFrameTabLocator.ELEMENT_BOTTOM)!!
@@ -125,7 +121,6 @@ class HomeFrameTabLocatorTest {
         assertSame(data.c, copy.c)
     }
 
-    @Test
     fun `filtering everything away falls back to the original list`() {
         val only = listOf<Any?>("x", "y")
         assertSame(only, HomeFrameListHook.filterFrameTabs(only, { true }, { false }))
@@ -158,7 +153,6 @@ class HomeFrameTabLocatorTest {
         invoke(id, receiver = data)
     }
 
-    @Test
     fun `bottom bar frame layer reuses the tabhost selector key so old picks keep working`() {
         val home = tab("1", "首页", "bilibili://main/home", defaultSelected = 1)
         val mall = tab("3", "会员购", "bilibili://mall/home", icon = "https://i0.hdslb.com/mall.png")
@@ -193,7 +187,6 @@ class HomeFrameTabLocatorTest {
         assertTrue(ComponentPickerSelection.isSelected(hidden, setOf(phoneKey)))
     }
 
-    @Test
     fun `bottom bar frame layer hides by the canonical route key regardless of icon`() {
         val mall = tab("3", "会员购", "bilibili://mall/home/?from=tab", icon = "https://i0.hdslb.com/new-skin.png")
         val registrar = PlayerPortTestRegistrar()
@@ -208,7 +201,6 @@ class HomeFrameTabLocatorTest {
         assertEquals(listOf("首页"), data.c.map { it.b })
     }
 
-    @Test
     fun `home tab frame layer filters the tab element with the legacy id key`() {
         val recommend = tab("推荐id", "推荐", "bilibili://pegasus/promo", defaultSelected = 1)
         val film = tab("影视id", "影视", "bilibili://pgc/home")
@@ -237,7 +229,6 @@ class HomeFrameTabLocatorTest {
         assertEquals(MineComponentSnapshotCodec.SURFACE_HOME_TABS, snapshots.last().first)
     }
 
-    @Test
     fun `losing both layers is reported instead of passing silently`() {
         val result = BottomBarFeatureInstaller(
             rules = "会员购",
@@ -248,7 +239,6 @@ class HomeFrameTabLocatorTest {
         assertTrue("bottom_bar_layers" to "tabhost=absent,frame=failed" in statuses)
     }
 
-    @Test
     fun `scan only mode never rewrites host data`() {
         val registrar = PlayerPortTestRegistrar()
         BottomBarFeatureInstaller(rules = "", points = null).install(environment(registrar))
@@ -267,7 +257,7 @@ class HomeFrameTabLocatorTest {
         assertFalse(evidence.any { it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun `frame fallback that preserves every tab never claims applied`() {
+    fun `frame fallback that preserves every tab never claims applied`() {
         val registrar = PlayerPortTestRegistrar()
         HomeTabFilterFeatureInstaller(rules = "", selectors = MineComponentSelectionCodec.encode(
             listOf("home_tab:id:1", "home_tab:id:2")), points = null).install(environment(registrar))
@@ -281,4 +271,24 @@ class HomeFrameTabLocatorTest {
         assertFalse(evidence.any { it.second == FeatureRuntimeStage.APPLIED })
     }
 
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeFrameTabLocatorTest) -> Unit) {
+            val s = HomeFrameTabLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`locates tab data through view model generics and serial names only`() }
+        runIsolated { s -> s.`hosts without the new frame are absent rather than failed`() }
+        runIsolated { s -> s.`game menu filters the independent top slot and permits zero menu entries`() }
+        runIsolated { s -> s.`field order follows dex sorting by name then type descriptor`() }
+        runIsolated { s -> s.`list hook filters once at the outermost constructor and never drops the default tab`() }
+        runIsolated { s -> s.`filtering everything away falls back to the original list`() }
+        runIsolated { s -> s.`bottom bar frame layer reuses the tabhost selector key so old picks keep working`() }
+        runIsolated { s -> s.`bottom bar frame layer hides by the canonical route key regardless of icon`() }
+        runIsolated { s -> s.`home tab frame layer filters the tab element with the legacy id key`() }
+        runIsolated { s -> s.`losing both layers is reported instead of passing silently`() }
+        runIsolated { s -> s.`scan only mode never rewrites host data`() }
+        runIsolated { s -> s.`frame fallback that preserves every tab never claims applied`() }
+    }
 }

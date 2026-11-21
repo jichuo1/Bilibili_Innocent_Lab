@@ -18,7 +18,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
  */
 class ElasticCaptureGateTest {
 
-    @Test fun captureGateChecksTheHitViewNotThePromotedGroup() {
+    fun captureGateChecksTheHitViewNotThePromotedGroup() {
         val controller = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/interaction/ElasticInteractionController.kt")
         assertTrue(controller.contains("val pressedView = highlightHost ?: target"))
@@ -26,7 +26,7 @@ class ElasticCaptureGateTest {
         assertFalse(controller.contains("if (target?.isPressed != true)"))
     }
 
-    @Test fun hitViewIsAssignedAfterTheVisualTeardown() {
+    fun hitViewIsAssignedAfterTheVisualTeardown() {
         val controller = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/interaction/ElasticInteractionController.kt")
         val begin = controller.after("private fun begin(event: MotionEvent)")
@@ -39,7 +39,7 @@ class ElasticCaptureGateTest {
             begin.indexOf("removeVisual(restore = true, releaseLease = true)"))
     }
 
-    @Test fun newUpdateBadgeDoesNotStealTheIconGesture() {
+    fun newUpdateBadgeDoesNotStealTheIconGesture() {
         val main = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
         val badge = main.after("githubUpdateBadge = this")
@@ -49,4 +49,15 @@ class ElasticCaptureGateTest {
 
     private fun source(relative: String): String =
         LceMotionSource.read(relative)
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ElasticCaptureGateTest) -> Unit) {
+            val s = ElasticCaptureGateTest()
+            block(s)
+        }
+        runIsolated { s -> s.captureGateChecksTheHitViewNotThePromotedGroup() }
+        runIsolated { s -> s.hitViewIsAssignedAfterTheVisualTeardown() }
+        runIsolated { s -> s.newUpdateBadgeDoesNotStealTheIconGesture() }
+    }
 }

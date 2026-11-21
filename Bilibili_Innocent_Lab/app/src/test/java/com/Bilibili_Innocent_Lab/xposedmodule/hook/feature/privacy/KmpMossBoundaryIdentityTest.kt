@@ -15,12 +15,12 @@ class KmpMossBoundaryIdentityTest {
     private fun headers(name: String, value: ByteArray) =
         listOf(LinkedHashMap<Any?, Any?>(), LinkedHashMap<Any?, Any?>(mapOf(name to value)))
 
-    @Test fun resolvesWhenToBuilderIsInheritedFromTheProtobufBaseClass() {
+    fun resolvesWhenToBuilderIsInheritedFromTheProtobufBaseClass() {
         // Regression: toBuilder() is not declared on the generated message, only on its base class.
         assertNotNull(sanitizer())
     }
 
-    @Test fun metadataKeepsNothingOfTheRealAccount() {
+    fun metadataKeepsNothingOfTheRealAccount() {
         val real = Metadata.newBuilder().setBuvid("real-buvid").setAccessKey("real-secret").build().toByteArray()
         val maps = headers("x-bili-metadata-bin", real)
         sanitizer()!!.sanitize(maps, identity)
@@ -31,7 +31,7 @@ class KmpMossBoundaryIdentityTest {
         assertFalse(String(bytes).contains("real"))
     }
 
-    @Test fun everyDeviceIdentifierIsReplacedAndTheTimestampReset() {
+    fun everyDeviceIdentifierIsReplacedAndTheTimestampReset() {
         val real = Device.newBuilder().setBuvid("real-buvid").setFp("real-fp").setFpLocal("real-local")
             .setFpRemote("real-remote").setGuestId("real-guest").setFts(1234L).build().toByteArray()
         val maps = headers("x-bili-device-bin", real)
@@ -39,5 +39,16 @@ class KmpMossBoundaryIdentityTest {
         val sealed = Device.parseFrom(maps[1]["x-bili-device-bin"] as ByteArray)
         assertEquals((0..4).map { "session-buvid" }, (0..4).map { sealed.field(it) })
         assertEquals("0", sealed.field(5))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KmpMossBoundaryIdentityTest) -> Unit) {
+            val s = KmpMossBoundaryIdentityTest()
+            block(s)
+        }
+        runIsolated { s -> s.resolvesWhenToBuilderIsInheritedFromTheProtobufBaseClass() }
+        runIsolated { s -> s.metadataKeepsNothingOfTheRealAccount() }
+        runIsolated { s -> s.everyDeviceIdentifierIsReplacedAndTheTimestampReset() }
     }
 }

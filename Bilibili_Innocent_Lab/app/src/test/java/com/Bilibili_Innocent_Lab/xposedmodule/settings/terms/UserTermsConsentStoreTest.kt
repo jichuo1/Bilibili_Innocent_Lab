@@ -8,14 +8,12 @@ import org.junit.Test
 
 class UserTermsConsentStoreTest {
 
-    @Test
     fun `current terms version is a positive locked protocol value`() {
         assertEquals(2, UserTermsConsentStore.CURRENT_TERMS_VERSION)
         assertTrue(UserTermsConsentStore.CURRENT_TERMS_VERSION > 0)
         assertEquals(1_787_909_100_000L, UserTermsConsentStore.LEGACY_ROLLOUT_CUTOFF_EPOCH_MS)
     }
 
-    @Test
     fun `missing persisted decision delegates only to legacy inference`() {
         listOf(
             Triple(null, -1, false),
@@ -32,7 +30,6 @@ class UserTermsConsentStoreTest {
         }
     }
 
-    @Test
     fun `all valid persisted decisions round trip at the current version`() {
         UserTermsDecision.entries.forEach { decision ->
             assertEquals(
@@ -46,7 +43,6 @@ class UserTermsConsentStoreTest {
         }
     }
 
-    @Test
     fun `corrupt or blank persisted decisions fail closed`() {
         listOf(null, "", "accepted", "CORRUPT", "LEGACY").forEach { rawDecision ->
             assertEquals(
@@ -60,7 +56,6 @@ class UserTermsConsentStoreTest {
         }
     }
 
-    @Test
     fun `records from another terms version require a new decision`() {
         val otherVersions = listOf(
             -1,
@@ -83,7 +78,6 @@ class UserTermsConsentStoreTest {
         }
     }
 
-    @Test
     fun `only accepted and legacy exempt decisions authorize module hooks`() {
         val authorizationSnapshot = UserTermsDecision.entries.associateWith { it.isAuthorized }
         assertEquals(
@@ -97,7 +91,6 @@ class UserTermsConsentStoreTest {
         )
     }
 
-    @Test
     fun `pending acceptance stays local and keeps the previous decision unauthorized`() {
         val pending = UserTermsConsentStore.resolvePendingAcceptance(
             hasPending = true,
@@ -117,7 +110,6 @@ class UserTermsConsentStoreTest {
         assertEquals(UserTermsDecision.ACCEPTED, state.requestedRemoteDecision)
     }
 
-    @Test
     fun `pending acceptance metadata fails closed when incomplete stale or inconsistent`() {
         val invalidRecords = listOf(
             UserTermsConsentStore.resolvePendingAcceptance(
@@ -164,7 +156,6 @@ class UserTermsConsentStoreTest {
         )
     }
 
-    @Test
     fun `upgraded installations are exempt only during missing-state migration`() {
         val cutoff = 10_000L
         assertEquals(
@@ -196,7 +187,6 @@ class UserTermsConsentStoreTest {
         )
     }
 
-    @Test
     fun `installations at or after rollout never receive package time exemption`() {
         val cutoff = 10_000L
         listOf(cutoff, cutoff + 1L, cutoff + 5_000L).forEach { firstInstallTime ->
@@ -212,7 +202,6 @@ class UserTermsConsentStoreTest {
         }
     }
 
-    @Test
     fun `legacy prefs marker requires both an old install and an old marker`() {
         val cutoff = 10_000L
         assertEquals(
@@ -243,7 +232,6 @@ class UserTermsConsentStoreTest {
         }
     }
 
-    @Test
     fun `invalid timestamps never create a legacy exemption`() {
         val cutoff = 10_000L
         listOf(
@@ -263,5 +251,25 @@ class UserTermsConsentStoreTest {
                 )
             )
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (UserTermsConsentStoreTest) -> Unit) {
+            val s = UserTermsConsentStoreTest()
+            block(s)
+        }
+        runIsolated { s -> s.`current terms version is a positive locked protocol value`() }
+        runIsolated { s -> s.`missing persisted decision delegates only to legacy inference`() }
+        runIsolated { s -> s.`all valid persisted decisions round trip at the current version`() }
+        runIsolated { s -> s.`corrupt or blank persisted decisions fail closed`() }
+        runIsolated { s -> s.`records from another terms version require a new decision`() }
+        runIsolated { s -> s.`only accepted and legacy exempt decisions authorize module hooks`() }
+        runIsolated { s -> s.`pending acceptance stays local and keeps the previous decision unauthorized`() }
+        runIsolated { s -> s.`pending acceptance metadata fails closed when incomplete stale or inconsistent`() }
+        runIsolated { s -> s.`upgraded installations are exempt only during missing-state migration`() }
+        runIsolated { s -> s.`installations at or after rollout never receive package time exemption`() }
+        runIsolated { s -> s.`legacy prefs marker requires both an old install and an old marker`() }
+        runIsolated { s -> s.`invalid timestamps never create a legacy exemption`() }
     }
 }

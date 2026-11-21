@@ -17,7 +17,7 @@ class SectionExpansionWiringTest {
 
     private fun source(relative: String): String= com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource.read(relative)
 
-    @Test fun sectionToggleDelegatesToTheProgressDrivenController() {
+    fun sectionToggleDelegatesToTheProgressDrivenController() {
         val activity = source("ui/activity/MainActivity.kt")
         val body = activity.after("private fun animateSecondarySection")
             .before("override fun onStart")
@@ -27,7 +27,7 @@ class SectionExpansionWiringTest {
             body.contains("notifyPreparedSkinPositionChanged"))
     }
 
-    @Test fun controllerNotifiesTheRendererOnEveryFrame() {
+    fun controllerNotifiesTheRendererOnEveryFrame() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         val frameBody = controller.after("override fun onPreDraw(): Boolean")
             .before("private fun applyScrollFollow()")
@@ -39,7 +39,7 @@ class SectionExpansionWiringTest {
             frameBody.contains("for (controller in retired) positionNotifications.add(controller.notifyPositionChanged)"))
     }
 
-    @Test fun collapseDefersOffsetResetUntilLayoutLands() {
+    fun collapseDefersOffsetResetUntilLayoutLands() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         val finishBody = controller.after("private fun finish(")
             .before("/** 无动画直达")
@@ -57,7 +57,7 @@ class SectionExpansionWiringTest {
             preDraw.indexOf("controller.resetOffsets()") < preDraw.indexOf("val measuredHeight = controller.content.height"))
     }
 
-    @Test fun controllerDrivesCardClipAndSiblingGlideFromOneProgress() {
+    fun controllerDrivesCardClipAndSiblingGlideFromOneProgress() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         assertTrue("卡片下边缘必须由逐帧圆角 outline 驱动（矩形 clipBounds 会切成直边截断）",
             controller.contains("clipToOutline") && controller.contains("invalidateOutline"))
@@ -79,7 +79,7 @@ class SectionExpansionWiringTest {
      * 实测「净化进阶设置」收起动画第 1064 帧已静止，第 1069 帧单帧全屏差分 0.52
      * （与动画中段同量级），热区 y2666–3168 全在外层「净化」大卡的下边缘上。
      */
-    @Test fun everyShrinkingAncestorIsClippedAlongWithTheCard() {
+    fun everyShrinkingAncestorIsClippedAlongWithTheCard() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         val capture = controller.after("private fun captureActors()")
             .substringBefore("private fun clipLayer(", "MISSING")
@@ -112,7 +112,7 @@ class SectionExpansionWiringTest {
      * 裁住，页面大卡 6517 被裁到 4158，二级条目展开后直接从下部截断。而且自锁：
      * 下一轮 capture 读到的"原值"仍是这个假 provider，重启进程前每次展开都重演。
      */
-    @Test fun theOutlineOriginalIsRecordedOncePerViewAndRestoredByTheLastOwner() {
+    fun theOutlineOriginalIsRecordedOncePerViewAndRestoredByTheLastOwner() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         assertTrue("原值必须落在按 View 共用的登记表里，不能每个控制器各存一份",
             controller.contains("WeakHashMap<View, ClipTakeover>"))
@@ -143,7 +143,7 @@ class SectionExpansionWiringTest {
      * 跳变加载"。实测 x=700 处底缘由平坦 26 变成 28→30→32 的描边梯度，左缘 44→40。
      * 与 2026-09-21（十一）承载层那条同源：正在被画的矩形必须交给 drawable。
      */
-    @Test fun clippedSurfacesAreReboundedToTheRectBeingDrawn() {
+    fun clippedSurfacesAreReboundedToTheRectBeingDrawn() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         val takeover = controller.after("private class ClipTakeover(")
             .substringBefore("private var clipLayers", "MISSING")
@@ -158,7 +158,7 @@ class SectionExpansionWiringTest {
      * 收起会缩短滚动范围，落定那一帧容器把 scrollY 钳回新上限——视角"停在原地、
      * 动画放完被瞬间拉上去"（2026-09-22 用户报告）。钳制必须提前摊到整条动画上。
      */
-    @Test fun theViewportRidesTheCollapseInsteadOfBeingClampedAtTheEnd() {
+    fun theViewportRidesTheCollapseInsteadOfBeingClampedAtTheEnd() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         val follow = controller.after("private class ScrollFollow(")
             .substringBefore("private companion object", "MISSING")
@@ -174,7 +174,7 @@ class SectionExpansionWiringTest {
      * `card.paddingBottom`，p=0 时第一行会残留一条半透明薄片（真机实测约 15px、
      * alpha≈0.23），收尾 GONE 时"啪"地消失。
      */
-    @Test fun theRevealEdgeIsMeasuredOnTheContentItself() {
+    fun theRevealEdgeIsMeasuredOnTheContentItself() {
         val controller = source("ui/activity/SectionExpansionController.kt")
         val apply = controller.after("private fun apply(offsets: MotionOffsets)")
             .substringBefore("private fun applyClip(", "MISSING")
@@ -182,5 +182,22 @@ class SectionExpansionWiringTest {
         assertTrue("揭示沿必须扣除后代收缩，且不包含卡片内边距",
             apply.contains("val clipY = revealedHeight") &&
                 controller.contains("height - nested - controller.ownShrink"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SectionExpansionWiringTest) -> Unit) {
+            val s = SectionExpansionWiringTest()
+            block(s)
+        }
+        runIsolated { s -> s.sectionToggleDelegatesToTheProgressDrivenController() }
+        runIsolated { s -> s.controllerNotifiesTheRendererOnEveryFrame() }
+        runIsolated { s -> s.collapseDefersOffsetResetUntilLayoutLands() }
+        runIsolated { s -> s.controllerDrivesCardClipAndSiblingGlideFromOneProgress() }
+        runIsolated { s -> s.everyShrinkingAncestorIsClippedAlongWithTheCard() }
+        runIsolated { s -> s.theOutlineOriginalIsRecordedOncePerViewAndRestoredByTheLastOwner() }
+        runIsolated { s -> s.clippedSurfacesAreReboundedToTheRectBeingDrawn() }
+        runIsolated { s -> s.theViewportRidesTheCollapseInsteadOfBeingClampedAtTheEnd() }
+        runIsolated { s -> s.theRevealEdgeIsMeasuredOnTheContentItself() }
     }
 }

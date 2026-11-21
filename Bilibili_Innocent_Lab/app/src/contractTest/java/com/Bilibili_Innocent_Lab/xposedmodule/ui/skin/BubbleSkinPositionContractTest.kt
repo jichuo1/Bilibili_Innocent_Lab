@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BubbleSkinPositionContractTest {
-    @Test fun rowTravelAndEndpointRestorationNotifyOnlyAfterWritingTheFrame() {
+    fun rowTravelAndEndpointRestorationNotifyOnlyAfterWritingTheFrame() {
         val controller = LceMotionSource.read("ui/activity/BubbleMotionController.kt")
         val frame = controller.after("private fun apply(").before("private fun finish(")
         assertTrue(frame.indexOf("layer.applyFrame(clamped, entryShape)") < frame.indexOf("onContentMoved()"))
@@ -20,11 +20,21 @@ class BubbleSkinPositionContractTest {
         assertTrue(presenter.contains("onContentMoved = { notifyPreparedSkinPositionChanged() }"))
     }
 
-    @Test fun unnotifiedWindowPanIsDetectedBeforeTheSurfaceBatchGate() {
+    fun unnotifiedWindowPanIsDetectedBeforeTheSurfaceBatchGate() {
         val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
         val window = renderer.after("private fun registerRefreshWindow(").before("private fun removeRefreshWindow(")
         assertTrue(window.contains("surfaceCoordinates.localToScreen(root, refreshRootTransform)"))
         assertTrue(window.contains("state.position.update(refreshRootTransform)"))
         assertTrue(window.indexOf("state.position.update(refreshRootTransform)") < window.indexOf("flushSurfaceRefresh(root)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BubbleSkinPositionContractTest) -> Unit) {
+            val s = BubbleSkinPositionContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.rowTravelAndEndpointRestorationNotifyOnlyAfterWritingTheFrame() }
+        runIsolated { s -> s.unnotifiedWindowPanIsDetectedBeforeTheSurfaceBatchGate() }
     }
 }

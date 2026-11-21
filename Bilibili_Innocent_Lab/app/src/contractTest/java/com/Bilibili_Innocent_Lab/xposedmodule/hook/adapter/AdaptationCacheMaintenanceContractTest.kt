@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AdaptationCacheMaintenanceContractTest {
-    @Test fun `cache hit schedules maintenance without synchronous file operations`() {
+    fun `cache hit schedules maintenance without synchronous file operations`() {
         val source = SourceContract.read("hook/VersionAdapter.kt")
         val hit = source.after("internal fun ensureAdapted(").after("if (cached != null) {")
             .before("if (!adaptationRunning.compareAndSet(false, true))")
@@ -21,7 +21,7 @@ class AdaptationCacheMaintenanceContractTest {
         assertTrue(worker.contains("dexAuditRunning.compareAndSet(false, true)"))
     }
 
-    @Test fun `repack reuse is background only and respects actual framework priority`() {
+    fun `repack reuse is background only and respects actual framework priority`() {
         val source = SourceContract.read("hook/VersionAdapter.kt")
         val startup = source.after("internal fun readStartupCache(").before("fun cacheStatus()")
         assertFalse(startup.contains("rebindRepackedCache("))
@@ -30,5 +30,15 @@ class AdaptationCacheMaintenanceContractTest {
         assertTrue(worker.contains("NoRootRuntimeDetector.detect(context,"))
         assertTrue(worker.contains("HookRuntimeMode.NPATCH_LEGACY &&"))
         assertTrue(worker.contains("rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptationCacheMaintenanceContractTest) -> Unit) {
+            val s = AdaptationCacheMaintenanceContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`cache hit schedules maintenance without synchronous file operations`() }
+        runIsolated { s -> s.`repack reuse is background only and respects actual framework priority`() }
     }
 }

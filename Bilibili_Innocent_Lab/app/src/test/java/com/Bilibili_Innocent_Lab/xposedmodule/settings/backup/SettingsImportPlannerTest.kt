@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsImportPlannerTest {
-    @Test fun `v76 backups preserve a saved strong mode choice and v77 can restore it`() {
+    fun `v76 backups preserve a saved strong mode choice and v77 can restore it`() {
         val spec = SettingsCatalog.byId.getValue(SettingsCatalog.ID_COMMENT_FISH_STRONG_MODE)
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
         val planner = SettingsImportPlanner(listOf(spec), SettingsCatalog.CATALOG_VERSION)
@@ -19,7 +19,7 @@ class SettingsImportPlannerTest {
         assertEquals(SettingValue.Bool(false), restored.writes.single().value)
     }
 
-    @Test fun `older backups retain disabled mine dimming and current backups restore both choices`() {
+    fun `older backups retain disabled mine dimming and current backups restore both choices`() {
         val spec = SettingsCatalog.byId.getValue("host.mine.garb_dim.enabled")
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(false)))
         val planner = SettingsImportPlanner(listOf(spec), 65)
@@ -36,7 +36,7 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test fun `older backups preserve a confirmed interpolation thermal choice`() {
+    fun `older backups preserve a confirmed interpolation thermal choice`() {
         val spec = SettingsCatalog.byId.getValue("player.frame_interpolation.disable_thermal_control")
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
         val planner = SettingsImportPlanner(listOf(spec), 64)
@@ -50,7 +50,7 @@ class SettingsImportPlannerTest {
         assertEquals(SettingValue.Bool(false), restored.writes.single().value)
     }
 
-    @Test fun `older backups preserve reply button visibility intent and current backups restore it`() {
+    fun `older backups preserve reply button visibility intent and current backups restore it`() {
         val spec = SettingsCatalog.byId.getValue("comments.reply_button.removed")
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
         val planner = SettingsImportPlanner(listOf(spec), 53)
@@ -64,7 +64,7 @@ class SettingsImportPlannerTest {
         assertEquals(SettingValue.Bool(false), restored.writes.single().value)
     }
 
-    @Test fun `older backups retain an existing experimental buffer strategy`() {
+    fun `older backups retain an existing experimental buffer strategy`() {
         val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 51 }
         val current = snapshot(*specs.map { spec ->
             spec to StoredSetting(true, when (spec.id) {
@@ -83,7 +83,7 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test fun `next v46 classic comment intent survives merged catalog v48`() {
+    fun `next v46 classic comment intent survives merged catalog v48`() {
         val spec = SettingsCatalog.byId.getValue("comments.classic_style.enabled")
         val current = snapshot(spec to StoredSetting(false, SettingValue.Bool(false)))
         val source = document(46, listOf(record(spec, true, SettingValue.Bool(true))))
@@ -95,7 +95,7 @@ class SettingsImportPlannerTest {
         assertTrue(missing.writes.isEmpty())
     }
 
-    @Test fun `older backups preserve all four newly added source configurations`() {
+    fun `older backups preserve all four newly added source configurations`() {
         val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 46 }
         val current = snapshot(*specs.map { spec ->
             spec to StoredSetting(true, SettingValue.Text(when {
@@ -112,7 +112,7 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test fun `Advanced v45 and v46 source records survive catalog version reconciliation`() {
+    fun `Advanced v45 and v46 source records survive catalog version reconciliation`() {
         val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 46 }
         val current = snapshot(*specs.map { it to StoredSetting(false, it.defaultValue) }.toTypedArray())
         val records = specs.map { spec -> record(spec, true, SettingValue.Text(when {
@@ -128,7 +128,7 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test fun `Advanced v46 Agent permission remains manual after reconciliation`() {
+    fun `Advanced v46 Agent permission remains manual after reconciliation`() {
         val spec = SettingsCatalog.byId.getValue("agent.enabled")
         val source = document(46, listOf(record(spec, true, SettingValue.Bool(true))))
         val current = snapshot(spec to StoredSetting(false, SettingValue.Bool(false)))
@@ -138,7 +138,7 @@ class SettingsImportPlannerTest {
         assertTrue(plan.writes.isEmpty())
     }
 
-    @Test fun `old backups preserve search home preference`() {
+    fun `old backups preserve search home preference`() {
         val spec = SettingsCatalog.byId.getValue("search.home_recommend.hidden")
         val current = snapshot(spec to StoredSetting(true,SettingValue.Bool(true)))
         for (version in 1..15) {
@@ -147,7 +147,7 @@ class SettingsImportPlannerTest {
             assertTrue(plan.writes.isEmpty())
         }
     }
-    @Test fun `older backups preserve frequent visits choice`() {
+    fun `older backups preserve frequent visits choice`() {
         val spec = SettingsCatalog.byId.getValue("dynamic.frequent_visits.hidden")
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
         for (version in 1..14) {
@@ -157,7 +157,6 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test
     fun `old backups preserve both new homepage filter choices`() {
         val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 14 }
         assertEquals(2, specs.size)
@@ -176,7 +175,6 @@ class SettingsImportPlannerTest {
         restorePolicy = RestorePolicy.MANUAL
     )
 
-    @Test
     fun `all older backups preserve the six new player settings`() {
         val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         val current = snapshot(*specs.map { spec ->
@@ -191,7 +189,6 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test
     fun `every older catalog preserves an already enabled PGC popup setting`() {
         val spec = requireNotNull(SettingsCatalog.byId["pgc.auto_activity_popup.hidden"])
         val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
@@ -205,7 +202,6 @@ class SettingsImportPlannerTest {
         }
     }
 
-    @Test
     fun `explicit source value is restored and implicit source default never overwrites`() {
         val catalog = listOf(enabledSpec, manualSpec)
         val current = snapshot(
@@ -229,7 +225,6 @@ class SettingsImportPlannerTest {
         assertEquals(1, plan.writes.size)
     }
 
-    @Test
     fun `explicit intent is written even when value equals current implicit default`() {
         val current = snapshot(enabledSpec to StoredSetting(false, SettingValue.Bool(false)))
         val source = document(1, listOf(record(enabledSpec, true, SettingValue.Bool(false))))
@@ -239,7 +234,6 @@ class SettingsImportPlannerTest {
         assertTrue(plan.entries.single().willWrite)
     }
 
-    @Test
     fun `old implicit default does not overwrite a changed current default`() {
         val currentSpec = boolSpec("feature.changed_default", default = true)
         val source = document(1, listOf(
@@ -252,7 +246,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `equal explicit values are unchanged and manual values are never written`() {
         val catalog = listOf(enabledSpec, manualSpec)
         val current = snapshot(
@@ -270,7 +263,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `new current settings stay at current value and future unknown settings are reported`() {
         val newSpec = boolSpec("feature.new", introducedCatalogVersion = 2)
         val current = snapshot(newSpec to StoredSetting(false, SettingValue.Bool(false)))
@@ -286,7 +278,6 @@ class SettingsImportPlannerTest {
         assertEquals(ImportStatus.REMOVED, plan.entries.first { it.id == "future.unknown" }.status)
     }
 
-    @Test
     fun `catalog v1 import reports both duration boundaries as new current settings`() {
         val durationSpecs = listOf(
             requireNotNull(
@@ -314,7 +305,6 @@ class SettingsImportPlannerTest {
         assertTrue(plan.migrationWarnings.isEmpty())
     }
 
-    @Test
     fun `catalog v2 import reports mine selectors as a new current setting`() {
         val selectorSpec = requireNotNull(
             SettingsCatalog.byId["mine.components.hidden_selectors"]
@@ -337,7 +327,6 @@ class SettingsImportPlannerTest {
         assertTrue(plan.migrationWarnings.isEmpty())
     }
 
-    @Test
     fun `reversed imported duration range is visible and never written`() {
         val minSpec = requireNotNull(
             SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION]
@@ -366,7 +355,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `reversed imported play count range is visible and never written`() {
         val minSpec = requireNotNull(
             SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_PLAY_COUNT]
@@ -395,7 +383,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `single imported duration boundary cannot conflict with the kept current boundary`() {
         val minSpec = requireNotNull(
             SettingsCatalog.byId[SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_DURATION]
@@ -426,7 +413,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `records from a future catalog and future value semantics are not guessed`() {
         val source = document(
             catalogVersion = 3,
@@ -442,7 +428,6 @@ class SettingsImportPlannerTest {
         assertEquals(ImportStatus.UNKNOWN_FROM_NEWER, plan.entries.first { it.id == "future.unknown" }.status)
     }
 
-    @Test
     fun `value version is classified before applying the current value schema`() {
         val currentV2 = enabledSpec.copy(valueVersion = 2)
         val current = snapshot(currentV2 to StoredSetting(false, SettingValue.Bool(false)))
@@ -464,7 +449,6 @@ class SettingsImportPlannerTest {
         )
     }
 
-    @Test
     fun `invalid values and missing complete records are reported without writes`() {
         val levelSpec = SettingSpec(
             id = "comments.level",
@@ -489,7 +473,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `missing record in a declared partial scope preserves the current value`() {
         val current = snapshot(enabledSpec to StoredSetting(true, SettingValue.Bool(true)))
         val source = document(1, emptyList()).copy(
@@ -501,7 +484,6 @@ class SettingsImportPlannerTest {
         assertFalse(plan.canApply)
     }
 
-    @Test
     fun `explicit catalog migration can rename a setting`() {
         val renamed = boolSpec("feature.renamed", introducedCatalogVersion = 2)
         val migration = object : CatalogMigration {
@@ -528,7 +510,6 @@ class SettingsImportPlannerTest {
         assertTrue(plan.canApply)
     }
 
-    @Test
     fun `missing migration still restores a self describing safe subset`() {
         val current = snapshot(enabledSpec to StoredSetting(false, SettingValue.Bool(false)))
         val source = document(1, listOf(record(enabledSpec, true, SettingValue.Bool(true))))
@@ -543,7 +524,6 @@ class SettingsImportPlannerTest {
         assertTrue(plan.migrationWarnings.isNotEmpty())
     }
 
-    @Test
     fun `current fingerprint distinguishes malformed legacy utf16 code units`() {
         val textSpec = SettingSpec(
             id = "feature.text",
@@ -598,4 +578,43 @@ class SettingsImportPlannerTest {
         scope = BackupScope(SettingsCatalog.SCOPE_ID, complete = true, recordCount = records.size),
         settings = records
     )
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsImportPlannerTest) -> Unit) {
+            val s = SettingsImportPlannerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`v76 backups preserve a saved strong mode choice and v77 can restore it`() }
+        runIsolated { s -> s.`older backups retain disabled mine dimming and current backups restore both choices`() }
+        runIsolated { s -> s.`older backups preserve a confirmed interpolation thermal choice`() }
+        runIsolated { s -> s.`older backups preserve reply button visibility intent and current backups restore it`() }
+        runIsolated { s -> s.`older backups retain an existing experimental buffer strategy`() }
+        runIsolated { s -> s.`next v46 classic comment intent survives merged catalog v48`() }
+        runIsolated { s -> s.`older backups preserve all four newly added source configurations`() }
+        runIsolated { s -> s.`Advanced v45 and v46 source records survive catalog version reconciliation`() }
+        runIsolated { s -> s.`Advanced v46 Agent permission remains manual after reconciliation`() }
+        runIsolated { s -> s.`old backups preserve search home preference`() }
+        runIsolated { s -> s.`older backups preserve frequent visits choice`() }
+        runIsolated { s -> s.`old backups preserve both new homepage filter choices`() }
+        runIsolated { s -> s.`all older backups preserve the six new player settings`() }
+        runIsolated { s -> s.`every older catalog preserves an already enabled PGC popup setting`() }
+        runIsolated { s -> s.`explicit source value is restored and implicit source default never overwrites`() }
+        runIsolated { s -> s.`explicit intent is written even when value equals current implicit default`() }
+        runIsolated { s -> s.`old implicit default does not overwrite a changed current default`() }
+        runIsolated { s -> s.`equal explicit values are unchanged and manual values are never written`() }
+        runIsolated { s -> s.`new current settings stay at current value and future unknown settings are reported`() }
+        runIsolated { s -> s.`catalog v1 import reports both duration boundaries as new current settings`() }
+        runIsolated { s -> s.`catalog v2 import reports mine selectors as a new current setting`() }
+        runIsolated { s -> s.`reversed imported duration range is visible and never written`() }
+        runIsolated { s -> s.`reversed imported play count range is visible and never written`() }
+        runIsolated { s -> s.`single imported duration boundary cannot conflict with the kept current boundary`() }
+        runIsolated { s -> s.`records from a future catalog and future value semantics are not guessed`() }
+        runIsolated { s -> s.`value version is classified before applying the current value schema`() }
+        runIsolated { s -> s.`invalid values and missing complete records are reported without writes`() }
+        runIsolated { s -> s.`missing record in a declared partial scope preserves the current value`() }
+        runIsolated { s -> s.`explicit catalog migration can rename a setting`() }
+        runIsolated { s -> s.`missing migration still restores a self describing safe subset`() }
+        runIsolated { s -> s.`current fingerprint distinguishes malformed legacy utf16 code units`() }
+    }
 }

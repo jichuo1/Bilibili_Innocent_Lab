@@ -53,7 +53,7 @@ class InsightComponentContractTest {
     private val continuation = Continuation::class.java
     private fun name(type: Class<*>) = type.name
 
-    @Test fun `named host protocol resolves with bindToView`() {
+    fun `named host protocol resolves with bindToView`() {
         val contract = checkNotNull(InsightComponentContract.resolve(loader, continuation, name(NamedComponentFixture::class.java),
             emptyList()))
         assertSame(NamedComponentFixture::class.java, contract.component)
@@ -61,7 +61,7 @@ class InsightComponentContractTest {
         assertEquals("bindToView", contract.bind.name)
     }
 
-    @Test fun `obfuscated legacy protocol is found structurally from an unobfuscated anchor`() {
+    fun `obfuscated legacy protocol is found structurally from an unobfuscated anchor`() {
         val contract = checkNotNull(InsightComponentContract.resolve(loader, continuation, "missing.UIComponent",
             listOf("missing.Anchor", name(ObfuscatedAnchorFixture::class.java))))
         assertSame(ObfuscatedComponentFixture::class.java, contract.component)
@@ -69,14 +69,14 @@ class InsightComponentContractTest {
         assertEquals("a", contract.bind.name)
     }
 
-    @Test fun `unknown abstract members on component or entry are rejected instead of failing at runtime`() {
+    fun `unknown abstract members on component or entry are rejected instead of failing at runtime`() {
         assertNull(InsightComponentContract.verify(ExtendedComponentFixture::class.java, continuation))
         assertNull(InsightComponentContract.verify(ExtendedEntryComponentFixture::class.java, continuation))
         assertNull(InsightComponentContract.verify(UnrelatedMarkerFixture::class.java, continuation))
         assertNull(InsightComponentContract.resolve(loader, continuation, "missing.UIComponent", listOf("missing.Anchor")))
     }
 
-    @Test fun `obfuscated bind method reaches the bind branch of the module header`() {
+    fun `obfuscated bind method reaches the bind branch of the module header`() {
         val contract = checkNotNull(InsightComponentContract.verify(ObfuscatedComponentFixture::class.java, continuation))
         val header = InsightHeaderComponent(contract.component, contract.entry, Unit,
             root = { error("No Android view needed") }, bindName = contract.bind.name, bind = {}).value as ObfuscatedComponentFixture
@@ -90,5 +90,17 @@ class InsightComponentContractTest {
     private object NoopContinuation : Continuation<Any?> {
         override val context = kotlin.coroutines.EmptyCoroutineContext
         override fun resumeWith(result: Result<Any?>) = Unit
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (InsightComponentContractTest) -> Unit) {
+            val s = InsightComponentContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`named host protocol resolves with bindToView`() }
+        runIsolated { s -> s.`obfuscated legacy protocol is found structurally from an unobfuscated anchor`() }
+        runIsolated { s -> s.`unknown abstract members on component or entry are rejected instead of failing at runtime`() }
+        runIsolated { s -> s.`obfuscated bind method reaches the bind branch of the module header`() }
     }
 }

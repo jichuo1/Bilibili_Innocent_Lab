@@ -41,7 +41,6 @@ class StoryActionIconsFeatureInstallerTest {
             postToView = { _, block -> posted += block }
         )
 
-    @Test
     fun `collapse flattens geometry hides and reports change once`() {
         val box = FakeBox()
         assertTrue(StoryActionIconCollapse.collapse(box))
@@ -57,7 +56,6 @@ class StoryActionIconsFeatureInstallerTest {
         assertFalse(StoryActionIconCollapse.collapse(box))
     }
 
-    @Test
     fun `onStart and post construction collapse only the enabled icons`() {
         val registrar = PlayerPortTestRegistrar()
         val posted = mutableListOf<() -> Unit>()
@@ -82,7 +80,6 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue("story_action_like_hidden" to FeatureRuntimeStage.APPLIED in evidence)
     }
 
-    @Test
     fun `missing widgets and drifted shapes are reported instead of guessed`() {
         val registrar = PlayerPortTestRegistrar()
         val withoutLegacy = object : ClassLoader(loader) {
@@ -113,7 +110,7 @@ class StoryActionIconsFeatureInstallerTest {
         legacyResolver = { LegacyStoryDanmakuAccess.resolve(it, LegacyToggle::class.java) }
     )
 
-    @Test fun `legacy toggle requires exact accessor types and a unique player binding signature`() {
+    fun `legacy toggle requires exact accessor types and a unique player binding signature`() {
         assertTrue(LegacyStoryDanmakuAccess.resolve(loader, LegacyToggle::class.java) != null)
         assertTrue(LegacyStoryDanmakuAccess.resolve(loader, String::class.java) == null)
         val unavailable = object : ClassLoader(loader) {
@@ -125,7 +122,7 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue(LegacyStoryDanmakuAccess.resolve(unavailable, LegacyToggle::class.java) == null)
     }
 
-    @Test fun `legacy setter hides only its toggle and defers one reconciliation per controller`() {
+    fun `legacy setter hides only its toggle and defers one reconciliation per controller`() {
         val registrar = PlayerPortTestRegistrar()
         val posted = mutableListOf<() -> Unit>()
         val result = legacyInstaller(posted).install(environment(registrar))
@@ -143,7 +140,7 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue("story_action_danmaku_toggle_hidden" to FeatureRuntimeStage.APPLIED in evidence)
     }
 
-    @Test fun `legacy player binding reapplies geometry after host reuse without touching the controller`() {
+    fun `legacy player binding reapplies geometry after host reuse without touching the controller`() {
         val registrar = PlayerPortTestRegistrar()
         legacyInstaller().install(environment(registrar))
         val controller = StoryAbsController().also { it.toggle = LegacyToggle() }
@@ -156,7 +153,7 @@ class StoryActionIconsFeatureInstallerTest {
         assertFalse(boxes.containsKey(controller))
     }
 
-    @Test fun `legacy partial registration stays inactive and retry does not duplicate hooks`() {
+    fun `legacy partial registration stays inactive and retry does not duplicate hooks`() {
         val registrar = PlayerPortTestRegistrar("story_action_icons.legacy_danmaku.bind")
         val installer = legacyInstaller()
         installer.install(environment(registrar))
@@ -171,7 +168,7 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue(boxes.getValue(controller.toggle).gone)
     }
 
-    @Test fun `legacy deferred accessor failure is contained and reported without changing unrelated views`() {
+    fun `legacy deferred accessor failure is contained and reported without changing unrelated views`() {
         val registrar = PlayerPortTestRegistrar()
         val posted = mutableListOf<() -> Unit>()
         legacyInstaller(posted).install(environment(registrar))
@@ -183,7 +180,7 @@ class StoryActionIconsFeatureInstallerTest {
         assertFalse(boxes.containsKey(controller))
     }
 
-    @Test fun `invalid legacy contract stays partial even when the modern widget installs`() {
+    fun `invalid legacy contract stays partial even when the modern widget installs`() {
         val registrar = PlayerPortTestRegistrar()
         val states = mutableListOf<Pair<String, FeatureInstallResult>>()
         installer(StoryActionIcon.DANMAKU_TOGGLE).install(environment(registrar).copy(
@@ -195,7 +192,6 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue(states.none { (_, result) -> result is FeatureInstallResult.Skipped && result.reason == "not-applicable-host" })
     }
 
-    @Test
     fun `disabled and non main process install nothing`() {
         val registrar = PlayerPortTestRegistrar()
         assertTrue(installer().install(environment(registrar)) is FeatureInstallResult.Skipped)
@@ -203,7 +199,6 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test
     fun `catalog keys are unique and the panel draft writes only changed keys`() {
         assertEquals(StoryActionIcon.entries.size, StoryActionIcon.preferenceKeys.toSet().size)
         assertEquals(StoryActionIcon.entries.size, StoryActionIcon.entries.map { it.capabilityId }.toSet().size)
@@ -216,5 +211,24 @@ class StoryActionIconsFeatureInstallerTest {
         assertEquals(StoryActionIcon.entries.size, draft.selectedCount())
         draft.clear()
         assertEquals(mapOf(FeaturePreferences.HIDE_STORY_ACTION_LIKE to false), draft.changedValues())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (StoryActionIconsFeatureInstallerTest) -> Unit) {
+            val s = StoryActionIconsFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`collapse flattens geometry hides and reports change once`() }
+        runIsolated { s -> s.`onStart and post construction collapse only the enabled icons`() }
+        runIsolated { s -> s.`missing widgets and drifted shapes are reported instead of guessed`() }
+        runIsolated { s -> s.`legacy toggle requires exact accessor types and a unique player binding signature`() }
+        runIsolated { s -> s.`legacy setter hides only its toggle and defers one reconciliation per controller`() }
+        runIsolated { s -> s.`legacy player binding reapplies geometry after host reuse without touching the controller`() }
+        runIsolated { s -> s.`legacy partial registration stays inactive and retry does not duplicate hooks`() }
+        runIsolated { s -> s.`legacy deferred accessor failure is contained and reported without changing unrelated views`() }
+        runIsolated { s -> s.`invalid legacy contract stays partial even when the modern widget installs`() }
+        runIsolated { s -> s.`disabled and non main process install nothing`() }
+        runIsolated { s -> s.`catalog keys are unique and the panel draft writes only changed keys`() }
     }
 }

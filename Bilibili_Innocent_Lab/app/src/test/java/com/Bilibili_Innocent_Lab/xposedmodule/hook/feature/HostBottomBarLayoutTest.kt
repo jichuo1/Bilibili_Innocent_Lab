@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HostBottomBarLayoutTest {
-    @Test fun iconOnlyNarrowsTheBarAndCompactMakesTheReductionStronger() {
+    fun iconOnlyNarrowsTheBarAndCompactMakesTheReductionStronger() {
         val normal = HostBottomBarFxConfig()
         for (mode in listOf(normal, normal.copy(compact = true))) {
             assertEquals(16f, mode.horizontalMarginDp(393f, 5), 0f)
@@ -22,7 +22,7 @@ class HostBottomBarLayoutTest {
         assertEquals(0f, combined.copy(liquidGlass = false).horizontalMarginDp(393f, 5), 0f)
     }
 
-    @Test fun narrowScreensPreserveTabSpaceWithoutExpandingPastTheOriginalWidth() {
+    fun narrowScreensPreserveTabSpaceWithoutExpandingPastTheOriginalWidth() {
         val combined = HostBottomBarFxConfig(compact = true, iconOnly = true)
         val minimumWidth = 5 * 44f + 8f
         for (mode in listOf(combined, combined.copy(compact = false))) {
@@ -35,7 +35,7 @@ class HostBottomBarLayoutTest {
         }
     }
 
-    @Test fun capsuleLayoutModesReduceHeightIndividuallyAndTogether() {
+    fun capsuleLayoutModesReduceHeightIndividuallyAndTogether() {
         val normal = HostBottomBarFxConfig(liquidGlass = true, touchGlow = false)
         val compact = normal.copy(compact = true)
         val icons = normal.copy(iconOnly = true)
@@ -50,7 +50,7 @@ class HostBottomBarLayoutTest {
         }
     }
 
-    @Test fun staleCapsuleOptionsCannotResizeTheOfficialBarOrInstallLayoutHooks() {
+    fun staleCapsuleOptionsCannotResizeTheOfficialBarOrInstallLayoutHooks() {
         for (compact in listOf(false, true)) for (icons in listOf(false, true)) {
             val config = HostBottomBarFxConfig(liquidGlass = false, touchGlow = false, compact = compact, iconOnly = icons)
             assertEquals(64f, config.heightDp, 0f)
@@ -61,5 +61,17 @@ class HostBottomBarLayoutTest {
             assertEquals(FeatureInstallResult.Skipped("disabled"),
                 HostBottomBarFxFeatureInstaller(false, false, null, compact, icons).install(environment))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostBottomBarLayoutTest) -> Unit) {
+            val s = HostBottomBarLayoutTest()
+            block(s)
+        }
+        runIsolated { s -> s.iconOnlyNarrowsTheBarAndCompactMakesTheReductionStronger() }
+        runIsolated { s -> s.narrowScreensPreserveTabSpaceWithoutExpandingPastTheOriginalWidth() }
+        runIsolated { s -> s.capsuleLayoutModesReduceHeightIndividuallyAndTogether() }
+        runIsolated { s -> s.staleCapsuleOptionsCannotResizeTheOfficialBarOrInstallLayoutHooks() }
     }
 }

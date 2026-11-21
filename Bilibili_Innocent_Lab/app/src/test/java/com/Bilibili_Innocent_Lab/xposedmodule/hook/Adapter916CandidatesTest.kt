@@ -23,21 +23,32 @@ class Adapter916CandidatesTest {
         }
     }
 
-    @Test fun `916 network boundary and default quality precede old compatible owners`() {
+    fun `916 network boundary and default quality precede old compatible owners`() {
         val loader = host(Network::class.java, Quality::class.java)
         assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(loader)?.className)
         assertEquals(Quality::class.java.name,
             VersionAdapter.locateDefaultVideoQuality(loader)?.defaultQualityMethod?.className)
     }
 
-    @Test fun `same new owner names with the wrong ABI retain the old fallback`() {
+    fun `same new owner names with the wrong ABI retain the old fallback`() {
         val loader = host(WrongNetwork::class.java, WrongQuality::class.java)
         assertEquals("Dr1.c", VersionAdapter.locateBlockUpdate(loader)?.className)
         assertEquals("ut1.h", VersionAdapter.locateDefaultVideoQuality(loader)?.defaultQualityMethod?.className)
     }
 
-    @Test fun `multiple default quality signatures do not guess an entry`() {
+    fun `multiple default quality signatures do not guess an entry`() {
         assertEquals("ut1.h", VersionAdapter.locateDefaultVideoQuality(
             host(Network::class.java, AmbiguousQuality::class.java))?.defaultQualityMethod?.className)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (Adapter916CandidatesTest) -> Unit) {
+            val s = Adapter916CandidatesTest()
+            block(s)
+        }
+        runIsolated { s -> s.`916 network boundary and default quality precede old compatible owners`() }
+        runIsolated { s -> s.`same new owner names with the wrong ABI retain the old fallback`() }
+        runIsolated { s -> s.`multiple default quality signatures do not guess an entry`() }
     }
 }

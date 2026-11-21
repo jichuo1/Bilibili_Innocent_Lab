@@ -14,7 +14,6 @@ class AiRelatesFeedStripperTest {
     private val knownAi = setOf("ai-1", "ai-2")
     private val isKnownAi: (Any) -> Boolean = { it in knownAi }
 
-    @Test
     fun `known ai cards are removed in order and other fields are kept`() {
         val original = RelatesFeedReply(listOf("a", "ai-1", "b", "ai-2", "c"), "next-page")
         val (updated, removed) = checkNotNull(stripper.strip(original, isKnownAi))
@@ -27,26 +26,35 @@ class AiRelatesFeedStripperTest {
         assertEquals(listOf("a", "ai-1", "b", "ai-2", "c"), original.relatesList)
     }
 
-    @Test
     fun `page without known ai cards is left untouched`() {
         assertNull(stripper.strip(RelatesFeedReply(listOf("a", "b"), ""), isKnownAi))
     }
 
     /** 空页可能被宿主当成"没有更多了"，所以一页全中时原样交付。 */
-    @Test
     fun `page made only of known ai cards is delivered as is`() {
         assertNull(stripper.strip(RelatesFeedReply(listOf("ai-1", "ai-2"), "next"), isKnownAi))
     }
 
-    @Test
     fun `default instance and foreign objects are never rewritten`() {
         assertNull(stripper.strip(RelatesFeedReply.getDefaultInstance(), isKnownAi))
         assertNull(stripper.strip("not a reply", isKnownAi))
     }
 
-    @Test
     fun `missing reply class disables the stripper`() {
         assertNull(AiRelatesFeedStripper.resolve(javaClass.classLoader!!, "aistub.v1.Missing"))
         assertNotNull(AiRelatesFeedStripper.resolve(javaClass.classLoader!!, "aistub.v1.RelatesFeedReply"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AiRelatesFeedStripperTest) -> Unit) {
+            val s = AiRelatesFeedStripperTest()
+            block(s)
+        }
+        runIsolated { s -> s.`known ai cards are removed in order and other fields are kept`() }
+        runIsolated { s -> s.`page without known ai cards is left untouched`() }
+        runIsolated { s -> s.`page made only of known ai cards is delivered as is`() }
+        runIsolated { s -> s.`default instance and foreign objects are never rewritten`() }
+        runIsolated { s -> s.`missing reply class disables the stripper`() }
     }
 }

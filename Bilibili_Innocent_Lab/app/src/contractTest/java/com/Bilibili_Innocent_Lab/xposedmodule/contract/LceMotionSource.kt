@@ -1,11 +1,15 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.contract
 
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 
 /** 语义护栏读取与正式依赖同版本的官方 sources JAR；先核对模块确实委托到该类型。 */
 object LceMotionSource {
-    private val delegates = mapOf(
+    private val engineCache = ConcurrentHashMap<String, String>()
+    private val readCache = ConcurrentHashMap<String, String>()
+
+    internal val delegates = mapOf(
         "LiquidStretchViewport.kt" to ("core/liquid/LiquidStretchViewport.kt" to "com.lumen.coacervation.engine.liquid.LiquidStretchViewport"),
         "BubbleIconProxy.kt" to ("motion/modal/BubbleIconProxy.kt" to "com.lumen.coacervation.engine.motion.modal.BubbleIconProxy"),
         "BubbleLayerMotionSpec.kt" to ("motion/modal/BubbleLayerMotionSpec.kt" to "com.lumen.coacervation.engine.motion.modal.BubbleLayerMotionSpec"),
@@ -41,28 +45,28 @@ object LceMotionSource {
         "CoverableRippleDrawable.kt" to ("widget/CoverableRippleDrawable.kt" to "com.lumen.coacervation.engine.widget.CoverableRippleDrawable"),
     )
 
-    fun engine(path: String): String {
+    fun engine(path: String): String = engineCache.computeIfAbsent(path) { key ->
         val archives = System.getProperty("innocentLab.lumenSources")
             ?: throw AssertionError("Missing published LCE sources JARs")
-        val module = if (path.startsWith("core/")) "lumen-engine" else "lumen-motion"
-        val relative = path.removePrefix("core/")
+        val module = if (key.startsWith("core/")) "lumen-engine" else "lumen-motion"
+        val relative = key.removePrefix("core/")
         val archive = archives.split(File.pathSeparator).map(::File)
             .single { it.name.startsWith("$module-") && it.name.endsWith("-sources.jar") }
-        return ZipFile(archive).use { zip ->
+        ZipFile(archive).use { zip ->
             val entry = zip.getEntry("com/lumen/coacervation/engine/$relative")
                 ?: throw AssertionError("Published LCE source not found: $module/$relative")
             SourceContract.normalize(zip.getInputStream(entry).bufferedReader().use { it.readText() })
         }
     }
 
-    fun read(path: String): String {
-        val host = SourceContract.read(path)
-        val target = delegates[path.substringAfterLast('/')] ?: return host
-        val forwarded = if (path.endsWith("SettingsPagePager.kt")) host.contains(": LumenPagePager(")
-            else if (path.endsWith("ModernNavigationMotion.kt"))
+    fun read(path: String): String = readCache.computeIfAbsent(path) { key ->
+        val host = SourceContract.read(key)
+        val target = delegates[key.substringAfterLast('/')] ?: return@computeIfAbsent host
+        val forwarded = if (key.endsWith("SettingsPagePager.kt")) host.contains(": LumenPagePager(")
+            else if (key.endsWith("ModernNavigationMotion.kt"))
                 host.contains("object ModernNavigationMotion : ${target.second}(8)")
             else host.contains("typealias ") && host.contains(target.second)
-        if (!forwarded) throw AssertionError("Host no longer delegates $path to ${target.second}")
-        return engine(target.first)
+        if (!forwarded) throw AssertionError("Host no longer delegates $key to ${target.second}")
+        engine(target.first)
     }
 }

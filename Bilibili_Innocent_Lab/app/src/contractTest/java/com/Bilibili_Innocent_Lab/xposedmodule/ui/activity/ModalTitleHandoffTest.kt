@@ -10,7 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 
 class ModalTitleHandoffTest {
-    @Test fun destinationIsCapturedBeforeTheContentsTemporaryEntryTranslation() {
+    fun destinationIsCapturedBeforeTheContentsTemporaryEntryTranslation() {
         val controller = SettingsUiSource.file("IconAnchoredMotionController")
         val first = SettingsUiSource.functions(controller, "prepareFirstFrame").single()
         assertTrue(first.indexOf("captureTargetPosition()") >= 0)
@@ -24,7 +24,7 @@ class ModalTitleHandoffTest {
         assertTrue(SettingsUiSource.functions(title, "expanded").single().contains("targetPositionCaptured = false"))
     }
 
-    @Test fun sourceHandoffKeepsPositionBaselineAndSizeExactlyAtTheSource() {
+    fun sourceHandoffKeepsPositionBaselineAndSizeExactlyAtTheSource() {
         for (progress in listOf(-1f, 0f, .03f, .06f, .10f, .12f)) {
             val motion = ModalTitleMotionSpec.motionProgress(progress)
             assertEquals(0f, motion, 0f)
@@ -34,7 +34,7 @@ class ModalTitleHandoffTest {
         }
     }
 
-    @Test fun targetHandoffOnlyStartsAfterPositionBaselineAndSizeHaveSettled() {
+    fun targetHandoffOnlyStartsAfterPositionBaselineAndSizeHaveSettled() {
         for (progress in listOf(.85f, .90f, .925f, .99f, 1f, 2f)) {
             val motion = ModalTitleMotionSpec.motionProgress(progress)
             assertEquals(1f, motion, 0f)
@@ -44,7 +44,7 @@ class ModalTitleHandoffTest {
         }
     }
 
-    @Test fun movementBetweenHandoffsIsMonotonicBoundedAndSmoothAtBothStops() {
+    fun movementBetweenHandoffsIsMonotonicBoundedAndSmoothAtBothStops() {
         var previous = 0f
         for (step in 0..1000) {
             val motion = ModalTitleMotionSpec.motionProgress(step / 1000f)
@@ -71,7 +71,7 @@ class ModalTitleHandoffTest {
      * 都变暗约 25%，进出面板各闪一次。现在叠加层全程满不透明地盖在上面，
      * 覆盖率恒为 1，同时也不怕跨窗口晚一帧。
      */
-    @Test fun everyFrameHasOneFullyOpaqueTitleAndTheTwoNativeOnesNeverCoexist() {
+    fun everyFrameHasOneFullyOpaqueTitleAndTheTwoNativeOnesNeverCoexist() {
         for (step in -10..1010) {
             val progress = step / 1000f
             val source = ModalTitleMotionSpec.sourceWeight(progress)
@@ -100,7 +100,7 @@ class ModalTitleHandoffTest {
      * 它现在全程满不透明地盖在原生标题上，所以交接点两侧必须与下面那一份**同色**；
      * 否则灰色的入口标题与深色的面板标题会在 0.12 / 0.85 处各跳一次明度。
      */
-    @Test fun theOverlayBlendsItsOwnColorFromTheSourceToTheTargetTitle() {
+    fun theOverlayBlendsItsOwnColorFromTheSourceToTheTargetTitle() {
         val code = source("ModalTitleMotion")
         // 两端颜色都取 CSL 的**静止态**色：构造发生在点击那一刻，来源行可能正是 pressed 态。
         assertTrue(code.contains("private val overlayTextColor = sourceTextColors.defaultColor"))
@@ -114,13 +114,13 @@ class ModalTitleHandoffTest {
         assertEquals(1f, ModalTitleMotionSpec.motionProgress(.85f), 0f)
     }
 
-    @Test fun travelingTitleHasOneDrawingOwnerAndNativeTitlesStayHidden() {
+    fun travelingTitleHasOneDrawingOwnerAndNativeTitlesStayHidden() {
         for (step in 120..850) {
             assertArrayEquals(floatArrayOf(0f, 0f, 1f), weights(step / 1000f), 0f)
         }
     }
 
-    @Test fun handoffWeightsAreContinuousAndDoNotJumpAtTheTravelBoundaries() {
+    fun handoffWeightsAreContinuousAndDoNotJumpAtTheTravelBoundaries() {
         for (boundary in listOf(0f, .12f, .85f, 1f)) {
             val before = weights(boundary - .00001f)
             val after = weights(boundary + .00001f)
@@ -128,7 +128,7 @@ class ModalTitleHandoffTest {
         }
     }
 
-    @Test fun interruptedEntryCloseAndGestureCancellationReuseTheSameTitleFrame() {
+    fun interruptedEntryCloseAndGestureCancellationReuseTheSameTitleFrame() {
         for (start in listOf(.03f, .12f, .35f, .70f, .85f, .925f, .99f)) {
             for (target in listOf(0f, 1f)) {
                 for (velocity in listOf(-4f, 0f, 4f)) {
@@ -145,14 +145,14 @@ class ModalTitleHandoffTest {
         }
     }
 
-    @Test fun nativeLayoutOffsetsIncludePaddingLinePositionAndOwnScrollingExactlyOnce() {
+    fun nativeLayoutOffsetsIncludePaddingLinePositionAndOwnScrollingExactlyOnce() {
         assertEquals(104f, ModalTitleMotionSpec.layoutOffset(100f, 12f, -3f, 5f), 0f)
         assertEquals(92.25f, ModalTitleMotionSpec.layoutOffset(80f, 8.5f, 7f, 3.25f), 0f)
         assertEquals(-43f, ModalTitleMotionSpec.layoutOffset(-60f, 12f, 9f, 4f), 0f)
         assertEquals(27f, ModalTitleMotionSpec.layoutOffset(0f, 5f, 26f, 4f), 0f)
     }
 
-    @Test fun targetHandoffWaitsUntilBothContentProfilesAreOpaqueAndUntranslated() {
+    fun targetHandoffWaitsUntilBothContentProfilesAreOpaqueAndUntranslated() {
         val geometry = IconAnchoredMotionGeometry(
             collapsedBounds = SettingsBackupMotionRect(24f, 840f, 384f, 900f),
             expandedBounds = SettingsBackupMotionRect(32f, 160f, 368f, 780f),
@@ -181,7 +181,7 @@ class ModalTitleHandoffTest {
      * `ComponentPickerSurface.refreshSummary` 都这么拼），整段比较永远配不上，
      * 于是这类填写面板全都拿不到文字平移，只有容器形变。
      */
-    @Test fun aMergedTitleAndSummaryRowStillPairsOnItsFirstLine() {
+    fun aMergedTitleAndSummaryRowStillPairsOnItsFirstLine() {
         assertTrue(ModalTitleMotionSpec.titleLineMatches("推荐标题关键词", "推荐标题关键词"))
         assertTrue(ModalTitleMotionSpec.titleLineMatches(
             "推荐标题关键词\n当前未配置关键词，点击编辑", "推荐标题关键词"))
@@ -202,7 +202,7 @@ class ModalTitleHandoffTest {
     }
 
     /** 首行必须取自 Layout 的真实行边界：软换行时首行不等于标题，那种行不该配对。 */
-    @Test fun renderedFirstLineComesFromTheLayoutNotFromSplittingTheRawString() {
+    fun renderedFirstLineComesFromTheLayoutNotFromSplittingTheRawString() {
         val text = "推荐标题关键词\n当前未配置关键词，点击编辑"
         val hardBreak = text.indexOf('\n') + 1
         assertEquals("推荐标题关键词",
@@ -226,7 +226,7 @@ class ModalTitleHandoffTest {
      * 正文窗口不能顺手延后——`targetWeight` 从 0.85 起把标题交还给卡片里的真实 TextView，
      * 那时卡片若还在淡入，标题会被淡两次。
      */
-    @Test fun theCardStrokeFadesOnItsOwnRampThatLandsExactlyWhenTheShapeStops() {
+    fun theCardStrokeFadesOnItsOwnRampThatLandsExactlyWhenTheShapeStops() {
         assertEquals(0f, IconAnchoredMotionSpec.strokeAlpha(0f), 0f)
         assertEquals(1f, IconAnchoredMotionSpec.strokeAlpha(1f), 0f)
         // 形状明显还在动的前半程，描边基本不可见。
@@ -281,7 +281,7 @@ class ModalTitleHandoffTest {
      * 重新读 `windowAnimationStyle` 覆盖 `params.windowAnimations`，放在它之前写的 0 会被抹掉，
      * 真机 `dumpsys window windows` 里 `anim=` 依旧非零。
      */
-    @Test fun theDialogWindowAnimationIsDisabledAfterSetContentView() {
+    fun theDialogWindowAnimationIsDisabledAfterSetContentView() {
         // 不能钉 `private fun`：弹窗外移后这个底座已放宽成 internal，
         // 而 substringAfter 失配会返回整份文件，断言照样通过、护栏静默失效。
         val present = SettingsUiSource.function("presentSizedModalDialog")
@@ -296,7 +296,7 @@ class ModalTitleHandoffTest {
     }
 
     /** 只搬首行：摘要不能跟着飞，也不能被整段绘制带出来。 */
-    @Test fun onlyTheFirstLineIsDrawnByTheTravelingOverlay() {
+    fun onlyTheFirstLineIsDrawnByTheTravelingOverlay() {
         val code = source("ModalTitleMotion")
         val draw = code.after("override fun onDraw(").before("private fun stableTransform")
         assertTrue(draw.contains("clipRect("))
@@ -319,7 +319,7 @@ class ModalTitleHandoffTest {
      * ripple 被**冻结**在起始态；形变结束把 alpha 还原时它才第一次 draw 并开始播放，
      * 现场就是"面板都展开完了，一级界面那一行才闪一下高光"。
      */
-    @Test fun theSourceRowKeepsDrawingSoItsRippleIsNotFrozenUntilTheMorphEnds() {
+    fun theSourceRowKeepsDrawingSoItsRippleIsNotFrozenUntilTheMorphEnds() {
         val code = source("ModalTitleMotion")
         assertFalse("must not touch the row's View alpha", code.contains("source.alpha ="))
         assertTrue(code.contains("sourceTextColors.withAlpha("))
@@ -347,7 +347,7 @@ class ModalTitleHandoffTest {
      * onDraw 必须每帧自己决定颜色（见 theOverlayBlendsItsOwnColorFromTheSourceToTheTargetTitle），
      * 并在退出时还原借用的值。
      */
-    @Test fun theTravelingTitleForcesItsOwnColorInsteadOfInheritingTheFadedSource() {
+    fun theTravelingTitleForcesItsOwnColorInsteadOfInheritingTheFadedSource() {
         val code = source("ModalTitleMotion")
         val draw = code.after("override fun onDraw(").before("private fun stableTransform")
         assertTrue(draw.contains("val paint = layout.paint"))
@@ -368,7 +368,7 @@ class ModalTitleHandoffTest {
 
     private fun source(name: String): String = SettingsUiSource.file(name)
 
-    @Test fun antialiasedEdgesAreNotPaintedTwiceAtEitherHandoff() {
+    fun antialiasedEdgesAreNotPaintedTwiceAtEitherHandoff() {
         val edgeCoverage = .35f
         for (step in 0..1000) {
             val weights = weights(step / 1000f)
@@ -380,7 +380,7 @@ class ModalTitleHandoffTest {
         }
     }
 
-    @Test fun targetEndpointDrawsTheActualTargetGlyphsWithoutASecondPass() {
+    fun targetEndpointDrawsTheActualTargetGlyphsWithoutASecondPass() {
         val code = source("ModalTitleMotion")
         val draw = SettingsUiSource.functions(code, "onDraw").single()
         assertTrue(draw.contains("if (atTarget) targetLayout else sourceLayout"))
@@ -403,4 +403,32 @@ class ModalTitleHandoffTest {
         ModalTitleMotionSpec.targetWeight(progress),
         ModalTitleMotionSpec.overlayWeight(progress)
     )
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalTitleHandoffTest) -> Unit) {
+            val s = ModalTitleHandoffTest()
+            block(s)
+        }
+        runIsolated { s -> s.destinationIsCapturedBeforeTheContentsTemporaryEntryTranslation() }
+        runIsolated { s -> s.sourceHandoffKeepsPositionBaselineAndSizeExactlyAtTheSource() }
+        runIsolated { s -> s.targetHandoffOnlyStartsAfterPositionBaselineAndSizeHaveSettled() }
+        runIsolated { s -> s.movementBetweenHandoffsIsMonotonicBoundedAndSmoothAtBothStops() }
+        runIsolated { s -> s.everyFrameHasOneFullyOpaqueTitleAndTheTwoNativeOnesNeverCoexist() }
+        runIsolated { s -> s.theOverlayBlendsItsOwnColorFromTheSourceToTheTargetTitle() }
+        runIsolated { s -> s.travelingTitleHasOneDrawingOwnerAndNativeTitlesStayHidden() }
+        runIsolated { s -> s.handoffWeightsAreContinuousAndDoNotJumpAtTheTravelBoundaries() }
+        runIsolated { s -> s.interruptedEntryCloseAndGestureCancellationReuseTheSameTitleFrame() }
+        runIsolated { s -> s.nativeLayoutOffsetsIncludePaddingLinePositionAndOwnScrollingExactlyOnce() }
+        runIsolated { s -> s.targetHandoffWaitsUntilBothContentProfilesAreOpaqueAndUntranslated() }
+        runIsolated { s -> s.aMergedTitleAndSummaryRowStillPairsOnItsFirstLine() }
+        runIsolated { s -> s.renderedFirstLineComesFromTheLayoutNotFromSplittingTheRawString() }
+        runIsolated { s -> s.theCardStrokeFadesOnItsOwnRampThatLandsExactlyWhenTheShapeStops() }
+        runIsolated { s -> s.theDialogWindowAnimationIsDisabledAfterSetContentView() }
+        runIsolated { s -> s.onlyTheFirstLineIsDrawnByTheTravelingOverlay() }
+        runIsolated { s -> s.theSourceRowKeepsDrawingSoItsRippleIsNotFrozenUntilTheMorphEnds() }
+        runIsolated { s -> s.theTravelingTitleForcesItsOwnColorInsteadOfInheritingTheFadedSource() }
+        runIsolated { s -> s.antialiasedEdgesAreNotPaintedTwiceAtEitherHandoff() }
+        runIsolated { s -> s.targetEndpointDrawsTheActualTargetGlyphsWithoutASecondPass() }
+    }
 }

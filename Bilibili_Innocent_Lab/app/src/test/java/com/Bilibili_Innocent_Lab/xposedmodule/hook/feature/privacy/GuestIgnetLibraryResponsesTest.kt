@@ -18,7 +18,7 @@ class GuestIgnetLibraryResponsesTest {
     private var guest = true
     private var reply: (String) -> String? = { path -> """{"code":0,"data":{"path":"$path"}}""" }
 
-    @Before fun reset() {
+    fun reset() {
         statuses.clear()
         asked.clear()
         guest = true
@@ -29,10 +29,13 @@ class GuestIgnetLibraryResponsesTest {
         HookEnvironment("tv.danmaku.bili", javaClass.classLoader!!, HookPointRegistry(javaClass.classLoader!!), registrar,
             { _, _ -> }, { _, _ -> }, { key, value -> statuses[key] = value })
 
-    private fun installed(requestClass: String = GuestIgnetLibraryResponses.REQUEST): PlayerPortTestRegistrar {
+    private fun installed(
+        requestClass: String = GuestIgnetLibraryResponses.REQUEST,
+        drainTimeoutMs: Long = GuestIgnetLibraryResponses.DRAIN_TIMEOUT_MS
+    ): PlayerPortTestRegistrar {
         val registrar = PlayerPortTestRegistrar()
-        GuestIgnetLibraryResponses({ guest }, { path, params -> asked += path to params; reply(path) }, requestClass)
-            .install(environment(registrar))
+        GuestIgnetLibraryResponses({ guest }, { path, params -> asked += path to params; reply(path) }, requestClass,
+            drainTimeoutMs = drainTimeoutMs).install(environment(registrar))
         return registrar
     }
 
@@ -58,7 +61,7 @@ class GuestIgnetLibraryResponsesTest {
     private fun PlayerPortTestRegistrar.message(response: IgHttpResponse) = invoke("guest.ignet.library.message", response) { response.httpMessage() }
     private fun PlayerPortTestRegistrar.headers(response: IgHttpResponse) = invoke("guest.ignet.library.headers", response) { response.headers() }
 
-    @Test fun aGuestListReadIsAnsweredFromTheLocalLibrary() {
+    fun aGuestListReadIsAnsweredFromTheLocalLibrary() {
         val registrar = installed()
         val response = registrar.execute(request("https://api.bilibili.com/x/v3/fav/tab/fav?tab_id=2&start_oid=0&page_type=1"))
 
@@ -71,7 +74,7 @@ class GuestIgnetLibraryResponsesTest {
         assertEquals("installed", statuses["guest_ignet_library"])
     }
 
-    @Test fun aBodyLargerThanTheReadBufferIsServedInOrderAndThenEnds() {
+    fun aBodyLargerThanTheReadBufferIsServedInOrderAndThenEnds() {
         val big = "x".repeat(100_000)
         reply = { """{"code":0,"data":"$big"}""" }
         val registrar = installed()
@@ -79,7 +82,7 @@ class GuestIgnetLibraryResponsesTest {
         assertEquals("""{"code":0,"data":"$big"}""", registrar.body(response, buffer = 4096))
     }
 
-    @Test fun loggedInUsersGetTheServerReply() {
+    fun loggedInUsersGetTheServerReply() {
         guest = false
         val registrar = installed()
         val response = registrar.execute(request("https://api.bilibili.com/x/v3/fav/tab"))
@@ -89,7 +92,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_answered"])
     }
 
-    @Test fun writesOtherHostsAndOtherPathsAreNeverAnswered() {
+    fun writesOtherHostsAndOtherPathsAreNeverAnswered() {
         val registrar = installed()
         val cases = listOf(
             request("https://api.bilibili.com/x/v3/fav/tab", method = "POST"),
@@ -105,7 +108,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_answered"])
     }
 
-    @Test fun aPathTheLibraryCannotAnswerKeepsTheServerReply() {
+    fun aPathTheLibraryCannotAnswerKeepsTheServerReply() {
         reply = { null }
         val registrar = installed()
         val response = registrar.execute(request("https://api.bilibili.com/x/v3/fav/tab"))
@@ -113,7 +116,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_answered"])
     }
 
-    @Test fun aFailedLocalAnswerKeepsTheServerReplyAndIsReported() {
+    fun aFailedLocalAnswerKeepsTheServerReplyAndIsReported() {
         reply = { throw IllegalStateException("Unknown local folder") }
         val registrar = installed()
         val response = registrar.execute(request("https://api.bilibili.com/x/v3/fav/folder/resources?media_id=9"))
@@ -123,7 +126,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_answered"])
     }
 
-    @Test fun aRequestThatFailedOnTheNetworkIsLeftFailed() {
+    fun aRequestThatFailedOnTheNetworkIsLeftFailed() {
         val registrar = installed()
         val request = request("https://api.bilibili.com/x/v3/fav/tab")
         try {
@@ -135,7 +138,7 @@ class GuestIgnetLibraryResponsesTest {
         assertTrue(asked.isEmpty())
     }
 
-    @Test fun responsesOfOtherRequestsAreUntouchedWhileAnotherIsAnswered() {
+    fun responsesOfOtherRequestsAreUntouchedWhileAnotherIsAnswered() {
         val registrar = installed()
         val local = registrar.execute(request("https://api.bilibili.com/x/v3/fav/tab"))
         val other = registrar.execute(request("https://api.bilibili.com/x/web-interface/nav"))
@@ -151,7 +154,7 @@ class GuestIgnetLibraryResponsesTest {
 
     private fun post(url: String, form: String?) = IgHttpRequest.Builder().url(url).method("POST", form?.toByteArray())
 
-    @Test fun aGuestListWriteNeverLeavesAsAWriteAndIsAppliedLocally() {
+    fun aGuestListWriteNeverLeavesAsAWriteAndIsAppliedLocally() {
         val registrar = installed()
         val built = registrar.build(post("https://api.bilibili.com/x/v3/fav/tab/dels", "resources=100%3A2&media_id=0"))
 
@@ -168,7 +171,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_answered"])
     }
 
-    @Test fun aFailedLocalWriteIsAnsweredAsAFailureNeverAsTheReadReply() {
+    fun aFailedLocalWriteIsAnsweredAsAFailureNeverAsTheReadReply() {
         reply = { throw IllegalArgumentException("Unknown local folder") }
         val registrar = installed()
         val response = registrar.execute(registrar.build(post("https://api.bilibili.com/x/v3/fav/folder/del", "media_ids=9")))
@@ -177,7 +180,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_wrote"])
     }
 
-    @Test fun aWriteWhoseHarmlessReadFailsIsNeverAppliedAfterwards() {
+    fun aWriteWhoseHarmlessReadFailsIsNeverAppliedAfterwards() {
         val registrar = installed()
         val built = registrar.build(post("https://api.bilibili.com/x/v2/history/toview/v2/dels", "resources=5"))
         try {
@@ -190,7 +193,7 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(statuses["guest_ignet_library_wrote"])
     }
 
-    @Test fun loggedInWritesAreSentAsTheHostBuiltThem() {
+    fun loggedInWritesAreSentAsTheHostBuiltThem() {
         guest = false
         val registrar = installed()
         val built = registrar.build(post("https://api.bilibili.com/x/v3/fav/tab/dels", "resources=100%3A2"))
@@ -199,7 +202,7 @@ class GuestIgnetLibraryResponsesTest {
         assertEquals("resources=100%3A2", String(built.body()))
     }
 
-    @Test fun writesTheLocalLibraryCannotApplyAreLeftToTheHost() {
+    fun writesTheLocalLibraryCannotApplyAreLeftToTheHost() {
         val registrar = installed()
         for (url in listOf("https://api.bilibili.com/x/v3/fav/resource/batch-deal", "https://api.bilibili.com/x/v3/fav/folder/fav",
                 "https://evil.example.com/x/v3/fav/tab/dels")) {
@@ -210,7 +213,7 @@ class GuestIgnetLibraryResponsesTest {
         assertTrue(asked.isEmpty())
     }
 
-    @Test fun aStreamedFormIsDetachedFromTheRequestAndReadOnlyAfterTheHarmlessRead() {
+    fun aStreamedFormIsDetachedFromTheRequestAndReadOnlyAfterTheHarmlessRead() {
         val chunks = ArrayDeque(listOf("resources=100%3A2", "&media_id=0"))
         var produced = 0
         val provider = IgHttpRequest.StreamDataProvider { produced++; chunks.removeFirstOrNull()?.toByteArray() }
@@ -228,16 +231,17 @@ class GuestIgnetLibraryResponsesTest {
         assertEquals("/x/v3/fav/tab/dels", statuses["guest_ignet_library_wrote"])
     }
 
-    @Test fun aStreamThatNeverEndsFailsTheWriteInsteadOfHangingTheHost() {
-        val provider = IgHttpRequest.StreamDataProvider { Thread.sleep(60_000); null }
-        val registrar = installed()
+    fun aStreamThatNeverEndsFailsTheWriteInsteadOfHangingTheHost() {
+        assertEquals(3000L, GuestIgnetLibraryResponses.DRAIN_TIMEOUT_MS)
+        val provider = IgHttpRequest.StreamDataProvider { Thread.sleep(2_000); null }
+        val registrar = installed(drainTimeoutMs = 50L)
         val response = registrar.execute(registrar.build(post("https://api.bilibili.com/x/v3/fav/tab/dels", null).streamDataProvider(provider)))
         assertEquals(GuestIgnetLibraryResponses.WRITE_FAILED, registrar.body(response))
         assertTrue(asked.isEmpty())
         assertEquals("/x/v3/fav/tab/dels", statuses["guest_ignet_library_failed"])
     }
 
-    @Test fun listWriteMergesTheQueryAndTheFormBody() {
+    fun listWriteMergesTheQueryAndTheFormBody() {
         val write = GuestIgnetLibraryResponses::listWrite
         assertEquals("/x/v3/fav/folder/add" to mapOf("csrf" to "", "title" to "新 建", "intro" to ""),
             write("POST", "https://api.bilibili.com/x/v3/fav/folder/add?csrf=", "title=%E6%96%B0+%E5%BB%BA&intro=".toByteArray()))
@@ -247,19 +251,19 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(write("POST", null, null))
     }
 
-    @Test fun missingIgnetClassesInstallNothingAndReportAbsent() {
+    fun missingIgnetClassesInstallNothingAndReportAbsent() {
         val registrar = installed(requestClass = "com.bilibili.lib.ighttp.NoSuchRequest")
         assertEquals("absent", statuses["guest_ignet_library"])
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun aRequestWithoutTheExpectedMembersInstallsNothing() {
+    fun aRequestWithoutTheExpectedMembersInstallsNothing() {
         val registrar = installed(requestClass = "fixtures.privacy.videofavorite.IncompleteProxy")
         assertEquals("absent", statuses["guest_ignet_library"])
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun listReadParsesOnlyGetReadsOnApiHosts() {
+    fun listReadParsesOnlyGetReadsOnApiHosts() {
         val read = GuestIgnetLibraryResponses::listRead
         assertEquals("/x/v3/fav/tab" to emptyMap<String, String>(), read("GET", "https://api.bilibili.com/x/v3/fav/tab"))
         assertEquals("/x/v3/fav/tab" to emptyMap<String, String>(), read("get", "https://API.bilibili.com/x/v3/fav/tab/"))
@@ -271,5 +275,33 @@ class GuestIgnetLibraryResponsesTest {
         assertNull(read("GET", null))
         assertNull(read("GET", "https://api.bilibili.com/x/v3/fav/tab/clean_invalid"))
         assertNull(read("GET", "ftp://api.bilibili.com/x/v3/fav/tab"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestIgnetLibraryResponsesTest) -> Unit) {
+            val s = GuestIgnetLibraryResponsesTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.aGuestListReadIsAnsweredFromTheLocalLibrary() }
+        runIsolated { s -> s.aBodyLargerThanTheReadBufferIsServedInOrderAndThenEnds() }
+        runIsolated { s -> s.loggedInUsersGetTheServerReply() }
+        runIsolated { s -> s.writesOtherHostsAndOtherPathsAreNeverAnswered() }
+        runIsolated { s -> s.aPathTheLibraryCannotAnswerKeepsTheServerReply() }
+        runIsolated { s -> s.aFailedLocalAnswerKeepsTheServerReplyAndIsReported() }
+        runIsolated { s -> s.aRequestThatFailedOnTheNetworkIsLeftFailed() }
+        runIsolated { s -> s.responsesOfOtherRequestsAreUntouchedWhileAnotherIsAnswered() }
+        runIsolated { s -> s.aGuestListWriteNeverLeavesAsAWriteAndIsAppliedLocally() }
+        runIsolated { s -> s.aFailedLocalWriteIsAnsweredAsAFailureNeverAsTheReadReply() }
+        runIsolated { s -> s.aWriteWhoseHarmlessReadFailsIsNeverAppliedAfterwards() }
+        runIsolated { s -> s.loggedInWritesAreSentAsTheHostBuiltThem() }
+        runIsolated { s -> s.writesTheLocalLibraryCannotApplyAreLeftToTheHost() }
+        runIsolated { s -> s.aStreamedFormIsDetachedFromTheRequestAndReadOnlyAfterTheHarmlessRead() }
+        runIsolated { s -> s.aStreamThatNeverEndsFailsTheWriteInsteadOfHangingTheHost() }
+        runIsolated { s -> s.listWriteMergesTheQueryAndTheFormBody() }
+        runIsolated { s -> s.missingIgnetClassesInstallNothingAndReportAbsent() }
+        runIsolated { s -> s.aRequestWithoutTheExpectedMembersInstallsNothing() }
+        runIsolated { s -> s.listReadParsesOnlyGetReadsOnApiHosts() }
     }
 }

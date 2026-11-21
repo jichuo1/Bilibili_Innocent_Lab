@@ -8,7 +8,6 @@ import org.junit.Test
 
 class UserTermsAuthorizationCoordinatorTest {
 
-    @Test
     fun `pending acceptance remains closed until a successful capable publication`() {
         assertEquals(
             UserTermsSyncState.IDLE,
@@ -36,7 +35,6 @@ class UserTermsAuthorizationCoordinatorTest {
         )
     }
 
-    @Test
     fun `local finalization failure outranks remote progress`() {
         assertEquals(
             UserTermsSyncState.FAILED,
@@ -48,7 +46,6 @@ class UserTermsAuthorizationCoordinatorTest {
         )
     }
 
-    @Test
     fun `activity recreation is requested only for a real authorization transition`() {
         assertTrue(
             didUserTermsAuthorizationComplete(
@@ -91,4 +88,15 @@ class UserTermsAuthorizationCoordinatorTest {
         frameworkConnected = frameworkConnected,
         frameworkCapable = frameworkCapable
     )
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (UserTermsAuthorizationCoordinatorTest) -> Unit) {
+            val s = UserTermsAuthorizationCoordinatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`pending acceptance remains closed until a successful capable publication`() }
+        runIsolated { s -> s.`local finalization failure outranks remote progress`() }
+        runIsolated { s -> s.`activity recreation is requested only for a real authorization transition`() }
+    }
 }

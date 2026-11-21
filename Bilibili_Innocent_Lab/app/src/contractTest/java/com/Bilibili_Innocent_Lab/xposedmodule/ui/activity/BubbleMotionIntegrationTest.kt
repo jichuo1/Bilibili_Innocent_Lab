@@ -16,7 +16,6 @@ class BubbleMotionIntegrationTest {
         return LceMotionSource.read(path)
     }
 
-    @Test
     fun `late entry cannot reopen a closing or dismissed bubble`() {
         val source = source("BubbleMotionController")
         listOf("prepareFirstFrame", "startEntry").forEach { name ->
@@ -26,7 +25,6 @@ class BubbleMotionIntegrationTest {
         assertTrue(source("MainActivity").contains("if (!dialog.isShowing || bubbleController.isClosing) return true"))
     }
 
-    @Test
     fun `retarget duration is scaled exactly once and predictive start is captured`() {
         val source = source("BubbleMotionController")
         assertEquals(1, Regex("InterruptibleMotionPolicy.remainingDuration\\(").findAll(source).count())
@@ -36,7 +34,6 @@ class BubbleMotionIntegrationTest {
         assertTrue(source.contains("InterruptibleMotionContinuation(start, target, session.velocity(now), wallDuration)"))
     }
 
-    @Test
     fun `dialog placement uses actual root coordinates and keeps first close callback`() {
         val source = source("MainActivity")
         assertTrue(source.contains("bubbleSourceLocation[0] - bubbleRootLocation[0]"))
@@ -46,5 +43,16 @@ class BubbleMotionIntegrationTest {
         assertTrue(source.contains("if (!bubbleController.isClosing) pendingAnchoredAfterClose.set(after)"))
         assertTrue(source.contains("removeOnGlobalLayoutListener(bubbleLayoutListener)"))
         assertTrue(source.contains("updateBubbleGeometry() || container.isLayoutRequested"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BubbleMotionIntegrationTest) -> Unit) {
+            val s = BubbleMotionIntegrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.`late entry cannot reopen a closing or dismissed bubble`() }
+        runIsolated { s -> s.`retarget duration is scaled exactly once and predictive start is captured`() }
+        runIsolated { s -> s.`dialog placement uses actual root coordinates and keeps first close callback`() }
     }
 }

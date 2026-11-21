@@ -34,7 +34,7 @@ class PredictiveBackApi33IsolationTest {
             .toList()
     }
 
-    @Test fun theSourceTreeIsActuallyBeingScanned() {
+    fun theSourceTreeIsActuallyBeingScanned() {
         val sources = mainSources()
         assertTrue("Found only ${sources.size} Kotlin sources; the walk is broken", sources.size > 100)
         assertTrue(
@@ -43,7 +43,7 @@ class PredictiveBackApi33IsolationTest {
         )
     }
 
-    @Test fun apiThirtyThreeWindowTypesStayInsideTheIsolationLayer() {
+    fun apiThirtyThreeWindowTypesStayInsideTheIsolationLayer() {
         val offenders = mainSources()
             .filter { it.name != isolationFile }
             .filter { platformWindowReference.containsMatchIn(it.readText()) }
@@ -58,7 +58,7 @@ class PredictiveBackApi33IsolationTest {
         )
     }
 
-    @Test fun platformWindowReferencesAreDistinguishedFromOtherPackageNames() {
+    fun platformWindowReferencesAreDistinguishedFromOtherPackageNames() {
         listOf(
             "import android.window.OnBackInvokedCallback",
             "import android.window.OnBackInvokedCallback as BackCallback",
@@ -77,7 +77,7 @@ class PredictiveBackApi33IsolationTest {
         }
     }
 
-    @Test fun theIsolationLayerKeepsApiThirtyThreeTypesOutOfItsOwnSignatures() {
+    fun theIsolationLayerKeepsApiThirtyThreeTypesOutOfItsOwnSignatures() {
         // 查编译后的方法描述符而不是源码文本：多行签名、类型别名、默认参数生成的
         // 合成方法都逃不过反射，行匹配会漏。
         val methods = PredictiveBackApi33::class.java.declaredMethods
@@ -91,5 +91,17 @@ class PredictiveBackApi33IsolationTest {
             emptyList<Pair<String, String>>(),
             leaking
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PredictiveBackApi33IsolationTest) -> Unit) {
+            val s = PredictiveBackApi33IsolationTest()
+            block(s)
+        }
+        runIsolated { s -> s.theSourceTreeIsActuallyBeingScanned() }
+        runIsolated { s -> s.apiThirtyThreeWindowTypesStayInsideTheIsolationLayer() }
+        runIsolated { s -> s.platformWindowReferencesAreDistinguishedFromOtherPackageNames() }
+        runIsolated { s -> s.theIsolationLayerKeepsApiThirtyThreeTypesOutOfItsOwnSignatures() }
     }
 }

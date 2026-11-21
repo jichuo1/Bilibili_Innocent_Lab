@@ -9,7 +9,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CommentReplyButtonScopeContractTest {
-    @Test
     fun relocatedRenderersStillNeedTheUniqueNativeBindingShape() {
         val installer = SourceContract.read("hook/feature/CommentReplyButtonFeatureInstaller.kt")
         for ((family, owner) in listOf("legacy" to "dut", "next" to "bxu", "exp3" to "hzu")) {
@@ -23,7 +22,6 @@ class CommentReplyButtonScopeContractTest {
         assertTrue(installer.contains("getIdentifier(\"reply_button\", \"id\", TARGET_PACKAGE)"))
     }
 
-    @Test
     fun nativeBindingCallbacksDoNotDiscoverClassesOrTraverseViewTrees() {
         val installer = SourceContract.read("hook/feature/CommentReplyButtonFeatureInstaller.kt")
         val callback = installer.after("after {").before("hooks++")
@@ -35,7 +33,6 @@ class CommentReplyButtonScopeContractTest {
         assertTrue(callback.contains("Looper.myLooper() != Looper.getMainLooper()"))
     }
 
-    @Test
     fun visibilityCorrectionHasWeakTargetsGuardedCallbacksAndDetachCleanup() {
         val source = SourceContract.read("hook/feature/CommentReplyButtonVisibility.kt")
         val guard = source.after("private class Guard(").before("private companion object")
@@ -52,7 +49,6 @@ class CommentReplyButtonScopeContractTest {
         }
     }
 
-    @Test
     fun theDefaultOffInstallerIsWiredOnceIndependentlyOfCopyAndTopology() {
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertEquals(1, Regex("CommentReplyButtonFeatureInstaller\\(").findAll(hook).count())
@@ -60,5 +56,17 @@ class CommentReplyButtonScopeContractTest {
         assertTrue(call.contains("prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, false)"))
         assertFalse(call.contains("REPLY_TOPOLOGY_ENABLED"))
         assertFalse(call.contains("runtimeCommentFreeCopyEnabled"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentReplyButtonScopeContractTest) -> Unit) {
+            val s = CommentReplyButtonScopeContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.relocatedRenderersStillNeedTheUniqueNativeBindingShape() }
+        runIsolated { s -> s.nativeBindingCallbacksDoNotDiscoverClassesOrTraverseViewTrees() }
+        runIsolated { s -> s.visibilityCorrectionHasWeakTargetsGuardedCallbacksAndDetachCleanup() }
+        runIsolated { s -> s.theDefaultOffInstallerIsWiredOnceIndependentlyOfCopyAndTopology() }
     }
 }

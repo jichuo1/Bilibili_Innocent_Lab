@@ -131,7 +131,7 @@ class AdaptPlanCatalogTest {
     private fun plan(values: Map<String, Any>, revision: Long = 7L) =
         AdaptPlanner.build(SnapshotHookConfigSource(values, revision))
 
-    @Test fun `every family is catalogued and the always set is exactly the reviewed one`() {
+    fun `every family is catalogued and the always set is exactly the reviewed one`() {
         for (family in PointFamily.entries) {
             val spec = requireNotNull(AdaptPlanCatalog.spec(family)) { "$family 没有登记读取者" }
             assertTrue("$family 读取者为空", spec.readers.isNotEmpty())
@@ -146,7 +146,7 @@ class AdaptPlanCatalogTest {
         }
     }
 
-    @Test fun `scan surfaces and runtime flags are marked as always needed with the right timing`() {
+    fun `scan surfaces and runtime flags are marked as always needed with the right timing`() {
         fun latest(family: PointFamily) = AdaptPlanCatalog.spec(family)!!.readers.filter { it.gate == Gate.Always }
             .map { it.latest }.toSet()
         assertEquals(setOf(AdaptPlanCatalog.Latest.RUNTIME_FLAG), latest(PointFamily.COMMENT_LOW))
@@ -159,13 +159,13 @@ class AdaptPlanCatalogTest {
             assertEquals("${spec.family}/${reader.installer}", AdaptPlanCatalog.Latest.INSTALL_CHAIN, reader.latest)
     }
 
-    @Test fun `dependencies are pulled into the plan`() {
+    fun `dependencies are pulled into the plan`() {
         assertEquals(setOf(PointFamily.MINE_ENTRY), AdaptPlanCatalog.spec(PointFamily.MINE_COMPONENTS)!!.dependsOn)
         val onlyComponents = AdaptPlanCatalog.closure(setOf(PointFamily.MINE_COMPONENTS))
         assertEquals(setOf(PointFamily.MINE_COMPONENTS, PointFamily.MINE_ENTRY), onlyComponents)
     }
 
-    @Test fun `all switches off keeps only the always set and prunes the rest`() {
+    fun `all switches off keeps only the always set and prunes the rest`() {
         val plan = plan(allOff())
         assertEquals(alwaysWithReason.keys, plan.required)
         assertEquals(alwaysWithReason.keys, plan.always)
@@ -174,7 +174,7 @@ class AdaptPlanCatalogTest {
         assertTrue("最小配置确实裁掉了定位器", plan.pruned.size >= 20)
     }
 
-    @Test fun `default configuration keeps the default on features`() {
+    fun `default configuration keeps the default on features`() {
         // 快照里一个键都没有：默认开的暂停页广告与首页轮播（轮播同时驱动首页推荐净化）仍然在计划里。
         val plan = plan(emptyMap())
         assertEquals(
@@ -185,7 +185,7 @@ class AdaptPlanCatalogTest {
         assertTrue("HomeRecommendPurifyFeatureInstaller" in plan.requestedBy(PointFamily.HOME_RECOMMEND_FEED))
     }
 
-    @Test fun `each switch alone requests exactly its reviewed families`() {
+    fun `each switch alone requests exactly its reviewed families`() {
         for (group in groups) for (signal in group.signals) {
             val values = allOff()
             values[signal.keys.single()] = onValue(signal)
@@ -194,7 +194,7 @@ class AdaptPlanCatalogTest {
         }
     }
 
-    @Test fun `shared families stay while any one of their readers is enabled`() {
+    fun `shared families stay while any one of their readers is enabled`() {
         // 首页推荐被三个安装器共用：关掉净化但保留竖屏详情或版块挑选，家族仍然要定位。
         val onlyVertical = allOff().also { it[P.HOME_VERTICAL_OPEN_DETAIL] = true }
         assertTrue(PointFamily.HOME_RECOMMEND_FEED in plan(onlyVertical).required)
@@ -210,7 +210,7 @@ class AdaptPlanCatalogTest {
         assertFalse(PointFamily.COMMENT_PURIFY in required)
     }
 
-    @Test fun `random configurations match the reviewed table and never drop an always family`() {
+    fun `random configurations match the reviewed table and never drop an always family`() {
         val random = Random(20261029L)
         val signals = allSignals()
         repeat(3000) { round ->
@@ -227,7 +227,7 @@ class AdaptPlanCatalogTest {
         }
     }
 
-    @Test fun `turning more switches on never shrinks the plan`() {
+    fun `turning more switches on never shrinks the plan`() {
         val random = Random(42L)
         val signals = allSignals()
         repeat(500) {
@@ -243,7 +243,7 @@ class AdaptPlanCatalogTest {
         }
     }
 
-    @Test fun `wrongly typed values never turn a feature on`() {
+    fun `wrongly typed values never turn a feature on`() {
         val values = allOff()
         values[P.SHOW_FULL_NUMBERS] = "true"
         values[P.PLAYER_DEFAULT_QUALITY_QN] = 80L
@@ -252,14 +252,14 @@ class AdaptPlanCatalogTest {
         assertEquals(alwaysWithReason.keys, plan(values).required)
     }
 
-    @Test fun `unmapped families fail open`() {
+    fun `unmapped families fail open`() {
         val plan = AdaptPlanner.build(SnapshotHookConfigSource(allOff()), specOf = { null })
         assertEquals(PointFamily.entries.toSet(), plan.required)
         assertEquals(PointFamily.entries.toSet(), plan.always)
         assertEquals(listOf("unmapped(fail-open)"), plan.requestedBy(PointFamily.PLAYER_QUALITY))
     }
 
-    @Test fun `plan is derived from the given snapshot only`() {
+    fun `plan is derived from the given snapshot only`() {
         val source = object : HookConfigSource {
             var reads = 0
             override val revision: Long = 99L
@@ -274,7 +274,7 @@ class AdaptPlanCatalogTest {
         assertEquals(alwaysWithReason.keys, plan.required)
     }
 
-    @Test fun `full plan and explicit additions only grow`() {
+    fun `full plan and explicit additions only grow`() {
         val full = AdaptPlan.full(5L)
         assertEquals(PointFamily.entries.toSet(), full.required)
         assertEquals(alwaysWithReason.keys, full.always)
@@ -286,7 +286,7 @@ class AdaptPlanCatalogTest {
         assertEquals(listOf("explicit-flag"), grown.requestedBy(PointFamily.BLOCK_UPDATE))
     }
 
-    @Test fun `assist gate families use the same switches as the plan`() {
+    fun `assist gate families use the same switches as the plan`() {
         // 三类带 DEX 兜底的家族：计划的开关必须覆盖 ensureAdapted 的显式开关，否则会出现「要补扫却没定位」。
         val updateOn = allOff().also { it[P.BLOCK_APP_UPDATE] = true }
         val topologyOn = allOff().also { it[P.REPLY_TOPOLOGY_ENABLED] = true }
@@ -294,5 +294,27 @@ class AdaptPlanCatalogTest {
         assertTrue(PointFamily.BLOCK_UPDATE in plan(updateOn).required)
         assertTrue(PointFamily.COMMENT_TOPOLOGY in plan(topologyOn).required)
         assertTrue(PointFamily.PLAYER_QUALITY in plan(qualityOn).required)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptPlanCatalogTest) -> Unit) {
+            val s = AdaptPlanCatalogTest()
+            block(s)
+        }
+        runIsolated { s -> s.`every family is catalogued and the always set is exactly the reviewed one`() }
+        runIsolated { s -> s.`scan surfaces and runtime flags are marked as always needed with the right timing`() }
+        runIsolated { s -> s.`dependencies are pulled into the plan`() }
+        runIsolated { s -> s.`all switches off keeps only the always set and prunes the rest`() }
+        runIsolated { s -> s.`default configuration keeps the default on features`() }
+        runIsolated { s -> s.`each switch alone requests exactly its reviewed families`() }
+        runIsolated { s -> s.`shared families stay while any one of their readers is enabled`() }
+        runIsolated { s -> s.`random configurations match the reviewed table and never drop an always family`() }
+        runIsolated { s -> s.`turning more switches on never shrinks the plan`() }
+        runIsolated { s -> s.`wrongly typed values never turn a feature on`() }
+        runIsolated { s -> s.`unmapped families fail open`() }
+        runIsolated { s -> s.`plan is derived from the given snapshot only`() }
+        runIsolated { s -> s.`full plan and explicit additions only grow`() }
+        runIsolated { s -> s.`assist gate families use the same switches as the plan`() }
     }
 }

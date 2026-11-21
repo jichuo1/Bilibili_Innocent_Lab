@@ -13,7 +13,7 @@ class BrandSplashDecoderAdapterTest {
             owners.firstOrNull { it.first == name }?.second ?: super.loadClass(name, resolve)
     }
 
-    @Test fun `both verified 915 owners resolve without loading native fallback`() {
+    fun `both verified 915 owners resolve without loading native fallback`() {
         for (owner in listOf("Or1.a", "Nr1.a")) {
             val host = mapped(owner to first.declaringClass)
             assertEquals(first, BrandSplashDecoderAdapter.direct(host))
@@ -24,7 +24,7 @@ class BrandSplashDecoderAdapterTest {
         assertNull(BrandSplashDecoderAdapter.direct(mapped("Or1.a" to first.declaringClass, "Nr1.a" to second.declaringClass)))
     }
 
-    @Test fun `cached verified decoder and completed failure never reopen an unplanned query`() {
+    fun `cached verified decoder and completed failure never reopen an unplanned query`() {
         val point = BrandSplashDecoderAdapter.point(first)
         val session = DexAssistSession(DexAssistEngine { error("cache opened DEX") }, listOf("base.apk"), loader, emptySet())
         assertFalse(BrandSplashDecoderAdapter.needsQuery(loader, point, true, false))
@@ -39,7 +39,7 @@ class BrandSplashDecoderAdapterTest {
         assertEquals(0, loads)
     }
 
-    @Test fun `918 owners and 919 method rename resolve the verified decoder only`() {
+    fun `918 owners and 919 method rename resolve the verified decoder only`() {
         for (name in listOf("Vx1.a", "Ux1.a")) {
             assertEquals(first, BrandSplashDecoderAdapter.direct(mapped(name to first.declaringClass)))
         }
@@ -51,7 +51,7 @@ class BrandSplashDecoderAdapterTest {
         assertNull(BrandSplashDecoderAdapter.direct(mapped("cgk" to latest, "Vx1.a" to first.declaringClass)))
     }
 
-    @Test fun `semantic candidates need unique owner and exact runtime ABI`() {
+    fun `semantic candidates need unique owner and exact runtime ABI`() {
         fun select(methods: List<java.lang.reflect.Method>) = BrandSplashDecoderAdapter.locate(loader,
             DexAssistSession(DexAssistEngine { DexAssistResult.Candidates(methods) }, listOf("base.apk"), loader,
                 setOf(BrandSplashDecoderAdapter.query)), true, null, true)
@@ -61,5 +61,17 @@ class BrandSplashDecoderAdapterTest {
         assertNull(select(BrandDecoderFixtures.Instance::class.java.declaredMethods.toList()))
         assertNull(select(BrandDecoderFixtures.First::class.java.declaredMethods.filter { it.name == "unrelated" }))
         assertNull(BrandSplashDecoderAdapter.resolve(loader, BrandSplashDecoderAdapter.point(first).copy(paramClassNames = emptyList())))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BrandSplashDecoderAdapterTest) -> Unit) {
+            val s = BrandSplashDecoderAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.`both verified 915 owners resolve without loading native fallback`() }
+        runIsolated { s -> s.`cached verified decoder and completed failure never reopen an unplanned query`() }
+        runIsolated { s -> s.`918 owners and 919 method rename resolve the verified decoder only`() }
+        runIsolated { s -> s.`semantic candidates need unique owner and exact runtime ABI`() }
     }
 }

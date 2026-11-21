@@ -31,21 +31,21 @@ class DetailModulePurifyFeatureInstallerTest {
 
     private val allKeys = DetailModulePurifyPolicy.preferenceKeys.toSet()
 
-    @Test fun `skips without touching the host when every subitem is off`() {
+    fun `skips without touching the host when every subitem is off`() {
         val result = DetailModulePurifyFeatureInstaller(emptySet()).install(environment())
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("detail_module_status" to "disabled"), statuses)
         assertTrue(evidence.isEmpty())
     }
 
-    @Test fun `skips in non main processes`() {
+    fun `skips in non main processes`() {
         val result = DetailModulePurifyFeatureInstaller(allKeys)
             .install(environment(process = "tv.danmaku.bili:web"))
         assertEquals(FeatureInstallResult.Skipped("non-main-process"), result)
         assertTrue(statuses.isEmpty())
     }
 
-    @Test fun `installs both routes and reports every enabled subitem`() {
+    fun `installs both routes and reports every enabled subitem`() {
         val installer = DetailModulePurifyFeatureInstaller(allKeys)
         assertEquals(
             DetailModulePurifyPolicy.targets.map { it.capabilityId } +
@@ -65,7 +65,7 @@ class DetailModulePurifyFeatureInstallerTest {
         })
     }
 
-    @Test fun `only the enabled subitems are reported`() {
+    fun `only the enabled subitems are reported`() {
         val single = setOf(DetailModulePurifyPolicy.targets.first().preferenceKey)
         DetailModulePurifyFeatureInstaller(single).install(environment())
         assertEquals(
@@ -89,14 +89,14 @@ class DetailModulePurifyFeatureInstallerTest {
 
     private fun plain(name: String) = Tag(name, "https://m.bilibili.com/video/BV1xx")
 
-    @Test fun `an untouched reply is returned as the same instance without evidence`() {
+    fun `an untouched reply is returned as the same instance without evidence`() {
         val original = ViewReply(emptySet())
         val updated = cleaner().clean(original, environment())
         assertSame(original, updated)
         assertTrue(evidence.isEmpty())
     }
 
-    @Test fun `populated fields are cleared on a copy and reported as applied`() {
+    fun `populated fields are cleared on a copy and reported as applied`() {
         val original = ViewReply(setOf("Honor", "UgcSeason"))
         val updated = cleaner().clean(original, environment()) as ViewReply
         assertNotSame(original, updated)
@@ -114,7 +114,7 @@ class DetailModulePurifyFeatureInstallerTest {
         assertEquals(setOf("detail_honor_removed", "detail_ugc_season_removed"), observed.toSet())
     }
 
-    @Test fun `an unrelated populated field is left alone`() {
+    fun `an unrelated populated field is left alone`() {
         val original = ViewReply(setOf("Label"))
         val updated = cleaner().clean(original, environment()) as ViewReply
         assertFalse(updated.hasLabel())
@@ -126,20 +126,20 @@ class DetailModulePurifyFeatureInstallerTest {
     }
 
     /** 默认实例是进程级单例，改写它会污染整个宿主进程。 */
-    @Test fun `the default instance is never rewritten`() {
+    fun `the default instance is never rewritten`() {
         val default = ViewReply.getDefaultInstance()
         assertSame(default, cleaner().clean(default, environment()))
         assertTrue(evidence.isEmpty())
     }
 
-    @Test fun `a foreign payload passes through untouched`() {
+    fun `a foreign payload passes through untouched`() {
         val foreign = Any()
         assertSame(foreign, cleaner().clean(foreign, environment()))
         assertTrue(evidence.isEmpty())
     }
 
     /** 改写失败必须 fail-open 到宿主：交付原响应并记错误，不让详情页白屏。 */
-    @Test fun `a failing copy keeps the original response and records an error`() {
+    fun `a failing copy keeps the original response and records an error`() {
         val original = ViewReply(setOf("Honor"), true)
         val env = environment()
         assertSame(original, cleaner().clean(original, env))
@@ -151,7 +151,7 @@ class DetailModulePurifyFeatureInstallerTest {
 
     // ---- 话题标签（列表筛选型） ----
 
-    @Test fun `topic tags are removed while other tags are kept in order`() {
+    fun `topic tags are removed while other tags are kept in order`() {
         val original = ViewReply(listOf(plain("普通"), topic("AI IN ALL"), plain("尾部"), topic("第二个")))
         val updated = cleaner(topicTags = true).clean(original, environment()) as ViewReply
         assertNotSame(original, updated)
@@ -163,34 +163,34 @@ class DetailModulePurifyFeatureInstallerTest {
     }
 
     /** 多个话题标签并排时一次全清（列表级操作天然覆盖）。 */
-    @Test fun `every topic tag is removed even when several sit side by side`() {
+    fun `every topic tag is removed even when several sit side by side`() {
         val original = ViewReply(listOf(topic("a"), topic("b"), topic("c")))
         val updated = cleaner(topicTags = true).clean(original, environment()) as ViewReply
         assertEquals(0, updated.getTagCount())
     }
 
     /** 一个话题标签都没有时不分配、不写回、不报证据。 */
-    @Test fun `a tag list without topic tags is left untouched`() {
+    fun `a tag list without topic tags is left untouched`() {
         val original = ViewReply(listOf(plain("一"), plain("二")))
         assertSame(original, cleaner(topicTags = true).clean(original, environment()))
         assertTrue(evidence.isEmpty())
     }
 
-    @Test fun `an empty tag list is not rewritten`() {
+    fun `an empty tag list is not rewritten`() {
         val original = ViewReply(emptyList<Tag>())
         assertSame(original, cleaner(topicTags = true).clean(original, environment()))
         assertTrue(evidence.isEmpty())
     }
 
     /** 子项没开时连解析都不做，标签一个不动。 */
-    @Test fun `tags are ignored when the subitem is off`() {
+    fun `tags are ignored when the subitem is off`() {
         val original = ViewReply(listOf(topic("AI IN ALL")))
         assertSame(original, cleaner(topicTags = false).clean(original, environment()))
         assertTrue(evidence.isEmpty())
     }
 
     /** 字段清除与标签筛选共用同一次副本：一次响应最多复制一次。 */
-    @Test fun `clearing fields and filtering tags share a single copy`() {
+    fun `clearing fields and filtering tags share a single copy`() {
         val original = ViewReply(setOf("Honor"), listOf(topic("AI IN ALL"), plain("留着")), false)
         val updated = cleaner(topicTags = true).clean(original, environment()) as ViewReply
         assertFalse(updated.hasHonor())
@@ -200,7 +200,7 @@ class DetailModulePurifyFeatureInstallerTest {
         assertTrue(DetailModulePurifyPolicy.TopicTags.CAPABILITY_ID in applied)
     }
 
-    @Test fun `the topic tag subitem is reported as an independent coverage unit`() {
+    fun `the topic tag subitem is reported as an independent coverage unit`() {
         val installer = DetailModulePurifyFeatureInstaller(
             setOf(DetailModulePurifyPolicy.TopicTags.PREFERENCE_KEY)
         )
@@ -216,11 +216,37 @@ class DetailModulePurifyFeatureInstallerTest {
         )
     }
 
-    @Test fun `resolution degrades to null when the reply class is absent`() {
+    fun `resolution degrades to null when the reply class is absent`() {
         val empty = object : ClassLoader(null) {}
         assertEquals(
             null,
             DetailModuleReplyCleaner.resolve(empty, DetailModulePurifyPolicy.targets)
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DetailModulePurifyFeatureInstallerTest) -> Unit) {
+            val s = DetailModulePurifyFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips without touching the host when every subitem is off`() }
+        runIsolated { s -> s.`skips in non main processes`() }
+        runIsolated { s -> s.`installs both routes and reports every enabled subitem`() }
+        runIsolated { s -> s.`only the enabled subitems are reported`() }
+        runIsolated { s -> s.`an untouched reply is returned as the same instance without evidence`() }
+        runIsolated { s -> s.`populated fields are cleared on a copy and reported as applied`() }
+        runIsolated { s -> s.`an unrelated populated field is left alone`() }
+        runIsolated { s -> s.`the default instance is never rewritten`() }
+        runIsolated { s -> s.`a foreign payload passes through untouched`() }
+        runIsolated { s -> s.`a failing copy keeps the original response and records an error`() }
+        runIsolated { s -> s.`topic tags are removed while other tags are kept in order`() }
+        runIsolated { s -> s.`every topic tag is removed even when several sit side by side`() }
+        runIsolated { s -> s.`a tag list without topic tags is left untouched`() }
+        runIsolated { s -> s.`an empty tag list is not rewritten`() }
+        runIsolated { s -> s.`tags are ignored when the subitem is off`() }
+        runIsolated { s -> s.`clearing fields and filtering tags share a single copy`() }
+        runIsolated { s -> s.`the topic tag subitem is reported as an independent coverage unit`() }
+        runIsolated { s -> s.`resolution degrades to null when the reply class is absent`() }
     }
 }

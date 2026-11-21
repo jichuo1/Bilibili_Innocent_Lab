@@ -21,7 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
  */
 class DiagnosticsLateCallbackTest {
 
-    @Test fun submitAfterShutdownIsDroppedInsteadOfThrowing() {
+    fun submitAfterShutdownIsDroppedInsteadOfThrowing() {
         val executor = ShutdownSafeExecutor("test-diagnostics")
         val ran = CountDownLatch(1)
         assertTrue(executor.submit { ran.countDown() })
@@ -36,14 +36,14 @@ class DiagnosticsLateCallbackTest {
         assertFalse(lateRan)
     }
 
-    @Test fun shutdownIsIdempotent() {
+    fun shutdownIsIdempotent() {
         val executor = ShutdownSafeExecutor("test-diagnostics")
         executor.shutdownNow()
         executor.shutdownNow()
         assertFalse(executor.submit { })
     }
 
-    @Test fun viewModelRoutesEverySubmitThroughTheShutdownSafeExecutor() {
+    fun viewModelRoutesEverySubmitThroughTheShutdownSafeExecutor() {
         val relative = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/DiagnosticsViewModel.kt"
         val source = SourceContract.read(relative)
         val viewModel = source.after("internal class DiagnosticsViewModel")
@@ -58,5 +58,16 @@ class DiagnosticsLateCallbackTest {
             Regex("""worker\.submit \{""").findAll(viewModel).count())
         val cleared = viewModel.after("override fun onCleared()")
         assertTrue(cleared.contains("worker.shutdownNow()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DiagnosticsLateCallbackTest) -> Unit) {
+            val s = DiagnosticsLateCallbackTest()
+            block(s)
+        }
+        runIsolated { s -> s.submitAfterShutdownIsDroppedInsteadOfThrowing() }
+        runIsolated { s -> s.shutdownIsIdempotent() }
+        runIsolated { s -> s.viewModelRoutesEverySubmitThroughTheShutdownSafeExecutor() }
     }
 }

@@ -35,12 +35,12 @@ class WeChatShareCompatFeatureInstallerTest {
         registrar, { _, _ -> }, { _, _ -> }, { _, _ -> },
         runtimeEvidence = { _, stage, _ -> stages += stage })
 
-    @Before fun before() = Runtime.reset()
-    @After fun after() = Runtime.reset()
+    fun before() = Runtime.reset()
+    fun after() = Runtime.reset()
     private fun install(enabled: Boolean = true, version: Int = 8902100,
         env: HookEnvironment = environment) = WeChatShareCompatFeatureInstaller(enabled) { version }.install(env)
 
-    @Test fun `both share wrappers relax install register and send without changing unrelated instances`() {
+    fun `both share wrappers relax install register and send without changing unrelated instances`() {
         assertEquals(FeatureInstallResult.Installed(3), install())
         val legacy = kz3.a(null, BiliShareConfiguration())
         legacy.t()
@@ -59,7 +59,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(FeatureRuntimeStage.APPLIED in stages)
     }
 
-    @Test fun `existing share instances are covered without changing another already created instance`() {
+    fun `existing share instances are covered without changing another already created instance`() {
         val existing = BaseWXApiImplV10(true)
         val unrelated = BaseWXApiImplV10(true)
         val legacy = kz3.a(null, BiliShareConfiguration()).apply { api = existing }
@@ -70,7 +70,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(modern.j()); assertTrue(modern.api!!.sendReq())
     }
 
-    @Test fun `missing package and rejected SDK request still fail`() {
+    fun `missing package and rejected SDK request still fail`() {
         install()
         Runtime.installed = false
         assertThrows(IllegalStateException::class.java) { kz3.a(null, BiliShareConfiguration()).t() }
@@ -82,7 +82,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertFalse(legacy.api!!.sendReq())
     }
 
-    @Test fun `exception leaves no scope and another thread never inherits share scope`() {
+    fun `exception leaves no scope and another thread never inherits share scope`() {
         install()
         val failure = IllegalStateException("original initialization")
         Runtime.initializeFailure = failure
@@ -104,7 +104,7 @@ class WeChatShareCompatFeatureInstallerTest {
         kz3.a(null, BiliShareConfiguration()).t()
     }
 
-    @Test fun `disabled other process and unknown host install nothing and do not read version when disabled`() {
+    fun `disabled other process and unknown host install nothing and do not read version when disabled`() {
         assertEquals(FeatureInstallResult.Skipped("disabled"), WeChatShareCompatFeatureInstaller(false) {
             error("disabled must be inert")
         }.install(environment))
@@ -114,7 +114,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(Runtime.hooks.isEmpty())
     }
 
-    @Test fun `factory failure and wrapper failures do not claim full installation`() {
+    fun `factory failure and wrapper failures do not claim full installation`() {
         val failing = object : HookRegistrar by TestHookRegistrar {
             override fun exact(id: String, owner: Class<*>, methodName: String,
                 vararg parameterTypes: Class<*>, block: ModernMemberHookCreator.() -> Unit) {
@@ -133,7 +133,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertEquals(FeatureInstallResult.Installed(2, false), install(env = environment.copy(registrar = partial)))
     }
 
-    @Test fun `original signed receiver succeeds when option is off and no instance changes`() {
+    fun `original signed receiver succeeds when option is off and no instance changes`() {
         Runtime.trustedCertificate = true
         install(false)
         val legacy = kz3.a(null, BiliShareConfiguration()); legacy.t()
@@ -141,7 +141,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(stages.isEmpty())
     }
 
-    @Test fun `missing one audited wrapper is partial and missing SDK preserves all behavior`() {
+    fun `missing one audited wrapper is partial and missing SDK preserves all behavior`() {
         fun without(name: String) = object : ClassLoader(loader) {
             override fun loadClass(className: String, resolve: Boolean): Class<*> {
                 if (className == name) throw ClassNotFoundException(className)
@@ -158,7 +158,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(Runtime.hooks.isEmpty())
     }
 
-    @Test fun `older host with one share wrapper installs completely`() {
+    fun `older host with one share wrapper installs completely`() {
         assertEquals(FeatureInstallResult.Installed(2), install(version = 8840200))
         val legacy = ft3.a(null, BiliShareConfiguration())
         legacy.t()
@@ -167,7 +167,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue((WXAPIFactory.createWXAPI(null, "login") as BaseWXApiImplV10).checkSignature)
     }
 
-    @Test fun `newer host uses its verified wrappers and leaves unrelated instances alone`() {
+    fun `newer host uses its verified wrappers and leaves unrelated instances alone`() {
         assertEquals(FeatureInstallResult.Installed(3), install(version = 8970300))
         val legacy = Ov0.a()
         legacy.l()
@@ -178,7 +178,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue((WXAPIFactory.createWXAPI(null, "payment") as BaseWXApiImplV10).checkSignature)
     }
 
-    @Test fun `newer host reports partial when the legacy share signature cannot be verified`() {
+    fun `newer host reports partial when the legacy share signature cannot be verified`() {
         val noPage = object : ClassLoader(loader) {
             override fun loadClass(className: String, resolve: Boolean): Class<*> {
                 if (className == "com.bilibili.socialize.share.core.shareparam.ShareParamWebPage") {
@@ -193,7 +193,7 @@ class WeChatShareCompatFeatureInstallerTest {
         assertTrue(Runtime.hooks.containsKey("kntr"))
     }
 
-    @Test fun `audited profile includes the locally verified build and distinguishes nearby variants`() {
+    fun `audited profile includes the locally verified build and distinguishes nearby variants`() {
         assertEquals("gz0.a", WeChatShareVersionProfile.forVersion(9130500)?.legacyOwner)
         assertEquals("kntr.common.share.common.handler.wx.l", WeChatShareVersionProfile.forVersion(9170300)?.modernOwner)
         assertNull(WeChatShareVersionProfile.forVersion(9130400))
@@ -209,5 +209,30 @@ class WeChatShareCompatFeatureInstallerTest {
         override fun proceed(args: Array<Any?>): Any? = original(args)
         override fun proceedWith(thisObject: Any): Any? = proceed()
         override fun proceedWith(thisObject: Any, args: Array<Any?>): Any? = proceed(args)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (WeChatShareCompatFeatureInstallerTest) -> Unit) {
+            val s = WeChatShareCompatFeatureInstallerTest()
+            s.before()
+            try {
+                block(s)
+            } finally {
+                s.after()
+            }
+        }
+        runIsolated { s -> s.`both share wrappers relax install register and send without changing unrelated instances`() }
+        runIsolated { s -> s.`existing share instances are covered without changing another already created instance`() }
+        runIsolated { s -> s.`missing package and rejected SDK request still fail`() }
+        runIsolated { s -> s.`exception leaves no scope and another thread never inherits share scope`() }
+        runIsolated { s -> s.`disabled other process and unknown host install nothing and do not read version when disabled`() }
+        runIsolated { s -> s.`factory failure and wrapper failures do not claim full installation`() }
+        runIsolated { s -> s.`original signed receiver succeeds when option is off and no instance changes`() }
+        runIsolated { s -> s.`missing one audited wrapper is partial and missing SDK preserves all behavior`() }
+        runIsolated { s -> s.`older host with one share wrapper installs completely`() }
+        runIsolated { s -> s.`newer host uses its verified wrappers and leaves unrelated instances alone`() }
+        runIsolated { s -> s.`newer host reports partial when the legacy share signature cannot be verified`() }
+        runIsolated { s -> s.`audited profile includes the locally verified build and distinguishes nearby variants`() }
     }
 }

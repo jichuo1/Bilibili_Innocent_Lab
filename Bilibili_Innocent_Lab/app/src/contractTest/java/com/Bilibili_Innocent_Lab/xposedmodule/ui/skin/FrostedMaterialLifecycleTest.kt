@@ -9,7 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class FrostedMaterialLifecycleTest {
-    @Test fun initialBindingCanPrepareBeforeOnStartWithoutDuplicatingTheRequest() {
+    fun initialBindingCanPrepareBeforeOnStartWithoutDuplicatingTheRequest() {
         val state = FrostedMaterialLifecycle()
         val initial = state.beginRequest()!!
         assertTrue(state.accepts(initial))
@@ -17,7 +17,7 @@ class FrostedMaterialLifecycleTest {
         assertTrue("onStart must not invalidate the onCreate preparation", state.accepts(initial))
     }
 
-    @Test fun stoppedLayoutsCannotScheduleAndAnOldCompletionStaysStaleAfterResume() {
+    fun stoppedLayoutsCannotScheduleAndAnOldCompletionStaysStaleAfterResume() {
         val state = FrostedMaterialLifecycle()
         val oldRequest = state.beginRequest()!!
         state.stop()
@@ -30,7 +30,7 @@ class FrostedMaterialLifecycleTest {
         assertTrue(state.accepts(newRequest))
     }
 
-    @Test fun closedDrawablesCannotRegisterOrResumeEvenWhenCallbacksArriveLate() {
+    fun closedDrawablesCannotRegisterOrResumeEvenWhenCallbacksArriveLate() {
         val state = FrostedMaterialLifecycle()
         val pending = state.beginRequest()!!
         state.close()
@@ -41,7 +41,7 @@ class FrostedMaterialLifecycleTest {
         assertFalse(state.canWork)
     }
 
-    @Test fun replacementAndMemoryReleaseRejectEarlierBitmapPairs() {
+    fun replacementAndMemoryReleaseRejectEarlierBitmapPairs() {
         val state = FrostedMaterialLifecycle()
         val first = state.beginRequest()!!
         val resized = state.beginRequest()!!
@@ -53,7 +53,7 @@ class FrostedMaterialLifecycleTest {
         assertTrue(state.accepts(next))
     }
 
-    @Test fun productionWiresRequestDeliveryAndRegistrationToTheSameLifecycle() {
+    fun productionWiresRequestDeliveryAndRegistrationToTheSameLifecycle() {
         fun source(path: String) = SourceContract.read("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/$path")
         val renderer = source("material/FrostedMaterialRenderer.kt")
         val request = renderer.after("private fun requestBackdrop").before("private fun acceptBackdrop")
@@ -74,5 +74,18 @@ class FrostedMaterialLifecycleTest {
         assertTrue(session.contains("if (!isClosed) engines.forEach(GlowEngine::onStop)"))
         assertTrue(renderer.contains("override fun onStart() = resume()"))
         assertTrue(renderer.contains("override fun onStop() = stop()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrostedMaterialLifecycleTest) -> Unit) {
+            val s = FrostedMaterialLifecycleTest()
+            block(s)
+        }
+        runIsolated { s -> s.initialBindingCanPrepareBeforeOnStartWithoutDuplicatingTheRequest() }
+        runIsolated { s -> s.stoppedLayoutsCannotScheduleAndAnOldCompletionStaysStaleAfterResume() }
+        runIsolated { s -> s.closedDrawablesCannotRegisterOrResumeEvenWhenCallbacksArriveLate() }
+        runIsolated { s -> s.replacementAndMemoryReleaseRejectEarlierBitmapPairs() }
+        runIsolated { s -> s.productionWiresRequestDeliveryAndRegistrationToTheSameLifecycle() }
     }
 }

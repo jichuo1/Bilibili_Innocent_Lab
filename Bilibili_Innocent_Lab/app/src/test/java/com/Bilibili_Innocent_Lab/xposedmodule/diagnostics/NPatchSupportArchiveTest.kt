@@ -25,7 +25,7 @@ class NPatchSupportArchiveTest {
         NPatchEmbeddedBuildState.MATCHED, NPatchManagerReachability.NOT_APPLICABLE,
         NPatchModuleObservation(listOf(row), listOf(input.moduleVersionCode)))
 
-    @Test fun fixedEntriesRoundTripAndKeepTheOriginalReportVersion() {
+    fun fixedEntriesRoundTripAndKeepTheOriginalReportVersion() {
         val bytes = NPatchSupportArchive.encode(snapshot, document)
         val metadata = NPatchSupportArchive.validate(bytes)
         assertEquals(input.collectedAtEpochMs, metadata.collectedAtEpochMs)
@@ -38,7 +38,7 @@ class NPatchSupportArchiveTest {
         assertFalse(entries.values.any { it.toString(Charsets.UTF_8).contains("not-exported") })
     }
 
-    @Test fun ordinaryReportsAndTelemetryInputsCannotExportSupportAttachments() {
+    fun ordinaryReportsAndTelemetryInputsCannotExportSupportAttachments() {
         val report = DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(input.copy(
             nPatchProcesses = listOf(row), nPatchObservedModuleVersions = listOf(109))))
         DiagnosticReportCodec.validate(report)
@@ -46,7 +46,7 @@ class NPatchSupportArchiveTest {
         assertFalse(report.toString(Charsets.UTF_8).contains("observedVersions"))
     }
 
-    @Test fun noResponseAndOldVersionsRemainDistinctWithoutOldProcessEvidence() {
+    fun noResponseAndOldVersionsRemainDistinctWithoutOldProcessEvidence() {
         val quiet = NPatchSupportArchive.encode(snapshot, document.copy(observation = NPatchModuleObservation()))
         val quietRoot = support(quiet)
         assertEquals("NO_RESPONSE", quietRoot.getString("state"))
@@ -58,14 +58,14 @@ class NPatchSupportArchiveTest {
         assertFalse(entries(oldBytes).getValue("npatch-support.json").toString(Charsets.UTF_8).contains(frame))
     }
 
-    @Test fun supportCannotMixTargetInstallationsOrHostVersions() {
+    fun supportCannotMixTargetInstallationsOrHostVersions() {
         assertThrows(Exception::class.java) { NPatchSupportArchive.encode(snapshot, document.copy(
             observation = document.observation.copy(processes = listOf(row.copy(targetUpdateTime = row.targetUpdateTime + 1))))) }
         assertThrows(Exception::class.java) { NPatchSupportArchive.encode(snapshot, document.copy(
             environment = document.environment.copy(hostVersionCode = input.targetVersionCode + 1))) }
     }
 
-    @Test fun supportRejectsUnknownFieldsCoercedTypesAndInconsistentClaims() {
+    fun supportRejectsUnknownFieldsCoercedTypesAndInconsistentClaims() {
         val valid = NPatchSupportArchive.encode(snapshot, document)
         val mutations: List<(JSONObject) -> Unit> = listOf(
             { it.put("token", "secret") }, { it.put("schema", "1") }, { it.put("capturedAt", -1) },
@@ -81,7 +81,7 @@ class NPatchSupportArchiveTest {
         }
     }
 
-    @Test fun invalidUtf8TrailingTextAndDuplicateKeysAreRejected() {
+    fun invalidUtf8TrailingTextAndDuplicateKeysAreRejected() {
         val valid = NPatchSupportArchive.encode(snapshot, document)
         val raw = entries(valid).getValue("npatch-support.json").toString(Charsets.UTF_8)
         for (invalid in listOf((raw + "secret").toByteArray(), byteArrayOf(0xff.toByte()),
@@ -90,7 +90,7 @@ class NPatchSupportArchiveTest {
         }
     }
 
-    @Test fun fixedEntryNamesAndExpandedSizesAreEnforced() {
+    fun fixedEntryNamesAndExpandedSizesAreEnforced() {
         val valid = NPatchSupportArchive.encode(snapshot, document)
         val original = entries(valid)
         assertThrows(Exception::class.java) { NPatchSupportArchive.validate(zip(original + ("../private.txt" to byteArrayOf(1)))) }
@@ -112,4 +112,19 @@ class NPatchSupportArchiveTest {
             entries.forEach { (name, data) -> zip.putNextEntry(ZipEntry(name)); zip.write(data); zip.closeEntry() }
         }
     }.toByteArray()
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (NPatchSupportArchiveTest) -> Unit) {
+            val s = NPatchSupportArchiveTest()
+            block(s)
+        }
+        runIsolated { s -> s.fixedEntriesRoundTripAndKeepTheOriginalReportVersion() }
+        runIsolated { s -> s.ordinaryReportsAndTelemetryInputsCannotExportSupportAttachments() }
+        runIsolated { s -> s.noResponseAndOldVersionsRemainDistinctWithoutOldProcessEvidence() }
+        runIsolated { s -> s.supportCannotMixTargetInstallationsOrHostVersions() }
+        runIsolated { s -> s.supportRejectsUnknownFieldsCoercedTypesAndInconsistentClaims() }
+        runIsolated { s -> s.invalidUtf8TrailingTextAndDuplicateKeysAreRejected() }
+        runIsolated { s -> s.fixedEntryNamesAndExpandedSizesAreEnforced() }
+    }
 }

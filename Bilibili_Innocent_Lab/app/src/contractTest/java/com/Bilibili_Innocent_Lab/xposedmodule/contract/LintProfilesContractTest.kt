@@ -12,12 +12,12 @@ class LintProfilesContractTest {
         File(repo, "Bilibili_Innocent_Lab/app/build.gradle.kts").readText()
     )
 
-    @Test fun fastLintDisablesNoChecks() {
+    fun fastLintDisablesNoChecks() {
         assertFalse(buildScript.contains("fastLintSuggestionIds"))
         assertFalse(buildScript.contains("ReplaceWith"))
     }
 
-    @Test fun fullLintRemainsDefaultAndFastReportsAreSeparate() {
+    fun fullLintRemainsDefaultAndFastReportsAreSeparate() {
         val lint = buildScript.after("    lint {").before("\n    sourceSets {")
         assertTrue(buildScript.contains("val fastLintRequested = requestedTaskNames.contains(\"lintFast\")"))
         assertFalse(lint.contains("disable"))
@@ -33,7 +33,7 @@ class LintProfilesContractTest {
         assertFalse(lint.contains("abortOnError = false"))
     }
 
-    @Test fun fastAndFullGatesCannotBeMixed() {
+    fun fastAndFullGatesCannotBeMixed() {
         assertTrue(buildScript.contains("if (fastLintRequested && fullVerificationRequested)"))
         assertTrue(buildScript.contains("Run lintFast separately from full lint/check/build gates."))
         assertTrue(buildScript.contains("dependsOn(\"lintDebug\")"))
@@ -41,4 +41,15 @@ class LintProfilesContractTest {
         assertTrue(buildScript.contains("Request lintFast by its full task name"))
     }
 
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LintProfilesContractTest) -> Unit) {
+            val s = LintProfilesContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.fastLintDisablesNoChecks() }
+        runIsolated { s -> s.fullLintRemainsDefaultAndFastReportsAreSeparate() }
+        runIsolated { s -> s.fastAndFullGatesCannotBeMixed() }
+    }
 }

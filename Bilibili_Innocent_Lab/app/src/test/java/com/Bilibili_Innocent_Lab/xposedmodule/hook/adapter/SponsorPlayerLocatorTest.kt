@@ -18,7 +18,7 @@ class SponsorPlayerLocatorTest {
         DexAssistResult.Candidates(listOf(seek), relatedClasses = mapOf(seek to classes))
     private val scopes = DexAssistResult.Candidates(emptyList())
 
-    @Test fun renamedPlayerAndGuardAreSelectedTogetherAndCacheIsReverified() {
+    fun renamedPlayerAndGuardAreSelectedTogetherAndCacheIsReverified() {
         val selected = requireNotNull(SponsorPlayerLocator.select(loader, runs(), wrappers(), scopes))
         assertEquals(RenamedSponsorContinuation::class.java.name, selected.classes.continuation)
         assertEquals(RenamedSponsorWrapper::class.java, selected.player.wrapper.declaringClass)
@@ -34,7 +34,7 @@ class SponsorPlayerLocatorTest {
         assertNull(SponsorPlayerLocator.resolve(missingGuard, decoded))
     }
 
-    @Test fun unrelatedOrAmbiguousGuardsAndOverBudgetInputsCannotBeInstalled() {
+    fun unrelatedOrAmbiguousGuardsAndOverBudgetInputsCannotBeInstalled() {
         assertNull(SponsorPlayerLocator.select(loader, runs(), DexAssistResult.Candidates(listOf(seek)), scopes))
         assertNull(SponsorPlayerLocator.select(loader, runs(), wrappers(listOf(String::class.java)), scopes))
         assertNull(SponsorPlayerLocator.select(loader, runs(), wrappers(listOf(RenamedSponsorSeek::class.java,
@@ -42,7 +42,7 @@ class SponsorPlayerLocatorTest {
         assertNull(SponsorPlayerLocator.select(loader, DexAssistResult.Candidates(List(33) { run }), wrappers(), scopes))
     }
 
-    @Test fun repackagedPlayableIsLimitedToTheAuditedRun() {
+    fun repackagedPlayableIsLimitedToTheAuditedRun() {
         val owner = "com.bilibili.ship.theseus.keel.player.b"
         assertTrue(SponsorPlayerAccess.acceptsPlayableClass(owner, "r", "hcg2"))
         assertFalse(SponsorPlayerAccess.acceptsPlayableClass(owner, "s", "hcg2"))
@@ -50,7 +50,7 @@ class SponsorPlayerLocatorTest {
         assertFalse(SponsorPlayerAccess.acceptsPlayableClass(owner, "r", "unrelated0"))
     }
 
-    @Test fun disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() {
+    fun disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() {
         assertFalse(SponsorPlayerLocator.needsQuery(false, true, false))
         assertFalse(SponsorPlayerLocator.needsQuery(true, false, false))
         assertFalse(SponsorPlayerLocator.needsQuery(true, true, true))
@@ -60,7 +60,7 @@ class SponsorPlayerLocatorTest {
         assertFalse(SponsorPlayerLocator.refreshCache(true, true, false, true, false))
     }
 
-    @Test fun sponsorQueriesShareOnePlannedBatchAndPreserveCallerAssociations() {
+    fun sponsorQueriesShareOnePlannedBatchAndPreserveCallerAssociations() {
         var batches = 0
         val engine = object : DexAssistEngine {
             override fun resolve(request: DexAssistRequest): DexAssistResult = error("unexpected separate scan")
@@ -76,12 +76,26 @@ class SponsorPlayerLocatorTest {
         assertEquals(1, batches)
     }
 
-    @Test fun cacheRejectsUnboundedAndForeignNames() {
+    fun cacheRejectsUnboundedAndForeignNames() {
         val classes = SponsorPlayerClasses(RenamedSponsorContinuation::class.java.name,
             RenamedSponsorWrapper::class.java.name, null, RenamedSponsorSeek::class.java.name)
         assertEquals(classes, SponsorPlayerClasses.fromJson(classes.toJson()))
         assertNull(SponsorPlayerClasses.fromJson(classes.toJson().put("seek", "java.lang.String")))
         assertNull(SponsorPlayerClasses.fromJson(classes.toJson().put("wrapper", "x".repeat(513))))
         assertNull(SponsorPlayerClasses.fromJson(JSONObject()))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorPlayerLocatorTest) -> Unit) {
+            val s = SponsorPlayerLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.renamedPlayerAndGuardAreSelectedTogetherAndCacheIsReverified() }
+        runIsolated { s -> s.unrelatedOrAmbiguousGuardsAndOverBudgetInputsCannotBeInstalled() }
+        runIsolated { s -> s.repackagedPlayableIsLimitedToTheAuditedRun() }
+        runIsolated { s -> s.disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() }
+        runIsolated { s -> s.sponsorQueriesShareOnePlannedBatchAndPreserveCallerAssociations() }
+        runIsolated { s -> s.cacheRejectsUnboundedAndForeignNames() }
     }
 }

@@ -20,7 +20,7 @@ class PlayerSpeedSessionLocatorTest {
     private fun runs() = DexAssistResult.Candidates(listOf(run))
     private fun wrappers() = DexAssistResult.Candidates(listOf(seek))
 
-    @Test fun renamedOwnerAndWrapperAreSelectedTogetherAndCacheIsReverified() {
+    fun renamedOwnerAndWrapperAreSelectedTogetherAndCacheIsReverified() {
         val selected = requireNotNull(PlayerSpeedSessionLocator.select(loader, runs(), wrappers()))
         assertEquals(RenamedSpeedSessionOwner::class.java.name, selected.owner)
         assertEquals(RenamedSpeedSessionWrapper::class.java.name, selected.wrapper)
@@ -36,14 +36,14 @@ class PlayerSpeedSessionLocatorTest {
         assertNull(PlayerSpeedSessionLocator.resolve(missingOwner, decoded))
     }
 
-    @Test fun twoVerifiedOwnersOrOverBudgetInputsCannotBeInstalled() {
+    fun twoVerifiedOwnersOrOverBudgetInputsCannotBeInstalled() {
         assertNull(PlayerSpeedSessionLocator.select(loader,
             DexAssistResult.Candidates(listOf(run, secondRun)), wrappers()))
         assertNull(PlayerSpeedSessionLocator.select(loader, DexAssistResult.Candidates(List(33) { run }), wrappers()))
         assertNull(PlayerSpeedSessionLocator.select(loader, runs(), DexAssistResult.Candidates(List(33) { seek })))
     }
 
-    @Test fun disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() {
+    fun disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() {
         assertFalse(PlayerSpeedSessionLocator.needsQuery(false, true, false))
         assertFalse(PlayerSpeedSessionLocator.needsQuery(true, false, false))
         assertFalse(PlayerSpeedSessionLocator.needsQuery(true, true, true))
@@ -53,7 +53,7 @@ class PlayerSpeedSessionLocatorTest {
         assertFalse(PlayerSpeedSessionLocator.refreshCache(true, true, false, true, false))
     }
 
-    @Test fun sessionQueriesShareOnePlannedBatchWithSponsor() {
+    fun sessionQueriesShareOnePlannedBatchWithSponsor() {
         var batches = 0
         val engine = object : DexAssistEngine {
             override fun resolve(request: DexAssistRequest): DexAssistResult = error("unexpected separate scan")
@@ -70,9 +70,22 @@ class PlayerSpeedSessionLocatorTest {
         assertEquals(1, batches)
     }
 
-    @Test fun classesJsonRejectsMalformedNames() {
+    fun classesJsonRejectsMalformedNames() {
         assertNull(PlayerSpeedSessionClasses.fromJson(org.json.JSONObject().put("owner", "").put("wrapper", org.json.JSONObject.NULL)))
         assertNull(PlayerSpeedSessionClasses.fromJson(org.json.JSONObject().put("owner", "bad name!").put("wrapper", org.json.JSONObject.NULL)))
         assertNull(PlayerSpeedSessionClasses.fromJson(org.json.JSONObject().put("owner", "a.B").put("wrapper", "bad/name")))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerSpeedSessionLocatorTest) -> Unit) {
+            val s = PlayerSpeedSessionLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.renamedOwnerAndWrapperAreSelectedTogetherAndCacheIsReverified() }
+        runIsolated { s -> s.twoVerifiedOwnersOrOverBudgetInputsCannotBeInstalled() }
+        runIsolated { s -> s.disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() }
+        runIsolated { s -> s.sessionQueriesShareOnePlannedBatchWithSponsor() }
+        runIsolated { s -> s.classesJsonRejectsMalformedNames() }
     }
 }

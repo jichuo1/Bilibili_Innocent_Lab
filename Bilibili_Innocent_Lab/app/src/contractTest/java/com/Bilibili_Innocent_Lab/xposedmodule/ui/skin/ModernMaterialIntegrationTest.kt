@@ -10,7 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 class ModernMaterialIntegrationTest {
     private fun source(path: String): String = SourceContract.read("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/$path")
 
-    @Test fun neutralModulePaletteDoesNotChangeHostWallpaperPaletteImplementation() {
+    fun neutralModulePaletteDoesNotChangeHostWallpaperPaletteImplementation() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
         assertTrue(skin.contains("ModernPalette.resolve(this)"))
         assertFalse(source("ui/theme/MonetColors.kt").contains("ModernPalette"))
@@ -20,7 +20,7 @@ class ModernMaterialIntegrationTest {
         assertFalse(neutral.contains("SkinPrefs"))
     }
 
-    @Test fun materialUsesOneSharedPreblurredUnderlayWithoutTakingLiquidOwnership() {
+    fun materialUsesOneSharedPreblurredUnderlayWithoutTakingLiquidOwnership() {
         val renderer = source("ui/skin/material/FrostedMaterialRenderer.kt")
         assertTrue(renderer.contains("ModernBackdropBlur.blur(pixels"))
         assertTrue(renderer.contains("BitmapShader(result.blurred"))
@@ -37,7 +37,7 @@ class ModernMaterialIntegrationTest {
         assertTrue(session.contains("materialRenderer.close()"))
     }
 
-    @Test fun chromeRolesRemainDistinctAndGeometryRemainsCallerOwned() {
+    fun chromeRolesRemainDistinctAndGeometryRemainsCallerOwned() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
         assertTrue(skin.contains("skinBackground(color, radiusDp, materialOutline = true, role = SurfaceRole.FLOATING)"))
         assertTrue(skin.contains("skinBackground(color, radiusDp, materialOutline = false, role = SurfaceRole.TOP_BAR)"))
@@ -56,5 +56,16 @@ class ModernMaterialIntegrationTest {
         assertTrue(registration.contains("samplingMatrices.withAncestorMemo"))
         assertTrue(refresh.contains("samplingMatrices.withAncestorMemo"))
         assertTrue(renderer.contains("ValueAnimator.areAnimatorsEnabled()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModernMaterialIntegrationTest) -> Unit) {
+            val s = ModernMaterialIntegrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.neutralModulePaletteDoesNotChangeHostWallpaperPaletteImplementation() }
+        runIsolated { s -> s.materialUsesOneSharedPreblurredUnderlayWithoutTakingLiquidOwnership() }
+        runIsolated { s -> s.chromeRolesRemainDistinctAndGeometryRemainsCallerOwned() }
     }
 }

@@ -11,7 +11,7 @@ import org.junit.Test
 
 class KavaMemberLookupTest {
 
-    @Test fun `batch scopes close on exceptions and never cross threads or class loaders`() {
+    fun `batch scopes close on exceptions and never cross threads or class loaders`() {
         org.junit.Assume.assumeFalse(BuildConfig.MEGUVIZ_LEGACY_LOOKUP)
         val loader = javaClass.classLoader!!
         val other = object : ClassLoader(loader) {}
@@ -55,7 +55,7 @@ class KavaMemberLookupTest {
         private fun onlyWithArgument(value: Int) = value
     }
 
-    @Test fun `zero parameter constructor lookup is exact even with overloaded constructors`() {
+    fun `zero parameter constructor lookup is exact even with overloaded constructors`() {
         val constructor = requireNotNull(KavaMemberLookup.constructorOrNull(Overloaded::class.java))
         assertEquals(0, constructor.parameterCount)
         assertTrue(constructor.newInstance() is Overloaded)
@@ -63,7 +63,7 @@ class KavaMemberLookupTest {
         assertEquals(1, KavaMemberLookup.constructorOrNull(Overloaded::class.java, Integer.TYPE)?.parameterCount)
     }
 
-    @Test fun `zero parameter method lookup rejects argument only overloads`() {
+    fun `zero parameter method lookup rejects argument only overloads`() {
         val method = requireNotNull(KavaMemberLookup.methodOrNull(Overloaded::class.java, "read"))
         assertEquals(0, method.parameterCount)
         assertEquals("zero", method.invoke(Overloaded()))
@@ -71,7 +71,7 @@ class KavaMemberLookupTest {
         assertEquals(1, KavaMemberLookup.methodOrNull(Overloaded::class.java, "read", Integer.TYPE)?.parameterCount)
     }
 
-    @Test fun `inherited zero parameter lookup stays exact and caches absent overloads`() {
+    fun `inherited zero parameter lookup stays exact and caches absent overloads`() {
         repeat(2) {
             val method = requireNotNull(KavaMemberLookup.inheritedMethodOrNull(Overloaded::class.java, "inherited"))
             assertEquals(0, method.parameterCount)
@@ -80,7 +80,6 @@ class KavaMemberLookupTest {
         }
     }
 
-    @Before
     fun resetLookupCaches() {
         KavaMemberLookup.resetForTests()
     }
@@ -117,7 +116,6 @@ class KavaMemberLookupTest {
         }
     }
 
-    @Test
     fun `resolves exact private method and exposes raw member`() {
         val method = KavaMemberLookup.methodOrNull(
             HiddenMethods::class.java,
@@ -131,7 +129,6 @@ class KavaMemberLookupTest {
         assertEquals(true, target.receivedFlag())
     }
 
-    @Test
     fun `returns null for expected version drift`() {
         assertNull(
             KavaMemberLookup.methodOrNull(
@@ -150,14 +147,12 @@ class KavaMemberLookupTest {
         override fun overridden() = "child"
     }
 
-    @Test
     fun `inherited lookup returns the most derived override`() {
         val method = requireNotNull(KavaMemberLookup.inheritedMethodOrNull(OverrideChild::class.java, "overridden"))
 
         assertEquals(OverrideChild::class.java, method.declaringClass)
     }
 
-    @Test
     fun `resolves inherited method and field`() {
         val target = HiddenMethods.create()
         val method = KavaMemberLookup.inheritedMethodOrNull(
@@ -175,7 +170,6 @@ class KavaMemberLookupTest {
         assertEquals("base", field?.get(target))
     }
 
-    @Test
     fun `enumerates inherited fields through cached Kava boundary`() {
         val fields = KavaMemberLookup.fields(
             HiddenMethods::class.java,
@@ -187,7 +181,6 @@ class KavaMemberLookupTest {
         assertEquals("base", fields.single().get(HiddenMethods.create()))
     }
 
-    @Test
     fun `enumerates methods across the complete superclass chain`() {
         val methods = KavaMemberLookup.methods(
             HiddenMethods::class.java,
@@ -200,7 +193,6 @@ class KavaMemberLookupTest {
         assertSame(HiddenGrandBase::class.java, methods.single().declaringClass)
     }
 
-    @Test
     @Suppress("DEPRECATION")
     fun `resolves private constructor and declared member collections`() {
         val constructor = KavaMemberLookup.constructorOrNull(
@@ -222,7 +214,6 @@ class KavaMemberLookupTest {
         assertTrue(fields.none { it.isAccessible })
     }
 
-    @Test
     fun `loads classes through explicit class loader`() {
         val loader = requireNotNull(HiddenMethods::class.java.classLoader)
 
@@ -234,7 +225,6 @@ class KavaMemberLookupTest {
         assertNull(KavaMemberLookup.classOrNull(loader, "missing.Type"))
     }
 
-    @Test
     fun `caches positive and negative lookups and exposes diagnostics`() {
         val loader = requireNotNull(HiddenMethods::class.java.classLoader)
 
@@ -260,7 +250,6 @@ class KavaMemberLookupTest {
         assertEquals(0, diagnostics.lookupFailures)
     }
 
-    @Test
     fun `cancelled member lookup does not poison the stable cache`() {
         Thread.currentThread().interrupt()
         try {
@@ -276,4 +265,27 @@ class KavaMemberLookupTest {
         assertTrue(KavaMemberLookup.declaredMethods(HiddenMethods::class.java).isNotEmpty())
     }
 
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KavaMemberLookupTest) -> Unit) {
+            val s = KavaMemberLookupTest()
+            s.resetLookupCaches()
+            block(s)
+        }
+        runIsolated { s -> s.`batch scopes close on exceptions and never cross threads or class loaders`() }
+        runIsolated { s -> s.`zero parameter constructor lookup is exact even with overloaded constructors`() }
+        runIsolated { s -> s.`zero parameter method lookup rejects argument only overloads`() }
+        runIsolated { s -> s.`inherited zero parameter lookup stays exact and caches absent overloads`() }
+        runIsolated { s -> s.`resolves exact private method and exposes raw member`() }
+        runIsolated { s -> s.`returns null for expected version drift`() }
+        runIsolated { s -> s.`inherited lookup returns the most derived override`() }
+        runIsolated { s -> s.`resolves inherited method and field`() }
+        runIsolated { s -> s.`enumerates inherited fields through cached Kava boundary`() }
+        runIsolated { s -> s.`enumerates methods across the complete superclass chain`() }
+        runIsolated { s -> s.`resolves private constructor and declared member collections`() }
+        runIsolated { s -> s.`loads classes through explicit class loader`() }
+        runIsolated { s -> s.`caches positive and negative lookups and exposes diagnostics`() }
+        runIsolated { s -> s.`cancelled member lookup does not poison the stable cache`() }
+    }
 }

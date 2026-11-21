@@ -26,7 +26,6 @@ class FairRunningMemoryCallSiteTest {
     private fun kotlinSources(): List<File> =
         javaRoot.walkTopDown().filter { it.isFile && it.name.endsWith(".kt") }.toList()
 
-    @Test
     fun `the scan actually sees the production sources`() {
         val names = kotlinSources().map(File::getName)
         assertTrue(names.size >= 80)
@@ -35,7 +34,6 @@ class FairRunningMemoryCallSiteTest {
         assertTrue("FairRunningMemoryCoordinator.kt" in names)
     }
 
-    @Test
     fun `itgsa actions exist only in the fair-memory files`() {
         val offenders = kotlinSources().filter { file ->
             val text = file.readText()
@@ -48,7 +46,6 @@ class FairRunningMemoryCallSiteTest {
         assertEquals(emptyList<String>(), offenders)
     }
 
-    @Test
     fun `initialize is only called from the module application`() {
         val callers = kotlinSources().filter { file ->
             file.readText().contains("FairRunningMemoryCoordinator.initialize(")
@@ -56,7 +53,6 @@ class FairRunningMemoryCallSiteTest {
         assertEquals(listOf("DefaultApplication.kt"), callers)
     }
 
-    @Test
     fun `hook entry and system_server never mention the protocol`() {
         val hook = File(javaRoot, "hook/HookEntry.kt").readText()
         assertFalse(hook.contains("itgsa.intent.action"))
@@ -64,14 +60,12 @@ class FairRunningMemoryCallSiteTest {
         assertFalse(hook.contains("ModuleMemoryPressureHub"))
     }
 
-    @Test
     fun `manifest does not export a process-starting itgsa receiver`() {
         val manifest = fileOf("src/main/AndroidManifest.xml").readText()
         assertFalse(manifest.contains("itgsa.intent.action"))
         assertFalse(manifest.contains("FairRunningMemory"))
     }
 
-    @Test
     fun `fair-memory sources do not touch verified host or auth channels`() {
         val forbidden = listOf(
             "HostProcessWaker",
@@ -109,7 +103,6 @@ class FairRunningMemoryCallSiteTest {
         )
     }
 
-    @Test
     fun `module application registers fair memory before the terms early return`() {
         val app = File(javaRoot, "application/DefaultApplication.kt").readText()
         val fairIdx = app.indexOf("FairRunningMemoryCoordinator.initialize(")
@@ -120,7 +113,6 @@ class FairRunningMemoryCallSiteTest {
         assertFalse(app.contains("itgsa.intent.action"))
     }
 
-    @Test
     fun `skin sessions register with the module-only pressure hub`() {
         val session = File(javaRoot, "ui/skin/runtime/ActivitySkinSession.kt").readText()
         assertTrue(session.contains("ModuleMemoryPressureHub::addListener"))
@@ -129,10 +121,26 @@ class FairRunningMemoryCallSiteTest {
         assertTrue(session.contains("onLowMemory()"))
     }
 
-    @Test
     fun `private callback registration stays on the NPatch path`() {
         val compat = File(javaRoot, "runtime/CrossAppBroadcastCompat.kt").readText()
         assertTrue(compat.contains("registerPrivateCallbackReceiver"))
         assertFalse(compat.contains("itgsa.intent.action"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FairRunningMemoryCallSiteTest) -> Unit) {
+            val s = FairRunningMemoryCallSiteTest()
+            block(s)
+        }
+        runIsolated { s -> s.`the scan actually sees the production sources`() }
+        runIsolated { s -> s.`itgsa actions exist only in the fair-memory files`() }
+        runIsolated { s -> s.`initialize is only called from the module application`() }
+        runIsolated { s -> s.`hook entry and system_server never mention the protocol`() }
+        runIsolated { s -> s.`manifest does not export a process-starting itgsa receiver`() }
+        runIsolated { s -> s.`fair-memory sources do not touch verified host or auth channels`() }
+        runIsolated { s -> s.`module application registers fair memory before the terms early return`() }
+        runIsolated { s -> s.`skin sessions register with the module-only pressure hub`() }
+        runIsolated { s -> s.`private callback registration stays on the NPatch path`() }
     }
 }

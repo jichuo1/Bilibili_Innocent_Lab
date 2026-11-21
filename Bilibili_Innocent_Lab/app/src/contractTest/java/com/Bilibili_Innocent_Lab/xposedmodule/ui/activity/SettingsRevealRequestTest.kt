@@ -6,7 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class SettingsRevealRequestTest {
-    @Test fun replacementReleasesOldLayoutWorkAndRejectsLateCompletionOnTheSamePage() {
+    fun replacementReleasesOldLayoutWorkAndRejectsLateCompletionOnTheSamePage() {
         val request = SettingsRevealRequest()
         val events = mutableListOf<String>()
         val announcement = request.begin { events += "release announcement" }
@@ -20,7 +20,7 @@ class SettingsRevealRequestTest {
         assertFalse(request.isActive)
     }
 
-    @Test fun controlledLayoutAndScrollCallbacksCannotRunAfterPauseOrCancelledGesture() {
+    fun controlledLayoutAndScrollCallbacksCannotRunAfterPauseOrCancelledGesture() {
         for (reason in listOf("pause", "destroy", "drag returns to same page", "same tab")) {
             val request = SettingsRevealRequest()
             var releases = 0
@@ -38,7 +38,7 @@ class SettingsRevealRequestTest {
         }
     }
 
-    @Test fun layoutDelayDoesNotExpireAValidRequestAndCompletionReleasesExactlyOnce() {
+    fun layoutDelayDoesNotExpireAValidRequestAndCompletionReleasesExactlyOnce() {
         val request = SettingsRevealRequest()
         var releases = 0
         val token = request.begin { releases++ }
@@ -49,7 +49,7 @@ class SettingsRevealRequestTest {
         assertFalse(request.owns(token))
     }
 
-    @Test fun activityCancellationClosesBothVisualAndAnnouncementOwnership() {
+    fun activityCancellationClosesBothVisualAndAnnouncementOwnership() {
         val cancel = SettingsUiSource.function("cancelSettingsReveal")
         assertTrue(cancel.contains("settingsRevealRequest.cancel()"))
         assertTrue(cancel.contains("clearSettingsSearchTargetHighlight()"))
@@ -73,5 +73,17 @@ class SettingsRevealRequestTest {
         assertTrue(release.contains("scrollAnimator?.cancel()"))
         assertFalse(release.contains("smoothScrollTo"))
         assertTrue(reveal.contains("scrollMotion.frame(scrollToken, it.animatedFraction)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsRevealRequestTest) -> Unit) {
+            val s = SettingsRevealRequestTest()
+            block(s)
+        }
+        runIsolated { s -> s.replacementReleasesOldLayoutWorkAndRejectsLateCompletionOnTheSamePage() }
+        runIsolated { s -> s.controlledLayoutAndScrollCallbacksCannotRunAfterPauseOrCancelledGesture() }
+        runIsolated { s -> s.layoutDelayDoesNotExpireAValidRequestAndCompletionReleasesExactlyOnce() }
+        runIsolated { s -> s.activityCancellationClosesBothVisualAndAnnouncementOwnership() }
     }
 }

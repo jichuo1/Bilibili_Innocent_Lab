@@ -118,7 +118,7 @@ class FollowFeed916AdapterTest {
         }
     }
 
-    @Test fun `new painter home personal and separator resolve with the b local owner`() {
+    fun `new painter home personal and separator resolve with the b local owner`() {
         val loader = Host()
         val points = requireNotNull(FollowFeedAdapter.direct(loader))
         assertEquals("mU.d", points.painterOwnerClass)
@@ -130,7 +130,7 @@ class FollowFeed916AdapterTest {
         assertTrue(resolved.host.embeddedVideoSupported)
     }
 
-    @Test fun `new host decorations stay with the verified homepage and model generation`() {
+    fun `new host decorations stay with the verified homepage and model generation`() {
         for ((build, expected) in newerBuilds) {
             val loader = Host(localField = "a", newer = expected)
             val points = requireNotNull(FollowFeedAdapter.direct(loader)) { "build $build" }
@@ -152,7 +152,7 @@ class FollowFeed916AdapterTest {
         assertNull(HostOpusBackgroundAccess.resolve(missing))
     }
 
-    @Test fun `local quote test does not mistake the top owner or boolean O for the local item`() {
+    fun `local quote test does not mistake the top owner or boolean O for the local item`() {
         val loader = Host()
         val resolved = requireNotNull(FollowFeedAdapter.resolve(loader, FollowFeedAdapter.direct(loader)))
         val item = loader.item()
@@ -163,7 +163,7 @@ class FollowFeed916AdapterTest {
         assertNull(resolved.host.isQuotedModule(Any()))
     }
 
-    @Test fun `static opus color accepts ordinary modules and preserves quoted or unknown modules`() {
+    fun `static opus color accepts ordinary modules and preserves quoted or unknown modules`() {
         val loader = Host()
         val access = requireNotNull(HostOpusBackgroundAccess.resolve(loader))
         assertTrue(Modifier.isStatic(access.color.modifiers))
@@ -176,13 +176,13 @@ class FollowFeed916AdapterTest {
         assertFalse(access.accepts(null, null))
     }
 
-    @Test fun `unknown local ownership and absent opus painter remain unavailable`() {
+    fun `unknown local ownership and absent opus painter remain unavailable`() {
         assertNull(FollowFeedAdapter.direct(Host(localField = "unknown")))
         assertNull(HostOpusBackgroundAccess.resolve(Host(localField = "unknown")))
         assertNull(HostOpusBackgroundAccess.resolve(Host(hideOpus = true)))
     }
 
-    @Test fun `917 painter home personal separator and opus preserve the same ownership contract`() {
+    fun `917 painter home personal separator and opus preserve the same ownership contract`() {
         val loader = Host(profile917 = true)
         val points = requireNotNull(FollowFeedAdapter.direct(loader))
         assertEquals("rU.d", points.painterOwnerClass)
@@ -201,7 +201,7 @@ class FollowFeed916AdapterTest {
         assertFalse(opus.accepts(null, module))
     }
 
-    @Test fun `917 direct resolution replaces old names without mixing the two generations`() {
+    fun `917 direct resolution replaces old names without mixing the two generations`() {
         val old = requireNotNull(FollowFeedAdapter.direct(Host()))
         val loader = Host(profile917 = true)
         val refreshed = requireNotNull(FollowFeedAdapter.locate(loader, null, true, old, planned = false))
@@ -210,13 +210,13 @@ class FollowFeed916AdapterTest {
         assertNull(FollowFeedAdapter.direct(Host(localField = "unknown", profile917 = true)))
     }
 
-    @Test fun `same named T decoration cannot change an older painter generation`() {
+    fun `same named T decoration cannot change an older painter generation`() {
         val points = requireNotNull(FollowFeedAdapter.direct(Host(ambientNewSeparator = true)))
         assertEquals("mU.d", points.painterOwnerClass)
         assertEquals("com.bilibili.bplus.followinglist.quick.consume.W", points.personalSeparatorClass)
     }
 
-    @Test fun `9170300 re-ranked home personal separator and opus decorations resolve under the unchanged painter`() {
+    fun `9170300 re-ranked home personal separator and opus decorations resolve under the unchanged painter`() {
         val loader = Host(localField = "a", build300 = true)
         val points = requireNotNull(FollowFeedAdapter.direct(loader))
         assertEquals("rU.d", points.painterOwnerClass)
@@ -235,7 +235,7 @@ class FollowFeed916AdapterTest {
         assertEquals(true, resolved.host.isQuotedModule(module))
     }
 
-    @Test fun `9170300 opus painter is p and the reused t and k names are ignored`() {
+    fun `9170300 opus painter is p and the reused t and k names are ignored`() {
         val loader = Host(localField = "a", build300 = true)
         val access = requireNotNull(HostOpusBackgroundAccess.resolve(loader))
         assertTrue(Modifier.isStatic(access.color.modifiers))
@@ -247,7 +247,7 @@ class FollowFeed916AdapterTest {
         assertNull(HostOpusBackgroundAccess.resolve(Host(localField = "a", build300 = true, hideOpus = true)))
     }
 
-    @Test fun `9170300 cached 9170100 names are refreshed and the older build keeps its own names`() {
+    fun `9170300 cached 9170100 names are refreshed and the older build keeps its own names`() {
         val old = requireNotNull(FollowFeedAdapter.direct(Host(profile917 = true)))
         assertEquals("com.bilibili.bplus.followinglist.home.a0", old.homeDecorationClass)
         val refreshed = requireNotNull(FollowFeedAdapter.locate(Host(localField = "a", build300 = true), null, true, old, planned = false))
@@ -260,8 +260,28 @@ class FollowFeed916AdapterTest {
         assertNull(FollowFeedAdapter.resolve(Host(profile917 = true), refreshed))
     }
 
-    @Test fun `9170300 unknown local ownership stays unavailable`() {
+    fun `9170300 unknown local ownership stays unavailable`() {
         assertNull(FollowFeedAdapter.direct(Host(localField = "unknown", build300 = true)))
         assertNull(HostOpusBackgroundAccess.resolve(Host(localField = "unknown", build300 = true)))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FollowFeed916AdapterTest) -> Unit) {
+            val s = FollowFeed916AdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.`new painter home personal and separator resolve with the b local owner`() }
+        runIsolated { s -> s.`new host decorations stay with the verified homepage and model generation`() }
+        runIsolated { s -> s.`local quote test does not mistake the top owner or boolean O for the local item`() }
+        runIsolated { s -> s.`static opus color accepts ordinary modules and preserves quoted or unknown modules`() }
+        runIsolated { s -> s.`unknown local ownership and absent opus painter remain unavailable`() }
+        runIsolated { s -> s.`917 painter home personal separator and opus preserve the same ownership contract`() }
+        runIsolated { s -> s.`917 direct resolution replaces old names without mixing the two generations`() }
+        runIsolated { s -> s.`same named T decoration cannot change an older painter generation`() }
+        runIsolated { s -> s.`9170300 re-ranked home personal separator and opus decorations resolve under the unchanged painter`() }
+        runIsolated { s -> s.`9170300 opus painter is p and the reused t and k names are ignored`() }
+        runIsolated { s -> s.`9170300 cached 9170100 names are refreshed and the older build keeps its own names`() }
+        runIsolated { s -> s.`9170300 unknown local ownership stays unavailable`() }
     }
 }

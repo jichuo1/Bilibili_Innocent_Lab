@@ -37,7 +37,7 @@ class PlayerPortraitFeatureInstallerTest {
         stage
     }
 
-    @Test fun `changed visibility is applied only after original method returns`() {
+    fun `changed visibility is applied only after original method returns`() {
         PlayerPortraitFeatureInstaller(true, points).install(environment())
         var calls = 0
         recorder.invoke("player.portrait.visibility.0", VisibilityTarget(), arrayOf(View.VISIBLE)) { args ->
@@ -50,7 +50,7 @@ class PlayerPortraitFeatureInstallerTest {
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED, FeatureRuntimeStage.APPLIED), stages())
     }
 
-    @Test fun `already hidden and invalid arguments never claim application`() {
+    fun `already hidden and invalid arguments never claim application`() {
         PlayerPortraitFeatureInstaller(true, points).install(environment())
         recorder.invoke("player.portrait.visibility.0", VisibilityTarget(), arrayOf(View.GONE))
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED), stages())
@@ -62,7 +62,7 @@ class PlayerPortraitFeatureInstallerTest {
         assertTrue(evidence.isEmpty())
     }
 
-    @Test fun `original failure preserves exception and does not claim application`() {
+    fun `original failure preserves exception and does not claim application`() {
         PlayerPortraitFeatureInstaller(true, points).install(environment())
         val failure = IllegalStateException("host failure")
         val thrown = assertThrows(IllegalStateException::class.java) {
@@ -72,7 +72,7 @@ class PlayerPortraitFeatureInstallerTest {
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED, FeatureRuntimeStage.ERROR), stages())
     }
 
-    @Test fun `diagnostic sink failure cannot change visibility or original result`() {
+    fun `diagnostic sink failure cannot change visibility or original result`() {
         PlayerPortraitFeatureInstaller(true, points).install(environment().copy(
             runtimeEvidence = { _, _, _ -> error("diagnostics unavailable") }
         ))
@@ -82,7 +82,7 @@ class PlayerPortraitFeatureInstallerTest {
         })
     }
 
-    @Test fun `disabled missing and non main process paths install no callbacks`() {
+    fun `disabled missing and non main process paths install no callbacks`() {
         assertTrue(PlayerPortraitFeatureInstaller(false, points).install(environment()) is FeatureInstallResult.Skipped)
         assertTrue(PlayerPortraitFeatureInstaller(true, null).install(environment()) is FeatureInstallResult.Skipped)
         assertTrue(PlayerPortraitFeatureInstaller(true, points).install(environment().copy(processName = "tv.danmaku.bili:web")) is FeatureInstallResult.Skipped)
@@ -90,10 +90,23 @@ class PlayerPortraitFeatureInstallerTest {
         assertTrue(evidence.isEmpty())
     }
 
-    @Test
     fun `forces every host visibility request to gone`() {
         assertEquals(View.GONE, PlayerPortraitFeatureInstaller.hiddenVisibility(View.VISIBLE))
         assertEquals(View.GONE, PlayerPortraitFeatureInstaller.hiddenVisibility(View.INVISIBLE))
         assertEquals(View.GONE, PlayerPortraitFeatureInstaller.hiddenVisibility(View.GONE))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerPortraitFeatureInstallerTest) -> Unit) {
+            val s = PlayerPortraitFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`changed visibility is applied only after original method returns`() }
+        runIsolated { s -> s.`already hidden and invalid arguments never claim application`() }
+        runIsolated { s -> s.`original failure preserves exception and does not claim application`() }
+        runIsolated { s -> s.`diagnostic sink failure cannot change visibility or original result`() }
+        runIsolated { s -> s.`disabled missing and non main process paths install no callbacks`() }
+        runIsolated { s -> s.`forces every host visibility request to gone`() }
     }
 }

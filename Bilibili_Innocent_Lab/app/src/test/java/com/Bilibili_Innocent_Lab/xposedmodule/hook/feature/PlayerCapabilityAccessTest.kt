@@ -17,7 +17,7 @@ class PlayerCapabilityAccessTest {
             shared, enabled.toList())
     )
 
-    @Test fun `unite copies only selected slots and preserves listener unknown flags and media`() {
+    fun `unite copies only selected slots and preserves listener unknown flags and media`() {
         val background = ArcConf(true, false, "background-extra")
         val listener = ArcConf(true, false, "listener")
         val cast = ArcConf(true, false, "cast")
@@ -42,7 +42,7 @@ class PlayerCapabilityAccessTest {
         assertSame(result, reply.getPlayArcConf())
     }
 
-    @Test fun `default protobuf instances are never modified even when missing slots are filled`() {
+    fun `default protobuf instances are never modified even when missing slots are filled`() {
         val defaultArc = ArcConf.getDefaultInstance()
         val defaultConfig = PlayArcConf.getDefaultInstance()
         val defaultReply = PlayViewUniteReply.getDefaultInstance()
@@ -56,7 +56,7 @@ class PlayerCapabilityAccessTest {
         assertEquals(setOf(2, 9, 23), reply.getPlayArcConf().arcs.keys)
     }
 
-    @Test fun `video-less and unrelated responses remain untouched`() {
+    fun `video-less and unrelated responses remain untouched`() {
         val config = PlayArcConf(mapOf(9 to ArcConf()))
         val reply = PlayViewUniteReply(config, video = false)
         val plan = access(true, PlayerCapability.BACKGROUND)
@@ -65,7 +65,7 @@ class PlayerCapabilityAccessTest {
         assertEquals(0, plan.apply(Any()))
     }
 
-    @Test fun `legacy copy retains unselected configuration and default identities`() {
+    fun `legacy copy retains unselected configuration and default identities`() {
         val background = LegacyArc(true, false, "unchanged")
         val listener = LegacyArc(true, false, "listener")
         val config = LegacyConfig(mapOf(9 to background, 36 to listener))
@@ -84,11 +84,24 @@ class PlayerCapabilityAccessTest {
         assertEquals(0, plan.apply(reply))
     }
 
-    @Test fun `empty capability selection and unavailable reply produce no access plan`() {
+    fun `empty capability selection and unavailable reply produce no access plan`() {
         assertNull(PlayerCapabilityAccess.resolve(javaClass.classLoader!!, PlayViewUniteReply::class.java.name, true, emptyList()))
         assertNull(PlayerCapabilityAccess.resolve(javaClass.classLoader!!, "missing.Reply", true, listOf(PlayerCapability.CAST)))
         assertEquals(listOf(PlayerCapability.BACKGROUND, PlayerCapability.SMALL_WINDOW, PlayerCapability.CAST),
             PlayerCapabilityOptions(true, true, true).enabled)
         assertFalse(PlayerCapability.entries.any { it.wireId == 36 })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerCapabilityAccessTest) -> Unit) {
+            val s = PlayerCapabilityAccessTest()
+            block(s)
+        }
+        runIsolated { s -> s.`unite copies only selected slots and preserves listener unknown flags and media`() }
+        runIsolated { s -> s.`default protobuf instances are never modified even when missing slots are filled`() }
+        runIsolated { s -> s.`video-less and unrelated responses remain untouched`() }
+        runIsolated { s -> s.`legacy copy retains unselected configuration and default identities`() }
+        runIsolated { s -> s.`empty capability selection and unavailable reply produce no access plan`() }
     }
 }

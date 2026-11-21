@@ -26,7 +26,7 @@ class GuestFavoriteInteractionTest {
         fun handle(event: `KingPositionComponent2$c`, continuation: Continuation<*>): Any? = null
     }
 
-    @Test fun oldTypedCollectorIsChosenAndAmbiguityFailsClosed() {
+    fun oldTypedCollectorIsChosenAndAmbiguityFailsClosed() {
         val event = `KingPositionComponent2$c`::class.java
         val continuation = Continuation::class.java
         val service = KingPositionService::class.java
@@ -36,7 +36,7 @@ class GuestFavoriteInteractionTest {
             event, continuation, service))
     }
 
-    @Test fun eventScopeSeparatesClickAndLongPressAndRestoresNestedHandlers() {
+    fun eventScopeSeparatesClickAndLongPressAndRestoresNestedHandlers() {
         val registrar = PlayerPortTestRegistrar()
         val loader = javaClass.classLoader!!
         val env = HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), registrar,
@@ -59,5 +59,15 @@ class GuestFavoriteInteractionTest {
             }
         }
         assertEquals(GuestVideoFavoriteHooks.Interaction.UNKNOWN, source.current())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestFavoriteInteractionTest) -> Unit) {
+            val s = GuestFavoriteInteractionTest()
+            block(s)
+        }
+        runIsolated { s -> s.oldTypedCollectorIsChosenAndAmbiguityFailsClosed() }
+        runIsolated { s -> s.eventScopeSeparatesClickAndLongPressAndRestoresNestedHandlers() }
     }
 }

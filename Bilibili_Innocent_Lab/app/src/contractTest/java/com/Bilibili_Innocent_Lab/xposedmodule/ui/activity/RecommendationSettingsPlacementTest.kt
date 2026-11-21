@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecommendationSettingsPlacementTest {
-    @Test fun guestSwitchesFollowTheBrowsingMarkerAndPersistIndependently() {
+    fun guestSwitchesFollowTheBrowsingMarkerAndPersistIndependently() {
         val enhance = SettingsUiSource.function("enhanceBrowsingCategory")
         val marker = enhance.indexOf("advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_BROWSING]")
         val switches = enhance.split("materialSwitch(").drop(1).take(2)
@@ -29,7 +29,7 @@ class RecommendationSettingsPlacementTest {
         assertTrue(diagnostics.contains("\"incognito_privacy\" -> R.string.incognito_enabled"))
     }
 
-    @Test fun feedbackAndRulesAreGroupedInEnhancementBrowsing() {
+    fun feedbackAndRulesAreGroupedInEnhancementBrowsing() {
         val enhance = SettingsUiSource.function("enhanceBrowsingCategory")
         val purify = SettingsUiSource.function("purifyHomeCategory")
         val labels = listOf("home_recommend_section_pick", "home_recommend_blocked_tids",
@@ -55,7 +55,7 @@ class RecommendationSettingsPlacementTest {
      *
      * 这条钉住"打开面板 ⇒ 先查询"这个因果，退回只读本地存储会立刻红。
      */
-    @Test fun theBlocklistDialogPullsBothPickSurfacesFromTheHost() {
+    fun theBlocklistDialogPullsBothPickSurfacesFromTheHost() {
         val open = SettingsUiSource.function("showRecommendationBlocklistDialog")
         assertTrue("必须主动查询，不能只读本地存储",
             open.contains("MineComponentSnapshotQueryClient.query("))
@@ -68,11 +68,23 @@ class RecommendationSettingsPlacementTest {
             open.contains("MineComponentSnapshotStore.read("))
     }
 
-    @Test fun manualEditorsDoNotAutomaticallyReimportHostSelections() {
+    fun manualEditorsDoNotAutomaticallyReimportHostSelections() {
         val enhance = SettingsUiSource.function("enhanceBrowsingCategory")
         assertFalse(enhance.contains("prefilledBlocked"))
         assertTrue(enhance.contains("prefs().getString(FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS"))
         assertTrue(enhance.contains("prefs().getString(FeaturePreferences.HOME_RECOMMEND_BLOCKED_AUTHORS"))
         assertFalse(Regex("putString\\(\\s*FeaturePreferences.HOME_RECOMMEND_BLOCKED_\\w+,\\s*recommendationRuleCount").containsMatchIn(enhance))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (RecommendationSettingsPlacementTest) -> Unit) {
+            val s = RecommendationSettingsPlacementTest()
+            block(s)
+        }
+        runIsolated { s -> s.guestSwitchesFollowTheBrowsingMarkerAndPersistIndependently() }
+        runIsolated { s -> s.feedbackAndRulesAreGroupedInEnhancementBrowsing() }
+        runIsolated { s -> s.theBlocklistDialogPullsBothPickSurfacesFromTheHost() }
+        runIsolated { s -> s.manualEditorsDoNotAutomaticallyReimportHostSelections() }
     }
 }

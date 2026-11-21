@@ -22,7 +22,7 @@ class BrandSplashBehaviorTest {
         return u.allocateInstance(tv.danmaku.bili.ui.splash.brand.config.TestApplication::class.java) as Application
     }
 
-    @Test fun nativeDwellChangesOnlyForTheCurrentBrandPageModelAndUnwindsAfterFailure() {
+    fun nativeDwellChangesOnlyForTheCurrentBrandPageModelAndUnwindsAfterFailure() {
         assertTrue(BrandSplashSkipFeatureInstaller(true) { true }.install(environment) is FeatureInstallResult.Installed)
         val current = BrandShowInfo(); val preview = BrandShowInfo()
         fun duration(value: BrandShowInfo) = registrar.invoke("brand.skip.native.duration", value) { value.duration }
@@ -38,7 +38,7 @@ class BrandSplashBehaviorTest {
         assertEquals(700L, duration(current))
     }
 
-    @Test fun kntrExitUsesTheCurrentCallbackExactlyOnceAndLeavesOtherResumeStatesAlone() {
+    fun kntrExitUsesTheCurrentCallbackExactlyOnceAndLeavesOtherResumeStatesAlone() {
         BrandSplashSkipFeatureInstaller(true) { true }.install(environment)
         var exits = 0; var originals = 0
         val frame = kntr.srcs.app.splash.brand.startup.`BrandSplashPageKt$BrandSplashPage$2$1` { exits++; Unit }
@@ -49,7 +49,7 @@ class BrandSplashBehaviorTest {
         assertEquals(1, originals)
     }
 
-    @Test fun failedExitRestoresTheInitialCoroutineLabelAndRunsTheOriginalPath() {
+    fun failedExitRestoresTheInitialCoroutineLabelAndRunsTheOriginalPath() {
         BrandSplashSkipFeatureInstaller(true) { true }.install(environment)
         val frame = kntr.srcs.app.splash.brand.startup.`BrandSplashPageKt$BrandSplashPage$2$1` { error("exit unavailable") }
         var originals = 0
@@ -57,7 +57,7 @@ class BrandSplashBehaviorTest {
         assertEquals(0, frame.label); assertEquals(1, originals)
     }
 
-    @Test fun clientUnlockCannotEscapeTheOfficialActionOrGrantDlcOrForbiddenChoices() {
+    fun clientUnlockCannotEscapeTheOfficialActionOrGrantDlcOrForbiddenChoices() {
         val result = BrandSplashCustomFeatureInstaller(true, context(), false).install(environment)
         assertTrue(result is FeatureInstallResult.Installed && result.complete)
         val config = BrandSplashSettingVipConfig()
@@ -73,7 +73,7 @@ class BrandSplashBehaviorTest {
         assertTrue(config.locked)
     }
 
-    @Test fun previewUsesItsOwnSourceSignalAndCannotReuseAnEarlierVipDecision() {
+    fun previewUsesItsOwnSourceSignalAndCannotReuseAnEarlierVipDecision() {
         BrandSplashCustomFeatureInstaller(true, context(), false).install(environment)
         val config = BrandSplashSettingVipConfig()
         val action = tv.danmaku.bili.ui.splash.brand.uiv2.setting.preview.`BrandSplashPreviewFragment$handleSelectButtonClicked$1`()
@@ -88,7 +88,7 @@ class BrandSplashBehaviorTest {
         assertEquals(true, registrar.invoke("brand.custom.lock", config) { true })
     }
 
-    @Test fun refreshRetainsOnlyPersistedVipAndAConfirmedRemovalStopsRetention() {
+    fun refreshRetainsOnlyPersistedVipAndAConfirmedRemovalStopsRetention() {
         BrandSplashStorage.mode = true
         val vip = BrandSplash(1, "vip"); val dlc = BrandSplash(2, "dlc")
         BrandSplashStorage.selected = arrayListOf(vip, dlc)
@@ -102,7 +102,7 @@ class BrandSplashBehaviorTest {
         assertSame(original, registrar.invoke("brand.custom.refresh", null) { original })
     }
 
-    @Test fun nullServerListCannotClearAPersistedVipSelectionDuringHostReconciliation() {
+    fun nullServerListCannotClearAPersistedVipSelectionDuringHostReconciliation() {
         BrandSplashStorage.mode = true
         val vip = BrandSplash(1, "vip")
         BrandSplashStorage.selected = arrayListOf(vip)
@@ -123,7 +123,7 @@ class BrandSplashBehaviorTest {
         assertEquals(listOf(vip), BrandSplashStorage.selected)
     }
 
-    @Test fun nullServerListStaysNullWithoutAnActivePersistedVipChoice() {
+    fun nullServerListStaysNullWithoutAnActivePersistedVipChoice() {
         BrandSplashStorage.mode = true
         BrandSplashStorage.selected = arrayListOf(BrandSplash(2, "dlc"), BrandSplash(3, "brand"))
         BrandSplashCustomFeatureInstaller(true, context(), false).install(environment)
@@ -135,14 +135,14 @@ class BrandSplashBehaviorTest {
         assertNull(registrar.invoke("brand.custom.refresh", null) { null })
     }
 
-    @Test fun freshServerMetadataWinsOverTheOldPersistedInstance() {
+    fun freshServerMetadataWinsOverTheOldPersistedInstance() {
         val old = BrandSplash(1, "vip", "old"); val fresh = BrandSplash(1, "vip", "new")
         val server = listOf(fresh)
         val result = BrandSplashPolicy.retainSelectedVip(server, listOf(old), { it.source }, { "${it.source}#${it.id}" })
         assertSame(server, result); assertSame(fresh, result[0])
     }
 
-    @Test fun reclassifiedDlcCannotBeReintroducedAsAnOldVipChoice() {
+    fun reclassifiedDlcCannotBeReintroducedAsAnOldVipChoice() {
         val old = BrandSplash(7, "vip", "old")
         val current = BrandSplash(7, "dlc", "new")
         val server = listOf(current)
@@ -151,7 +151,7 @@ class BrandSplashBehaviorTest {
         assertSame(server, result)
     }
 
-    @Test fun modelRecompositionMarksChangedAndPreservesCallbackAndOtherFlags() {
+    fun modelRecompositionMarksChangedAndPreservesCallbackAndOtherFlags() {
         for (flags in listOf(0, 2, 8, 16, 32, 0b1010101010101)) {
             val changed = brandSplashChangedModelFlags(flags)
             assertEquals(4, changed and 14)
@@ -159,14 +159,14 @@ class BrandSplashBehaviorTest {
         }
     }
 
-    @Test fun serializedConstructorOffsetCannotGuessAnUnsupportedLayout() {
+    fun serializedConstructorOffsetCannotGuessAnUnsupportedLayout() {
         assertEquals(0, brandSplashSerializationOffset(9))
         assertEquals(1, brandSplashSerializationOffset(10))
         assertTrue(runCatching { brandSplashSerializationOffset(8) }.isFailure)
         assertTrue(runCatching { brandSplashSerializationOffset(11) }.isFailure)
     }
 
-    @Test fun warmupCannotOverwriteNewerWritesOrAnExplicitModeChange() {
+    fun warmupCannotOverwriteNewerWritesOrAnExplicitModeChange() {
         val state = BrandSplashSelectionState<String>()
         state.observeMode(true)
         state.observeWrite(listOf("current"))
@@ -178,13 +178,13 @@ class BrandSplashBehaviorTest {
         assertFalse(state.isCurrent(previous)); assertTrue(state.snapshot().selected.isEmpty())
     }
 
-    @Test fun disabledFeaturesRegisterNothing() {
+    fun disabledFeaturesRegisterNothing() {
         assertTrue(BrandSplashSkipFeatureInstaller(false).install(environment) is FeatureInstallResult.Skipped)
         assertTrue(BrandSplashCustomFeatureInstaller(false, context()).install(environment) is FeatureInstallResult.Skipped)
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun equivalentWriteResumesRotationFromTheImageThatActuallyExited() {
+    fun equivalentWriteResumesRotationFromTheImageThatActuallyExited() {
         val state = BrandSplashSelectionState<String>()
         val loading = state.initialize(listOf("first", "second"), true)
         state.observeWrite(listOf("first", "second"))
@@ -194,7 +194,7 @@ class BrandSplashBehaviorTest {
         assertEquals("first", reload?.afterKey)
     }
 
-    @Test fun equivalentWriteRetriesAnEmptyCacheButDoesNotDecodeAnIdleImageAgain() {
+    fun equivalentWriteRetriesAnEmptyCacheButDoesNotDecodeAnIdleImageAgain() {
         val firstLoad = brandSplashImageReloadAfterWrite("selected", null, false, null)
         assertNotNull(firstLoad)
         assertNull(firstLoad?.afterKey)
@@ -202,7 +202,7 @@ class BrandSplashBehaviorTest {
         assertNull(brandSplashImageReloadAfterWrite("", "selected", true, "first"))
     }
 
-    @Test fun bitmapSamplingKeepsNarrowAndRoundedUpDimensionsWithinThePixelBudget() {
+    fun bitmapSamplingKeepsNarrowAndRoundedUpDimensionsWithinThePixelBudget() {
         for ((width, height) in listOf(1 to Int.MAX_VALUE, Int.MAX_VALUE to 1,
                 4097 to 4097, 2048 to 2048, Int.MAX_VALUE to Int.MAX_VALUE)) {
             val sample = brandSplashBitmapSampleSize(width, height)
@@ -214,5 +214,30 @@ class BrandSplashBehaviorTest {
         assertEquals(512, brandSplashBitmapSampleSize(1, Int.MAX_VALUE))
         assertEquals(4, brandSplashBitmapSampleSize(4097, 4097))
         assertEquals(1, brandSplashBitmapSampleSize(2048, 2048))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BrandSplashBehaviorTest) -> Unit) {
+            val s = BrandSplashBehaviorTest()
+            block(s)
+        }
+        runIsolated { s -> s.nativeDwellChangesOnlyForTheCurrentBrandPageModelAndUnwindsAfterFailure() }
+        runIsolated { s -> s.kntrExitUsesTheCurrentCallbackExactlyOnceAndLeavesOtherResumeStatesAlone() }
+        runIsolated { s -> s.failedExitRestoresTheInitialCoroutineLabelAndRunsTheOriginalPath() }
+        runIsolated { s -> s.clientUnlockCannotEscapeTheOfficialActionOrGrantDlcOrForbiddenChoices() }
+        runIsolated { s -> s.previewUsesItsOwnSourceSignalAndCannotReuseAnEarlierVipDecision() }
+        runIsolated { s -> s.refreshRetainsOnlyPersistedVipAndAConfirmedRemovalStopsRetention() }
+        runIsolated { s -> s.nullServerListCannotClearAPersistedVipSelectionDuringHostReconciliation() }
+        runIsolated { s -> s.nullServerListStaysNullWithoutAnActivePersistedVipChoice() }
+        runIsolated { s -> s.freshServerMetadataWinsOverTheOldPersistedInstance() }
+        runIsolated { s -> s.reclassifiedDlcCannotBeReintroducedAsAnOldVipChoice() }
+        runIsolated { s -> s.modelRecompositionMarksChangedAndPreservesCallbackAndOtherFlags() }
+        runIsolated { s -> s.serializedConstructorOffsetCannotGuessAnUnsupportedLayout() }
+        runIsolated { s -> s.warmupCannotOverwriteNewerWritesOrAnExplicitModeChange() }
+        runIsolated { s -> s.disabledFeaturesRegisterNothing() }
+        runIsolated { s -> s.equivalentWriteResumesRotationFromTheImageThatActuallyExited() }
+        runIsolated { s -> s.equivalentWriteRetriesAnEmptyCacheButDoesNotDecodeAnIdleImageAgain() }
+        runIsolated { s -> s.bitmapSamplingKeepsNarrowAndRoundedUpDimensionsWithinThePixelBudget() }
     }
 }

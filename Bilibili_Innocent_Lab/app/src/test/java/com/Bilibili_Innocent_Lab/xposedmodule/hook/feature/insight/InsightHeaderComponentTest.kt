@@ -14,7 +14,7 @@ interface InsightEntryFixture { fun getRoot(): View }
 class InsightHeaderComponentTest {
     private fun header() = InsightHeaderComponent(InsightComponentFixture::class.java, InsightEntryFixture::class.java,
         Unit, { error("No Android view needed for the component contract") }, bind = {}).value
-    @Test fun `native adapter updates preserve every original item and insert exactly one module header`() {
+    fun `native adapter updates preserve every original item and insert exactly one module header`() {
         val first = Any(); val second = Any(); val older = header(); val current = header()
         val original = listOf(first, older, second)
         val updated = InsightHeaderComponent.prepend(original, current)
@@ -23,7 +23,7 @@ class InsightHeaderComponentTest {
         assertSame(older, original[1])
         assertEquals(updated, InsightHeaderComponent.prepend(updated, current))
     }
-    @Test fun `process cached component keys contain stable values rather than views or owners`() {
+    fun `process cached component keys contain stable values rather than views or owners`() {
         val first = header() as InsightComponentFixture; val second = header() as InsightComponentFixture
         assertEquals(InsightHeaderComponent.KEY, first.viewReusingKey())
         assertEquals(first.viewReusingKey(), second.viewReusingKey())
@@ -31,5 +31,15 @@ class InsightHeaderComponentTest {
         assertEquals(InsightHeaderComponent.KEY, first.contentEqualityKey())
         assertNotEquals(first, second)
         assertTrue(first == first)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (InsightHeaderComponentTest) -> Unit) {
+            val s = InsightHeaderComponentTest()
+            block(s)
+        }
+        runIsolated { s -> s.`native adapter updates preserve every original item and insert exactly one module header`() }
+        runIsolated { s -> s.`process cached component keys contain stable values rather than views or owners`() }
     }
 }

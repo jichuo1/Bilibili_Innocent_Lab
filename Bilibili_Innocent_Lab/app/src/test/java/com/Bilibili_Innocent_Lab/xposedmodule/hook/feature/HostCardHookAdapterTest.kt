@@ -9,7 +9,7 @@ class HostCardHookAdapterTest {
     private fun captured(owner: Class<*> = CapturedCard::class.java) = HostOgvCardAdapter.captured(
         owner, CardModel::class.java, FollowCapture::class.java, CardModifier::class.java, CardComposer::class.java)
 
-    @Test fun `only exact single card capture is accepted and outer page capture is rejected`() {
+    fun `only exact single card capture is accepted and outer page capture is rejected`() {
         val point = requireNotNull(captured())
         val receiver = CapturedCard(CardModel(), FollowCapture())
         val args = arrayOf<Any?>(CardModifier(), CardComposer(), 18)
@@ -26,7 +26,7 @@ class HostCardHookAdapterTest {
         assertFalse(point.accepts(CapturedCard(CardModel(), FollowCapture()), arrayOf(CardModifier(), Any(), 0)))
     }
 
-    @Test fun `three argument erased bridge changes first modifier flags and preserves original body and exceptions`() {
+    fun `three argument erased bridge changes first modifier flags and preserves original body and exceptions`() {
         val point = requireNotNull(captured())
         val registrar = PlayerPortTestRegistrar()
         val receiver = CapturedCard(CardModel(), FollowCapture())
@@ -52,7 +52,7 @@ class HostCardHookAdapterTest {
         })
     }
 
-    @Test fun `following five parameter card excludes outer page and never writes a default slot`() {
+    fun `following five parameter card excludes outer page and never writes a default slot`() {
         val point = requireNotNull(HostOgvCardAdapter.following(FollowingUi::class.java, CardItem::class.java,
             Helper::class.java, CardModifier::class.java, CardComposer::class.java))
         assertEquals("card", point.method.name)
@@ -68,7 +68,7 @@ class HostCardHookAdapterTest {
             Helper::class.java, CardModifier::class.java, CardComposer::class.java))
     }
 
-    @Test fun `following helper rename is resolved through complete single card ABI`() {
+    fun `following helper rename is resolved through complete single card ABI`() {
         val names = mapOf("androidx.compose.ui.Modifier" to CardModifier::class.java,
             "androidx.compose.runtime.Composer" to CardComposer::class.java,
             "com.bilibili.ogv.kmm.operation.following.BangumiFollowing\$b" to CardItem::class.java,
@@ -80,7 +80,7 @@ class HostCardHookAdapterTest {
             null, CardModifier::class.java, CardComposer::class.java))
     }
 
-    @Test fun `legacy defaults clear only card modifier bits and allow a default null modifier`() {
+    fun `legacy defaults clear only card modifier bits and allow a default null modifier`() {
         val point = requireNotNull(HostOgvCardAdapter.following(LegacyFollowing::class.java, CardItem::class.java,
             Helper::class.java, CardModifier::class.java, CardComposer::class.java))
         val args = arrayOf<Any?>(CardItem(), Helper(), null, CardComposer(), 0x7ff, 0x3f)
@@ -91,7 +91,7 @@ class HostCardHookAdapterTest {
         assertFalse(point.accepts(null, args))
     }
 
-    @Test fun `inline lazy card families remain visible partial with no hook to outer page`() {
+    fun `inline lazy card families remain visible partial with no hook to outer page`() {
         val names = mapOf("androidx.compose.ui.Modifier" to CardModifier::class.java,
             "androidx.compose.runtime.Composer" to CardComposer::class.java,
             "com.bilibili.ogv.operation3.module.operablecard.a" to CardModel::class.java,
@@ -107,7 +107,7 @@ class HostCardHookAdapterTest {
         assertTrue(HostCardHookCoverage.NONE.complete)
     }
 
-    @Test fun `Pegasus resolves only declared bottom line draw over and preserves shadow draw and inherited no op`() {
+    fun `Pegasus resolves only declared bottom line draw over and preserves shadow draw and inherited no op`() {
         fun point(owner: Class<*>) = HostVideoCardDividerHooks.pegasus(owner, Decoration::class.java,
             DrawCanvas::class.java, Recycler::class.java, DrawState::class.java,
             DrawContext::class.java, DrawPaint::class.java, DrawRect::class.java)
@@ -189,5 +189,20 @@ class HostCardHookAdapterTest {
         @JvmField val rect = DrawRect()
         @JvmField val disabled = false
         fun onDraw(canvas: DrawCanvas, recycler: Recycler, state: DrawState) {}
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostCardHookAdapterTest) -> Unit) {
+            val s = HostCardHookAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.`only exact single card capture is accepted and outer page capture is rejected`() }
+        runIsolated { s -> s.`three argument erased bridge changes first modifier flags and preserves original body and exceptions`() }
+        runIsolated { s -> s.`following five parameter card excludes outer page and never writes a default slot`() }
+        runIsolated { s -> s.`following helper rename is resolved through complete single card ABI`() }
+        runIsolated { s -> s.`legacy defaults clear only card modifier bits and allow a default null modifier`() }
+        runIsolated { s -> s.`inline lazy card families remain visible partial with no hook to outer page`() }
+        runIsolated { s -> s.`Pegasus resolves only declared bottom line draw over and preserves shadow draw and inherited no op`() }
     }
 }

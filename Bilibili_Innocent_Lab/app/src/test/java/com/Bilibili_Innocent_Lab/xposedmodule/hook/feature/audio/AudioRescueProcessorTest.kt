@@ -14,12 +14,12 @@ class AudioRescueProcessorTest {
     private fun rms(data: FloatArray, start: Int = data.size / 2) = sqrt(data.drop(start).sumOf { it.toDouble() * it } / (data.size - start))
     private fun run(config: AudioRescueConfig, input: FloatArray) = input.copyOf().also { AudioRescueProcessor(rate, 2, config).process(it) }
 
-    @Test fun `all off is bit exact`() {
+    fun `all off is bit exact`() {
         val input = floatArrayOf(-1f, 0f, .123456f, Float.NaN, Float.POSITIVE_INFINITY, -0f)
         assertArrayEquals(input, run(AudioRescueConfig(), input), 0f)
     }
 
-    @Test fun `first sudden sample is held with linked channels`() {
+    fun `first sudden sample is held with linked channels`() {
         val processor = AudioRescueProcessor(rate, 2, AudioRescueConfig(peakGuard = true))
         processor.process(tone(1000.0, amplitude = .04))
         val impulse = floatArrayOf(1f, .5f)
@@ -28,13 +28,13 @@ class AudioRescueProcessorTest {
         assertEquals(impulse[0] / 2, impulse[1], 1e-6f)
     }
 
-    @Test fun `absolute ceiling handles sustained loud audio and full scale startup`() {
+    fun `absolute ceiling handles sustained loud audio and full scale startup`() {
         val data = run(AudioRescueConfig(peakGuard = true), FloatArray(rate * 4) { if (it % 4 < 2) 1f else -1f })
         assertTrue(data.all { abs(it) <= .500001f })
         assertTrue(data.take(2).all { abs(it) <= .321f })
     }
 
-    @Test fun `guard preserves normal speech level and releases after a burst`() {
+    fun `guard preserves normal speech level and releases after a burst`() {
         val processor = AudioRescueProcessor(rate, 2, AudioRescueConfig(peakGuard = true))
         val quiet = tone(1000.0, amplitude = .04)
         val reference = quiet.copyOf()
@@ -48,13 +48,13 @@ class AudioRescueProcessorTest {
         assertTrue((1 until recovery.size).all { abs(recovery[it] - recovery[it - 1]) < .001f })
     }
 
-    @Test fun `mono average copies one ear without gain and documents phase cancellation`() {
+    fun `mono average copies one ear without gain and documents phase cancellation`() {
         val config = AudioRescueConfig(channels = 1)
         assertArrayEquals(floatArrayOf(.2f, .2f, -.4f, -.4f), run(config, floatArrayOf(.4f, 0f, 0f, -.8f)), 0f)
         assertArrayEquals(floatArrayOf(0f, 0f), run(config, floatArrayOf(.5f, -.5f)), 0f)
     }
 
-    @Test fun `auto fills either missing ear after sustained imbalance`() {
+    fun `auto fills either missing ear after sustained imbalance`() {
         for (missing in 0..1) {
             val input = tone(1000.0)
             for (index in missing until input.size step 2) input[index] = 0f
@@ -64,7 +64,7 @@ class AudioRescueProcessorTest {
         }
     }
 
-    @Test fun `auto preserves normal stereo and short artistic pans`() {
+    fun `auto preserves normal stereo and short artistic pans`() {
         val stereo = tone(500.0, opposite = true)
         assertArrayEquals(stereo, run(AudioRescueConfig(channels = 2), stereo), 0f)
         val shortPan = tone(1000.0, seconds = .15)
@@ -72,12 +72,12 @@ class AudioRescueProcessorTest {
         assertArrayEquals(shortPan, run(AudioRescueConfig(channels = 2), shortPan), 0f)
     }
 
-    @Test fun `auto does not amplify near silent microphone noise`() {
+    fun `auto does not amplify near silent microphone noise`() {
         val input = FloatArray(rate * 2) { if (it % 2 == 0) .00001f else .0001f }
         assertArrayEquals(input, run(AudioRescueConfig(channels = 2), input), 0f)
     }
 
-    @Test fun `confirmed missing ear survives pauses then releases when normal stereo returns`() {
+    fun `confirmed missing ear survives pauses then releases when normal stereo returns`() {
         val processor = AudioRescueProcessor(rate, 2, AudioRescueConfig(channels = 2))
         fun oneEar(seconds: Double) = tone(900.0, seconds = seconds).also { x ->
             for (i in x.indices step 2) x[i] = 0f
@@ -93,7 +93,7 @@ class AudioRescueProcessorTest {
         assertArrayEquals(expected.takeLast(1000).toFloatArray(), stereo.takeLast(1000).toFloatArray(), 1e-6f)
     }
 
-    @Test fun `noise filters suppress mains fundamentals and harmonics but preserve speech`() {
+    fun `noise filters suppress mains fundamentals and harmonics but preserve speech`() {
         val config = AudioRescueConfig(noiseReduction = true)
         for (hz in listOf(50.0, 60.0, 100.0, 120.0)) {
             val input = tone(hz, seconds = 2.0)
@@ -103,7 +103,7 @@ class AudioRescueProcessorTest {
         assertTrue(rms(run(config, input)) > rms(input) * .9)
     }
 
-    @Test fun `noise expansion attenuates quiet broadband hiss without unstable output`() {
+    fun `noise expansion attenuates quiet broadband hiss without unstable output`() {
         val random = Random(7)
         val input = FloatArray(rate * 4) { random.nextFloat() * .001f - .0005f }
         val output = run(AudioRescueConfig(noiseReduction = true), input)
@@ -111,13 +111,13 @@ class AudioRescueProcessorTest {
         assertTrue(output.all { it.isFinite() })
     }
 
-    @Test fun `unavailable voice model preserves centered panned and antiphase speech`() {
+    fun `unavailable voice model preserves centered panned and antiphase speech`() {
         val config = AudioRescueConfig(voiceFocus = true)
         for (input in listOf(tone(1000.0), tone(1000.0, opposite = true), tone(60.0)))
             assertArrayEquals(input, run(config, input), 0f)
     }
 
-    @Test fun `processing is invariant to write partition and checkpoint replay`() {
+    fun `processing is invariant to write partition and checkpoint replay`() {
         val config = AudioRescueConfig(true, 2, true, true)
         val input = tone(323.0)
         val expected = run(config, input)
@@ -137,7 +137,7 @@ class AudioRescueProcessorTest {
         assertArrayEquals(first, burst.copyOf().also { processor.process(it) }, 0f)
     }
 
-    @Test fun `all combinations keep finite bounded output across supported rates and channels`() {
+    fun `all combinations keep finite bounded output across supported rates and channels`() {
         for (sampleRate in listOf(8000, 44100, 48000, 192000)) for (channels in 1..2) {
             for (mask in 0..15) {
                 val processor = AudioRescueProcessor(sampleRate, channels,
@@ -149,11 +149,34 @@ class AudioRescueProcessorTest {
         }
     }
 
-    @Test fun `enabled processor handles nonfinite samples and rejects unknown formats`() {
+    fun `enabled processor handles nonfinite samples and rejects unknown formats`() {
         val output = run(AudioRescueConfig(peakGuard = true), floatArrayOf(Float.NaN, Float.NEGATIVE_INFINITY))
         assertArrayEquals(floatArrayOf(0f, 0f), output, 0f)
         for ((rate, channels) in listOf(0 to 2, 48000 to 6, 384000 to 1)) {
             assertTrue(runCatching { AudioRescueProcessor(rate, channels, AudioRescueConfig()) }.isFailure)
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AudioRescueProcessorTest) -> Unit) {
+            val s = AudioRescueProcessorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`all off is bit exact`() }
+        runIsolated { s -> s.`first sudden sample is held with linked channels`() }
+        runIsolated { s -> s.`absolute ceiling handles sustained loud audio and full scale startup`() }
+        runIsolated { s -> s.`guard preserves normal speech level and releases after a burst`() }
+        runIsolated { s -> s.`mono average copies one ear without gain and documents phase cancellation`() }
+        runIsolated { s -> s.`auto fills either missing ear after sustained imbalance`() }
+        runIsolated { s -> s.`auto preserves normal stereo and short artistic pans`() }
+        runIsolated { s -> s.`auto does not amplify near silent microphone noise`() }
+        runIsolated { s -> s.`confirmed missing ear survives pauses then releases when normal stereo returns`() }
+        runIsolated { s -> s.`noise filters suppress mains fundamentals and harmonics but preserve speech`() }
+        runIsolated { s -> s.`noise expansion attenuates quiet broadband hiss without unstable output`() }
+        runIsolated { s -> s.`unavailable voice model preserves centered panned and antiphase speech`() }
+        runIsolated { s -> s.`processing is invariant to write partition and checkpoint replay`() }
+        runIsolated { s -> s.`all combinations keep finite bounded output across supported rates and channels`() }
+        runIsolated { s -> s.`enabled processor handles nonfinite samples and rejects unknown formats`() }
     }
 }

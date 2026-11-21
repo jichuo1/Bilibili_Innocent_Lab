@@ -17,7 +17,7 @@ class BiliAccessKeyContainmentContractTest {
     private val installer = SourceContract.read("hook/feature/AiDeclaredVideoFeatureInstaller.kt")
     private val entry = SourceContract.read("hook/HookEntry.kt")
 
-    @Test fun probeNeverStoresOrLogsTheToken() {
+    fun probeNeverStoresOrLogsTheToken() {
         val body = probe.after("internal class BiliAccessKeyProbe").before("companion object")
         // 令牌只在一个表达式里判空，不落到字段或变量。
         assertTrue(body.contains("(getAccessKey.invoke(token) as? String)?.isNotBlank() == true"))
@@ -26,18 +26,29 @@ class BiliAccessKeyContainmentContractTest {
         }
     }
 
-    @Test fun installerReportsOnlyTheStateCode() {
+    fun installerReportsOnlyTheStateCode() {
         val precheck = installer.after("private fun installPrechecker(").before("private fun installRelatesFeed(")
         assertTrue(precheck.contains("environment.reportStatus(ACCESS_KEY_STATUS, state.code)"))
         assertFalse(precheck.contains("getAccessKey"))
     }
 
     /** 强力模式拆成两项后：只有推荐预检以授权为前提，屏蔽发布者照旧只读自己的开关。 */
-    @Test fun onlyTheRecommendationPrecheckRequiresAuthorization() {
+    fun onlyTheRecommendationPrecheckRequiresAuthorization() {
         assertEquals(1, Regex("""precheck = aiDeclaredPrecheckEffective\(prefs\)""").findAll(entry).count())
         assertTrue(entry.contains("accessKeyAuthorized = prefs.getBoolean(FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED, false)"))
         assertTrue(entry.contains("precheck = prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_PRECHECK, false)"))
         val install = installer.after("override fun install(").before("private fun installPrechecker(")
         assertTrue(install.contains("if (precheck) installPrechecker("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BiliAccessKeyContainmentContractTest) -> Unit) {
+            val s = BiliAccessKeyContainmentContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.probeNeverStoresOrLogsTheToken() }
+        runIsolated { s -> s.installerReportsOnlyTheStateCode() }
+        runIsolated { s -> s.onlyTheRecommendationPrecheckRequiresAuthorization() }
     }
 }

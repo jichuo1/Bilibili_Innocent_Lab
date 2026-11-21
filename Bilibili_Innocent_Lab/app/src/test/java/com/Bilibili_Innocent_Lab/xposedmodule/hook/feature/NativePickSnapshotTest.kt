@@ -5,7 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativePickSnapshotTest {
-    @Test fun twoTagPicksSurviveTheActualWireCodecAndAccumulator() {
+    fun twoTagPicksSurviveTheActualWireCodecAndAccumulator() {
         val receipts = mutableListOf<MineComponentSnapshot>()
         val environment = HookEnvironment("tv.danmaku.bili", javaClass.classLoader,
             HookPointRegistry(javaClass.classLoader), TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> },
@@ -29,7 +29,7 @@ class NativePickSnapshotTest {
      * 累积器是空的、整份覆盖，`payload_section_picks` 里只剩后者。用户在模块里
      * 确认之前记录就没了，且全程没有任何错误。
      */
-    @Test fun aPickMadeAfterAHostRestartUnionsWithTheOnePersistedBefore() {
+    fun aPickMadeAfterAHostRestartUnionsWithTheOnePersistedBefore() {
         val before = listOf(MineComponentScanEntry("tid:79793", "section", "日本文化", "79793", null, true,
             selectionToken = "first-session"))
         // 重启后的新进程只累积到自己这一条。
@@ -40,7 +40,7 @@ class NativePickSnapshotTest {
         assertEquals(listOf("13160", "79793"), merged.map { it.id })
     }
 
-    @Test fun theNewerEntryWinsOnTheSameKeyAndListSurfacesStillReplaceWholesale() {
+    fun theNewerEntryWinsOnTheSameKeyAndListSurfacesStillReplaceWholesale() {
         val previous = listOf(MineComponentScanEntry("tid:11", "section", "old", "11", null, true,
             selectionToken = "old-token"))
         val current = listOf(MineComponentScanEntry("tid:11", "section", "new", "11", null, true,
@@ -56,7 +56,7 @@ class NativePickSnapshotTest {
     }
 
     /** 满额时保本次点选，用旧记录补齐；否则用户刚点的那条会被历史挤掉。 */
-    @Test fun theCurrentPicksAreKeptWhenTheMergedSetWouldOverflow() {
+    fun theCurrentPicksAreKeptWhenTheMergedSetWouldOverflow() {
         val previous = (1..MineComponentSnapshotCodec.MAX_ENTRY_COUNT).map {
             MineComponentScanEntry("tid:$it", "section", "old $it", it.toString(), null, true)
         }
@@ -67,11 +67,24 @@ class NativePickSnapshotTest {
         assertTrue(merged.any { it.id == "900000" })
     }
 
-    @Test fun authorKeysRoundTripAndForgedTagKeysAreRejected() {
+    fun authorKeysRoundTripAndForgedTagKeysAreRejected() {
         val entry = checkNotNull(MineComponentScanEntry.create("author", "UP name", "UP name", null, true))
         assertEquals(entry, MineComponentScanEntry.fromJsonOrNull(entry.toJson()))
         assertNull(MineComponentScanEntry.create("section", "bad", "-1", null, true))
         assertNull(MineComponentScanEntry.fromJsonOrNull(
             MineComponentScanEntry("tid:99", "section", "bad", "11", null, true).toJson()))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (NativePickSnapshotTest) -> Unit) {
+            val s = NativePickSnapshotTest()
+            block(s)
+        }
+        runIsolated { s -> s.twoTagPicksSurviveTheActualWireCodecAndAccumulator() }
+        runIsolated { s -> s.aPickMadeAfterAHostRestartUnionsWithTheOnePersistedBefore() }
+        runIsolated { s -> s.theNewerEntryWinsOnTheSameKeyAndListSurfacesStillReplaceWholesale() }
+        runIsolated { s -> s.theCurrentPicksAreKeptWhenTheMergedSetWouldOverflow() }
+        runIsolated { s -> s.authorKeysRoundTripAndForgedTagKeysAreRejected() }
     }
 }

@@ -15,13 +15,23 @@ class SettingsSearchOpenCostContractTest {
     private val search = dialogs.after("internal fun MainActivity.showSettingsSearchDialog(")
         .before("private fun MainActivity.highlightedSettingsSearchText(")
 
-    @Test fun targetsAreCollectedLazily() {
+    fun targetsAreCollectedLazily() {
         assertTrue(search.contains("val runtimeTargets by lazy(LazyThreadSafetyMode.NONE) { collectSettingsSearchTargets() }"))
         assertTrue(search.contains("val targetByKey by lazy(LazyThreadSafetyMode.NONE)"))
     }
 
-    @Test fun blankQueryNeverTouchesTheTargets() {
+    fun blankQueryNeverTouchesTheTargets() {
         val render = search.after("fun renderResults(query: String) {").before("results.forEach")
         assertTrue(render.contains("val results = if (query.isBlank()) emptyList() else SettingsSearchMatcher.searchMatches("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsSearchOpenCostContractTest) -> Unit) {
+            val s = SettingsSearchOpenCostContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.targetsAreCollectedLazily() }
+        runIsolated { s -> s.blankQueryNeverTouchesTheTargets() }
     }
 }

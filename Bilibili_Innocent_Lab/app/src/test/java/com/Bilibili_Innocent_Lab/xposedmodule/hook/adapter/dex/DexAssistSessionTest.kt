@@ -28,7 +28,6 @@ class DexAssistSessionTest {
     private fun session(engine: DexAssistEngine, planned: Set<DexAssistQuery>) =
         DexAssistSession(engine, listOf("/base.apk"), javaClass.classLoader!!, planned)
 
-    @Test
     fun `planned queries share one pass`() {
         val engine = RecordingEngine()
         val planned = setOf(DexAssistQuery.BLOCK_UPDATE, DexAssistQuery.PLAYER_DEFAULT_QUALITY,
@@ -46,7 +45,6 @@ class DexAssistSessionTest {
         assertTrue(engine.singles.isEmpty())
     }
 
-    @Test
     fun `an unplanned query is still answered on its own`() {
         val engine = RecordingEngine()
         val session = session(engine, setOf(DexAssistQuery.BLOCK_UPDATE))
@@ -57,7 +55,6 @@ class DexAssistSessionTest {
         assertEquals(listOf(DexAssistQuery.COMMENT_REPLY_MAPPER), engine.singles)
     }
 
-    @Test
     fun `default batch falls back to one resolve per query`() {
         val seen = mutableListOf<DexAssistQuery>()
         val engine = DexAssistEngine { request ->
@@ -70,5 +67,16 @@ class DexAssistSessionTest {
 
         assertEquals(all, results.keys)
         assertEquals(all, seen.toSet())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DexAssistSessionTest) -> Unit) {
+            val s = DexAssistSessionTest()
+            block(s)
+        }
+        runIsolated { s -> s.`planned queries share one pass`() }
+        runIsolated { s -> s.`an unplanned query is still answered on its own`() }
+        runIsolated { s -> s.`default batch falls back to one resolve per query`() }
     }
 }

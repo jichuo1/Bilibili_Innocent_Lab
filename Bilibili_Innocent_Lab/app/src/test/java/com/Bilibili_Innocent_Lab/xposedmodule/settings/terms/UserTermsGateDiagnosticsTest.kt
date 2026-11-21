@@ -9,20 +9,17 @@ import org.junit.Test
 
 class UserTermsGateDiagnosticsTest {
 
-    @Test
     fun `android uid encoding resolves primary and secondary users`() {
         assertEquals(0, androidUserIdFromUid(10_234))
         assertEquals(10, androidUserIdFromUid(1_010_234))
     }
 
-    @Test
     fun `same-user result remains unknown until target identity is visible`() {
         assertNull(resolveSameAndroidUser(moduleUserId = 10, targetUserId = null))
         assertTrue(resolveSameAndroidUser(moduleUserId = 10, targetUserId = 10) == true)
         assertFalse(resolveSameAndroidUser(moduleUserId = 10, targetUserId = 0) == true)
     }
 
-    @Test
     fun `remote failure codes are normalized for gated diagnostics`() {
         assertEquals(
             USER_TERMS_FAILURE_SERVICE_NOT_CONNECTED,
@@ -38,7 +35,6 @@ class UserTermsGateDiagnosticsTest {
         )
     }
 
-    @Test
     fun `local finalization failure keeps its distinct code`() {
         assertEquals(
             UserTermsAuthorizationCoordinator.FAILURE_LOCAL_WRITE,
@@ -46,7 +42,6 @@ class UserTermsGateDiagnosticsTest {
         )
     }
 
-    @Test
     fun `current framework state supplies a bounded fallback code`() {
         assertEquals(
             USER_TERMS_FAILURE_SERVICE_NOT_CONNECTED,
@@ -84,4 +79,17 @@ class UserTermsGateDiagnosticsTest {
         frameworkCapable = capable,
         publishState = state
     )
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (UserTermsGateDiagnosticsTest) -> Unit) {
+            val s = UserTermsGateDiagnosticsTest()
+            block(s)
+        }
+        runIsolated { s -> s.`android uid encoding resolves primary and secondary users`() }
+        runIsolated { s -> s.`same-user result remains unknown until target identity is visible`() }
+        runIsolated { s -> s.`remote failure codes are normalized for gated diagnostics`() }
+        runIsolated { s -> s.`local finalization failure keeps its distinct code`() }
+        runIsolated { s -> s.`current framework state supplies a bounded fallback code`() }
+    }
 }

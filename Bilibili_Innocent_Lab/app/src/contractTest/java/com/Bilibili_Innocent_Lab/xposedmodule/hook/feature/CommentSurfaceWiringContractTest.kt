@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CommentSurfaceWiringContractTest {
-    @Test fun additionalCommentRpcResponsesUseTheSharedBridgeWithScopedSingleRemoval() {
+    fun additionalCommentRpcResponsesUseTheSharedBridgeWithScopedSingleRemoval() {
         for (file in listOf("CommentFilterFeatureInstaller.kt", "CommentPurifyFeatureInstaller.kt")) {
             val source = SourceContract.read("hook/feature/$file")
             for (mapping in listOf(
@@ -28,7 +28,7 @@ class CommentSurfaceWiringContractTest {
         assertTrue(purify.contains("rpc == \"mainList\" && requestTransform != null"))
     }
 
-    @Test fun fullTreeLoadingSwitchesBudgetBeforeInspectingAnInFlightRequest() {
+    fun fullTreeLoadingSwitchesBudgetBeforeInspectingAnInFlightRequest() {
         val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
         val open = source.after("override fun onFullTreeRequested()").before("override fun onOpacityCommitted")
         assertTrue(open.before("if (!state.loadingRequest)").contains("if (!state.loadAll) state.guard.beginBatch"))
@@ -43,7 +43,7 @@ class CommentSurfaceWiringContractTest {
             .contains("?: error(\"ReplyInfo replies is unavailable\")"))
     }
 
-    @Test fun storyPanelUsesTheClickedCommentWindowAndRetainsOnlyWeakOwnership() {
+    fun storyPanelUsesTheClickedCommentWindowAndRetainsOnlyWeakOwnership() {
         val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
         assertTrue(source.contains("coordinator?.open(activity, currentSeed, this@ReplyTopologyAnchorView)"))
         assertTrue(source.contains("state.sourceAnchor?.get()"))
@@ -60,7 +60,7 @@ class CommentSurfaceWiringContractTest {
         assertFalse(controller.contains("SYSTEM_ALERT_WINDOW"))
     }
 
-    @Test fun imageAndPushDoNotTurnEveryContentIdIntoAComment() {
+    fun imageAndPushDoNotTurnEveryContentIdIntoAComment() {
         val hook = SourceContract.read("hook/HookEntry.kt")
         val ids = hook.after("private fun isCommentBodyTextView").before("private fun clearCommentTouchSession")
         assertFalse(ids.contains("getIdentifier(\"content\""))
@@ -69,7 +69,7 @@ class CommentSurfaceWiringContractTest {
         assertTrue(bridge.contains("sample.resources.getIdentifier(\"sub_content\""))
     }
 
-    @Test fun composeBindingDoesNotReadPreferencesOrLookupClassesOnEveryRender() {
+    fun composeBindingDoesNotReadPreferencesOrLookupClassesOnEveryRender() {
         val bridge = SourceContract.read("hook/feature/CommentComposeCopyBridge.kt")
             .after("after {").before("dispatchers += dispatch")
         assertFalse(bridge.contains("classOrNull"))
@@ -82,7 +82,7 @@ class CommentSurfaceWiringContractTest {
         assertFalse(menu.contains("reportRuntimeEvidence(\"reply_topology_enabled\""))
     }
 
-    @Test fun composeMoreActionInvalidatesPreviousContextBeforeAnyBindingFallback() {
+    fun composeMoreActionInvalidatesPreviousContextBeforeAnyBindingFallback() {
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("resetMore = commentTopologyInstaller::clearComposeMenu"))
         val dispatch = SourceContract.read("hook/feature/CommentComposeCopyBridge.kt")
@@ -101,7 +101,7 @@ class CommentSurfaceWiringContractTest {
         assertTrue(menu.contains("takeIf { acceptsClick(current, it) }"))
     }
 
-    @Test fun performancePathsKeepCopyDisabledHooksOutAndShareOnlyCommentReplies() {
+    fun performancePathsKeepCopyDisabledHooksOutAndShareOnlyCommentReplies() {
         val bridge = SourceContract.read("hook/feature/CommentNativeSupplementBridge.kt")
         assertTrue(bridge.after("fun install(environment").before("val loader").contains("if (!enabled()) return emptyMap()"))
         assertTrue(bridge.contains("setter.declaringClass"))
@@ -118,5 +118,20 @@ class CommentSurfaceWiringContractTest {
             assertTrue(SourceContract.read("hook/feature/$file").contains("shareUnchangedReply = true"))
         }
         assertFalse(SourceContract.read("hook/feature/SearchPurifyFeatureInstaller.kt").contains("shareUnchangedReply = true"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentSurfaceWiringContractTest) -> Unit) {
+            val s = CommentSurfaceWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.additionalCommentRpcResponsesUseTheSharedBridgeWithScopedSingleRemoval() }
+        runIsolated { s -> s.fullTreeLoadingSwitchesBudgetBeforeInspectingAnInFlightRequest() }
+        runIsolated { s -> s.storyPanelUsesTheClickedCommentWindowAndRetainsOnlyWeakOwnership() }
+        runIsolated { s -> s.imageAndPushDoNotTurnEveryContentIdIntoAComment() }
+        runIsolated { s -> s.composeBindingDoesNotReadPreferencesOrLookupClassesOnEveryRender() }
+        runIsolated { s -> s.composeMoreActionInvalidatesPreviousContextBeforeAnyBindingFallback() }
+        runIsolated { s -> s.performancePathsKeepCopyDisabledHooksOutAndShareOnlyCommentReplies() }
     }
 }

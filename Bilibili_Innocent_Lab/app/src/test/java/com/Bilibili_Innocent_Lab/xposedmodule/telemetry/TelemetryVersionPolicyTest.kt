@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TelemetryVersionPolicyTest {
-    @Test fun `either numeric version changing is a new pair including downgrade`() {
+    fun `either numeric version changing is a new pair including downgrade`() {
         val now = 200_000_000L
         val current = TelemetryVersionPolicy.key(15, 91100)!!
         assertEquals("15:91100", current)
@@ -16,7 +16,7 @@ class TelemetryVersionPolicyTest {
         }
     }
 
-    @Test fun `three attempts persist across restart clock rollback and exact 24h boundary`() {
+    fun `three attempts persist across restart clock rollback and exact 24h boundary`() {
         val now = 200_000_000L
         val attempts = "$now,${now + 1},${now + 2}"
         assertFalse(TelemetryVersionPolicy.allowed("15:91100", null, attempts, 0, now - 1))
@@ -28,12 +28,23 @@ class TelemetryVersionPolicyTest {
         assertFalse(TelemetryVersionPolicy.allowed("15:91100", null, "", now + 1, now))
     }
 
-    @Test fun `version quota exhaustion does not alter manual or automatic policy`() {
+    fun `version quota exhaustion does not alter manual or automatic policy`() {
         val now = 200_000_000L
         assertFalse(TelemetryVersionPolicy.allowed("15:91100", null, "$now,$now,$now", 0, now))
         assertEquals(TelemetryAttemptDecision.ALLOWED,
             TelemetryPolicy.manualDecision(true, false, now, 0, ""))
         assertEquals(TelemetryAttemptDecision.ALLOWED,
             TelemetryPolicy.attemptDecision(true, false, now, 0, 0, false))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TelemetryVersionPolicyTest) -> Unit) {
+            val s = TelemetryVersionPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.`either numeric version changing is a new pair including downgrade`() }
+        runIsolated { s -> s.`three attempts persist across restart clock rollback and exact 24h boundary`() }
+        runIsolated { s -> s.`version quota exhaustion does not alter manual or automatic policy`() }
     }
 }

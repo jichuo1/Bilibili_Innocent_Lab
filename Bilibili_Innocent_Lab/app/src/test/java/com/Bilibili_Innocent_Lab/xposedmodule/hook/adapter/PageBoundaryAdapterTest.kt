@@ -25,7 +25,7 @@ class PageBoundaryAdapterTest {
     private fun session(results: Map<DexAssistQuery, DexAssistResult>, planned: Set<DexAssistQuery> = results.keys) =
         DexAssistSession(DexAssistEngine { results[it.query] ?: error("unplanned query") }, listOf("base.apk"), loader, planned)
 
-    @Test fun renamedOwnersOutsideTheOldAlphabetResolveThroughTypedProductionLocators() {
+    fun renamedOwnersOutsideTheOldAlphabetResolveThroughTypedProductionLocators() {
         val queries = setOf(DexAssistQuery.SEARCH_HOME_DELIVERY, DexAssistQuery.SEARCH_HOME_STATE, DexAssistQuery.PLAYER_END_PAGE_MERGER)
         val points = requireNotNull(PageBoundaryAdapter.locate(loader, null, session(mapOf(
             DexAssistQuery.SEARCH_HOME_DELIVERY to DexAssistResult.Candidates(listOf(history)),
@@ -41,7 +41,7 @@ class PageBoundaryAdapterTest {
         assertEquals(points, PageBoundaryPoints.fromJson(points.toJson()))
     }
 
-    @Test fun erasedListDecoysAndMultipleOwnersNeverBecomeHooks() {
+    fun erasedListDecoysAndMultipleOwnersNeverBecomeHooks() {
         val wrong = WrongDelivery::class.java.getDeclaredMethod("getHistoryList")
         val candidates = session(mapOf(
             DexAssistQuery.SEARCH_HOME_DELIVERY to DexAssistResult.Candidates(listOf(wrong)),
@@ -52,7 +52,7 @@ class PageBoundaryAdapterTest {
         assertNull(PageBoundaryAdapter.locate(loader, null, candidates, setOf(DexAssistQuery.SEARCH_HOME_DELIVERY, DexAssistQuery.SEARCH_HOME_STATE, DexAssistQuery.PLAYER_END_PAGE_MERGER)))
     }
 
-    @Test fun disabledAndPreviouslyAttemptedQueriesNeverLoadNativeOrOpenAnUnplannedSession() {
+    fun disabledAndPreviouslyAttemptedQueriesNeverLoadNativeOrOpenAnUnplannedSession() {
         val trap = object : ClassLoader(loader) { override fun loadClass(name: String, resolve: Boolean): Class<*> = error("disabled class load") }
         assertTrue(PageBoundaryAdapter.planned(trap, null, false, false, emptySet()).isEmpty())
         val expected = setOf(DexAssistQuery.SEARCH_HOME_DELIVERY, DexAssistQuery.SEARCH_HOME_STATE)
@@ -62,7 +62,7 @@ class PageBoundaryAdapterTest {
         assertNull(PageBoundaryAdapter.locate(loader, null, unopened, emptySet()))
     }
 
-    @Test fun storedNamesAreRevalidatedAndMalformedCacheCannotExpandThePackageScope() {
+    fun storedNamesAreRevalidatedAndMalformedCacheCannotExpandThePackageScope() {
         val points = PageBoundaryPoints(WrongDelivery::class.java.name, WrongState::class.java.name,
             VersionAdapter.HookPoint(RenamedMerger::class.java.name, "missing", listOf("java.util.List", "java.util.List")))
         assertNull(PageBoundaryAdapter.locate(loader, points, null, emptySet()))
@@ -71,10 +71,23 @@ class PageBoundaryAdapterTest {
         assertFalse(PageBoundaryPoints(endPageMerger = VersionAdapter.HookPoint("java.lang.String", "x", emptyList())).isValid())
     }
 
-    @Test fun relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedRootOwners() {
+    fun relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedRootOwners() {
         val relocated = PageBoundaryPoints(searchDelivery = "pl22", searchState = "v642")
         assertEquals(relocated, PageBoundaryPoints.fromJson(relocated.toJson()))
         assertNull(PageBoundaryAdapter.locate(loader, relocated, null, emptySet()))
         assertFalse(PageBoundaryPoints(searchDelivery = "v642", searchState = "pl22").isValid())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PageBoundaryAdapterTest) -> Unit) {
+            val s = PageBoundaryAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.renamedOwnersOutsideTheOldAlphabetResolveThroughTypedProductionLocators() }
+        runIsolated { s -> s.erasedListDecoysAndMultipleOwnersNeverBecomeHooks() }
+        runIsolated { s -> s.disabledAndPreviouslyAttemptedQueriesNeverLoadNativeOrOpenAnUnplannedSession() }
+        runIsolated { s -> s.storedNamesAreRevalidatedAndMalformedCacheCannotExpandThePackageScope() }
+        runIsolated { s -> s.relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedRootOwners() }
     }
 }

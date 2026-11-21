@@ -7,12 +7,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostAgentNativeWiringContractTest {
-    @Test fun bothHostInitializationPathsCarryExplicitAccountAuthorization() {
+    fun bothHostInitializationPathsCarryExplicitAccountAuthorization() {
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("config.values[FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED] == true"))
         assertTrue(hook.contains("activeHookConfig.get()?.getBoolean(FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED, false) == true"))
     }
-    @Test fun personalCallsCheckAccountBeforeAndAfterAndNeverExposeCredentials() {
+    fun personalCallsCheckAccountBeforeAndAfterAndNeverExposeCredentials() {
         val host = SourceContract.read("agent/host/HostAgentRuntime.kt")
         val page = host.after("private fun readPage(").before("private fun stamp(")
         assertTrue(page.indexOf("if (personal) requireAccount(lease)") < page.indexOf("val page = when"))
@@ -26,7 +26,7 @@ class HostAgentNativeWiringContractTest {
         assertTrue(delivery.contains("if (request.operation in PERSONAL_READS) requireAccount(lease)"))
         assertTrue(delivery.before("request.callback.transact").contains("accountRefusal(lease)"))
     }
-    @Test fun closeAcknowledgementFollowsWindowReleaseAndMetricsBypassDetailCache() {
+    fun closeAcknowledgementFollowsWindowReleaseAndMetricsBypassDetailCache() {
         val host = SourceContract.read("agent/host/HostAgentRuntime.kt")
         val closing = host.after("} else if (closing) {").before("} else {\n                            try")
         assertTrue(closing.indexOf("release(lease)") < closing.indexOf("native_window_released"))
@@ -41,7 +41,7 @@ class HostAgentNativeWiringContractTest {
         assertFalse(metrics.contains("detailCache"))
     }
 
-    @Test fun readableCurrentIdentityIsStampedAndRequiresOwnedReadContextWithoutWeakeningOpenConfirmation() {
+    fun readableCurrentIdentityIsStampedAndRequiresOwnedReadContextWithoutWeakeningOpenConfirmation() {
         val host = SourceContract.read("agent/host/HostAgentRuntime.kt")
         val state = host.after("\"get_host_state\" ->").before("\"search_videos\" ->")
         assertTrue(state.indexOf("stamp(state)") < state.indexOf("session.remember"))
@@ -57,7 +57,7 @@ class HostAgentNativeWiringContractTest {
         assertFalse(navigation.contains("native_read_context"))
     }
 
-    @Test fun temporaryFocusLossPermitsOnlyExistingOwnedReadContextAndKeepsActionsFocused() {
+    fun temporaryFocusLossPermitsOnlyExistingOwnedReadContextAndKeepsActionsFocused() {
         val window = SourceContract.read("agent/host/HostAgentWindow.kt")
         val activity = window.after("fun activity(): Activity?").before("private fun ownedActivity(")
         assertTrue(activity.contains("it.hasWindowFocus()"))
@@ -87,5 +87,18 @@ class HostAgentNativeWiringContractTest {
         assertTrue(pause.contains("resumed.clear()"))
         val state = window.after("fun state(").before("private data class Page")
         assertTrue(state.contains("put(\"foreground\", current.hasWindowFocus())"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostAgentNativeWiringContractTest) -> Unit) {
+            val s = HostAgentNativeWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.bothHostInitializationPathsCarryExplicitAccountAuthorization() }
+        runIsolated { s -> s.personalCallsCheckAccountBeforeAndAfterAndNeverExposeCredentials() }
+        runIsolated { s -> s.closeAcknowledgementFollowsWindowReleaseAndMetricsBypassDetailCache() }
+        runIsolated { s -> s.readableCurrentIdentityIsStampedAndRequiresOwnedReadContextWithoutWeakeningOpenConfirmation() }
+        runIsolated { s -> s.temporaryFocusLossPermitsOnlyExistingOwnedReadContextAndKeepsActionsFocused() }
     }
 }

@@ -24,7 +24,6 @@ class ReflectAccessPrimitiveArgTest {
         fun withChar(value: Char): String = "char:$value"
     }
 
-    @Test
     fun `resolves methods whose parameters are primitives`() {
         val target = Target()
         assertEquals("bool:true", ReflectAccess.callMethod(target, "withBoolean", true))
@@ -38,7 +37,6 @@ class ReflectAccessPrimitiveArgTest {
      * classOf 默认解析为原始类型，装箱类型必须显式传 `primitiveType = false`。
      * 两者不可混用：原始类型 Class 的 `isInstance` 恒为 false。
      */
-    @Test
     fun `classOf needs an explicit flag to resolve the boxed type`() {
         assertTrue(classOf<java.lang.Boolean>().isPrimitive)
         assertEquals(java.lang.Boolean.TYPE, classOf<java.lang.Boolean>())
@@ -47,10 +45,20 @@ class ReflectAccessPrimitiveArgTest {
     }
 
     /** Kotlin 的 `Boolean::class.java` 也是原始类型，与 `javaPrimitiveType` 完全相同。 */
-    @Test
     fun `kotlin class java is the primitive type not the boxed one`() {
         assertEquals(Boolean::class.javaPrimitiveType, Boolean::class.java)
         assertEquals(Int::class.javaPrimitiveType, Int::class.java)
         assertTrue(Boolean::class.java.isPrimitive)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ReflectAccessPrimitiveArgTest) -> Unit) {
+            val s = ReflectAccessPrimitiveArgTest()
+            block(s)
+        }
+        runIsolated { s -> s.`resolves methods whose parameters are primitives`() }
+        runIsolated { s -> s.`classOf needs an explicit flag to resolve the boxed type`() }
+        runIsolated { s -> s.`kotlin class java is the primitive type not the boxed one`() }
     }
 }

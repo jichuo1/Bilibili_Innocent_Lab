@@ -10,7 +10,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchHomeRecommendTest {
-    @Test fun flattenedRootDeliveryOwnersAreAcceptedByShapeNotName() {
+    fun flattenedRootDeliveryOwnersAreAcceptedByShapeNotName() {
         // 9.19 起投递 owner 扁平到根包且逐构建改名；准入只看包形态，唯一性由 delivery() 全图验真决定。
         assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("pl22"))
         assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("fnc2"))
@@ -37,7 +37,7 @@ class SearchHomeRecommendTest {
         }
     }
 
-    @Test fun backgroundRetryKeepsEstablishedHooksAndCoverageCounts() {
+    fun backgroundRetryKeepsEstablishedHooksAndCoverageCounts() {
         val registrar = PlayerPortTestRegistrar()
         val env = Harness(registrar = registrar).env
         val installer = SearchHomeRecommendFeatureInstaller(true)
@@ -48,7 +48,7 @@ class SearchHomeRecommendTest {
         assertFalse(installer.requiresAdaptationRetry)
     }
 
-    @Test fun fullLocatorFindsTypedDeliveryRefreshAndStateWithoutHardcodedMemberNames() {
+    fun fullLocatorFindsTypedDeliveryRefreshAndStateWithoutHardcodedMemberNames() {
         val point = requireNotNull(SearchHomeRecommendLocator.locate(defaultLocateLoader()))
         assertNotNull(point.delivery); assertNotNull(point.delivery?.refresh); assertNotNull(point.state)
         assertTrue(point.stateExpected)
@@ -57,7 +57,7 @@ class SearchHomeRecommendTest {
         assertEquals(3, h.registrar.hooks.size)
     }
 
-    @Test fun removesCompleteSectionsAndPreservesHistoryUnknownsOrderAndOriginalList() {
+    fun removesCompleteSectionsAndPreservesHistoryUnknownsOrderAndOriginalList() {
         val h = Harness()
         val history = SearchSquareType("history")
         val unknown = SearchSquareType("future_section")
@@ -70,7 +70,7 @@ class SearchHomeRecommendTest {
         assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun localHistoryReadAddDeleteAndFoldDataAreNotIntercepted() {
+    fun localHistoryReadAddDeleteAndFoldDataAreNotIntercepted() {
         val h = Harness()
         val histories = listOf(History("local fixture"))
         h.callback.e(histories)
@@ -81,7 +81,7 @@ class SearchHomeRecommendTest {
         assertFalse(h.registrar.hooks.keys.any { it.contains("history") })
     }
 
-    @Test fun asyncDiscoveryRefreshCannotRepopulateWordsOrFeedbackButHistoryStillUpdates() {
+    fun asyncDiscoveryRefreshCannotRepopulateWordsOrFeedbackButHistoryStillUpdates() {
         val h = Harness()
         val source = listOf(SearchSquareType("history"),SearchSquareType("recommend"))
         h.deliver(source)
@@ -91,7 +91,7 @@ class SearchHomeRecommendTest {
         h.callback.e(listOf(History("new"))); assertEquals(1,h.callback.getHistoryList().size)
     }
 
-    @Test fun constructorPublishesFilteredStateAndDoesNotMutateOriginal() {
+    fun constructorPublishesFilteredStateAndDoesNotMutateOriginal() {
         val h = Harness()
         val history = SearchSquareType("history")
         val source = listOf(SearchSquareType("trending"),history,SearchSquareType("recommend"))
@@ -104,7 +104,7 @@ class SearchHomeRecommendTest {
         assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun unchangedEmptyAndUnknownTypesPreserveIdentity() {
+    fun unchangedEmptyAndUnknownTypesPreserveIdentity() {
         val h = Harness()
         for (source in listOf(emptyList(),listOf(SearchSquareType("history")),listOf(SearchSquareType("TRENDING"),SearchSquareType("trending_extra")))) {
             h.deliver(source)
@@ -113,7 +113,7 @@ class SearchHomeRecommendTest {
         assertFalse(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun anomalousResponseWithoutRetainedAnchorFailsOpenAndExplainsWhy() {
+    fun anomalousResponseWithoutRetainedAnchorFailsOpenAndExplainsWhy() {
         val h = Harness()
         val source = listOf(SearchSquareType("trending"),SearchSquareType("recommend"))
         h.deliver(source)
@@ -122,14 +122,14 @@ class SearchHomeRecommendTest {
         assertFalse(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun failedTypeReadLeavesArgumentsUntouched() {
+    fun failedTypeReadLeavesArgumentsUntouched() {
         val h = Harness()
         val source = listOf(SearchSquareType("history"),SearchSquareType("trending",broken = true))
         h.registrar.invoke("search.home.sections",h.callback,arrayOf(source)) { args -> assertSame(source,args[0]) }
         assertFalse(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun hostExceptionsArePreservedAndFailedDeliveryNeverReportsApplied() {
+    fun hostExceptionsArePreservedAndFailedDeliveryNeverReportsApplied() {
         val h = Harness()
         val failure = IllegalStateException("original")
         val source = listOf(SearchSquareType("history"),SearchSquareType("trending"))
@@ -139,18 +139,18 @@ class SearchHomeRecommendTest {
         assertFalse(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun disabledFeatureRegistersNothing() {
+    fun disabledFeatureRegistersNothing() {
         val h = Harness(false)
         assertTrue(h.registrar.hooks.isEmpty())
         assertEquals(FeatureInstallResult.Skipped("disabled"),h.result)
     }
 
-    @Test fun registrationFailureRemainsInCoverageDenominator() {
+    fun registrationFailureRemainsInCoverageDenominator() {
         val h = Harness(registrar = PlayerPortTestRegistrar("search.home.refresh"))
         assertEquals(FeatureInstallResult.Installed(3,false),h.result)
     }
 
-    @Test fun missingModernStateIsNotHiddenWhenModernViewModelStillExists() {
+    fun missingModernStateIsNotHiddenWhenModernViewModelStillExists() {
         // 平铺列出全部屏蔽项，不把一个屏蔽加载器当作另一个的 parent：那样只有双参 loadClass
         // 会被走到，容易被误认为屏蔽已经生效。
         val loader = locateLoaderBlocking(
@@ -161,7 +161,7 @@ class SearchHomeRecommendTest {
         assertEquals(FeatureInstallResult.Installed(3,false),Harness(loader = loader).result)
     }
 
-    @Test fun staleDiscoveryAndFeedbackAreClearedWithoutMutatingOldModelOrHistory() {
+    fun staleDiscoveryAndFeedbackAreClearedWithoutMutatingOldModelOrHistory() {
         val h = Harness()
         val old = g(listOf(SearchReferral.Guess()),"fixture",com.bilibili.search2.api.NegativeFeedback())
         h.model.recommendation.setValue(old)
@@ -176,7 +176,7 @@ class SearchHomeRecommendTest {
         assertEquals(writes,h.model.recommendation.writes)
     }
 
-    @Test fun staleStateWriteFailureDoesNotCrashOrReportApplied() {
+    fun staleStateWriteFailureDoesNotCrashOrReportApplied() {
         val h = Harness()
         h.model.recommendation.setValue(g(listOf(SearchReferral.Guess()),"",com.bilibili.search2.api.NegativeFeedback()))
         h.model.recommendation.ignore = true
@@ -186,7 +186,7 @@ class SearchHomeRecommendTest {
         assertTrue(h.messages.any { it.contains("校验失败") })
     }
 
-    @Test fun legacyNestedCallbackAndFiveArgumentStateAreStructurallySupported() {
+    fun legacyNestedCallbackAndFiveArgumentStateAreStructurallySupported() {
         val vm = LegacyVM()
         val callback = vm.Callback()
         val point = requireNotNull(SearchHomeRecommendLocator.delivery(callback.javaClass))
@@ -200,12 +200,12 @@ class SearchHomeRecommendTest {
         assertEquals(1,old.values.size); assertNotNull(old.feedback)
     }
 
-    @Test fun readOnlyLiveDataAliasIsNeverSelectedEvenIfHostR8MakesItsSetterPublic() {
+    fun readOnlyLiveDataAliasIsNeverSelectedEvenIfHostR8MakesItsSetterPublic() {
         assertFalse(SearchHomeRecommendLocator.writableObservable(androidx.lifecycle.LiveData::class.java))
         assertTrue(SearchHomeRecommendLocator.writableObservable(androidx.lifecycle.MutableLiveData::class.java))
     }
 
-    @Test fun anonymousInnerCallbackIsFoundOnlyByBoundedNameEnumeration() {
+    fun anonymousInnerCallbackIsFoundOnlyByBoundedNameEnumeration() {
         // 前提：JVM 与 Android 一致，declaredClasses 拿不到匿名类里的投递宿主。
         // 这条断言若失败，说明运行环境变了，下面的结论不再成立。
         assertTrue(y::class.java.declaredClasses.none { SearchHomeRecommendLocator.delivery(it) != null })
@@ -221,7 +221,7 @@ class SearchHomeRecommendTest {
         assertEquals(1, point.deliveryCandidateCount)
     }
 
-    @Test fun namedMemberCallbackIsCountedOnceThoughTwoPathsReachIt() {
+    fun namedMemberCallbackIsCountedOnceThoughTwoPathsReachIt() {
         // `z$a` 既是命名成员类（declaredClasses 可见），也落在 a-z 后缀枚举范围内。
         // 候选集未去重时同一个 Class 会出现两次，被 singleOrNull 误判成候选歧义。
         assertTrue(z::class.java.declaredClasses.any { it.name == "com.bilibili.search2.discover.z\$a" })
@@ -235,7 +235,7 @@ class SearchHomeRecommendTest {
         assertEquals(1, point.deliveryCandidateCount)
     }
 
-    @Test fun multipleCallbacksAreRejectedAndReportedAsAmbiguous() {
+    fun multipleCallbacksAreRejectedAndReportedAsAmbiguous() {
         // 候选不唯一时必须放弃安装而不是任选一个，且诊断要能与「宿主没有该结构」区分开。
         // 同时屏蔽状态点 `i`，让本次安装只剩投递这一条路径，断言才只反映候选歧义。
         val loader = locateLoaderBlocking(
@@ -254,6 +254,35 @@ class SearchHomeRecommendTest {
             FeatureInstallResult.Skipped("ambiguous-search-home-boundary"),
             Harness(loader = loader).result
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SearchHomeRecommendTest) -> Unit) {
+            val s = SearchHomeRecommendTest()
+            block(s)
+        }
+        runIsolated { s -> s.flattenedRootDeliveryOwnersAreAcceptedByShapeNotName() }
+        runIsolated { s -> s.backgroundRetryKeepsEstablishedHooksAndCoverageCounts() }
+        runIsolated { s -> s.fullLocatorFindsTypedDeliveryRefreshAndStateWithoutHardcodedMemberNames() }
+        runIsolated { s -> s.removesCompleteSectionsAndPreservesHistoryUnknownsOrderAndOriginalList() }
+        runIsolated { s -> s.localHistoryReadAddDeleteAndFoldDataAreNotIntercepted() }
+        runIsolated { s -> s.asyncDiscoveryRefreshCannotRepopulateWordsOrFeedbackButHistoryStillUpdates() }
+        runIsolated { s -> s.constructorPublishesFilteredStateAndDoesNotMutateOriginal() }
+        runIsolated { s -> s.unchangedEmptyAndUnknownTypesPreserveIdentity() }
+        runIsolated { s -> s.anomalousResponseWithoutRetainedAnchorFailsOpenAndExplainsWhy() }
+        runIsolated { s -> s.failedTypeReadLeavesArgumentsUntouched() }
+        runIsolated { s -> s.hostExceptionsArePreservedAndFailedDeliveryNeverReportsApplied() }
+        runIsolated { s -> s.disabledFeatureRegistersNothing() }
+        runIsolated { s -> s.registrationFailureRemainsInCoverageDenominator() }
+        runIsolated { s -> s.missingModernStateIsNotHiddenWhenModernViewModelStillExists() }
+        runIsolated { s -> s.staleDiscoveryAndFeedbackAreClearedWithoutMutatingOldModelOrHistory() }
+        runIsolated { s -> s.staleStateWriteFailureDoesNotCrashOrReportApplied() }
+        runIsolated { s -> s.legacyNestedCallbackAndFiveArgumentStateAreStructurallySupported() }
+        runIsolated { s -> s.readOnlyLiveDataAliasIsNeverSelectedEvenIfHostR8MakesItsSetterPublic() }
+        runIsolated { s -> s.anonymousInnerCallbackIsFoundOnlyByBoundedNameEnumeration() }
+        runIsolated { s -> s.namedMemberCallbackIsCountedOnceThoughTwoPathsReachIt() }
+        runIsolated { s -> s.multipleCallbacksAreRejectedAndReportedAsAmbiguous() }
     }
 }
 

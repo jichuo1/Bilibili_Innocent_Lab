@@ -44,7 +44,7 @@ class MineComponentModelBoundaryTest {
         fun entries() = snapshots.last().entries
     }
 
-    @Test fun `constructor prunes union of three settings and direct consumers never need getter hook`() {
+    fun `constructor prunes union of three settings and direct consumers never need getter hook`() {
         val h = Harness(rules = "按标题隐藏", ids = listOf("12"), keys = listOf("item:id:11"))
         val keep = item("保留", 14)
         val settings = item("设置", 10, MineSettingsEntryGuard.SETTINGS_URI)
@@ -65,7 +65,7 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.logs.none { "选择隐藏" in it || "按标题隐藏" in it })
     }
 
-    @Test fun `getter fallback still handles an unconstructed local group and all configuration sources`() {
+    fun `getter fallback still handles an unconstructed local group and all configuration sources`() {
         val h = Harness("标题", listOf("22"), listOf("item:id:21", "item:id:10"))
         val settings = item("设置", 10, MineSettingsEntryGuard.SETTINGS_URI)
         val group = group("本地菜单", item("选择", 21), item("旧ID", 22), item("标题", 23), settings)
@@ -77,7 +77,7 @@ class MineComponentModelBoundaryTest {
         assertFalse(h.entries().single { it.key == "item:id:10" }.selectable)
     }
 
-    @Test fun `group button and live tip rules work on renamed models without empty group occupancy`() {
+    fun `group button and live tip rules work on renamed models without empty group occupancy`() {
         val keys = listOf("group:title:整组隐藏", "button:uri:bili://button", "live_tip:id:90", "item:id:31")
         val h = Harness(keys = keys)
         val removed = group("整组隐藏", item("分组内", 30))
@@ -95,7 +95,7 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.entries().any { it.key == "group:title:清空后不留白" && !it.showing })
     }
 
-    @Test fun `hiding entire group keeps its protected settings and removes siblings`() {
+    fun `hiding entire group keeps its protected settings and removes siblings`() {
         val h = Harness(keys = listOf("group:title:整组隐藏", "item:id:10"))
         val settings = item("设置", 10, MineSettingsEntryGuard.SETTINGS_URI + "?from=mine")
         val group = group("整组隐藏", item("其他", 42), settings)
@@ -105,7 +105,7 @@ class MineComponentModelBoundaryTest {
         assertEquals(listOf(settings), group.directRenderItems())
     }
 
-    @Test fun `all hidden before host adds settings leaves a real settings container for old last-index consumer`() {
+    fun `all hidden before host adds settings leaves a real settings container for old last-index consumer`() {
         val h = Harness(keys = listOf("item:id:51", "group:title:全隐藏"))
         val value = model(group("全隐藏", item("唯一普通项", 51)))
         h.construct(value)
@@ -118,7 +118,7 @@ class MineComponentModelBoundaryTest {
         assertEquals(listOf("item:id:51"), h.entries().filter { it.kind == "item" && !it.showing }.map { it.key })
     }
 
-    @Test fun `reconstructed filtered model and getter scan retain hidden selections`() {
+    fun `reconstructed filtered model and getter scan retain hidden selections`() {
         val h = Harness(keys = listOf("item:id:61"))
         val group = group("菜单", item("隐藏", 61), item("保留", 62))
         val value = model(group)
@@ -130,7 +130,7 @@ class MineComponentModelBoundaryTest {
         assertEquals(listOf(62L), copied.directRenderGroups().single().directRenderItems().map { it.id })
     }
 
-    @Test fun `no match preserves root and item list identities`() {
+    fun `no match preserves root and item list identities`() {
         val h = Harness()
         val items = arrayListOf(item("保留", 71))
         val group = MenuGroupV2("菜单", items, null)
@@ -144,7 +144,7 @@ class MineComponentModelBoundaryTest {
         assertEquals(listOf("observed:path=model,count=1"), h.statuses.drop(1))
     }
 
-    @Test fun `many default models cannot exhaust later renamed field discovery`() {
+    fun `many default models cannot exhaust later renamed field discovery`() {
         val locator = MineSerializedFields(AccountMineV2::class.java, setOf("sections", "sectionsv2", "livetip"))
         val empty = emptyList<MenuGroupV2>()
         repeat(12) { assertTrue(locator.resolve(AccountMineV2(empty, empty, empty, null)).isEmpty()) }
@@ -158,14 +158,14 @@ class MineComponentModelBoundaryTest {
         assertEquals(1, locator.attempts())
     }
 
-    @Test fun `ambiguous nonempty shared lists are never guessed and retries are bounded`() {
+    fun `ambiguous nonempty shared lists are never guessed and retries are bounded`() {
         val locator = MineSerializedFields(AccountMineV2::class.java, setOf("sectionsv2"))
         val shared = arrayListOf(group("shared", item("x", 1)))
         repeat(20) { assertTrue(locator.resolve(AccountMineV2(shared, shared, shared, null)).isEmpty()) }
         assertEquals(4, locator.attempts())
     }
 
-    @Test fun `nested constructor callbacks process only after outer fields are complete`() {
+    fun `nested constructor callbacks process only after outer fields are complete`() {
         val h = Harness(keys = listOf("item:id:91"))
         val value = model(group("菜单", item("隐藏", 91), item("保留", 92)))
         val id = h.registrar.hooks.keys.first { it.startsWith("mine.model.") }
@@ -178,7 +178,7 @@ class MineComponentModelBoundaryTest {
         assertEquals(1, h.logs.count { "path=model stage=OBSERVED" in it })
     }
 
-    @Test fun `failed root field write never reports a group as removed`() {
+    fun `failed root field write never reports a group as removed`() {
         val h = Harness()
         val hidden = group("隐藏组", item("成员", 95))
         val settings = group("设置", item("设置", 10, MineSettingsEntryGuard.SETTINGS_URI))
@@ -197,7 +197,7 @@ class MineComponentModelBoundaryTest {
     class LegacyButton(@JvmField val text: String, @JvmField val uri: String)
     class LegacyTip(@JvmField val text: String, @JvmField val id: Long)
 
-    @Test fun `idle modern getter cannot suppress actual legacy field consumer or group and button filters`() {
+    fun `idle modern getter cannot suppress actual legacy field consumer or group and button filters`() {
         val legacyPoints = VersionAdapter.MineComponentPoints(
             modernPoints().itemListGetters, modernPoints().itemTitleGetters,
             legacyBuildMethods = listOf(point(LegacyFragment::class.java, "build")),
@@ -219,7 +219,7 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.entries().any { it.kind == "button" && !it.showing })
     }
 
-    @Test fun `old typed AccountMine consumer gets union filtering and protected settings without blank groups`() {
+    fun `old typed AccountMine consumer gets union filtering and protected settings without blank groups`() {
         val accountPoint = VersionAdapter.locateMineAccountMinePoints(requireNotNull(javaClass.classLoader))
         assertNotNull(accountPoint)
         val h = Harness(rules = "标题", ids = listOf("112"), keys = listOf("item:id:111", "live_tip:id:120"),
@@ -239,7 +239,7 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.logs.any { "path=account stage=APPLIED" in it })
     }
 
-    @Test fun `missing standard settings constructor safely restores one populated group without false applied evidence`() {
+    fun `missing standard settings constructor safely restores one populated group without false applied evidence`() {
         // The old fixture intentionally has no no-arg Item constructor. The safe failure path must
         // keep host last-index post-processing usable, and must not claim the restored item hidden.
         val h = Harness(keys = listOf("item:id:121"),
@@ -255,7 +255,7 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.logs.any { "stage=UNKNOWN settings_container=1" in it })
     }
 
-    @Test fun `instance AccountMine consumer filters its first argument and preserves settings`() {
+    fun `instance AccountMine consumer filters its first argument and preserves settings`() {
         val account = requireNotNull(VersionAdapter.locateMineAccountMinePoints(requireNotNull(javaClass.classLoader)))
         val fragment = tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment()
         val point = VersionAdapter.HookPoint(fragment.javaClass.name, "ug", listOf(account.accountMineClass))
@@ -270,7 +270,7 @@ class MineComponentModelBoundaryTest {
         assertTrue(h.logs.any { "path=account stage=APPLIED" in it })
     }
 
-    @Test fun `failed constructor unwinds its depth without processing a partial model`() {
+    fun `failed constructor unwinds its depth without processing a partial model`() {
         val h = Harness(keys = listOf("item:id:131"))
         val value = model(group("菜单", item("隐藏", 131), item("保留", 132)))
         val id = h.registrar.hooks.keys.first { it.startsWith("mine.model.") }
@@ -298,5 +298,29 @@ class MineComponentModelBoundaryTest {
         private fun group(title: String, vararg items: MenuGroupV2.Item) = MenuGroupV2(title, arrayListOf(*items), null)
         private fun model(group: MenuGroupV2, unrelated: List<*> = arrayListOf("unused")) =
             AccountMineV2(null, arrayListOf(group), unrelated, null)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (MineComponentModelBoundaryTest) -> Unit) {
+            val s = MineComponentModelBoundaryTest()
+            block(s)
+        }
+        runIsolated { s -> s.`constructor prunes union of three settings and direct consumers never need getter hook`() }
+        runIsolated { s -> s.`getter fallback still handles an unconstructed local group and all configuration sources`() }
+        runIsolated { s -> s.`group button and live tip rules work on renamed models without empty group occupancy`() }
+        runIsolated { s -> s.`hiding entire group keeps its protected settings and removes siblings`() }
+        runIsolated { s -> s.`all hidden before host adds settings leaves a real settings container for old last-index consumer`() }
+        runIsolated { s -> s.`reconstructed filtered model and getter scan retain hidden selections`() }
+        runIsolated { s -> s.`no match preserves root and item list identities`() }
+        runIsolated { s -> s.`many default models cannot exhaust later renamed field discovery`() }
+        runIsolated { s -> s.`ambiguous nonempty shared lists are never guessed and retries are bounded`() }
+        runIsolated { s -> s.`nested constructor callbacks process only after outer fields are complete`() }
+        runIsolated { s -> s.`failed root field write never reports a group as removed`() }
+        runIsolated { s -> s.`idle modern getter cannot suppress actual legacy field consumer or group and button filters`() }
+        runIsolated { s -> s.`old typed AccountMine consumer gets union filtering and protected settings without blank groups`() }
+        runIsolated { s -> s.`missing standard settings constructor safely restores one populated group without false applied evidence`() }
+        runIsolated { s -> s.`instance AccountMine consumer filters its first argument and preserves settings`() }
+        runIsolated { s -> s.`failed constructor unwinds its depth without processing a partial model`() }
     }
 }

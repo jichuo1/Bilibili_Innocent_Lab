@@ -15,7 +15,7 @@ class PrivacyVideoMetadataTest {
     class ArchiveReply(val arc: ArchiveArc = ArchiveArc())
     private val host = PrivacyHostAccess(javaClass.classLoader!!)
 
-    @Test fun modernOwnerTitleIsAnAuthorNameAndDurationUsesMilliseconds() {
+    fun modernOwnerTitleIsAnAuthorNameAndDurationUsesMilliseconds() {
         val video = PrivacyVideoMetadata.read(host, ModernReply())
         assertEquals(123L, video.aid)
         assertEquals(456L, video.cid)
@@ -28,7 +28,7 @@ class PrivacyVideoMetadataTest {
         assertEquals(0L, video.updatedAtMs)
     }
 
-    @Test fun archiveRepliesUseFirstCidAndArchiveAuthorWithoutInventingPlayback() {
+    fun archiveRepliesUseFirstCidAndArchiveAuthorWithoutInventingPlayback() {
         val video = PrivacyVideoMetadata.read(host, ArchiveReply())
         assertEquals(124L, video.aid)
         assertEquals(457L, video.cid)
@@ -36,5 +36,15 @@ class PrivacyVideoMetadataTest {
         assertEquals("", video.authorFace)
         assertEquals(200_000L, video.durationMs)
         assertEquals(0L, video.positionMs)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PrivacyVideoMetadataTest) -> Unit) {
+            val s = PrivacyVideoMetadataTest()
+            block(s)
+        }
+        runIsolated { s -> s.modernOwnerTitleIsAnAuthorNameAndDurationUsesMilliseconds() }
+        runIsolated { s -> s.archiveRepliesUseFirstCidAndArchiveAuthorWithoutInventingPlayback() }
     }
 }

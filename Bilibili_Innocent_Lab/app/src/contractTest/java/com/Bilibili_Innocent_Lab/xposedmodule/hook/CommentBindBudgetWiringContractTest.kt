@@ -11,7 +11,7 @@ class CommentBindBudgetWiringContractTest {
     private val entry = SourceContract.read("hook/HookEntry.kt")
     private val drain = entry.after("private fun drainCommentBinds() {")
 
-    @Test fun productionBindPathUsesTheBudgetQueueAndSafeGiveBack() {
+    fun productionBindPathUsesTheBudgetQueueAndSafeGiveBack() {
         assertTrue(entry.contains("private val pendingCommentBinds = CommentBindQueue<PendingCommentBind>()"))
         assertTrue(entry.contains("pendingCommentBinds.enqueue("))
         assertTrue(drain.contains("pendingCommentBinds.takeBatch(drainStartedNs, commentBindBudgetPolicy.starvationLimitNs)"))
@@ -20,7 +20,7 @@ class CommentBindBudgetWiringContractTest {
         assertFalse(entry.contains("private val pendingCommentBinds = java.util.ArrayList<PendingCommentBind>()"))
     }
 
-    @Test fun starvationSelectionCoversTheWholeQueueWithoutChangingTheNormalLifoPath() {
+    fun starvationSelectionCoversTheWholeQueueWithoutChangingTheNormalLifoPath() {
         val budget = SourceContract.read("hook/feature/CommentBindBudget.kt")
         val prioritized = budget.after("fun takeBatch(nowNanos: Long, starvationLimitNanos: Long)")
         assertTrue(prioritized.contains("entries.indexOfFirst"))
@@ -28,5 +28,15 @@ class CommentBindBudgetWiringContractTest {
         assertTrue(prioritized.contains("if (starvedIndex < 0) return takeBatch()"))
         assertTrue(drain.contains("latestCommentBindingGeneration[v] == generation"))
         assertTrue(drain.contains("if (v.isAttachedToWindow)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentBindBudgetWiringContractTest) -> Unit) {
+            val s = CommentBindBudgetWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.productionBindPathUsesTheBudgetQueueAndSafeGiveBack() }
+        runIsolated { s -> s.starvationSelectionCoversTheWholeQueueWithoutChangingTheNormalLifoPath() }
     }
 }

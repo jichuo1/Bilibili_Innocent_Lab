@@ -7,7 +7,6 @@ import org.junit.Test
 
 class SnapshotHookConfigSourceTest {
 
-    @Test
     fun `reads supported values and uses defaults for absent keys`() {
         val source = SnapshotHookConfigSource(
             mapOf(
@@ -29,7 +28,6 @@ class SnapshotHookConfigSourceTest {
         assertEquals("default", source.getString("missing.string", "default"))
     }
 
-    @Test
     fun `wrong value type never coerces across configuration types`() {
         val source = SnapshotHookConfigSource(
             mapOf(
@@ -46,7 +44,6 @@ class SnapshotHookConfigSourceTest {
         assertEquals("default", source.getString("string", "default"))
     }
 
-    @Test
     fun `constructor snapshots the input map`() {
         val mutable = mutableMapOf<String, Any>("feature" to true)
         val source = SnapshotHookConfigSource(mutable)
@@ -54,5 +51,16 @@ class SnapshotHookConfigSourceTest {
         mutable["feature"] = false
 
         assertTrue(source.getBoolean("feature", false))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SnapshotHookConfigSourceTest) -> Unit) {
+            val s = SnapshotHookConfigSourceTest()
+            block(s)
+        }
+        runIsolated { s -> s.`reads supported values and uses defaults for absent keys`() }
+        runIsolated { s -> s.`wrong value type never coerces across configuration types`() }
+        runIsolated { s -> s.`constructor snapshots the input map`() }
     }
 }

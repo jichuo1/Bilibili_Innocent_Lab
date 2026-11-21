@@ -11,14 +11,12 @@ class CommentSectionFeatureInstallerTest {
 
     private enum class Tag { Introduction, Comment }
 
-    @Test
     fun `matches only exact comment locatable tag`() {
         assertTrue(CommentSectionFeatureInstaller.isCommentTag(Tag.Comment))
         assertFalse(CommentSectionFeatureInstaller.isCommentTag(Tag.Introduction))
         assertFalse(CommentSectionFeatureInstaller.isCommentTag(null))
     }
 
-    @Test
     fun `installs only adapted tab config constructor`() {
         val environment = HookEnvironment(
             processName = "tv.danmaku.bili",
@@ -48,5 +46,15 @@ class CommentSectionFeatureInstallerTest {
         ).install(environment)
 
         assertEquals(FeatureInstallResult.Installed(1), result)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentSectionFeatureInstallerTest) -> Unit) {
+            val s = CommentSectionFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`matches only exact comment locatable tag`() }
+        runIsolated { s -> s.`installs only adapted tab config constructor`() }
     }
 }

@@ -28,21 +28,32 @@ class InsightAdapterItemsTest {
         fun first(items: List<Any>) { data = items }
         fun second(items: List<Any>) { data = items }
     }
-    @Test fun `legacy getter wins over unrelated list fields`() {
+    fun `legacy getter wins over unrelated list fields`() {
         val value = Legacy(); val plan = checkNotNull(InsightAdapterItems.resolve(value.javaClass))
         assertEquals("method", plan.readKind); assertEquals(listOf("old"), plan.read(value))
         plan.write.invoke(value, listOf("header", "old"))
         assertEquals(listOf("header", "old"), plan.read(value))
     }
-    @Test fun `current native adapter reads its unique list field and writes through updateData`() {
+    fun `current native adapter reads its unique list field and writes through updateData`() {
         val value = Current(); val plan = checkNotNull(InsightAdapterItems.resolve(value.javaClass))
         assertEquals("field", plan.readKind); assertEquals(listOf("current"), plan.read(value))
         plan.write.invoke(value, listOf("header", "current"))
         assertEquals(listOf("header", "current"), value.d)
     }
-    @Test fun `ambiguous list fields static fields and overloaded update plans are rejected`() {
+    fun `ambiguous list fields static fields and overloaded update plans are rejected`() {
         assertNull(InsightAdapterItems.resolve(Ambiguous::class.java))
         assertNull(InsightAdapterItems.resolve(StaticOnly::class.java))
         assertNull(InsightAdapterItems.resolve(MultipleWriters::class.java))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (InsightAdapterItemsTest) -> Unit) {
+            val s = InsightAdapterItemsTest()
+            block(s)
+        }
+        runIsolated { s -> s.`legacy getter wins over unrelated list fields`() }
+        runIsolated { s -> s.`current native adapter reads its unique list field and writes through updateData`() }
+        runIsolated { s -> s.`ambiguous list fields static fields and overloaded update plans are rejected`() }
     }
 }

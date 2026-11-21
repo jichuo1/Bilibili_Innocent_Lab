@@ -21,14 +21,14 @@ class KotlinDefaultWordsLocatorTest {
     private val first = KotlinDefaultWordsTest.RenamedSearch::class.java.declaredMethods.single { it.name == "x" }
     private val second = KotlinDefaultWordsTest.KotlinSearch::class.java.declaredMethods.single { it.name == "defaultWords" }
 
-    @Test fun wrongAbiIsRejectedAndDuplicateEvidenceIsDeduplicated() {
+    fun wrongAbiIsRejectedAndDuplicateEvidenceIsDeduplicated() {
         assertSame(first, KotlinDefaultWordsLocator.select(listOf(first, first)))
         assertNull(KotlinDefaultWordsLocator.select(Invalid::class.java.declaredMethods.toList()))
         assertNull(KotlinDefaultWordsLocator.select(listOf(first, second)))
         assertNull(KotlinDefaultWordsLocator.select(emptyList()))
     }
 
-    @Test fun renamedCachePointResolvesAndIncompleteSignaturesFailClosed() {
+    fun renamedCachePointResolvesAndIncompleteSignaturesFailClosed() {
         val loader = javaClass.classLoader!!
         val point = KotlinDefaultWordsLocator.point(first)
         assertEquals(first, KotlinDefaultWordsLocator.resolve(loader, point))
@@ -36,14 +36,14 @@ class KotlinDefaultWordsLocatorTest {
         assertNull(KotlinDefaultWordsLocator.resolve(loader, point.copy(methodName = "missing")))
     }
 
-    @Test fun directHitsDisabledFeaturesAndUnsupportedHostsNeverRequestDex() {
+    fun directHitsDisabledFeaturesAndUnsupportedHostsNeverRequestDex() {
         assertFalse(KotlinDefaultWordsLocator.needsQuery(false, true, false))
         assertFalse(KotlinDefaultWordsLocator.needsQuery(true, false, false))
         assertFalse(KotlinDefaultWordsLocator.needsQuery(true, true, true))
         assertTrue(KotlinDefaultWordsLocator.needsQuery(true, true, false))
     }
 
-    @Test fun enablingAfterDisabledCacheRetriesOnceButCachedFailuresDoNotLoop() {
+    fun enablingAfterDisabledCacheRetriesOnceButCachedFailuresDoNotLoop() {
         assertTrue(KotlinDefaultWordsLocator.refreshCache(true, true, false, false, false))
         assertFalse(KotlinDefaultWordsLocator.refreshCache(false, true, false, false, false))
         assertFalse(KotlinDefaultWordsLocator.refreshCache(true, true, false, false, true))
@@ -52,7 +52,7 @@ class KotlinDefaultWordsLocatorTest {
         assertFalse(KotlinDefaultWordsLocator.refreshCache(true, false, false, false, false))
     }
 
-    @Test fun adapterRecordsUnavailableAndAmbiguousResultsWithoutGuessing() {
+    fun adapterRecordsUnavailableAndAmbiguousResultsWithoutGuessing() {
         fun run(result: DexAssistResult) = VersionAdapter.locateKotlinDefaultWordsByDex(
             DexAssistSession(DexAssistEngine { result }, listOf("/base.apk"), javaClass.classLoader!!,
                 setOf(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)))
@@ -68,10 +68,24 @@ class KotlinDefaultWordsLocatorTest {
         assertEquals(VersionAdapter.AdaptState.MISSING, VersionAdapter.locateKotlinDefaultWordsByDex(null).diagnostic.state)
     }
 
-    @Test fun optionalPointRoundTripsAndOldJsonWithoutTheKeyIsAccepted() {
+    fun optionalPointRoundTripsAndOldJsonWithoutTheKeyIsAccepted() {
         val points = VersionAdapter.HomeTopBarPoints(null, null, null, emptyList(), KotlinDefaultWordsLocator.point(first))
         assertEquals(points, VersionAdapter.HomeTopBarPoints.fromJson(points.toJson()))
         val old = points.toJson().apply { remove("kotlin_words") }
         assertNull(VersionAdapter.HomeTopBarPoints.fromJson(old).kotlinDefaultWords)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KotlinDefaultWordsLocatorTest) -> Unit) {
+            val s = KotlinDefaultWordsLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.wrongAbiIsRejectedAndDuplicateEvidenceIsDeduplicated() }
+        runIsolated { s -> s.renamedCachePointResolvesAndIncompleteSignaturesFailClosed() }
+        runIsolated { s -> s.directHitsDisabledFeaturesAndUnsupportedHostsNeverRequestDex() }
+        runIsolated { s -> s.enablingAfterDisabledCacheRetriesOnceButCachedFailuresDoNotLoop() }
+        runIsolated { s -> s.adapterRecordsUnavailableAndAmbiguousResultsWithoutGuessing() }
+        runIsolated { s -> s.optionalPointRoundTripsAndOldJsonWithoutTheKeyIsAccepted() }
     }
 }

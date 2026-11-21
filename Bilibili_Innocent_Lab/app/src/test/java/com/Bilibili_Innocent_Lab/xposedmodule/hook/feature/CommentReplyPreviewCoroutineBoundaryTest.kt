@@ -15,7 +15,7 @@ class CommentReplyPreviewCoroutineBoundaryTest {
     private fun environment(registrar: HookRegistrar) = HookEnvironment("tv.danmaku.bili", loader,
         HookPointRegistry(loader), registrar, { _, _ -> }, { _, _ -> }, { _, _ -> })
 
-    @Test fun resumedResponseIsReplacedBeforeTheInlinedConversionRuns() {
+    fun resumedResponseIsReplacedBeforeTheInlinedConversionRuns() {
         val registrar = PlayerPortTestRegistrar()
         val source = MainListReply()
         val updated = MainListReply()
@@ -27,7 +27,7 @@ class CommentReplyPreviewCoroutineBoundaryTest {
         })
     }
 
-    @Test fun synchronousRpcResponseIsReplacedWithoutResumingTheCoroutineAgain() {
+    fun synchronousRpcResponseIsReplacedWithoutResumingTheCoroutineAgain() {
         val registrar = PlayerPortTestRegistrar()
         val source = MainListReply()
         val updated = MainListReply()
@@ -42,7 +42,7 @@ class CommentReplyPreviewCoroutineBoundaryTest {
         assertEquals(1, transforms)
     }
 
-    @Test fun initialFailureWrongStateAndForeignContinuationRemainUntouched() {
+    fun initialFailureWrongStateAndForeignContinuationRemainUntouched() {
         val boundary = boundary()
         val source = MainListReply()
         val receiver = PreviewFetch()
@@ -62,7 +62,7 @@ class CommentReplyPreviewCoroutineBoundaryTest {
         assertSame(source, boundary.update(receiver, source, false, forbidden))
     }
 
-    @Test fun mainThreadPassesThroughBothResponsePathsWithoutStartingRequests() {
+    fun mainThreadPassesThroughBothResponsePathsWithoutStartingRequests() {
         val registrar = PlayerPortTestRegistrar()
         val source = MainListReply()
         val receiver = PreviewFetch().apply { label = 1 }
@@ -72,7 +72,7 @@ class CommentReplyPreviewCoroutineBoundaryTest {
             args = arrayOf(ReplyMoss(), MainListReq(), receiver)) { source })
     }
 
-    @Test fun invalidCoroutineShapeAndPartialHookRegistrationAreNotComplete() {
+    fun invalidCoroutineShapeAndPartialHookRegistrationAreNotComplete() {
         assertNull(CommentReplyPreviewCoroutineBoundary.resolve(loader, "previewhostfixture",
             "previewhostfixture.WrongPreviewFetch", "previewhostfixture.PreviewMainRpc"))
         assertNull(CommentReplyPreviewCoroutineBoundary.resolve(loader, "previewhostfixture",
@@ -80,7 +80,7 @@ class CommentReplyPreviewCoroutineBoundaryTest {
         assertEquals(1 to false, boundary().install(environment(PlayerPortTestRegistrar("comment.classic.preview.resume")), { it }, { false }))
     }
 
-    @Test fun rpcExceptionsAndNullResultsKeepTheOriginalHostOutcome() {
+    fun rpcExceptionsAndNullResultsKeepTheOriginalHostOutcome() {
         val registrar = PlayerPortTestRegistrar()
         val receiver = PreviewFetch().apply { label = 1 }
         boundary().install(environment(registrar), { error("must not transform failure") }, { false })
@@ -90,5 +90,19 @@ class CommentReplyPreviewCoroutineBoundaryTest {
             registrar.invoke("comment.classic.preview.immediate", args = arguments) { throw failure }
         })
         assertNull(registrar.invoke("comment.classic.preview.immediate", args = arguments) { null })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentReplyPreviewCoroutineBoundaryTest) -> Unit) {
+            val s = CommentReplyPreviewCoroutineBoundaryTest()
+            block(s)
+        }
+        runIsolated { s -> s.resumedResponseIsReplacedBeforeTheInlinedConversionRuns() }
+        runIsolated { s -> s.synchronousRpcResponseIsReplacedWithoutResumingTheCoroutineAgain() }
+        runIsolated { s -> s.initialFailureWrongStateAndForeignContinuationRemainUntouched() }
+        runIsolated { s -> s.mainThreadPassesThroughBothResponsePathsWithoutStartingRequests() }
+        runIsolated { s -> s.invalidCoroutineShapeAndPartialHookRegistrationAreNotComplete() }
+        runIsolated { s -> s.rpcExceptionsAndNullResultsKeepTheOriginalHostOutcome() }
     }
 }

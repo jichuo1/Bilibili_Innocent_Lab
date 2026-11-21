@@ -39,7 +39,7 @@ class SplashAdFeatureInstallerTest {
 
     private fun status(channel: String) = statuses.lastOrNull { it.first == channel }?.second
 
-    @Test fun `installs both the list layer and the decision layer`() {
+    fun `installs both the list layer and the decision layer`() {
         val result = SplashAdFeatureInstaller(
             enabled = true,
             points = listPoints("getSplashList", "getStrategyList")
@@ -58,7 +58,7 @@ class SplashAdFeatureInstallerTest {
      * 早期实现在 `points == null` 时直接 return，把两道串联成"与"——
      * VersionAdapter 一旦定位落空，连未混淆的决策层也装不上。
      */
-    @Test fun `the decision layer still installs when the list layer has no adapter point`() {
+    fun `the decision layer still installs when the list layer has no adapter point`() {
         val result = SplashAdFeatureInstaller(enabled = true, points = null)
             .install(environment())
 
@@ -74,7 +74,7 @@ class SplashAdFeatureInstallerTest {
      * 反向：宿主没有 `SplashOrder#isEmptyAd`（8.84.0–8.97.0 那 12 版就是这样）时，
      * 只装列表层，且**不记 error**——那是预期降级，不是故障。
      */
-    @Test fun `the list layer still installs when the host has no decision point`() {
+    fun `the list layer still installs when the host has no decision point`() {
         val bare = object : ClassLoader(null) {}
         val result = SplashAdFeatureInstaller(
             enabled = true,
@@ -88,7 +88,7 @@ class SplashAdFeatureInstallerTest {
         assertFalse(errors.any { it.startsWith("splash_decision") })
     }
 
-    @Test fun `skips entirely when both layers are unavailable`() {
+    fun `skips entirely when both layers are unavailable`() {
         val bare = object : ClassLoader(null) {}
         val result = SplashAdFeatureInstaller(enabled = true, points = null)
             .install(environment(loader = bare))
@@ -96,7 +96,7 @@ class SplashAdFeatureInstallerTest {
         assertTrue("splash_purify_missing" in errors)
     }
 
-    @Test fun `skips without touching the host when disabled or off process`() {
+    fun `skips without touching the host when disabled or off process`() {
         assertEquals(
             FeatureInstallResult.Skipped("disabled"),
             SplashAdFeatureInstaller(enabled = false, points = null).install(environment())
@@ -120,10 +120,24 @@ class SplashAdFeatureInstallerTest {
      * 后两者的语义是"**这**是不是广告"，把真广告标成"不是广告"会污染 `ad_cb`
      * 曝光上报；`isEmptyAd -> true` 的语义是"没有广告可展"，上报链自然静默。
      */
-    @Test fun `the decision layer never rewrites the is-ad predicates`() {
+    fun `the decision layer never rewrites the is-ad predicates`() {
         SplashAdFeatureInstaller(enabled = true, points = null).install(environment())
         assertEquals(listOf("splash.decision.isEmptyAd"), ids)
         assertFalse(ids.any { it.contains("isAd") && !it.contains("isEmptyAd") })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SplashAdFeatureInstallerTest) -> Unit) {
+            val s = SplashAdFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`installs both the list layer and the decision layer`() }
+        runIsolated { s -> s.`the decision layer still installs when the list layer has no adapter point`() }
+        runIsolated { s -> s.`the list layer still installs when the host has no decision point`() }
+        runIsolated { s -> s.`skips entirely when both layers are unavailable`() }
+        runIsolated { s -> s.`skips without touching the host when disabled or off process`() }
+        runIsolated { s -> s.`the decision layer never rewrites the is-ad predicates`() }
     }
 }
 

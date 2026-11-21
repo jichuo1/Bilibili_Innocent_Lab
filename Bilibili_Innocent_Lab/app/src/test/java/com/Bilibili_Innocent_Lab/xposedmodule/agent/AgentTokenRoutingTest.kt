@@ -52,7 +52,7 @@ class AgentTokenRoutingTest {
             .put("description", description).put("page_assessment", "needs_details").put("source_index", 2).put("is_unverified", true))
     }
 
-    @Test fun `equivalent visual evidence with newer capture metadata needs one review POST`() {
+    fun `equivalent visual evidence with newer capture metadata needs one review POST`() {
         val decision = source(1, true)
         val time = Time()
         var posts = 0
@@ -70,7 +70,7 @@ class AgentTokenRoutingTest {
         assertTrue(second.getJSONObject("data").getJSONObject("decision_review").getBoolean("cache_hit"))
     }
 
-    @Test fun `new visual text and changed unknown false null facts require new reviews`() {
+    fun `new visual text and changed unknown false null facts require new reviews`() {
         val decision = source(1, true)
         val time = Time()
         var posts = 0
@@ -86,7 +86,7 @@ class AgentTokenRoutingTest {
         assertEquals(5, posts)
     }
 
-    @Test fun `ordinary eyes reuse unchanged image and page after unrelated candidates or details change`() {
+    fun `ordinary eyes reuse unchanged image and page after unrelated candidates or details change`() {
         val eyes = source(1)
         val time = Time()
         var posts = 0
@@ -101,7 +101,7 @@ class AgentTokenRoutingTest {
         assertEquals(1, posts)
     }
 
-    @Test fun `positive ordinary eyes cache avoids repeating a prior uncertain visual decision`() {
+    fun `positive ordinary eyes cache avoids repeating a prior uncertain visual decision`() {
         val decision = source(1, true)
         val eyes = source(2)
         val time = Time()
@@ -116,7 +116,7 @@ class AgentTokenRoutingTest {
         assertEquals(listOf(1, 2), requests)
     }
 
-    @Test fun `changed image or page cannot reuse ordinary visual facts`() {
+    fun `changed image or page cannot reuse ordinary visual facts`() {
         val time = Time()
         var posts = 0
         val models = models(listOf(source(1)), time, transport = AgentHttpTransport { _, _, _, _ -> posts++; chatResponse() })
@@ -126,7 +126,7 @@ class AgentTokenRoutingTest {
         assertEquals(3, posts)
     }
 
-    @Test fun `visual decision reuses only matching actual state and excludes previous visual assessment`() {
+    fun `visual decision reuses only matching actual state and excludes previous visual assessment`() {
         val time = Time()
         val decision = source(1, true)
         var posts = 0
@@ -151,7 +151,7 @@ class AgentTokenRoutingTest {
         assertNull(updates.single { it.status == AgentRequestStatus.CACHE_HIT }.usage)
     }
 
-    @Test fun `visual evidence expires at thirty seconds and on elapsed clock rollback`() {
+    fun `visual evidence expires at thirty seconds and on elapsed clock rollback`() {
         val time = Time()
         var posts = 0
         val models = models(listOf(source(1)), time, transport = AgentHttpTransport { _, _, _, _ -> posts++; chatResponse() })
@@ -165,7 +165,7 @@ class AgentTokenRoutingTest {
         assertEquals(3, posts)
     }
 
-    @Test fun `positive cache never bypasses expired role proof or selected source scope`() {
+    fun `positive cache never bypasses expired role proof or selected source scope`() {
         val time = Time()
         val first = source(1)
         val selected = source(2)
@@ -180,7 +180,7 @@ class AgentTokenRoutingTest {
         assertEquals(listOf(2), requests)
     }
 
-    @Test fun `cancellation at checkpoint rejects a cache hit without emitting success`() {
+    fun `cancellation at checkpoint rejects a cache hit without emitting success`() {
         val time = Time()
         var cancelled = false
         var cancelAtCheckpoint = false
@@ -196,7 +196,7 @@ class AgentTokenRoutingTest {
         assertTrue(updates.none { it.status == AgentRequestStatus.SUCCEEDED || it.status == AgentRequestStatus.CACHE_HIT })
     }
 
-    @Test fun `unknown review and visual answers are retried rather than cached as successful evidence`() {
+    fun `unknown review and visual answers are retried rather than cached as successful evidence`() {
         val time = Time()
         val decision = source(1, true)
         var posts = 0
@@ -208,7 +208,7 @@ class AgentTokenRoutingTest {
         assertEquals(4, posts)
     }
 
-    @Test fun `failed auxiliary response is not cached and local failure does not punish source health`() {
+    fun `failed auxiliary response is not cached and local failure does not punish source health`() {
         val time = Time()
         var posts = 0
         val decision = source(1, true)
@@ -224,7 +224,7 @@ class AgentTokenRoutingTest {
         assertEquals(2, posts)
     }
 
-    @Test fun `provider visual and decision usage reaches logs while cache hits contain no reused token counts`() {
+    fun `provider visual and decision usage reaches logs while cache hits contain no reused token counts`() {
         val time = Time()
         val decision = source(1, true)
         val eyes = source(2)
@@ -249,5 +249,25 @@ class AgentTokenRoutingTest {
         assertFalse(response.toString().contains("input_tokens"))
         assertFalse(response.toString().contains("data:image/"))
         assertEquals(2, posts)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentTokenRoutingTest) -> Unit) {
+            val s = AgentTokenRoutingTest()
+            block(s)
+        }
+        runIsolated { s -> s.`equivalent visual evidence with newer capture metadata needs one review POST`() }
+        runIsolated { s -> s.`new visual text and changed unknown false null facts require new reviews`() }
+        runIsolated { s -> s.`ordinary eyes reuse unchanged image and page after unrelated candidates or details change`() }
+        runIsolated { s -> s.`positive ordinary eyes cache avoids repeating a prior uncertain visual decision`() }
+        runIsolated { s -> s.`changed image or page cannot reuse ordinary visual facts`() }
+        runIsolated { s -> s.`visual decision reuses only matching actual state and excludes previous visual assessment`() }
+        runIsolated { s -> s.`visual evidence expires at thirty seconds and on elapsed clock rollback`() }
+        runIsolated { s -> s.`positive cache never bypasses expired role proof or selected source scope`() }
+        runIsolated { s -> s.`cancellation at checkpoint rejects a cache hit without emitting success`() }
+        runIsolated { s -> s.`unknown review and visual answers are retried rather than cached as successful evidence`() }
+        runIsolated { s -> s.`failed auxiliary response is not cached and local failure does not punish source health`() }
+        runIsolated { s -> s.`provider visual and decision usage reaches logs while cache hits contain no reused token counts`() }
     }
 }

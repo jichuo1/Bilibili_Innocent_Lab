@@ -10,7 +10,6 @@ class DiagnosticConfigDeliveryTest {
         hostConfigState = DiagnosticHostConfigState.ACCEPTED, hostConfigGeneration = 42L
     )
 
-    @Test
     fun `successful publication is not a host receipt`() {
         assertEquals(DiagnosticConfigDelivery.HOST_UNAVAILABLE, configDelivery(published().copy(
             hostRuntimeReceiptAvailable = false
@@ -20,14 +19,12 @@ class DiagnosticConfigDeliveryTest {
         )))
     }
 
-    @Test
     fun `same older and newer host generations are distinct`() {
         assertEquals(DiagnosticConfigDelivery.MATCHED, configDelivery(published()))
         assertEquals(DiagnosticConfigDelivery.HOST_OLDER, configDelivery(published().copy(hostConfigGeneration = 41L)))
         assertEquals(DiagnosticConfigDelivery.HOST_NEWER, configDelivery(published().copy(hostConfigGeneration = 43L)))
     }
 
-    @Test
     fun `old connection failure and pending publication cannot confirm delivery`() {
         listOf(
             published().copy(frameworkConnectionId = 2L),
@@ -37,7 +34,6 @@ class DiagnosticConfigDeliveryTest {
         ).forEach { assertEquals(DiagnosticConfigDelivery.NOT_PUBLISHED, configDelivery(it)) }
     }
 
-    @Test
     fun `denial receipt can confirm delivery without claiming authorization`() {
         assertEquals(DiagnosticConfigDelivery.MATCHED, configDelivery(published().copy(
             hostConfigState = DiagnosticHostConfigState.NOT_AUTHORIZED
@@ -50,7 +46,6 @@ class DiagnosticConfigDeliveryTest {
         )))
     }
 
-    @Test
     fun `NPatch selection never compares the host admission with the bypassed standard publisher`() {
         // 2026-09-30 TB320FC：NPatch 已选中、宿主 admission 存在但对不上标准发布权威，
         // 旧实现得出 HOST_OLDER（“宿主仍使用代次 X，模块已提交代次 0”），实际投递是通的。
@@ -81,10 +76,23 @@ class DiagnosticConfigDeliveryTest {
         )
     }
 
-    @Test
     fun `NPatch remains an independent publication path`() {
         assertEquals(DiagnosticConfigDelivery.NOT_APPLICABLE, configDelivery(published().copy(
             activationState = DiagnosticActivationState.ACTIVE_NPATCH
         )))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DiagnosticConfigDeliveryTest) -> Unit) {
+            val s = DiagnosticConfigDeliveryTest()
+            block(s)
+        }
+        runIsolated { s -> s.`successful publication is not a host receipt`() }
+        runIsolated { s -> s.`same older and newer host generations are distinct`() }
+        runIsolated { s -> s.`old connection failure and pending publication cannot confirm delivery`() }
+        runIsolated { s -> s.`denial receipt can confirm delivery without claiming authorization`() }
+        runIsolated { s -> s.`NPatch selection never compares the host admission with the bypassed standard publisher`() }
+        runIsolated { s -> s.`NPatch remains an independent publication path`() }
     }
 }

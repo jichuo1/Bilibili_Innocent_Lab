@@ -82,7 +82,7 @@ class HomeRecommendCoverageTest {
         fun filter(source: List<*>) = registrar.items("home.recommend.purify.0", PegasusResponse(), source)
     }
 
-    @Test fun comicAloneUsesExactBusinessTokensAndRoutesWithoutReadingTitles() {
+    fun comicAloneUsesExactBusinessTokensAndRoutesWithoutReadingTitles() {
         val h = Harness(comic = true)
         val ordinary = Card(title = "漫画解说：comic 动画与漫画的区别")
         val source = listOf(ordinary, Card(goTo = "comic"), Card(cardGoto = "COMIC"), Card(type = "comic"),
@@ -95,7 +95,7 @@ class HomeRecommendCoverageTest {
         assertFalse(h.evidence.any { it.first == "home_recommend_special_cards_removed" })
     }
 
-    @Test fun comicToggleOffPreservesComicCardsWhenAnIndependentFilterIsEnabled() {
+    fun comicToggleOffPreservesComicCardsWhenAnIndependentFilterIsEnabled() {
         val h = Harness(ads = true)
         val source = listOf(Card(type = "comic", goTo = "comic"))
         assertSame(source, h.filter(source))
@@ -103,7 +103,7 @@ class HomeRecommendCoverageTest {
         assertFalse(h.evidence.any { it.first == "home_recommend_comic_removed" })
     }
 
-    @Test fun comicAndSpecialFlagsCountTheirOwnMatchesWithoutChangingSpecialSemantics() {
+    fun comicAndSpecialFlagsCountTheirOwnMatchesWithoutChangingSpecialSemantics() {
         val comic = Card(goTo = "comic")
         val specialComic = Card(type = "special", uri = "bilibili://comic/detail?comic_id=123")
         val plainSpecial = Card(type = "special")
@@ -118,7 +118,7 @@ class HomeRecommendCoverageTest {
         assertTrue(h.evidence.contains(Triple(HomeRecommendPurifyFeatureInstaller.ID, FeatureRuntimeStage.APPLIED, 3)))
     }
 
-    @Test fun missingComicReadersArePartialAndOtherFiltersContinue() {
+    fun missingComicReadersArePartialAndOtherFiltersContinue() {
         val h = Harness(comic = true, hidden = "PICTURE", adapted = points.copy(
             cardTypeGetter = null, cardGotoGetter = null, goToGetter = null, uriGetter = null))
         assertFalse((h.result as FeatureInstallResult.Installed).complete)
@@ -128,14 +128,14 @@ class HomeRecommendCoverageTest {
         assertTrue(h.statuses.single().contains("missing-comic-readers"))
     }
 
-    @Test fun comicRouteRemainsUsableWhenOptionalTypeReadersAreMissing() {
+    fun comicRouteRemainsUsableWhenOptionalTypeReadersAreMissing() {
         val h = Harness(comic = true, adapted = points.copy(cardTypeGetter = null, cardGotoGetter = null, goToGetter = null))
         val ordinary = Card()
         assertEquals(listOf(ordinary), h.filter(listOf(Card(uri = "bilibili://comic/reader?ep_id=456"), ordinary)))
         assertTrue((h.capabilities.getValue("home_recommend_comic_removed") as FeatureInstallResult.Installed).complete)
     }
 
-    @Test fun comicFilterPreservesUnknownAndThrowingCardsWithoutReplacingNoMatchLists() {
+    fun comicFilterPreservesUnknownAndThrowingCardsWithoutReplacingNoMatchLists() {
         val h = Harness(comic = true)
         val source = listOf(Card(failRoute = true), Any(), Card(uri = "bilibili://comic/detail_future"),
             Card(uri = "https://manga.bilibili.com.evil.test/m/detail/mc123"))
@@ -143,7 +143,7 @@ class HomeRecommendCoverageTest {
         assertFalse(h.evidence.any { it.first == "home_recommend_comic_removed" && it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun adsAloneUseGotoAndUriWithoutAnotherFilterOrBanner() {
+    fun adsAloneUseGotoAndUriWithoutAnotherFilterOrBanner() {
         val h = Harness(ads = true)
         val normal = Card()
         val source = listOf(normal, Card(goTo = "ad_av"), Card(uri = "bilibili://ad/1"))
@@ -152,21 +152,21 @@ class HomeRecommendCoverageTest {
         assertTrue(h.evidence.contains(Triple("home_recommend_ads_removed", FeatureRuntimeStage.APPLIED, 2)))
     }
 
-    @Test fun videoShapedAdPayloadIsRemovedWithoutRemovingOrdinaryLargeVideo() {
+    fun videoShapedAdPayloadIsRemovedWithoutRemovingOrdinaryLargeVideo() {
         val h = Harness(ads = true)
         val normal = Card()
         assertEquals(listOf(normal), h.filter(listOf(Card(ad = Object()), normal)))
         assertTrue(h.evidence.contains(Triple("home_recommend_ads_removed", FeatureRuntimeStage.APPLIED, 1)))
     }
 
-    @Test fun cmV2AloneRetainsIndependentVideoShapedPromotionSemantics() {
+    fun cmV2AloneRetainsIndependentVideoShapedPromotionSemantics() {
         val h = Harness(cmV2 = true)
         val video = Card(ad = Object())
         assertEquals(listOf(video), h.filter(listOf(Card(type = "cm_v2"), video)))
         assertFalse(h.evidence.any { it.first == "home_recommend_ads_removed" })
     }
 
-    @Test fun bothAdSwitchesReportTheirOwnAppliedEvidenceForTheSameRemovedCard() {
+    fun bothAdSwitchesReportTheirOwnAppliedEvidenceForTheSameRemovedCard() {
         val h = Harness(ads = true, cmV2 = true)
         assertTrue(h.filter(listOf(Card(type = "cm_v2", ad = Object()))).isEmpty())
         for (id in listOf("home_recommend_ads_removed", "home_recommend_cm_v2_removed")) {
@@ -174,7 +174,7 @@ class HomeRecommendCoverageTest {
         }
     }
 
-    @Test fun ordinaryUrisContainingAnAdLinkInQueryOrLookalikeHostRemain() {
+    fun ordinaryUrisContainingAnAdLinkInQueryOrLookalikeHostRemain() {
         val h = Harness(ads = true)
         val source = listOf(
             Card(uri = "bilibili://video/1?redirect=https://cm.bilibili.com/a"),
@@ -185,7 +185,7 @@ class HomeRecommendCoverageTest {
         assertSame(source, h.filter(source))
     }
 
-    @Test fun eachTypeFilterUsesHolderFallbackWhenOptionalTypeReadersAreMissing() {
+    fun eachTypeFilterUsesHolderFallbackWhenOptionalTypeReadersAreMissing() {
         val adapted = points.copy(cardTypeGetter = null, cardGotoGetter = null, goToGetter = null)
         for (kind in listOf("PICTURE", "GAME", "LIVE", "COURSE", "VERTICAL")) {
             val h = Harness(hidden = kind, adapted = adapted)
@@ -194,7 +194,7 @@ class HomeRecommendCoverageTest {
         }
     }
 
-    @Test fun missingAdPayloadReaderIsPartialWhileOtherFiltersContinue() {
+    fun missingAdPayloadReaderIsPartialWhileOtherFiltersContinue() {
         val h = Harness(ads = true, hidden = "PICTURE", adapted = points.copy(adInfoGetter = null))
         assertFalse((h.result as FeatureInstallResult.Installed).complete)
         assertFalse((h.capabilities.getValue("home_recommend_ads_removed") as FeatureInstallResult.Installed).complete)
@@ -204,7 +204,7 @@ class HomeRecommendCoverageTest {
         assertEquals(listOf(normal), h.filter(listOf(Card(type = "picture"), Card(goTo = "ad_av"), normal)))
     }
 
-    @Test fun throwingAdReaderPreservesUnknownCardAndReportsBoundedErrorWithoutPayload() {
+    fun throwingAdReaderPreservesUnknownCardAndReportsBoundedErrorWithoutPayload() {
         val h = Harness(ads = true)
         val source = listOf(Card(failAd = true))
         assertSame(source, h.filter(source))
@@ -213,11 +213,34 @@ class HomeRecommendCoverageTest {
         assertFalse(h.logs.any { it.contains("private payload") })
     }
 
-    @Test fun incompatibleFutureCardIsPreservedWithAnUnreadableAdCarrierSignal() {
+    fun incompatibleFutureCardIsPreservedWithAnUnreadableAdCarrierSignal() {
         val h = Harness(ads = true)
         val source = listOf(Any())
         assertSame(source, h.filter(source))
         assertTrue(h.evidence.any { it.first == "home_recommend_ads_removed" && it.second == FeatureRuntimeStage.ERROR })
         assertFalse(h.evidence.any { it.second == FeatureRuntimeStage.APPLIED })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeRecommendCoverageTest) -> Unit) {
+            val s = HomeRecommendCoverageTest()
+            block(s)
+        }
+        runIsolated { s -> s.comicAloneUsesExactBusinessTokensAndRoutesWithoutReadingTitles() }
+        runIsolated { s -> s.comicToggleOffPreservesComicCardsWhenAnIndependentFilterIsEnabled() }
+        runIsolated { s -> s.comicAndSpecialFlagsCountTheirOwnMatchesWithoutChangingSpecialSemantics() }
+        runIsolated { s -> s.missingComicReadersArePartialAndOtherFiltersContinue() }
+        runIsolated { s -> s.comicRouteRemainsUsableWhenOptionalTypeReadersAreMissing() }
+        runIsolated { s -> s.comicFilterPreservesUnknownAndThrowingCardsWithoutReplacingNoMatchLists() }
+        runIsolated { s -> s.adsAloneUseGotoAndUriWithoutAnotherFilterOrBanner() }
+        runIsolated { s -> s.videoShapedAdPayloadIsRemovedWithoutRemovingOrdinaryLargeVideo() }
+        runIsolated { s -> s.cmV2AloneRetainsIndependentVideoShapedPromotionSemantics() }
+        runIsolated { s -> s.bothAdSwitchesReportTheirOwnAppliedEvidenceForTheSameRemovedCard() }
+        runIsolated { s -> s.ordinaryUrisContainingAnAdLinkInQueryOrLookalikeHostRemain() }
+        runIsolated { s -> s.eachTypeFilterUsesHolderFallbackWhenOptionalTypeReadersAreMissing() }
+        runIsolated { s -> s.missingAdPayloadReaderIsPartialWhileOtherFiltersContinue() }
+        runIsolated { s -> s.throwingAdReaderPreservesUnknownCardAndReportsBoundedErrorWithoutPayload() }
+        runIsolated { s -> s.incompatibleFutureCardIsPreservedWithAnUnreadableAdCarrierSignal() }
     }
 }

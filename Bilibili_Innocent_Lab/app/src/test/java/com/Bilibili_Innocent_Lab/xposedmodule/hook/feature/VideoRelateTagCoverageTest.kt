@@ -40,14 +40,14 @@ class VideoRelateTagCoverageTest {
         fun filter(source: List<*>) = registrar.items("video.relate.response.0", Relates(), source)
     }
 
-    @Test fun nestedAndLegacyTagPathsSurviveSerialization() {
+    fun nestedAndLegacyTagPathsSurviveSerialization() {
         val located = requireNotNull(VersionAdapter.locateVideoRelate(loader))
         val restored = VersionAdapter.VideoRelatePoints.fromJson(located.toJson())
         assertEquals(setOf(listOf("getTagName"), listOf("getGame", "getTagName")),
             restored.tagNameChains.map { it.steps.map { point -> point.methodName } }.toSet())
     }
 
-    @Test fun nestedGameTagsMatchWholeNamesAndLeaveUntaggedCards() {
+    fun nestedGameTagsMatchWholeNamesAndLeaveUntaggedCards() {
         val target = game("  策略  ")
         val partial = game("策略游戏")
         val normal = RelateCard()
@@ -59,7 +59,7 @@ class VideoRelateTagCoverageTest {
         assertFalse(h.runtime.any { it.first in setOf("video_related_author_block", "video_related_game_removed") })
     }
 
-    @Test fun caseFoldingAndMixedRulesDoNotTurnPrefixesIntoMatches() {
+    fun caseFoldingAndMixedRulesDoNotTurnPrefixesIntoMatches() {
         val rpg = game("RPG")
         val strategy = game("策略")
         val longer = game("RPG Online")
@@ -70,7 +70,7 @@ class VideoRelateTagCoverageTest {
         assertFalse(h.runtime.any { it.first == "video_related_tag_block" && it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun missingAndUnreadableTagsRemainWithoutFallbackToReasons() {
+    fun missingAndUnreadableTagsRemainWithoutFallbackToReasons() {
         val throwing = object : RelateCard() {
             override fun getGame(): RelateGameCard = error("unreadable game")
         }
@@ -81,12 +81,25 @@ class VideoRelateTagCoverageTest {
         assertFalse(h.runtime.any { it.second == FeatureRuntimeStage.ERROR })
     }
 
-    @Test fun directLegacyTagsContinueToFilterAlongsideNestedCards() {
+    fun directLegacyTagsContinueToFilterAlongsideNestedCards() {
         val legacy = object : Relate() {
             override fun getTagName() = "策略"
         }
         val nested = game("策略")
         val other = Relate()
         assertEquals(listOf(other), Harness("策略").filter(listOf(legacy, nested, other)))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VideoRelateTagCoverageTest) -> Unit) {
+            val s = VideoRelateTagCoverageTest()
+            block(s)
+        }
+        runIsolated { s -> s.nestedAndLegacyTagPathsSurviveSerialization() }
+        runIsolated { s -> s.nestedGameTagsMatchWholeNamesAndLeaveUntaggedCards() }
+        runIsolated { s -> s.caseFoldingAndMixedRulesDoNotTurnPrefixesIntoMatches() }
+        runIsolated { s -> s.missingAndUnreadableTagsRemainWithoutFallbackToReasons() }
+        runIsolated { s -> s.directLegacyTagsContinueToFilterAlongsideNestedCards() }
     }
 }

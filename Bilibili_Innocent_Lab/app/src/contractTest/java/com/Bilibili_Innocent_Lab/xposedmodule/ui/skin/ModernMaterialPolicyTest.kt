@@ -11,7 +11,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class ModernMaterialPolicyTest {
-    @Test fun backgroundBudgetIsBoundedForPhonesTabletsAndExtremeAspectRatios() {
+    fun backgroundBudgetIsBoundedForPhonesTabletsAndExtremeAspectRatios() {
         for ((width, height) in listOf(1 to 1, 1080 to 2400, 1440 to 3200, 3840 to 2160,
             1 to Int.MAX_VALUE, Int.MAX_VALUE to 1, Int.MAX_VALUE to Int.MAX_VALUE)) {
             val (w, h) = ModernMaterialPolicy.sampleSize(width, height)
@@ -22,7 +22,7 @@ class ModernMaterialPolicyTest {
         assertTrue(runCatching { ModernMaterialPolicy.sampleSize(0, 100) }.isFailure)
     }
 
-    @Test fun trueBlurPreservesConstantImagesAndDoesNotMutateTheSource() {
+    fun trueBlurPreservesConstantImagesAndDoesNotMutateTheSource() {
         val source = IntArray(13 * 7) { 0xFF253648.toInt() }
         val before = source.copyOf()
         val output = ModernBackdropBlur.blur(source, 13, 7, 3)
@@ -38,7 +38,7 @@ class ModernMaterialPolicyTest {
      * 局部 fun，Kotlin 会把累加器装箱成 `Ref.IntRef` 挪到堆上，真机实测 102×102 采样图
      * 一次 2.0–4.6ms，是柔光皮肤 UI 线程掉帧的主因。这条用例钉住"只快不变"。
      */
-    @Test fun theZeroAllocationBlurMatchesTheReferenceBitForBit() {
+    fun theZeroAllocationBlurMatchesTheReferenceBitForBit() {
         val width = 23
         val height = 17
         val source = IntArray(width * height) { i ->
@@ -60,7 +60,7 @@ class ModernMaterialPolicyTest {
     }
 
     /** 节流间隔要落在"看不出滞后、又确实省下逐帧采样"的区间里。 */
-    @Test fun theLiveSampleIntervalStaysInTheImperceptibleRange() {
+    fun theLiveSampleIntervalStaysInTheImperceptibleRange() {
         assertTrue(ModernMaterialPolicy.LIVE_SAMPLE_MIN_INTERVAL_MS in 16L..48L)
     }
 
@@ -79,7 +79,7 @@ class ModernMaterialPolicyTest {
      * 曾为躲 UI 线程尖刺在手风琴动画期整段不采、静默 96ms 后补采——用户看到的是顶栏/
      * 底栏透出的背景等动画播完才瞬间跳变。位移通知必须与滚动走同一条"设脏"路径。
      */
-    @Test fun explicitMotionKeepsTheLensLiveInsteadOfFreezingIt() {
+    fun explicitMotionKeepsTheLensLiveInsteadOfFreezingIt() {
         val sampler = source("ui/skin/material/LiveBackdropSampler.kt")
         assertFalse("不得再有动画期静默窗口", sampler.contains("motionUntilNanos"))
         assertFalse("不得再有单独的动画期冻结入口", sampler.contains("fun invalidateForMotion"))
@@ -99,7 +99,7 @@ class ModernMaterialPolicyTest {
      * UI 线程——这就是当初想用冻结躲开的尖刺。挪走它们后底栏仍剩 3–4.4ms 的软件光栅化
      * （5 层半透明卡片的填充率），所以主线程只允许**录制**绘制指令，光栅化也在后台回放。
      */
-    @Test fun perPixelLensWorkNeverRunsOnTheUiThread() {
+    fun perPixelLensWorkNeverRunsOnTheUiThread() {
         val sampler = source("ui/skin/material/LiveBackdropSampler.kt")
         val capture = sampler.after("private fun capture(")
             .substringBefore("private fun onBatchDone(", "MISSING")
@@ -133,7 +133,7 @@ class ModernMaterialPolicyTest {
             done.contains("entry.generation != job.generation"))
     }
 
-    @Test fun blurActuallySpreadsAnImpulseAndReducesHighFrequencyContrast() {
+    fun blurActuallySpreadsAnImpulseAndReducesHighFrequencyContrast() {
         val source = IntArray(25 * 25) { 0xFF000000.toInt() }
         source[12 * 25 + 12] = 0xFFFFFFFF.toInt()
         val output = ModernBackdropBlur.blur(source, 25, 25, 2)
@@ -147,14 +147,14 @@ class ModernMaterialPolicyTest {
         assertTrue(centerRow.max() - centerRow.min() < 32)
     }
 
-    @Test fun degenerateBlurIsSafeAndInvalidBuffersAreRejected() {
+    fun degenerateBlurIsSafeAndInvalidBuffersAreRejected() {
         val pixel = intArrayOf(0xFF998877.toInt())
         assertArrayEquals(pixel, ModernBackdropBlur.blur(pixel, 1, 1, 18))
         assertTrue(runCatching { ModernBackdropBlur.blur(pixel, 2, 1, 2) }.isFailure)
         assertTrue(runCatching { ModernBackdropBlur.blur(pixel, 1, 1, 0) }.isFailure)
     }
 
-    @Test fun surfacesAreNeutralWhileAccentAndSemanticColorsArePreserved() {
+    fun surfacesAreNeutralWhileAccentAndSemanticColorsArePreserved() {
         val accents = MonetColors(0xFFAA22EE.toInt(), -1, 0xFF008866.toInt(), 0xFFAA6600.toInt(), 1, 2, 3)
         for (dark in listOf(false, true)) {
             val palette = ModernPalette.from(accents, dark)
@@ -170,7 +170,7 @@ class ModernMaterialPolicyTest {
         }
     }
 
-    @Test fun roleHierarchyKeepsModalsReadableAndFloatingBarsLighterThanCards() {
+    fun roleHierarchyKeepsModalsReadableAndFloatingBarsLighterThanCards() {
         for (dark in listOf(false, true)) {
             val card = ModernMaterialPolicy.surface(SurfaceRole.CARD, dark)
             val modal = ModernMaterialPolicy.surface(SurfaceRole.MODAL, dark)
@@ -186,5 +186,23 @@ class ModernMaterialPolicyTest {
                 } else assertTrue(style.upperEdgeAlpha > style.lowerEdgeAlpha)
             }
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModernMaterialPolicyTest) -> Unit) {
+            val s = ModernMaterialPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.backgroundBudgetIsBoundedForPhonesTabletsAndExtremeAspectRatios() }
+        runIsolated { s -> s.trueBlurPreservesConstantImagesAndDoesNotMutateTheSource() }
+        runIsolated { s -> s.theZeroAllocationBlurMatchesTheReferenceBitForBit() }
+        runIsolated { s -> s.theLiveSampleIntervalStaysInTheImperceptibleRange() }
+        runIsolated { s -> s.explicitMotionKeepsTheLensLiveInsteadOfFreezingIt() }
+        runIsolated { s -> s.perPixelLensWorkNeverRunsOnTheUiThread() }
+        runIsolated { s -> s.blurActuallySpreadsAnImpulseAndReducesHighFrequencyContrast() }
+        runIsolated { s -> s.degenerateBlurIsSafeAndInvalidBuffersAreRejected() }
+        runIsolated { s -> s.surfacesAreNeutralWhileAccentAndSemanticColorsArePreserved() }
+        runIsolated { s -> s.roleHierarchyKeepsModalsReadableAndFloatingBarsLighterThanCards() }
     }
 }

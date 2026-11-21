@@ -65,7 +65,7 @@ class GuestVideoFavoriteHooksTest {
         }
     }
 
-    @Before fun reset() {
+    fun reset() {
         statuses.clear()
         proxy.opened.clear()
         notified.clear()
@@ -154,7 +154,7 @@ class GuestVideoFavoriteHooksTest {
     private fun PlayerPortTestRegistrar.openString(route: String) =
         invoke("guest.video.favorite.string", proxy, arrayOf(route)) { proxy.open(route); null }
 
-    @Test fun guestStarTapOnTheLoginRouteBecomesALocalFavoriteAndTheLoginScreenIsNotOpened() {
+    fun guestStarTapOnTheLoginRouteBecomesALocalFavoriteAndTheLoginScreenIsNotOpened() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         assertEquals(2, hooks(store).install(environment(registrar)))
@@ -170,7 +170,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("installed", statuses["guest_video_favorite"]) // the install report is never overwritten
     }
 
-    @Test fun bothLoginRouteSpellingsAreAccepted() {
+    fun bothLoginRouteSpellingsAreAccepted() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store).install(environment(registrar))
@@ -181,7 +181,7 @@ class GuestVideoFavoriteHooksTest {
         assertTrue(proxy.opened.isEmpty())
     }
 
-    @Test fun otherScenesKeepTheLoginScreen() {
+    fun otherScenesKeepTheLoginScreen() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store).install(environment(registrar))
@@ -194,7 +194,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_applied"])
     }
 
-    @Test fun routesOtherThanLoginAreNeverTouched() {
+    fun routesOtherThanLoginAreNeverTouched() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store).install(environment(registrar))
@@ -204,7 +204,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("bilibili://video/100", "bilibili://main/favorite"), proxy.opened)
     }
 
-    @Test fun anUnknownVideoKeepsTheLoginScreenSoTheTapIsNeverSwallowed() {
+    fun anUnknownVideoKeepsTheLoginScreenSoTheTapIsNeverSwallowed() {
         val store = FakeStore(known = emptySet())
         val registrar = PlayerPortTestRegistrar()
         hooks(store).install(environment(registrar))
@@ -214,7 +214,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_applied"])
     }
 
-    @Test fun loggedInUsersKeepTheHostBehavior() {
+    fun loggedInUsersKeepTheHostBehavior() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store, guest = { false }).install(environment(registrar))
@@ -223,7 +223,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("activity://main/login/"), proxy.opened)
     }
 
-    @Test fun aFailedLocalWriteIsReportedSeparatelyAndTheGuestIsToldSo() {
+    fun aFailedLocalWriteIsReportedSeparatelyAndTheGuestIsToldSo() {
         val store = FakeStore(succeed = false)
         val registrar = PlayerPortTestRegistrar()
         hooks(store).install(environment(registrar))
@@ -235,7 +235,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_applied"])
     }
 
-    @Test fun installingAloneClaimsNothingWasTakenOver() {
+    fun installingAloneClaimsNothingWasTakenOver() {
         val registrar = PlayerPortTestRegistrar()
         hooks(FakeStore(), guest = { false }).install(environment(registrar))
         registrar.openString("activity://main/login/")
@@ -244,21 +244,21 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_saved"])
     }
 
-    @Test fun missingProxyClassInstallsNothingAndReportsAbsent() {
+    fun missingProxyClassInstallsNothingAndReportsAbsent() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(0, hooks(FakeStore(), proxyClass = "com.bilibili.lib.router.NoSuchProxy").install(environment(registrar)))
         assertEquals("absent", statuses["guest_video_favorite"])
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun aProxyWithoutTheExpectedMembersInstallsNothing() {
+    fun aProxyWithoutTheExpectedMembersInstallsNothing() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(0, hooks(FakeStore(), proxyClass = "fixtures.privacy.videofavorite.IncompleteProxy").install(environment(registrar)))
         assertEquals("absent", statuses["guest_video_favorite"])
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun theStarIsRepaintedFromTheToggleResultAndTheSavedToastIsSkipped() {
+    fun theStarIsRepaintedFromTheToggleResultAndTheSavedToastIsSkipped() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
@@ -274,7 +274,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_repainted"])
     }
 
-    @Test fun whenThePageRepositoryTakesTheStateTheCacheWriterAndTheToastAreSkipped() {
+    fun whenThePageRepositoryTakesTheStateTheCacheWriterAndTheToastAreSkipped() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val page = FakePage()
@@ -291,7 +291,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_repainted"])
     }
 
-    @Test fun whenNoPageRepositoryKnowsTheVideoTheStarCacheIsWrittenAlone() {
+    fun whenNoPageRepositoryKnowsTheVideoTheStarCacheIsWrittenAlone() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val page = FakePage(takes = false)
@@ -305,7 +305,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_repainted"])
     }
 
-    @Test fun aPageRepositoryCallThatFailsLaterFallsBackToTheStarCacheWriter() {
+    fun aPageRepositoryCallThatFailsLaterFallsBackToTheStarCacheWriter() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val page = FakePage(throwsLater = true)
@@ -318,7 +318,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_repainted"])
     }
 
-    @Test fun aPageSourceThatCannotInstallIsReportedAbsentAndNeverCalled() {
+    fun aPageSourceThatCannotInstallIsReportedAbsentAndNeverCalled() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val page = FakePage(installs = false)
@@ -332,7 +332,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("100:true"), com.bilibili.community.favorite.e.calls)
     }
 
-    @Test fun aFailedLocalWriteNeverReachesThePageRepository() {
+    fun aFailedLocalWriteNeverReachesThePageRepository() {
         val store = FakeStore(succeed = false)
         val page = FakePage()
         val registrar = PlayerPortTestRegistrar()
@@ -344,7 +344,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(false), notified)
     }
 
-    @Test fun withoutAStateWriterTheGuestStillGetsTheSavedToast() {
+    fun withoutAStateWriterTheGuestStillGetsTheSavedToast() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store).install(environment(registrar))
@@ -356,7 +356,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_repainted"])
     }
 
-    @Test fun aFailedLocalWriteNeverRepaintsTheStar() {
+    fun aFailedLocalWriteNeverRepaintsTheStar() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore(succeed = false)
         val registrar = PlayerPortTestRegistrar()
@@ -368,7 +368,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(false), notified)
     }
 
-    @Test fun theStateWriterIsLocatedThroughTheCoroutineClassAndAbsentWhenItIsMissing() {
+    fun theStateWriterIsLocatedThroughTheCoroutineClassAndAbsentWhenItIsMissing() {
         val found = GuestVideoFavoriteHooks.locateFavoriteState(javaClass.classLoader!!)
         assertEquals("c", found?.name)
         assertEquals(com.bilibili.community.favorite.e::class.java, found?.declaringClass)
@@ -376,7 +376,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(GuestVideoFavoriteHooks.locateFavoriteState(empty))
     }
 
-    @Test fun withAPickerTheStarTapOpensTheFolderChoiceInsteadOfTogglingTheDefaultFolder() {
+    fun withAPickerTheStarTapOpensTheFolderChoiceInsteadOfTogglingTheDefaultFolder() {
         val store = FakeStore()
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -393,7 +393,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_saved"])
     }
 
-    @Test fun recognizedClickTogglesTheDefaultFolderAndUsesTheHostSnackbar() {
+    fun recognizedClickTogglesTheDefaultFolderAndUsesTheHostSnackbar() {
         val store = FakeStore()
         val picker = FakePicker()
         val snackbar = FakeSnackbar()
@@ -414,7 +414,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(100L, 100L), store.toggled)
     }
 
-    @Test fun recognizedLongPressOpensThePickerWithoutChangingFavorites() {
+    fun recognizedLongPressOpensThePickerWithoutChangingFavorites() {
         val store = FakeStore()
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -426,7 +426,7 @@ class GuestVideoFavoriteHooksTest {
         assertTrue(store.savedSelections.isEmpty())
     }
 
-    @Test fun longPressWithNoPickerNeverTogglesAnExistingFavorite() {
+    fun longPressWithNoPickerNeverTogglesAnExistingFavorite() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store, picker = FakePicker(canShow = false),
@@ -436,7 +436,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(false), notified)
     }
 
-    @Test fun aPickerFromAnOldSessionCannotWriteIntoTheNewSession() {
+    fun aPickerFromAnOldSessionCannotWriteIntoTheNewSession() {
         val store = FakeStore()
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -450,7 +450,7 @@ class GuestVideoFavoriteHooksTest {
         assertTrue(store.created.isEmpty())
     }
 
-    @Test fun anUnavailableSnackbarFallsBackToLocalFeedbackAfterTheWrite() {
+    fun anUnavailableSnackbarFallsBackToLocalFeedbackAfterTheWrite() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store, interaction = FakeInteraction(GuestVideoFavoriteHooks.Interaction.CLICK),
@@ -460,7 +460,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(true), notified)
     }
 
-    @Test fun confirmingSavesExactlyTheTickedFoldersAndRepaintsTheStarOn() {
+    fun confirmingSavesExactlyTheTickedFoldersAndRepaintsTheStarOn() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore().apply { folderChecks["旅行"] = false }
         val picker = FakePicker()
@@ -477,7 +477,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_repainted"])
     }
 
-    @Test fun confirmingWithNothingTickedRemovesTheVideoAndRepaintsTheStarOff() {
+    fun confirmingWithNothingTickedRemovesTheVideoAndRepaintsTheStarOff() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore().apply { folderChecks["默认收藏夹"] = true }
         val picker = FakePicker()
@@ -492,7 +492,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("100:false"), com.bilibili.community.favorite.e.calls)
     }
 
-    @Test fun creatingAFolderReopensThePickerWithTheNewFolderTickedAndEarlierTicksKept() {
+    fun creatingAFolderReopensThePickerWithTheNewFolderTickedAndEarlierTicksKept() {
         val store = FakeStore()
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -510,7 +510,7 @@ class GuestVideoFavoriteHooksTest {
         assertTrue(store.savedSelections.isEmpty())          // creating a folder alone does not favorite the video
     }
 
-    @Test fun aPickerThatCannotShowFallsBackToTheDefaultFolderSoTheTapIsNeverLost() {
+    fun aPickerThatCannotShowFallsBackToTheDefaultFolderSoTheTapIsNeverLost() {
         val store = FakeStore()
         val registrar = PlayerPortTestRegistrar()
         hooks(store, picker = FakePicker(canShow = false)).install(environment(registrar))
@@ -523,7 +523,7 @@ class GuestVideoFavoriteHooksTest {
         assertTrue(proxy.opened.isEmpty())
     }
 
-    @Test fun aFailedFolderWriteIsReportedAndNeverRepaintsTheStar() {
+    fun aFailedFolderWriteIsReportedAndNeverRepaintsTheStar() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val picker = FakePicker()
@@ -540,7 +540,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_saved"])
     }
 
-    @Test fun aFailedFolderCreateIsReportedAndDoesNotReopenThePicker() {
+    fun aFailedFolderCreateIsReportedAndDoesNotReopenThePicker() {
         val store = FakeStore()
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -555,7 +555,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_failed"])
     }
 
-    @Test fun anUnknownVideoStillKeepsTheLoginScreenEvenWithAPicker() {
+    fun anUnknownVideoStillKeepsTheLoginScreenEvenWithAPicker() {
         val store = FakeStore(known = emptySet())
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -567,7 +567,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("activity://main/login/"), proxy.opened)
     }
 
-    @Test fun storySingleClickTogglesAndUsesTheStorySnackbar() {
+    fun storySingleClickTogglesAndUsesTheStorySnackbar() {
         val store = FakeStore()
         val picker = FakePicker()
         val snackbar = FakeSnackbar()
@@ -588,7 +588,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(1, snackbar.removed)
     }
 
-    @Test fun storyLongPressOpensTheFolderChoiceWithoutToggling() {
+    fun storyLongPressOpensTheFolderChoiceWithoutToggling() {
         com.bilibili.community.favorite.e.calls.clear()
         val store = FakeStore()
         val picker = FakePicker()
@@ -611,7 +611,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(true), story.painted)                                                  // the Story item's own star state follows
     }
 
-    @Test fun unfavoritingFromTheStoryPickerPaintsTheStoryStarOff() {
+    fun unfavoritingFromTheStoryPickerPaintsTheStoryStarOff() {
         val story = FakeStory(longPress = true)
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
@@ -623,7 +623,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(false), story.painted)
     }
 
-    @Test fun aLoginRequestThatDoesNotComeFromTheStoryStarIsLeftAlone() {
+    fun aLoginRequestThatDoesNotComeFromTheStoryStarIsLeftAlone() {
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
         hooks(FakeStore(), picker = picker, router = STORY_ROUTER, story = FakeStory(), fromStoryStar = false).install(environment(registrar))
@@ -636,7 +636,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_story"])
     }
 
-    @Test fun routesOtherThanLoginAreNeverTouchedByTheStoryHook() {
+    fun routesOtherThanLoginAreNeverTouchedByTheStoryHook() {
         val registrar = PlayerPortTestRegistrar()
         hooks(FakeStore(), picker = FakePicker(), router = STORY_ROUTER, story = FakeStory()).install(environment(registrar))
 
@@ -646,7 +646,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("bilibili://video/100"), fixtures.privacy.videofavorite.storyrouter.StoryRouter.routed)
     }
 
-    @Test fun whenTheTappedVideoCannotBeToldTheStoryLoginScreenStaysSoTheTapIsNeverSwallowed() {
+    fun whenTheTappedVideoCannotBeToldTheStoryLoginScreenStaysSoTheTapIsNeverSwallowed() {
         val picker = FakePicker()
         val registrar = PlayerPortTestRegistrar()
         hooks(FakeStore(), picker = picker, router = STORY_ROUTER, story = FakeStory(tap = null)).install(environment(registrar))
@@ -659,7 +659,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals("seen", statuses["guest_video_favorite_story_unknown"])
     }
 
-    @Test fun loggedInUsersKeepTheStoryLoginBehavior() {
+    fun loggedInUsersKeepTheStoryLoginBehavior() {
         val registrar = PlayerPortTestRegistrar()
         hooks(FakeStore(), guest = { false }, picker = FakePicker(), router = STORY_ROUTER, story = FakeStory()).install(environment(registrar))
 
@@ -669,7 +669,7 @@ class GuestVideoFavoriteHooksTest {
         assertNull(statuses["guest_video_favorite_story"])
     }
 
-    @Test fun theStoryStarWithoutAPickerTogglesTheDefaultFolderOfTheTappedVideo() {
+    fun theStoryStarWithoutAPickerTogglesTheDefaultFolderOfTheTappedVideo() {
         val store = FakeStore()
         val story = FakeStory()
         val registrar = PlayerPortTestRegistrar()
@@ -681,19 +681,19 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf(true), story.painted)
     }
 
-    @Test fun aStorySourceThatCannotInstallLeavesTheStoryStarAloneAndTheRestWorking() {
+    fun aStorySourceThatCannotInstallLeavesTheStoryStarAloneAndTheRestWorking() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(2, hooks(FakeStore(), router = STORY_ROUTER, story = FakeStory(installs = false)).install(environment(registrar)))
         assertTrue("guest.video.favorite.story" !in registrar.hooks)
     }
 
-    @Test fun anUnknownRouterInstallsNoStoryHookAndTheRestStillWorks() {
+    fun anUnknownRouterInstallsNoStoryHookAndTheRestStillWorks() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(2, hooks(FakeStore(), router = NO_ROUTER, story = FakeStory()).install(environment(registrar)))
         assertTrue("guest.video.favorite.story" !in registrar.hooks)
     }
 
-    @Test fun theStoryWidgetIsRecognizedFromAnyFrameOfItsOwnOrItsNestedClasses() {
+    fun theStoryWidgetIsRecognizedFromAnyFrameOfItsOwnOrItsNestedClasses() {
         fun frame(cls: String) = StackTraceElement(cls, "m", null, -1)
         val widget = GuestVideoFavoriteHooks.STORY_FAVORITE
         assertTrue(GuestVideoFavoriteHooks.fromStoryFavoriteWidget(arrayOf(frame("a.b"), frame(widget))))
@@ -702,7 +702,7 @@ class GuestVideoFavoriteHooksTest {
         assertTrue(!GuestVideoFavoriteHooks.fromStoryFavoriteWidget(emptyArray()))
     }
 
-    @Test fun on884To896BuildsTheStateWriterIsTheSingletonsInstanceMethod() {
+    fun on884To896BuildsTheStateWriterIsTheSingletonsInstanceMethod() {
         val pkg = "fixtures.privacy.videofavorite.singleton"
         fixtures.privacy.videofavorite.singleton.Repo.calls.clear()
 
@@ -714,7 +714,7 @@ class GuestVideoFavoriteHooksTest {
         assertEquals(listOf("7:true", "7:false"), fixtures.privacy.videofavorite.singleton.Repo.calls)
     }
 
-    @Test fun theSingletonWriterIsNotGuessedWhenTheInstanceFieldIsAmbiguousOrAbsent() {
+    fun theSingletonWriterIsNotGuessedWhenTheInstanceFieldIsAmbiguousOrAbsent() {
         val loader = javaClass.classLoader!!
         // Two static fields of the repository's own type: which one is the instance cannot be told.
         assertNull(GuestVideoFavoriteHooks.locateSingletonWriter(loader, "fixtures.privacy.videofavorite.singleton.AmbiguousRepoCoroutine"))
@@ -723,14 +723,14 @@ class GuestVideoFavoriteHooksTest {
         assertNull(GuestVideoFavoriteHooks.locateSingletonWriter(object : ClassLoader(null) {}))
     }
 
-    @Test fun theStaticWriterWinsOverTheSingletonWriterWhenBothCouldApply() {
+    fun theStaticWriterWinsOverTheSingletonWriterWhenBothCouldApply() {
         val writer = GuestVideoFavoriteHooks.locateStateWriter(javaClass.classLoader!!)
         com.bilibili.community.favorite.e.calls.clear()
         writer!!.write(3L, true)
         assertEquals(listOf("3:true"), com.bilibili.community.favorite.e.calls)
     }
 
-    @Test fun favoriteAidParsesOnlyAPositiveOidOnTheFavoriteSceneAndALoginRoute() {
+    fun favoriteAidParsesOnlyAPositiveOidOnTheFavoriteSceneAndALoginRoute() {
         val aid = GuestVideoFavoriteHooks::favoriteAid
         assertEquals(100L, aid("activity://main/login/", FAV_SCENE, """{"oid":"100"}"""))
         assertEquals(7L, aid("bilibili://login", FAV_SCENE, """{"oid":"7","sid":"1"}"""))
@@ -752,5 +752,61 @@ class GuestVideoFavoriteHooksTest {
         val NO_ROUTER = GuestVideoFavoriteHooks.RouterNames("no.such.Router", "no.such.Request", "no.such.Response", "no.such.Code")
         val STORY_ROUTER = GuestVideoFavoriteHooks.RouterNames(
             "$STORY_PKG.StoryRouter", "$STORY_PKG.StoryRequest", "$STORY_PKG.StoryResponse", "$STORY_PKG.StoryCode")
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestVideoFavoriteHooksTest) -> Unit) {
+            val s = GuestVideoFavoriteHooksTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.guestStarTapOnTheLoginRouteBecomesALocalFavoriteAndTheLoginScreenIsNotOpened() }
+        runIsolated { s -> s.bothLoginRouteSpellingsAreAccepted() }
+        runIsolated { s -> s.otherScenesKeepTheLoginScreen() }
+        runIsolated { s -> s.routesOtherThanLoginAreNeverTouched() }
+        runIsolated { s -> s.anUnknownVideoKeepsTheLoginScreenSoTheTapIsNeverSwallowed() }
+        runIsolated { s -> s.loggedInUsersKeepTheHostBehavior() }
+        runIsolated { s -> s.aFailedLocalWriteIsReportedSeparatelyAndTheGuestIsToldSo() }
+        runIsolated { s -> s.installingAloneClaimsNothingWasTakenOver() }
+        runIsolated { s -> s.missingProxyClassInstallsNothingAndReportsAbsent() }
+        runIsolated { s -> s.aProxyWithoutTheExpectedMembersInstallsNothing() }
+        runIsolated { s -> s.theStarIsRepaintedFromTheToggleResultAndTheSavedToastIsSkipped() }
+        runIsolated { s -> s.whenThePageRepositoryTakesTheStateTheCacheWriterAndTheToastAreSkipped() }
+        runIsolated { s -> s.whenNoPageRepositoryKnowsTheVideoTheStarCacheIsWrittenAlone() }
+        runIsolated { s -> s.aPageRepositoryCallThatFailsLaterFallsBackToTheStarCacheWriter() }
+        runIsolated { s -> s.aPageSourceThatCannotInstallIsReportedAbsentAndNeverCalled() }
+        runIsolated { s -> s.aFailedLocalWriteNeverReachesThePageRepository() }
+        runIsolated { s -> s.withoutAStateWriterTheGuestStillGetsTheSavedToast() }
+        runIsolated { s -> s.aFailedLocalWriteNeverRepaintsTheStar() }
+        runIsolated { s -> s.theStateWriterIsLocatedThroughTheCoroutineClassAndAbsentWhenItIsMissing() }
+        runIsolated { s -> s.withAPickerTheStarTapOpensTheFolderChoiceInsteadOfTogglingTheDefaultFolder() }
+        runIsolated { s -> s.recognizedClickTogglesTheDefaultFolderAndUsesTheHostSnackbar() }
+        runIsolated { s -> s.recognizedLongPressOpensThePickerWithoutChangingFavorites() }
+        runIsolated { s -> s.longPressWithNoPickerNeverTogglesAnExistingFavorite() }
+        runIsolated { s -> s.aPickerFromAnOldSessionCannotWriteIntoTheNewSession() }
+        runIsolated { s -> s.anUnavailableSnackbarFallsBackToLocalFeedbackAfterTheWrite() }
+        runIsolated { s -> s.confirmingSavesExactlyTheTickedFoldersAndRepaintsTheStarOn() }
+        runIsolated { s -> s.confirmingWithNothingTickedRemovesTheVideoAndRepaintsTheStarOff() }
+        runIsolated { s -> s.creatingAFolderReopensThePickerWithTheNewFolderTickedAndEarlierTicksKept() }
+        runIsolated { s -> s.aPickerThatCannotShowFallsBackToTheDefaultFolderSoTheTapIsNeverLost() }
+        runIsolated { s -> s.aFailedFolderWriteIsReportedAndNeverRepaintsTheStar() }
+        runIsolated { s -> s.aFailedFolderCreateIsReportedAndDoesNotReopenThePicker() }
+        runIsolated { s -> s.anUnknownVideoStillKeepsTheLoginScreenEvenWithAPicker() }
+        runIsolated { s -> s.storySingleClickTogglesAndUsesTheStorySnackbar() }
+        runIsolated { s -> s.storyLongPressOpensTheFolderChoiceWithoutToggling() }
+        runIsolated { s -> s.unfavoritingFromTheStoryPickerPaintsTheStoryStarOff() }
+        runIsolated { s -> s.aLoginRequestThatDoesNotComeFromTheStoryStarIsLeftAlone() }
+        runIsolated { s -> s.routesOtherThanLoginAreNeverTouchedByTheStoryHook() }
+        runIsolated { s -> s.whenTheTappedVideoCannotBeToldTheStoryLoginScreenStaysSoTheTapIsNeverSwallowed() }
+        runIsolated { s -> s.loggedInUsersKeepTheStoryLoginBehavior() }
+        runIsolated { s -> s.theStoryStarWithoutAPickerTogglesTheDefaultFolderOfTheTappedVideo() }
+        runIsolated { s -> s.aStorySourceThatCannotInstallLeavesTheStoryStarAloneAndTheRestWorking() }
+        runIsolated { s -> s.anUnknownRouterInstallsNoStoryHookAndTheRestStillWorks() }
+        runIsolated { s -> s.theStoryWidgetIsRecognizedFromAnyFrameOfItsOwnOrItsNestedClasses() }
+        runIsolated { s -> s.on884To896BuildsTheStateWriterIsTheSingletonsInstanceMethod() }
+        runIsolated { s -> s.theSingletonWriterIsNotGuessedWhenTheInstanceFieldIsAmbiguousOrAbsent() }
+        runIsolated { s -> s.theStaticWriterWinsOverTheSingletonWriterWhenBothCouldApply() }
+        runIsolated { s -> s.favoriteAidParsesOnlyAPositiveOidOnTheFavoriteSceneAndALoginRoute() }
     }
 }

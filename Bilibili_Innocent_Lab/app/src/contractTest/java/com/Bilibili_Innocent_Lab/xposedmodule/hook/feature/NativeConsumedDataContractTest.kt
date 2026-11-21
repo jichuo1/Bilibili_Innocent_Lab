@@ -18,7 +18,7 @@ class NativeConsumedDataContractTest {
     private val codec = SourceContract.read("hook/feature/PlayerCodecForceFeatureInstaller.kt")
     private val codecPolicy = SourceContract.read("hook/feature/PlayerCodecForcePolicy.kt")
 
-    @Test fun removingTheGradientStyleAlsoRewritesTheDanmakuThatReferenceIt() {
+    fun removingTheGradientStyleAlsoRewritesTheDanmakuThatReferenceIt() {
         val purify = danmaku.after("private fun purify(").before("private fun purifyElems(")
         assertTrue("删样式定义时必须同时给引用它的弹幕改色", purify.contains("neutralizeVipColorful("))
         val resolve = danmaku.after("private fun resolveMembers(").before("private fun resolveVipGradualColorValue(")
@@ -27,10 +27,20 @@ class NativeConsumedDataContractTest {
         assertTrue(resolve.contains("elemColorfulGetter == null"))
     }
 
-    @Test fun av1WithForcedSoftwareDecodingIsDowngradedBeforeTheRequestIsRewritten() {
+    fun av1WithForcedSoftwareDecodingIsDowngradedBeforeTheRequestIsRewritten() {
         assertTrue(codecPolicy.contains("fun effectivePreference("))
         assertTrue("请求改写必须用降级后的偏好", codec.contains("access.rewrite(original, requestPreference)"))
         assertTrue(codec.contains("RequestAccess.resolve(resolved.request, nestedVod, requestPreference)"))
         assertTrue("跟随宿主 + 强制软解也要清 AV1 位", codec.contains("|| stripAv1Only"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (NativeConsumedDataContractTest) -> Unit) {
+            val s = NativeConsumedDataContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.removingTheGradientStyleAlsoRewritesTheDanmakuThatReferenceIt() }
+        runIsolated { s -> s.av1WithForcedSoftwareDecodingIsDowngradedBeforeTheRequestIsRewritten() }
     }
 }

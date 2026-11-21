@@ -26,7 +26,7 @@ class PlayerPopupPromotionAdapterTest {
         }
     }
 
-    @Test fun `stable continuation derives only its unique validated guide owner`() {
+    fun `stable continuation derives only its unique validated guide owner`() {
         assertEquals(guide, PlayerPopupPromotionAdapter.directFreeDataGuide(loader))
         val ambiguous = object : ClassLoader(loader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> =
@@ -38,7 +38,7 @@ class PlayerPopupPromotionAdapterTest {
         assertNull(PlayerPopupPromotionAdapter.resolveFreeDataGuide(loader, null))
     }
 
-    @Test fun `disabled and complete direct paths never invoke the dex engine while missing families share a pass`() {
+    fun `disabled and complete direct paths never invoke the dex engine while missing families share a pass`() {
         var batches = 0
         var planned: Set<DexAssistQuery> = emptySet()
         val engine = object : DexAssistEngine {
@@ -63,7 +63,7 @@ class PlayerPopupPromotionAdapterTest {
         assertTrue(PlayerPopupPromotionAdapter.missing(missing, points).isEmpty())
     }
 
-    @Test fun `multiple owners wrong signatures and too many candidates are rejected`() {
+    fun `multiple owners wrong signatures and too many candidates are rejected`() {
         fun selected(methods: List<java.lang.reflect.Method>, family: Family): PlayerPopupPromotionPoints =
             PlayerPopupPromotionAdapter.locate(hidden(), DexAssistSession(DexAssistEngine { request ->
                 if (request.query == family.query) DexAssistResult.Candidates(methods)
@@ -76,7 +76,7 @@ class PlayerPopupPromotionAdapterTest {
         assertEquals(PlayerPopupPromotionAdapter.point(guide), selected(listOf(guide, guide), Family.FREE_DATA_GUIDE).freeDataGuide)
     }
 
-    @Test fun `old continuation ABI accepts only the unique semantic candidate and rejects its split helpers`() {
+    fun `old continuation ABI accepts only the unique semantic candidate and rejects its split helpers`() {
         val old = PopupAdapterShapes.Old::class.java.declaredMethods
         val flow = old.single { it.name == "r" }
         val unrelatedFlow = old.single { it.name == "q" }
@@ -94,7 +94,7 @@ class PlayerPopupPromotionAdapterTest {
         assertNull(locate(listOf(flow, unrelatedFlow)).freeDataGuide)
     }
 
-    @Test fun `another family or feature refreshing never reopens a previously failed query`() {
+    fun `another family or feature refreshing never reopens a previously failed query`() {
         val missing = hidden()
         val attempted = setOf(Family.FREE_DATA_GUIDE)
         val planned = PlayerPopupPromotionAdapter.planned(missing, null, attempted, true)
@@ -115,7 +115,7 @@ class PlayerPopupPromotionAdapterTest {
             listOf("base.apk"), missing, emptySet()), true, null, allAttempted)
     }
 
-    @Test fun `verified cached families produce zero queries during another feature refresh`() {
+    fun `verified cached families produce zero queries during another feature refresh`() {
         val missing = hidden()
         val cached = PlayerPopupPromotionPoints(PlayerPopupPromotionAdapter.point(guide), PlayerPopupPromotionAdapter.point(advert))
         val planned = PlayerPopupPromotionAdapter.planned(missing, cached, emptySet(), true)
@@ -128,7 +128,7 @@ class PlayerPopupPromotionAdapterTest {
         assertTrue(PlayerPopupPromotionAdapter.planned(missing, invalid, setOf(Family.FREE_DATA_GUIDE), true).isEmpty())
     }
 
-    @Test fun `disabled feature retains pure previous points without loading a single host class`() {
+    fun `disabled feature retains pure previous points without loading a single host class`() {
         var loads = 0
         val trap = object : ClassLoader(loader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -144,7 +144,7 @@ class PlayerPopupPromotionAdapterTest {
         assertEquals(0, loads)
     }
 
-    @Test fun `optional cache is bounded validated and merged independently for each family`() {
+    fun `optional cache is bounded validated and merged independently for each family`() {
         val guidePoint = PlayerPopupPromotionAdapter.point(guide)
         val floatPoint = PlayerPopupPromotionAdapter.point(advert)
         val points = PlayerPopupPromotionPoints(guidePoint, floatPoint)
@@ -161,5 +161,21 @@ class PlayerPopupPromotionAdapterTest {
         assertEquals(points, PlayerPopupPromotionAdapter.merge(PlayerPopupPromotionPoints(guidePoint), PlayerPopupPromotionPoints(advertFloat = floatPoint)))
         assertNull(PlayerPopupPromotionAdapter.resolveFreeDataGuide(loader, guidePoint.copy(methodName = "missing")))
         assertNull(PlayerPopupPromotionAdapter.resolveAdvertFloat(loader, floatPoint.copy(paramClassNames = listOf("int"))))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerPopupPromotionAdapterTest) -> Unit) {
+            val s = PlayerPopupPromotionAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.`stable continuation derives only its unique validated guide owner`() }
+        runIsolated { s -> s.`disabled and complete direct paths never invoke the dex engine while missing families share a pass`() }
+        runIsolated { s -> s.`multiple owners wrong signatures and too many candidates are rejected`() }
+        runIsolated { s -> s.`old continuation ABI accepts only the unique semantic candidate and rejects its split helpers`() }
+        runIsolated { s -> s.`another family or feature refreshing never reopens a previously failed query`() }
+        runIsolated { s -> s.`verified cached families produce zero queries during another feature refresh`() }
+        runIsolated { s -> s.`disabled feature retains pure previous points without loading a single host class`() }
+        runIsolated { s -> s.`optional cache is bounded validated and merged independently for each family`() }
     }
 }

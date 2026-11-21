@@ -44,7 +44,6 @@ class HostTopBarFxFeatureInstallerTest {
         runtimeEvidence = evidence
     )
 
-    @Test
     fun `skips installation when disabled`() {
         val installer = HostTopBarFxFeatureInstaller(
             liquidGlass = false,
@@ -56,7 +55,6 @@ class HostTopBarFxFeatureInstallerTest {
         assertEquals("disabled", (result as FeatureInstallResult.Skipped).reason)
     }
 
-    @Test
     fun `skips installation in non-main process`() {
         val installer = HostTopBarFxFeatureInstaller(
             liquidGlass = true,
@@ -68,7 +66,6 @@ class HostTopBarFxFeatureInstallerTest {
         assertEquals("non-main-process", (result as FeatureInstallResult.Skipped).reason)
     }
 
-    @Test
     fun `fragment dispatcher remains usable when direct callback point is absent`() {
         var channel = ""
         var status = ""
@@ -83,7 +80,6 @@ class HostTopBarFxFeatureInstallerTest {
         assertEquals("installed:legacy=2,compose=false", status)
     }
 
-    @Test
     fun `missing direct callback and missing dispatcher report no safe entry`() {
         val unavailable = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -98,7 +94,6 @@ class HostTopBarFxFeatureInstallerTest {
         assertEquals("missing:missing-view-created-point", status)
     }
 
-    @Test
     fun `successfully installs hook when baseOnViewCreated point is present`() {
         val recorder = Recorder()
         val stages = mutableListOf<FeatureRuntimeStage>()
@@ -131,7 +126,6 @@ class HostTopBarFxFeatureInstallerTest {
         assertTrue("Registration must not report a controller attachment or material draw", stages.isEmpty())
     }
 
-    @Test
     fun `isUnderlineIndicator identifies indicator characteristics and distinguishes dividers`() {
         open class MockView : View(null) {
             private var lp: ViewGroup.LayoutParams? = null
@@ -161,5 +155,19 @@ class HostTopBarFxFeatureInstallerTest {
         dividerLp.height = 2
         dividerView.setLayoutParams(dividerLp)
         assertFalse(HostTopBarFxController.isUnderlineIndicator(dividerView))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostTopBarFxFeatureInstallerTest) -> Unit) {
+            val s = HostTopBarFxFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips installation when disabled`() }
+        runIsolated { s -> s.`skips installation in non-main process`() }
+        runIsolated { s -> s.`fragment dispatcher remains usable when direct callback point is absent`() }
+        runIsolated { s -> s.`missing direct callback and missing dispatcher report no safe entry`() }
+        runIsolated { s -> s.`successfully installs hook when baseOnViewCreated point is present`() }
+        runIsolated { s -> s.`isUnderlineIndicator identifies indicator characteristics and distinguishes dividers`() }
     }
 }

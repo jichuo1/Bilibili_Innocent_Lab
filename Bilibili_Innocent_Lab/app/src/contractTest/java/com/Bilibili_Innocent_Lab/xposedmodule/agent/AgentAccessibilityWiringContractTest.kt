@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentAccessibilityWiringContractTest {
-    @Test fun postActionObservationCannotReplayEffectsOrPublishAfterTheAdmissionDeadline() {
+    fun postActionObservationCannotReplayEffectsOrPublishAfterTheAdmissionDeadline() {
         val service = SourceContract.read("agent/AgentAccessibilityService.kt")
         val observation = service.after("private fun changed(").before("private fun gesture(")
         assertTrue(observation.contains("if (result.isDone) return"))
@@ -24,7 +24,7 @@ class AgentAccessibilityWiringContractTest {
         assertFalse(update.contains("AgentController.owns")) // 仅显示 stopping；控制接收器仍检查 owns。
         assertTrue(SourceContract.read("agent/AgentNotificationReceiver.kt").contains("if (!AgentController.owns(task)) return"))
     }
-    @Test fun readingModuleLogsWaitsWithoutReplayingThePreviousUiAction() {
+    fun readingModuleLogsWaitsWithoutReplayingThePreviousUiAction() {
         val controller = SourceContract.read("agent/AgentController.kt")
         val boundary = controller.after("val visibleResponse =").before("private fun leaseUntil(")
         assertTrue(boundary.contains("AgentAccessibilityService.Foreground.MODULE"))
@@ -33,7 +33,7 @@ class AgentAccessibilityWiringContractTest {
         assertTrue(boundary.contains("\"ui_snapshot_stale\""))
         assertFalse(boundary.contains("AgentAccessibilityService.request"))
     }
-    @Test fun everyUiActionHasTaskWindowAndFreshTargetChecks() {
+    fun everyUiActionHasTaskWindowAndFreshTargetChecks() {
         val service = SourceContract.read("agent/AgentAccessibilityService.kt")
         assertTrue(service.contains("AgentController.actionAuthorized(task)"))
         assertTrue(service.contains("it.isActive && it.isFocused"))
@@ -45,7 +45,7 @@ class AgentAccessibilityWiringContractTest {
         assertTrue(service.contains("check(now.enabled && !now.protected)"))
         assertFalse(service.contains("ACTION_ACCESSIBILITY_SETTINGS"))
     }
-    @Test fun aNeutralIslandAllowsOnlyTheStillFocusedHostAndCannotBeHitByModelCoordinates() {
+    fun aNeutralIslandAllowsOnlyTheStillFocusedHostAndCannotBeHitByModelCoordinates() {
         val service = SourceContract.read("agent/AgentAccessibilityService.kt")
         val selection = service.after("private fun hostWindow()").before("private fun hostRoot()")
         assertTrue(selection.contains("AgentForegroundWindowPolicy.hostWindowId("))
@@ -62,7 +62,7 @@ class AgentAccessibilityWiringContractTest {
         assertFalse(selection.contains("canDrawOverlays"))
         assertFalse(selection.contains("AgentPreferences.islandAllowed"))
     }
-    @Test fun oldAndroidDoesNotEnterNewApiOrOverlayOnModernAndroid() {
+    fun oldAndroidDoesNotEnterNewApiOrOverlayOnModernAndroid() {
         val service = SourceContract.read("agent/AgentSessionService.kt")
         assertTrue(service.contains("if (!AgentUiPolicy.systemNotification(Build.VERSION.SDK_INT))"))
         assertTrue(service.contains("startForeground(AgentTaskNotification.ID"))
@@ -73,7 +73,7 @@ class AgentAccessibilityWiringContractTest {
         assertTrue(notification.contains("PendingIntent.FLAG_IMMUTABLE"))
         assertFalse(notification.contains("RemoteViews"))
     }
-    @Test fun screenshotsDoNotContainOtherAppWindowsAndExpiredCallbacksCannotPublish() {
+    fun screenshotsDoNotContainOtherAppWindowsAndExpiredCallbacksCannotPublish() {
         val capture = SourceContract.read("agent/AgentAccessibilityService.kt").after("private fun screenshot(").before("companion object")
         assertTrue(SourceContract.read("agent/AgentAccessibilityService.kt").contains("if (Build.VERSION.SDK_INT >= 34) screenshot"))
         assertTrue(capture.contains("takeScreenshotOfWindow(shot.tree.window"))
@@ -84,5 +84,19 @@ class AgentAccessibilityWiringContractTest {
         val service = SourceContract.read("agent/AgentAccessibilityService.kt")
         assertTrue(service.contains("renderer.contains(\"WebView\", true)"))
         assertTrue(service.contains("renderer.contains(\"ComposeView\", true)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentAccessibilityWiringContractTest) -> Unit) {
+            val s = AgentAccessibilityWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.postActionObservationCannotReplayEffectsOrPublishAfterTheAdmissionDeadline() }
+        runIsolated { s -> s.readingModuleLogsWaitsWithoutReplayingThePreviousUiAction() }
+        runIsolated { s -> s.everyUiActionHasTaskWindowAndFreshTargetChecks() }
+        runIsolated { s -> s.aNeutralIslandAllowsOnlyTheStillFocusedHostAndCannotBeHitByModelCoordinates() }
+        runIsolated { s -> s.oldAndroidDoesNotEnterNewApiOrOverlayOnModernAndroid() }
+        runIsolated { s -> s.screenshotsDoNotContainOtherAppWindowsAndExpiredCallbacksCannotPublish() }
     }
 }

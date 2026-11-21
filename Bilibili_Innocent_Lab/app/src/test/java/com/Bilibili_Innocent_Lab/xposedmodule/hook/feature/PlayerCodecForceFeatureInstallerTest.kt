@@ -26,7 +26,6 @@ class PlayerCodecForceFeatureInstallerTest {
         reportStatus = { _, _ -> }
     )
 
-    @Test
     fun `request hook copies the nested vod and sets av1 preference`() {
         val registrar = PlayerPortTestRegistrar()
         val result = PlayerCodecForceFeatureInstaller(
@@ -50,7 +49,6 @@ class PlayerCodecForceFeatureInstallerTest {
         assertEquals(16, source.getVod().getFnval())
     }
 
-    @Test
     fun `async and legacy request hooks preserve their independent request shapes`() {
         val registrar = PlayerPortTestRegistrar()
         PlayerCodecForceFeatureInstaller(
@@ -88,7 +86,6 @@ class PlayerCodecForceFeatureInstallerTest {
     }
 
     /** AV1 × 强制软解按方案硬约束降级：请求改成优先 H.264 并清 AV1 位。 */
-    @Test
     fun `av1 preference with forced software decoding requests h264 instead`() {
         val registrar = PlayerPortTestRegistrar()
         PlayerCodecForceFeatureInstaller(
@@ -103,7 +100,6 @@ class PlayerCodecForceFeatureInstallerTest {
         assertEquals(16, actual.getVod().getFnval())
     }
 
-    @Test
     fun `decode mode registers bundle and native option guards`() {
         val registrar = PlayerPortTestRegistrar()
         val result = PlayerCodecForceFeatureInstaller(
@@ -154,7 +150,6 @@ class PlayerCodecForceFeatureInstallerTest {
         }
     }
 
-    @Test
     fun `coordinator records codec and decode leaves without unverified overwrite`() {
         val registrar = PlayerPortTestRegistrar()
         val events = mutableListOf<FeatureInstallRecord>()
@@ -177,7 +172,6 @@ class PlayerCodecForceFeatureInstallerTest {
         assertEquals(1, leaves.count { it.id == "player_decode_mode" })
     }
 
-    @Test
     fun `follow host installs nothing`() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(
@@ -185,5 +179,19 @@ class PlayerCodecForceFeatureInstallerTest {
             PlayerCodecForceFeatureInstaller(0, 0).install(environment(registrar))
         )
         assertTrue(registrar.hooks.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerCodecForceFeatureInstallerTest) -> Unit) {
+            val s = PlayerCodecForceFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`request hook copies the nested vod and sets av1 preference`() }
+        runIsolated { s -> s.`async and legacy request hooks preserve their independent request shapes`() }
+        runIsolated { s -> s.`av1 preference with forced software decoding requests h264 instead`() }
+        runIsolated { s -> s.`decode mode registers bundle and native option guards`() }
+        runIsolated { s -> s.`coordinator records codec and decode leaves without unverified overwrite`() }
+        runIsolated { s -> s.`follow host installs nothing`() }
     }
 }

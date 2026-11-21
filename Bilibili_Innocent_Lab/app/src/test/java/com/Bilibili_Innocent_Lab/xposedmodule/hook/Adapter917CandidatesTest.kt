@@ -40,7 +40,7 @@ class Adapter917CandidatesTest {
         }
     }
 
-    @Test fun `917 direct implementation owners precede compatible older owners`() {
+    fun `917 direct implementation owners precede compatible older owners`() {
         val loader = HostLoader(Network::class.java, Quality::class.java)
         assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(loader)?.className)
         assertEquals(Quality::class.java.name,
@@ -48,23 +48,23 @@ class Adapter917CandidatesTest {
         assertFalse("The cache wrapper is not a network candidate", "Bx1.a" in loader.requested)
     }
 
-    @Test fun `same new names with incompatible signatures retain the old fallback`() {
+    fun `same new names with incompatible signatures retain the old fallback`() {
         val loader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java)
         assertEquals("Dr1.c", VersionAdapter.locateBlockUpdate(loader)?.className)
         assertEquals("ut1.h", VersionAdapter.locateDefaultVideoQuality(loader)?.defaultQualityMethod?.className)
     }
 
-    @Test fun `ambiguous new quality methods retain the old unique implementation`() {
+    fun `ambiguous new quality methods retain the old unique implementation`() {
         val loader = HostLoader(Network::class.java, AmbiguousQuality::class.java)
         assertEquals("ut1.h", VersionAdapter.locateDefaultVideoQuality(loader)?.defaultQualityMethod?.className)
     }
 
-    @Test fun `network bridge keeps the existing unique leaf selection`() {
+    fun `network bridge keeps the existing unique leaf selection`() {
         val loader = HostLoader(BridgedNetwork::class.java, Quality::class.java)
         assertEquals("c", VersionAdapter.locateBlockUpdate(loader)?.methodName)
     }
 
-    @Test fun `verified media owners are used only for their APK build codes`() {
+    fun `verified media owners are used only for their APK build codes`() {
         val loader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
             mapOf("gwx1" to Network::class.java, "rnr1" to Quality::class.java))
         for (version in listOf(9190200, 9190400)) {
@@ -76,7 +76,7 @@ class Adapter917CandidatesTest {
         assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = 9180300)?.defaultQualityMethod)
     }
 
-    @Test fun `920 verified media owners resolve per build and never leak across builds`() {
+    fun `920 verified media owners resolve per build and never leak across builds`() {
         // 远端 dexq 逐构建验真：block update=*72#a(Context)BiliUpgradeInfo，默认画质=*12#a()I。
         val builds = mapOf(
             9200100 to ("lr72" to "mg12"),
@@ -107,7 +107,7 @@ class Adapter917CandidatesTest {
      * 9.20 走已验真分支：owner 只按登记名查一次，类缺失或签名不符都直接返回 null、不回候选表。
      * 两种失败都必须记 MISSING，不能因为旧候选表里没有这些短名就记成「宿主无此结构」。
      */
-    @Test fun `verified owner failure is reported missing not not applicable`() {
+    fun `verified owner failure is reported missing not not applicable`() {
         val plan = AdaptPlan(1L, setOf(PointFamily.BLOCK_UPDATE, PointFamily.PLAYER_QUALITY), emptySet())
         val located = VersionAdapterTest().result().copy(blockUpdate = null, playerQuality = null)
         // 类在但 ABI 漂移，和 owner 短名整体漂移（类都加载不到）都要算适配失败。
@@ -129,6 +129,21 @@ class Adapter917CandidatesTest {
             assertNull(VersionAdapter.locateBlockUpdate(loader, 9200100))
             assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = 9200100)?.defaultQualityMethod)
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (Adapter917CandidatesTest) -> Unit) {
+            val s = Adapter917CandidatesTest()
+            block(s)
+        }
+        runIsolated { s -> s.`917 direct implementation owners precede compatible older owners`() }
+        runIsolated { s -> s.`same new names with incompatible signatures retain the old fallback`() }
+        runIsolated { s -> s.`ambiguous new quality methods retain the old unique implementation`() }
+        runIsolated { s -> s.`network bridge keeps the existing unique leaf selection`() }
+        runIsolated { s -> s.`verified media owners are used only for their APK build codes`() }
+        runIsolated { s -> s.`920 verified media owners resolve per build and never leak across builds`() }
+        runIsolated { s -> s.`verified owner failure is reported missing not not applicable`() }
     }
 }
 

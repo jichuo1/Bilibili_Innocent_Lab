@@ -19,7 +19,7 @@ class AgentScreenshotThreadingContractTest {
     private val encode = service.after("private fun encodeScreenshot(").before("/** 主线程：核对任务仍有效")
     private val deliver = service.after("private fun deliverScreenshot(").before("companion object")
 
-    @Test fun mainThreadCallbackDoesNoPixelWork() {
+    fun mainThreadCallbackDoesNoPixelWork() {
         for (heavy in listOf("hardware.copy(", ".copy(Bitmap.Config", "createBitmap(", "createScaledBitmap(", ".compress(",
             "Base64.encodeToString", "wrapHardwareBuffer", "ByteArrayOutputStream")) {
             assertFalse("主线程回调不应出现 $heavy", callback.contains(heavy))
@@ -27,7 +27,7 @@ class AgentScreenshotThreadingContractTest {
         assertTrue(callback.contains("screenshotWorker.trySubmit"))
     }
 
-    @Test fun pixelWorkLivesInTheWorkerFunctionAndNeverTouchesViewsOrNodes() {
+    fun pixelWorkLivesInTheWorkerFunctionAndNeverTouchesViewsOrNodes() {
         for (heavy in listOf("wrapHardwareBuffer", ".copy(Bitmap.Config.ARGB_8888", "createBitmap(", "createScaledBitmap(",
             ".compress(Bitmap.CompressFormat.JPEG", "Base64.encodeToString")) {
             assertTrue("worker 函数应包含 $heavy", encode.contains(heavy))
@@ -37,7 +37,7 @@ class AgentScreenshotThreadingContractTest {
         }
     }
 
-    @Test fun hardwareBufferHasExactlyOneOwnerOnEveryBranch() {
+    fun hardwareBufferHasExactlyOneOwnerOnEveryBranch() {
         // 交出之前归回调（含拒绝、满载、异常）；交出之后归 worker 函数，在 finally 里关闭。
         assertTrue(callback.contains("var handedOff = false"))
         assertTrue(callback.contains("finally { if (!handedOff) buffer.close() }"))
@@ -47,14 +47,14 @@ class AgentScreenshotThreadingContractTest {
         assertTrue(encode.indexOf("if (result.isDone) return") in 0 until encode.indexOf("wrapHardwareBuffer"))
     }
 
-    @Test fun staleResultsAreDroppedOnTheMainThread() {
+    fun staleResultsAreDroppedOnTheMainThread() {
         assertTrue(callback.contains("main.post { deliverScreenshot("))
         assertTrue(deliver.contains("if (result.isDone) return"))
         assertTrue(deliver.contains("check(snapshot === shot && visualGate.isCurrent(windowToken))"))
         assertTrue(deliver.indexOf("admit()") < deliver.indexOf("visualGate.commit("))
     }
 
-    @Test fun aWindowChangeDuringEncodingCannotBeOverwrittenByTheDelivery() {
+    fun aWindowChangeDuringEncodingCannotBeOverwrittenByTheDelivery() {
         // 窗口代次在主线程回调里、交出 worker 之前记下；事件使它前进；交付时代次变了就不写回、返回 ui_snapshot_stale。
         assertTrue(callback.indexOf("ready(task)") < callback.indexOf("val windowToken = visualGate.token()"))
         assertTrue(callback.indexOf("val windowToken = visualGate.token()") < callback.indexOf("screenshotWorker.trySubmit"))
@@ -66,7 +66,7 @@ class AgentScreenshotThreadingContractTest {
         assertFalse(service.contains("visualSnapshot"))
     }
 
-    @Test fun workerNeverFallsBackToTheCallerThread() {
+    fun workerNeverFallsBackToTheCallerThread() {
         val worker = SourceContract.read("agent/AgentScreenshotWorker.kt")
         assertFalse(worker.contains("CallerRunsPolicy"))
         assertTrue(worker.contains("ThreadPoolExecutor.AbortPolicy()"))
@@ -76,5 +76,19 @@ class AgentScreenshotThreadingContractTest {
         assertTrue(submit.contains("var accepted = false"))
         assertTrue(submit.contains("finally {"))
         assertTrue(submit.contains("if (!accepted) inFlight.set(false)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentScreenshotThreadingContractTest) -> Unit) {
+            val s = AgentScreenshotThreadingContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.mainThreadCallbackDoesNoPixelWork() }
+        runIsolated { s -> s.pixelWorkLivesInTheWorkerFunctionAndNeverTouchesViewsOrNodes() }
+        runIsolated { s -> s.hardwareBufferHasExactlyOneOwnerOnEveryBranch() }
+        runIsolated { s -> s.staleResultsAreDroppedOnTheMainThread() }
+        runIsolated { s -> s.aWindowChangeDuringEncodingCannotBeOverwrittenByTheDelivery() }
+        runIsolated { s -> s.workerNeverFallsBackToTheCallerThread() }
     }
 }

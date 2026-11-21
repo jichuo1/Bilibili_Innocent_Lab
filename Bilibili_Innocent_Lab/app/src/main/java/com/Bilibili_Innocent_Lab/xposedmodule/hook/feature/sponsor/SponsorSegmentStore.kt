@@ -13,7 +13,11 @@ import java.security.MessageDigest
  * - 读写失败一律当作“没有缓存”，不影响联网结果；单文件有大小上限，总条数封顶，写入先临时文件再改名。
  * - 条目只信自己写的格式：版本、校验键、区间字段逐项核验，不合格的文件当场删除。
  */
-internal class SponsorSegmentStore(root: File, private val clock: () -> Long = System::currentTimeMillis) {
+internal class SponsorSegmentStore(
+    root: File,
+    private val maxEntries: Int = MAX_ENTRIES,
+    private val clock: () -> Long = System::currentTimeMillis
+) {
     internal class Entry(val segments: List<SponsorSegment>, val savedAtMs: Long)
 
     private val directory = File(root, DIRECTORY)
@@ -60,8 +64,8 @@ internal class SponsorSegmentStore(root: File, private val clock: () -> Long = S
         val cutoff = clock() - TEMP_MAX_AGE_MS
         files.filter { it.name.endsWith(TEMP_SUFFIX) && it.lastModified() < cutoff }.forEach { it.delete() }
         val entries = files.filter { it.isFile && it.name.endsWith(SUFFIX) }
-        if (entries.size > MAX_ENTRIES) {
-            entries.sortedBy { it.lastModified() }.take(entries.size - MAX_ENTRIES).forEach { it.delete() }
+        if (entries.size > maxEntries) {
+            entries.sortedBy { it.lastModified() }.take(entries.size - maxEntries).forEach { it.delete() }
         }
     }
 

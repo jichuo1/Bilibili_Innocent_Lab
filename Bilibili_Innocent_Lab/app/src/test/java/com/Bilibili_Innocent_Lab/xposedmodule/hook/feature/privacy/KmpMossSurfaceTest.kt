@@ -16,7 +16,7 @@ class KmpMossSurfaceTest {
     private fun resolved(pkg: String) =
         (KmpMossSurface.resolve(loader, names(pkg)) as KmpMossSurface.Result.Resolved).surface
 
-    @Test fun modernShapeUsesThreeArgResponseAndFieldAccessors() {
+    fun modernShapeUsesThreeArgResponseAndFieldAccessors() {
         val surface = resolved("modern")
         assertFalse(surface.responseHasRequest)
         assertEquals(3, surface.responseCtor.parameterCount)
@@ -26,7 +26,7 @@ class KmpMossSurfaceTest {
         assertEquals("a", surface.engineEntry.name)
     }
 
-    @Test fun legacyShapeUsesFourArgResponseAndAccessorMethods() {
+    fun legacyShapeUsesFourArgResponseAndAccessorMethods() {
         val surface = resolved("legacy")
         assertTrue(surface.responseHasRequest)
         assertEquals(4, surface.responseCtor.parameterCount)
@@ -39,7 +39,7 @@ class KmpMossSurfaceTest {
         assertEquals("d", surface.requestHeaders.name)
     }
 
-    @Test fun entryPositionsOfDescriptorAndReplyHandlerAreFoundByType() {
+    fun entryPositionsOfDescriptorAndReplyHandlerAreFoundByType() {
         val modern = resolved("modern")
         assertEquals(1, modern.entryDescriptorIndex)
         assertEquals(3, modern.entryHandlerIndex)
@@ -49,13 +49,26 @@ class KmpMossSurfaceTest {
         assertEquals(-1, legacy.entryHandlerIndex)
     }
 
-    @Test fun hostWithoutAnEngineIsAbsentNotUnresolved() {
+    fun hostWithoutAnEngineIsAbsentNotUnresolved() {
         assertEquals(KmpMossSurface.Result.Absent, KmpMossSurface.resolve(loader, names("none")))
     }
 
-    @Test fun missingExceptionTypeFailsClosed() {
+    fun missingExceptionTypeFailsClosed() {
         val result = KmpMossSurface.resolve(loader, names("modern", exception = "Nope"))
         assertTrue(result is KmpMossSurface.Result.Unresolved)
         assertEquals("exception", (result as KmpMossSurface.Result.Unresolved).reason)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KmpMossSurfaceTest) -> Unit) {
+            val s = KmpMossSurfaceTest()
+            block(s)
+        }
+        runIsolated { s -> s.modernShapeUsesThreeArgResponseAndFieldAccessors() }
+        runIsolated { s -> s.legacyShapeUsesFourArgResponseAndAccessorMethods() }
+        runIsolated { s -> s.entryPositionsOfDescriptorAndReplyHandlerAreFoundByType() }
+        runIsolated { s -> s.hostWithoutAnEngineIsAbsentNotUnresolved() }
+        runIsolated { s -> s.missingExceptionTypeFailsClosed() }
     }
 }

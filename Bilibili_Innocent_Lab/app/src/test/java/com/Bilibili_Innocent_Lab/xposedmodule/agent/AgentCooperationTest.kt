@@ -13,7 +13,7 @@ class AgentCooperationTest {
                 .put("id", id).put("type", "function").put("function", JSONObject().put("name", name).put("arguments", args.toString())))))))
         .put("usage", JSONObject().put("prompt_tokens", 12).put("completion_tokens", 4)).toString()
 
-    @Test fun nativeNumericReadHasCanonicalHistoryAndNoAdditionalRequest() {
+    fun nativeNumericReadHasCanonicalHistoryAndNoAdditionalRequest() {
         val planner = source(1); var requests = 0
         val cooperation = models(listOf(planner), mapOf(planner.fingerprint to caps(tools = true)), AgentRoutePolicy(setOf(1)),
             AgentHttpTransport { _, _, _, _ -> requests++; nativeCall("get_ui_state", JSONObject().put("offset", 0)) })
@@ -23,7 +23,7 @@ class AgentCooperationTest {
         val echo = JSONObject(turn.message.getJSONArray("tool_calls").getJSONObject(0).getJSONObject("function").getString("arguments"))
         assertEquals("0", echo.getString("offset")); assertEquals(12L, turn.usage!!.inputTokens)
     }
-    @Test fun invalidNativePlanUsesOnlyPermittedFallbackAndRetainsItsTokenMetrics() {
+    fun invalidNativePlanUsesOnlyPermittedFallbackAndRetainsItsTokenMetrics() {
         val primary = source(1); val backup = source(2); val requests = mutableListOf<Int>(); val updates = mutableListOf<AgentRequestUpdate>()
         val transport = AgentHttpTransport { selected, _, _, _ ->
             requests += selected.index
@@ -39,7 +39,7 @@ class AgentCooperationTest {
         assertEquals(AgentModelException.Reason.INVALID_RESPONSE, invalid.error)
         assertEquals(12L, invalid.usage!!.inputTokens)
     }
-    @Test fun invalidFixedPlanNeverEscapesThroughUnapprovedFallbackOrMissingIdentity() {
+    fun invalidFixedPlanNeverEscapesThroughUnapprovedFallbackOrMissingIdentity() {
         val primary = source(1); val backup = source(2); val requests = mutableListOf<Int>()
         val cooperation = models(listOf(primary, backup), mapOf(primary.fingerprint to caps(tools = true), backup.fingerprint to caps(tools = true)),
             AgentRoutePolicy(setOf(1, 2), fixedIndex = 1, allowFallback = false), AgentHttpTransport { selected, _, _, _ ->
@@ -49,7 +49,7 @@ class AgentCooperationTest {
         catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.INVALID_RESPONSE, error.reason) }
         assertEquals(listOf(1), requests)
     }
-    @Test fun textOnlyPlannerReceivesOrdinaryDialogAndRealExecutionResults() {
+    fun textOnlyPlannerReceivesOrdinaryDialogAndRealExecutionResults() {
         val planner = source(1)
         val proof = caps().copy(plainPlanning = true, plainState = AgentCapabilityState.SUPPORTED)
         var count = 0
@@ -71,7 +71,7 @@ class AgentCooperationTest {
         assertEquals(2, count)
     }
 
-    @Test fun explicitToolRejectionProbesTextModeOnceWithoutExtendingVisionProof() {
+    fun explicitToolRejectionProbesTextModeOnceWithoutExtendingVisionProof() {
         val planner = source(1)
         val original = caps(tools = true, vision = true).copy(checkedAtMs = System.currentTimeMillis() - 10_000)
         var probes = 0
@@ -102,7 +102,7 @@ class AgentCooperationTest {
         assertTrue(changed.single().plainPlanning); assertFalse(changed.single().tools)
         assertTrue(changed.single().vision); assertEquals(original.checkedAtMs, changed.single().checkedAtMs)
     }
-    @Test fun `model request metrics preserve planning when a log observer fails`() {
+    fun `model request metrics preserve planning when a log observer fails`() {
         val planner = source(1)
         val updates = mutableListOf<AgentRequestUpdate>()
         var tick = 1000L
@@ -155,7 +155,7 @@ class AgentCooperationTest {
         AgentCooperation(sources, proofs, route, goal, true, { 5000 }, { false }, {}, { 10_000L },
             AgentModelClient(transport), AgentDecisionClient(transport), health)
 
-    @Test fun `uncertain visual decision tries ordinary eyes without health punishment or caching unknown`() {
+    fun `uncertain visual decision tries ordinary eyes without health punishment or caching unknown`() {
         val decision = source(1, true)
         val eyes = source(2)
         val sources = listOf(decision, eyes)
@@ -184,7 +184,7 @@ class AgentCooperationTest {
         assertEquals(listOf(1, 2), requests) // 复用真实通过的eyes，未知结果本身仍未缓存。
     }
 
-    @Test fun `ordinary eyes produce bounded text evidence for a nonvisual decision source`() {
+    fun `ordinary eyes produce bounded text evidence for a nonvisual decision source`() {
         val decision = source(1, true)
         val eyes = source(2)
         var seenImage = false
@@ -218,7 +218,7 @@ class AgentCooperationTest {
         assertTrue(response.getJSONObject("data").getBoolean("decision_review_is_unverified"))
     }
 
-    @Test fun `fixed ordinary planner can use another selected visual decision source`() {
+    fun `fixed ordinary planner can use another selected visual decision source`() {
         val planner = source(1)
         val visual = source(2, true)
         val requests = mutableListOf<Int>()
@@ -243,7 +243,7 @@ class AgentCooperationTest {
         assertEquals(listOf(1, 2), requests)
     }
 
-    @Test fun `planner fallback keeps public tool history and strips another models private reasoning`() {
+    fun `planner fallback keeps public tool history and strips another models private reasoning`() {
         val first = source(1)
         val second = source(2)
         var firstCalls = 0
@@ -274,7 +274,7 @@ class AgentCooperationTest {
         assertEquals(second.fingerprint, cooperation.plannerFingerprint)
     }
 
-    @Test fun `healthy fixed decision stays primary when ordinary fallback is permitted`() {
+    fun `healthy fixed decision stays primary when ordinary fallback is permitted`() {
         val decision = source(1, true)
         val planner = source(2)
         val requests = mutableListOf<Int>()
@@ -291,7 +291,7 @@ class AgentCooperationTest {
         assertEquals(decision.fingerprint, cooperation.plannerFingerprint)
     }
 
-    @Test fun `failed fixed decision can hand planning to selected ordinary model with explicit fallback`() {
+    fun `failed fixed decision can hand planning to selected ordinary model with explicit fallback`() {
         val decision = source(1, true)
         val planner = source(2)
         val requests = mutableListOf<Int>()
@@ -308,7 +308,7 @@ class AgentCooperationTest {
         assertEquals(planner.fingerprint, cooperation.plannerFingerprint)
     }
 
-    @Test fun `automatic exhausted ordinary planning falls back to bounded decision actions`() {
+    fun `automatic exhausted ordinary planning falls back to bounded decision actions`() {
         val first = source(1)
         val second = source(2)
         val decision = source(3, true)
@@ -327,7 +327,7 @@ class AgentCooperationTest {
         assertEquals(decision.fingerprint, cooperation.plannerFingerprint)
     }
 
-    @Test fun `strict fixed ordinary planning failure cannot switch to selected decision model`() {
+    fun `strict fixed ordinary planning failure cannot switch to selected decision model`() {
         val planner = source(1)
         val decision = source(2, true)
         val requests = mutableListOf<Int>()
@@ -342,5 +342,27 @@ class AgentCooperationTest {
             fail("Expected the fixed source failure")
         } catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.NETWORK, error.reason) }
         assertEquals(listOf(1), requests)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentCooperationTest) -> Unit) {
+            val s = AgentCooperationTest()
+            block(s)
+        }
+        runIsolated { s -> s.nativeNumericReadHasCanonicalHistoryAndNoAdditionalRequest() }
+        runIsolated { s -> s.invalidNativePlanUsesOnlyPermittedFallbackAndRetainsItsTokenMetrics() }
+        runIsolated { s -> s.invalidFixedPlanNeverEscapesThroughUnapprovedFallbackOrMissingIdentity() }
+        runIsolated { s -> s.textOnlyPlannerReceivesOrdinaryDialogAndRealExecutionResults() }
+        runIsolated { s -> s.explicitToolRejectionProbesTextModeOnceWithoutExtendingVisionProof() }
+        runIsolated { s -> s.`model request metrics preserve planning when a log observer fails`() }
+        runIsolated { s -> s.`uncertain visual decision tries ordinary eyes without health punishment or caching unknown`() }
+        runIsolated { s -> s.`ordinary eyes produce bounded text evidence for a nonvisual decision source`() }
+        runIsolated { s -> s.`fixed ordinary planner can use another selected visual decision source`() }
+        runIsolated { s -> s.`planner fallback keeps public tool history and strips another models private reasoning`() }
+        runIsolated { s -> s.`healthy fixed decision stays primary when ordinary fallback is permitted`() }
+        runIsolated { s -> s.`failed fixed decision can hand planning to selected ordinary model with explicit fallback`() }
+        runIsolated { s -> s.`automatic exhausted ordinary planning falls back to bounded decision actions`() }
+        runIsolated { s -> s.`strict fixed ordinary planning failure cannot switch to selected decision model`() }
     }
 }

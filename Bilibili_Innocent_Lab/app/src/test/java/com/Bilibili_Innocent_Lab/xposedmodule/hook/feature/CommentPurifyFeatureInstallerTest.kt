@@ -22,7 +22,6 @@ class CommentPurifyFeatureInstallerTest {
      * 真值取自 2026-09-15 的 `Reply/MainList` 抓包：
      * `Content.urls{}.value.app_url_schema = bilibili://search?from=appcommentline_search…`。
      */
-    @Test
     fun `the search jump criterion matches the captured comment link by category`() {
         assertTrue(CommentPurifyFeatureInstaller.isSearchJumpUri(
             "bilibili://search?from=appcommentline_search&search_from_source=appcommentline_search" +
@@ -32,7 +31,6 @@ class CommentPurifyFeatureInstallerTest {
         assertTrue(CommentPurifyFeatureInstaller.isSearchJumpUri("bilibili://search/result?keyword=x"))
     }
 
-    @Test
     fun `the search jump criterion does not swallow neighbouring hosts or the web url`() {
         // 前缀写法会把这一条误判成命中，类别判据不会。
         assertFalse(CommentPurifyFeatureInstaller.isSearchJumpUri("bilibili://searchxyz?keyword=x"))
@@ -44,7 +42,6 @@ class CommentPurifyFeatureInstallerTest {
         assertFalse(CommentPurifyFeatureInstaller.isSearchJumpUri(""))
     }
 
-    @Test
     fun `blocks only implicit comment quick reply origins`() {
         assertTrue(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "CARD"))
         assertTrue(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "TEXT"))
@@ -55,7 +52,6 @@ class CommentPurifyFeatureInstallerTest {
         assertFalse(CommentPurifyFeatureInstaller.shouldBlockQuickReply(true, "PIC_BAR"))
     }
 
-    @Test
     fun `keeps original map when no search destination exists`() {
         val source = linkedMapOf("topic" to "bilibili://topic/1")
 
@@ -66,7 +62,6 @@ class CommentPurifyFeatureInstallerTest {
         assertSame(source, filtered)
     }
 
-    @Test
     fun `removes only search entries and returns immutable ordered copy`() {
         val source = linkedMapOf(
             "search" to "bilibili://search?keyword=test",
@@ -86,7 +81,6 @@ class CommentPurifyFeatureInstallerTest {
         }
     }
 
-    @Test
     fun `detects search uri from cached private text fields only`() {
         val installer = CommentPurifyFeatureInstaller(
             removeSearchLinks = true,
@@ -103,7 +97,6 @@ class CommentPurifyFeatureInstallerTest {
         assertFalse(installer.isSearchUrlValue(null))
     }
 
-    @Test
     fun `locates the exact quick reply collector boundary`() {
         val points = requireNotNull(VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader)))
 
@@ -118,7 +111,6 @@ class CommentPurifyFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `resolves empty page defaults once and registers both protobuf versions`() {
         val loader = requireNotNull(javaClass.classLoader)
         val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
@@ -147,7 +139,6 @@ class CommentPurifyFeatureInstallerTest {
         assertEquals("success", statuses["comment_purify_status"])
     }
 
-    @Test
     fun `registers only structurally adapted vote widget binders`() {
         val loader = requireNotNull(javaClass.classLoader)
         val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
@@ -176,7 +167,6 @@ class CommentPurifyFeatureInstallerTest {
         assertEquals("success", statuses["comment_purify_status"])
     }
 
-    @Test
     fun `registers complete follow visibility state and header bind points`() {
         val loader = requireNotNull(javaClass.classLoader)
         val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
@@ -205,7 +195,6 @@ class CommentPurifyFeatureInstallerTest {
         assertEquals("success", statuses["comment_purify_status"])
     }
 
-    @Test
     fun `registers qoe public read boundaries without main list mutation`() {
         val loader = requireNotNull(javaClass.classLoader)
         val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
@@ -234,7 +223,6 @@ class CommentPurifyFeatureInstallerTest {
         assertEquals("success", statuses["comment_purify_status"])
     }
 
-    @Test
     fun `registers both operation versions without mutating main list reply`() {
         val loader = requireNotNull(javaClass.classLoader)
         val points = requireNotNull(VersionAdapter.locateCommentPurify(loader))
@@ -261,5 +249,25 @@ class CommentPurifyFeatureInstallerTest {
 
         assertEquals(FeatureInstallResult.Installed(4), result)
         assertEquals("success", statuses["comment_purify_status"])
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentPurifyFeatureInstallerTest) -> Unit) {
+            val s = CommentPurifyFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`the search jump criterion matches the captured comment link by category`() }
+        runIsolated { s -> s.`the search jump criterion does not swallow neighbouring hosts or the web url`() }
+        runIsolated { s -> s.`blocks only implicit comment quick reply origins`() }
+        runIsolated { s -> s.`keeps original map when no search destination exists`() }
+        runIsolated { s -> s.`removes only search entries and returns immutable ordered copy`() }
+        runIsolated { s -> s.`detects search uri from cached private text fields only`() }
+        runIsolated { s -> s.`locates the exact quick reply collector boundary`() }
+        runIsolated { s -> s.`resolves empty page defaults once and registers both protobuf versions`() }
+        runIsolated { s -> s.`registers only structurally adapted vote widget binders`() }
+        runIsolated { s -> s.`registers complete follow visibility state and header bind points`() }
+        runIsolated { s -> s.`registers qoe public read boundaries without main list mutation`() }
+        runIsolated { s -> s.`registers both operation versions without mutating main list reply`() }
     }
 }

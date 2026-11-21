@@ -12,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlayerInteractiveReplyCleanerTest {
-    @Test fun `real installer callbacks wire sync async and getter without swallowing host failures`() {
+    fun `real installer callbacks wire sync async and getter without swallowing host failures`() {
         val recorded = PlayerPortTestRegistrar()
         val registrar = object : HookRegistrar by recorded {
             override fun adapted(
@@ -50,7 +50,7 @@ class PlayerInteractiveReplyCleanerTest {
         assertTrue(dm.fields.isEmpty()); assertTrue(reply.dmRaw.fields.isNotEmpty())
     }
 
-    @Test fun `locator retains DmResource and response routes if Guide class cannot be loaded`() {
+    fun `locator retains DmResource and response routes if Guide class cannot be loaded`() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == "com.bapis.bilibili.app.viewunite.v1.VideoGuide") throw ClassNotFoundException(name)
@@ -64,7 +64,7 @@ class PlayerInteractiveReplyCleanerTest {
         assertTrue(independent.mossAsync.any { it.className.contains("viewunite") })
     }
 
-    @Test fun `unknown fields and chapter data are not part of the clearing whitelist`() {
+    fun `unknown fields and chapter data are not part of the clearing whitelist`() {
         val guide = VideoGuide(setOf("clearContractCard", "futureUnknown", "clearVideoPoint"))
         val updated = cleaner().cleanResponse(ViewProgressReply(guide), env) as ViewProgressReply
         assertEquals(setOf("futureUnknown", "clearVideoPoint"), updated.guideRaw.fields)
@@ -76,7 +76,7 @@ class PlayerInteractiveReplyCleanerTest {
     private val points get() = requireNotNull(VersionAdapter.locatePlayerInteractiveOverlays(javaClass.classLoader!!))
     private fun cleaner() = PlayerInteractiveReplyCleaner(javaClass.classLoader!!, points)
 
-    @Test fun `response cleaning needs no hooked getter and preserves chapters normal data and source`() {
+    fun `response cleaning needs no hooked getter and preserves chapters normal data and source`() {
         val guide = VideoGuide(setOf("clearContractCard", "clearMaterial"))
         val dm = DmResource(setOf("clearCards", "clearCommandDms"))
         val reply = ViewProgressReply(guide, dm)
@@ -91,7 +91,7 @@ class PlayerInteractiveReplyCleanerTest {
         assertSame(updated, cleaner.cleanResponse(updated, env)); assertTrue(stages.isEmpty())
     }
 
-    @Test fun `carrier failure or parent build failure never publishes partial changes or APPLIED`() {
+    fun `carrier failure or parent build failure never publishes partial changes or APPLIED`() {
         for (reply in listOf(
             ViewProgressReply(VideoGuide(setOf("clearMaterial")), DmResource(setOf("clearCards"), failClear = "clearCards")),
             ViewProgressReply(VideoGuide(setOf("clearMaterial")), DmResource(setOf("clearCards")), failBuild = true)
@@ -104,7 +104,7 @@ class PlayerInteractiveReplyCleanerTest {
         }
     }
 
-    @Test fun `DmResource remains usable when guide getter or clear path is unavailable`() {
+    fun `DmResource remains usable when guide getter or clear path is unavailable`() {
         val independent = points.copy(families = points.families.map { if (it.dmGetter != null) it.copy(guideGetter = null, guideClears = emptyList()) else it })
         val cleaner = PlayerInteractiveReplyCleaner(javaClass.classLoader!!, independent)
         val guide = VideoGuide(setOf("clearMaterial"))
@@ -114,7 +114,7 @@ class PlayerInteractiveReplyCleanerTest {
         assertEquals(independent, VersionAdapter.PlayerInteractiveOverlayPoints.fromJson(independent.toJson()))
     }
 
-    @Test fun `empty reply has no APPLIED and command and activity fields clear independently`() {
+    fun `empty reply has no APPLIED and command and activity fields clear independently`() {
         val cleaner = cleaner()
         val empty = DmViewReply()
         assertSame(empty, cleaner.cleanResponse(empty, env)); assertTrue(stages.isEmpty())
@@ -125,7 +125,7 @@ class PlayerInteractiveReplyCleanerTest {
         assertSame(original.normalData, updated.normalData)
     }
 
-    @Test fun `async transformation delivers cleaned response and preserves error completion and null`() {
+    fun `async transformation delivers cleaned response and preserves error completion and null`() {
         val cleaner = cleaner()
         val delivered = mutableListOf<Any?>()
         val errors = mutableListOf<Throwable>()
@@ -144,12 +144,29 @@ class PlayerInteractiveReplyCleanerTest {
         assertNull(delivered[1]); assertSame(failure, errors.single()); assertEquals(1, completions)
     }
 
-    @Test fun `missing async path is partial even if all getter fallbacks register`() {
+    fun `missing async path is partial even if all getter fallbacks register`() {
         var status = ""
         val result = PlayerInteractiveOverlayFeatureInstaller(true, points.copy(mossAsync = emptyList()))
             .install(env.copy(reportStatus = { _, value -> status = value }))
         assertTrue(result is FeatureInstallResult.Installed && !result.complete)
         assertTrue(status.startsWith("partial:"))
         assertEquals(3, points.mossAsync.size)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerInteractiveReplyCleanerTest) -> Unit) {
+            val s = PlayerInteractiveReplyCleanerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`real installer callbacks wire sync async and getter without swallowing host failures`() }
+        runIsolated { s -> s.`locator retains DmResource and response routes if Guide class cannot be loaded`() }
+        runIsolated { s -> s.`unknown fields and chapter data are not part of the clearing whitelist`() }
+        runIsolated { s -> s.`response cleaning needs no hooked getter and preserves chapters normal data and source`() }
+        runIsolated { s -> s.`carrier failure or parent build failure never publishes partial changes or APPLIED`() }
+        runIsolated { s -> s.`DmResource remains usable when guide getter or clear path is unavailable`() }
+        runIsolated { s -> s.`empty reply has no APPLIED and command and activity fields clear independently`() }
+        runIsolated { s -> s.`async transformation delivers cleaned response and preserves error completion and null`() }
+        runIsolated { s -> s.`missing async path is partial even if all getter fallbacks register`() }
     }
 }

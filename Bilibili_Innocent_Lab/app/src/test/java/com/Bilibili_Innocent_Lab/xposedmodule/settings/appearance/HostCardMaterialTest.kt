@@ -7,14 +7,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostCardMaterialTest {
-    @Test fun `new installations and malformed choices use original`() {
+    fun `new installations and malformed choices use original`() {
         assertEquals(HostCardMaterial.ORIGINAL, HostCardMaterial.resolve(emptyMap<String, Any?>()))
         listOf("unknown", "", true, 2).forEach { value ->
             assertEquals(HostCardMaterial.ORIGINAL, HostCardMaterial.read(value, true))
         }
     }
 
-    @Test fun `legacy acrylic remains enabled until a new choice is made`() {
+    fun `legacy acrylic remains enabled until a new choice is made`() {
         val legacy = mapOf(FeaturePreferences.HOST_CARD_ACRYLIC to true)
         assertEquals(HostCardMaterial.ACRYLIC, HostCardMaterial.resolve(legacy))
         HostCardMaterial.entries.forEach { material ->
@@ -22,7 +22,7 @@ class HostCardMaterialTest {
         }
     }
 
-    @Test fun `settings screen and host publication agree on legacy and explicit values`() {
+    fun `settings screen and host publication agree on legacy and explicit values`() {
         listOf(emptyMap(), mapOf(FeaturePreferences.HOST_CARD_ACRYLIC to true),
             mapOf(FeaturePreferences.HOST_CARD_ACRYLIC to false),
             mapOf(FeaturePreferences.HOST_CARD_MATERIAL to "mica"),
@@ -35,5 +35,16 @@ class HostCardMaterialTest {
             assertEquals(expected, host[FeaturePreferences.HOST_CARD_MATERIAL])
             assertFalse(host.containsKey(FeaturePreferences.HOST_CARD_ACRYLIC))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostCardMaterialTest) -> Unit) {
+            val s = HostCardMaterialTest()
+            block(s)
+        }
+        runIsolated { s -> s.`new installations and malformed choices use original`() }
+        runIsolated { s -> s.`legacy acrylic remains enabled until a new choice is made`() }
+        runIsolated { s -> s.`settings screen and host publication agree on legacy and explicit values`() }
     }
 }

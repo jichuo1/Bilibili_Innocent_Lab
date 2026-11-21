@@ -42,7 +42,7 @@ class StoryQualityLocatorTest {
         return DexAssistSession(engine, listOf("/base.apk"), loader, StoryQualityLocator.queries)
     }
 
-    @Test fun `stable owner resolves roles without claiming semantic completeness`() {
+    fun `stable owner resolves roles without claiming semantic completeness`() {
         val points = requireNotNull(StoryQualityLocator.direct(loader))
         assertFalse(points.semanticComplete)
         assertEquals("quality", points.serviceFieldName)
@@ -52,13 +52,13 @@ class StoryQualityLocatorTest {
         assertEquals("getInt", access.settingIntReader.name)
     }
 
-    @Test fun `integer only is incomplete and must not skip strategy and match queries`() {
+    fun `integer only is incomplete and must not skip strategy and match queries`() {
         val points = requireNotNull(StoryQualityLocator.direct(loader)).copy(integerDefaultMethod = point(integer))
         assertFalse(points.semanticComplete)
         assertEquals(StoryQualityLocator.queries, StoryQualityLocator.planned(loader, points, true, false))
     }
 
-    @Test fun `old integer strategy resource and private continuation match coexist`() {
+    fun `old integer strategy resource and private continuation match coexist`() {
         val points = requireNotNull(StoryQualityLocator.locate(loader, session(), null, StoryQualityLocator.queries))
         assertTrue(points.semanticComplete)
         assertEquals(point(integer), points.integerDefaultMethod)
@@ -67,14 +67,14 @@ class StoryQualityLocatorTest {
         assertEquals(80, resolved.preference.qualityOf(resolved.preference.fixed(80)))
     }
 
-    @Test fun `modern strategy is complete without an integer boundary`() {
+    fun `modern strategy is complete without an integer boundary`() {
         val points = requireNotNull(StoryQualityLocator.locate(loader,
             session(defaults = listOf(policy)), null, StoryQualityLocator.queries))
         assertTrue(points.semanticComplete)
         assertNull(points.integerDefaultMethod)
     }
 
-    @Test fun `root package strategy is accepted only as a complete match related family`() {
+    fun `root package strategy is accepted only as a complete match related family`() {
         val owner = FlatStoryQualityFacade::class.java
         val flatPolicy = owner.getDeclaredMethod("policy")
         val flatResource = owner.getDeclaredMethod("resource", MediaResource::class.java)
@@ -93,7 +93,7 @@ class StoryQualityLocatorTest {
         assertNull(StoryQualityPoints.fromJson(points.copy(resourceSelectionMethod = null).toJson()))
     }
 
-    @Test fun `ambiguous policies and resource from another owner remain incomplete`() {
+    fun `ambiguous policies and resource from another owner remain incomplete`() {
         val other = OtherStoryQualityFacade::class.java.getDeclaredMethod("policy")
         val ambiguous = requireNotNull(StoryQualityLocator.locate(loader,
             session(defaults = listOf(policy, other)), null, StoryQualityLocator.queries))
@@ -106,7 +106,7 @@ class StoryQualityLocatorTest {
         assertFalse(mismatch.semanticComplete)
     }
 
-    @Test fun `disabled and attempted missing families do not query while ordinary quality is independent`() {
+    fun `disabled and attempted missing families do not query while ordinary quality is independent`() {
         assertTrue(StoryQualityLocator.planned(loader, null, false, false).isEmpty())
         assertTrue(StoryQualityLocator.planned(loader, null, true, true).isEmpty())
         assertTrue(StoryQualityLocator.planned(loader, complete(), true, false).isEmpty())
@@ -115,7 +115,7 @@ class StoryQualityLocatorTest {
         assertEquals(StoryQualityLocator.queries, StoryQualityLocator.planned(loader, global.story, true, false))
     }
 
-    @Test fun `additive story json round trips and legacy global json remains readable`() {
+    fun `additive story json round trips and legacy global json remains readable`() {
         val story = complete()
         assertEquals(story, StoryQualityPoints.fromJson(story.toJson()))
         val old = VersionAdapter.PlayerQualityPoints(VersionAdapter.HookPoint("ut1.h", "a", emptyList()))
@@ -128,7 +128,7 @@ class StoryQualityLocatorTest {
         assertNull(fallback.story)
     }
 
-    @Test fun `rejects untyped or inconsistent cached roles while preserving the global boundary`() {
+    fun `rejects untyped or inconsistent cached roles while preserving the global boundary`() {
         val story = complete()
         val badManual = story.toJson().apply { getJSONObject("manual").remove("params") }
         assertNull(StoryQualityPoints.fromJson(badManual))
@@ -148,7 +148,7 @@ class StoryQualityLocatorTest {
         assertEquals(story, merged?.story)
     }
 
-    @Test fun `incomplete cached family plans only its missing semantic role`() {
+    fun `incomplete cached family plans only its missing semantic role`() {
         val incomplete = complete().copy(matchPreferenceMethod = null)
         assertEquals(setOf(DexAssistQuery.STORY_QUALITY_MATCH), StoryQualityLocator.planned(loader, incomplete, true, false))
         val invalidReturn = OtherStoryQualityFacade::class.java.getDeclaredMethod("wrongInteger")
@@ -157,7 +157,7 @@ class StoryQualityLocatorTest {
         assertFalse(missing.semanticComplete)
     }
 
-    @Test fun `old continuation match requires the same semantic policy owner without inline settings`() {
+    fun `old continuation match requires the same semantic policy owner without inline settings`() {
         val old = requireNotNull(StoryQualityLocator.locate(loader, session(), null, StoryQualityLocator.queries))
         assertEquals(listOf(StoryQualityLocator.CONTINUATION), old.matchPreferenceMethod?.paramClassNames)
         assertTrue(old.semanticComplete)
@@ -165,5 +165,24 @@ class StoryQualityLocatorTest {
             session(matchPolicy = OtherStoryQualityFacade::class.java), null, StoryQualityLocator.queries))
         assertNull(mismatched.matchPreferenceMethod)
         assertFalse(mismatched.semanticComplete)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (StoryQualityLocatorTest) -> Unit) {
+            val s = StoryQualityLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`stable owner resolves roles without claiming semantic completeness`() }
+        runIsolated { s -> s.`integer only is incomplete and must not skip strategy and match queries`() }
+        runIsolated { s -> s.`old integer strategy resource and private continuation match coexist`() }
+        runIsolated { s -> s.`modern strategy is complete without an integer boundary`() }
+        runIsolated { s -> s.`root package strategy is accepted only as a complete match related family`() }
+        runIsolated { s -> s.`ambiguous policies and resource from another owner remain incomplete`() }
+        runIsolated { s -> s.`disabled and attempted missing families do not query while ordinary quality is independent`() }
+        runIsolated { s -> s.`additive story json round trips and legacy global json remains readable`() }
+        runIsolated { s -> s.`rejects untyped or inconsistent cached roles while preserving the global boundary`() }
+        runIsolated { s -> s.`incomplete cached family plans only its missing semantic role`() }
+        runIsolated { s -> s.`old continuation match requires the same semantic policy owner without inline settings`() }
     }
 }

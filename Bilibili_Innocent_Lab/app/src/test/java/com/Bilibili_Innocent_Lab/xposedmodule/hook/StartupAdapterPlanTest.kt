@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StartupAdapterPlanTest {
-    @Test fun defaultsOnlyOmitAuditedOptionalFamiliesAndRetainCopyBindings() {
+    fun defaultsOnlyOmitAuditedOptionalFamiliesAndRetainCopyBindings() {
         val excluded = StartupAdapterPlan.excluded(SnapshotHookConfigSource(emptyMap()))
         assertEquals(13, excluded.size)
         assertNull(StartupAdapterPlan.diagnosticFamily("comment.low"))
@@ -16,7 +16,7 @@ class StartupAdapterPlanTest {
         assertNull(StartupAdapterPlan.diagnosticFamily("home.banner"))
     }
 
-    @Test fun eachPurificationSwitchAndSharedTopologyDependencyRetainTheirLocators() {
+    fun eachPurificationSwitchAndSharedTopologyDependencyRetainTheirLocators() {
         for (key in listOf(Keys.REMOVE_COMMENT_SEARCH_LINKS, Keys.REMOVE_COMMENT_EMPTY_GUIDE,
             Keys.REMOVE_COMMENT_VOTE_WIDGETS, Keys.REMOVE_COMMENT_FOLLOW_BUTTONS, Keys.REMOVE_COMMENT_QOE,
             Keys.REMOVE_COMMENT_OPERATIONS, Keys.BLOCK_COMMENT_QUICK_REPLY)) {
@@ -29,7 +29,7 @@ class StartupAdapterPlanTest {
         assertTrue("PLAYER_QUALITY" in topology)
     }
 
-    @Test fun qualityNormalizationAndIndependentFilterConsumersRemainConservative() {
+    fun qualityNormalizationAndIndependentFilterConsumersRemainConservative() {
         assertFalse("PLAYER_QUALITY" in StartupAdapterPlan.excluded(SnapshotHookConfigSource(mapOf(Keys.PLAYER_DEFAULT_QUALITY_QN to 80))))
         assertTrue("PLAYER_QUALITY" in StartupAdapterPlan.excluded(SnapshotHookConfigSource(mapOf(Keys.PLAYER_DEFAULT_QUALITY_QN to 999))))
         for (key in listOf(Keys.COMMENT_KEYWORD_FILTER_ENABLED, Keys.COMMENT_MIN_LEVEL_FILTER_ENABLED,
@@ -46,7 +46,7 @@ class StartupAdapterPlanTest {
         override fun getString(key: String, defaultValue: String): String = error("Unexpected config read")
     }
 
-    @Test fun knownChildrenSkipOnlyAuditedMainConsumersWithoutReadingTheirConfiguration() {
+    fun knownChildrenSkipOnlyAuditedMainConsumersWithoutReadingTheirConfiguration() {
         for (process in listOf("tv.danmaku.bili:web", "tv.danmaku.bili:download", "tv.danmaku.bili:ijkservice")) {
             val excluded = StartupAdapterPlan.excludedForProcess(noReads, process, true)
             assertEquals(14, excluded.size)
@@ -56,17 +56,31 @@ class StartupAdapterPlanTest {
         }
     }
 
-    @Test fun standardFrameworkAndUnknownProcessesKeepCompleteLookupWithoutConfigReads() {
+    fun standardFrameworkAndUnknownProcessesKeepCompleteLookupWithoutConfigReads() {
         for (process in listOf("tv.danmaku.bili", "tv.danmaku.bili:web", "tv.danmaku.bili:future"))
             assertTrue(StartupAdapterPlan.excludedForProcess(noReads, process, false).isEmpty())
         assertTrue(StartupAdapterPlan.excludedForProcess(noReads, "tv.danmaku.bili:future", true).isEmpty())
     }
 
-    @Test fun mainProcessRetainsComplexRelateLookupAndEnabledQuality() {
+    fun mainProcessRetainsComplexRelateLookupAndEnabledQuality() {
         val excluded = StartupAdapterPlan.excludedForProcess(SnapshotHookConfigSource(mapOf(Keys.PLAYER_DEFAULT_QUALITY_QN to 80)),
             "tv.danmaku.bili", true)
         assertFalse("VIDEO_RELATE" in excluded)
         assertFalse("PLAYER_QUALITY" in excluded)
         assertTrue("COMMENT_PURIFY" in excluded)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (StartupAdapterPlanTest) -> Unit) {
+            val s = StartupAdapterPlanTest()
+            block(s)
+        }
+        runIsolated { s -> s.defaultsOnlyOmitAuditedOptionalFamiliesAndRetainCopyBindings() }
+        runIsolated { s -> s.eachPurificationSwitchAndSharedTopologyDependencyRetainTheirLocators() }
+        runIsolated { s -> s.qualityNormalizationAndIndependentFilterConsumersRemainConservative() }
+        runIsolated { s -> s.knownChildrenSkipOnlyAuditedMainConsumersWithoutReadingTheirConfiguration() }
+        runIsolated { s -> s.standardFrameworkAndUnknownProcessesKeepCompleteLookupWithoutConfigReads() }
+        runIsolated { s -> s.mainProcessRetainsComplexRelateLookupAndEnabledQuality() }
     }
 }

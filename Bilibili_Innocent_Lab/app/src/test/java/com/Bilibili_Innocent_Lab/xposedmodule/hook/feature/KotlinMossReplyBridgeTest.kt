@@ -27,7 +27,6 @@ class KotlinMossReplyBridgeTest {
         decode = { counters.decodes++; "decoded:" + String(it) }
     )
 
-    @Test
     fun `an unchanged purify result returns the original kotlin reply without writing back`() {
         val counters = Counters()
         val original = "reply"
@@ -36,7 +35,6 @@ class KotlinMossReplyBridgeTest {
         assertEquals(0, counters.decodes)
     }
 
-    @Test
     fun `a changed purify result is written back through the kotlin decoder`() {
         val counters = Counters()
         val result = bridge(counters).transform("reply") { javaReply -> "$javaReply|filtered" }
@@ -44,7 +42,6 @@ class KotlinMossReplyBridgeTest {
         assertEquals(1, counters.decodes)
     }
 
-    @Test
     fun `failures propagate so the caller can fall back to the original reply`() {
         val failing = KotlinMossReplyBridge(
             encode = { error("encode failed") },
@@ -97,7 +94,6 @@ class KotlinMossReplyBridgeTest {
 
     private val loader: ClassLoader get() = javaClass.classLoader!!
 
-    @Test
     fun `resolves the kotlinx members and round trips through a real reflective bridge`() {
         val members = KotlinMossBridgeMembers.resolve(loader)
         assertNotNull(members)
@@ -114,7 +110,6 @@ class KotlinMossReplyBridgeTest {
         assertSame("A", bridge.transform("A") { it })
     }
 
-    @Test
     fun `bridge is refused when instances do not match the resolved kotlinx types`() {
         val members = KotlinMossBridgeMembers.resolve(loader)!!
         val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(FakeJavaReply::class.java)!!
@@ -125,7 +120,6 @@ class KotlinMossReplyBridgeTest {
         assertNull(members.bridgeFor(ProtoBuf(), SerializerOnly(), codec))
     }
 
-    @Test
     fun `java reply codec finds a toByteArray that is inherited from a superclass`() {
         val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(FakeDerivedReply::class.java)
         assertNotNull(codec)
@@ -133,7 +127,6 @@ class KotlinMossReplyBridgeTest {
         assertEquals("abc", String(codec.serialize(parsed)))
     }
 
-    @Test
     fun `java reply codec needs both a static parseFrom and an instance toByteArray`() {
         assertNotNull(KotlinMossBridgeMembers.JavaReplyCodec.resolve(FakeJavaReply::class.java))
         assertNull(KotlinMossBridgeMembers.JavaReplyCodec.resolve(NoParse::class.java))
@@ -142,7 +135,6 @@ class KotlinMossReplyBridgeTest {
 
     // ---- 真实类自检的分档 ------------------------------------------------------------------------
 
-    @Test
     fun `self test is unavailable rather than failed when the host classes are absent`() {
         // 测试环境里没有完整的 DmViewReply / KDmViewReply：既无法验证也无法否定，必须放行（UNAVAILABLE），
         // 只有"跑起来了但结果不对"才允许拦住 Kotlin 通道。
@@ -157,7 +149,6 @@ class KotlinMossReplyBridgeTest {
 
     // ---- Java moss → Kotlin moss 的名字映射 --------------------------------------------------------
 
-    @Test
     fun `maps java moss class and rpc names to their kotlin counterparts`() {
         assertEquals(
             "com.bapis.bilibili.community.service.dm.v1.KDMMoss",
@@ -242,7 +233,6 @@ class KotlinMossReplyBridgeTest {
         ) = Unit
     }
 
-    @Test
     fun `legacy four parameter callback entry is found separately from the current ABI`() {
         assertNull(KotlinMossBridgeMembers.callbackEntry(FakeLegacyKotlinMoss::class.java, "mainList"))
         val legacy = KotlinMossBridgeMembers.legacyCallbackEntry(FakeLegacyKotlinMoss::class.java, "mainList")
@@ -254,7 +244,6 @@ class KotlinMossReplyBridgeTest {
         assertNull(KotlinMossBridgeMembers.legacyCallbackEntry(FakeKotlinMoss::class.java, "dynVideo"))
     }
 
-    @Test
     fun `selects only the callback shaped generic entry of the requested method`() {
         val all = KotlinMossBridgeMembers.callbackEntry(FakeKotlinMoss::class.java, "dynAll")
         assertNotNull(all)
@@ -269,5 +258,24 @@ class KotlinMossReplyBridgeTest {
         // 不同名的接口不会被误选；不存在的方法返回 null。
         assertNull(KotlinMossBridgeMembers.callbackEntry(FakeKotlinMoss::class.java, "dynMissing"))
         assertFalse(all.parameterTypes.last().name.contains("Continuation"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KotlinMossReplyBridgeTest) -> Unit) {
+            val s = KotlinMossReplyBridgeTest()
+            block(s)
+        }
+        runIsolated { s -> s.`an unchanged purify result returns the original kotlin reply without writing back`() }
+        runIsolated { s -> s.`a changed purify result is written back through the kotlin decoder`() }
+        runIsolated { s -> s.`failures propagate so the caller can fall back to the original reply`() }
+        runIsolated { s -> s.`resolves the kotlinx members and round trips through a real reflective bridge`() }
+        runIsolated { s -> s.`bridge is refused when instances do not match the resolved kotlinx types`() }
+        runIsolated { s -> s.`java reply codec finds a toByteArray that is inherited from a superclass`() }
+        runIsolated { s -> s.`java reply codec needs both a static parseFrom and an instance toByteArray`() }
+        runIsolated { s -> s.`self test is unavailable rather than failed when the host classes are absent`() }
+        runIsolated { s -> s.`maps java moss class and rpc names to their kotlin counterparts`() }
+        runIsolated { s -> s.`legacy four parameter callback entry is found separately from the current ABI`() }
+        runIsolated { s -> s.`selects only the callback shaped generic entry of the requested method`() }
     }
 }

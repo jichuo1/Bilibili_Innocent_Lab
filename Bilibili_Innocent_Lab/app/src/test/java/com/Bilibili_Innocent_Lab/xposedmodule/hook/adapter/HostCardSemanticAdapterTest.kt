@@ -25,7 +25,7 @@ class HostCardSemanticAdapterTest {
     private fun point(method: java.lang.reflect.Method) = HookPoint(method.declaringClass.name,
         method.name, method.parameterTypes.map(Class<*>::getName))
 
-    @Test fun semanticLeafSurvivesOwnerAndHelperRenamingAndReachesTheActualOgvConsumer() {
+    fun semanticLeafSurvivesOwnerAndHelperRenamingAndReachesTheActualOgvConsumer() {
         val query = DexAssistQuery.OGV_TRENDING_CARD
         val session = DexAssistSession(DexAssistEngine { DexAssistResult.Candidates(listOf(card)) }, listOf("base.apk"), loader, setOf(query))
         val points = HostCardSemanticAdapter.locate(loader, emptyMap(), session, setOf(query))
@@ -37,7 +37,7 @@ class HostCardSemanticAdapterTest {
         assertSame(supplied, args[2]); assertEquals(0x7ff and (14 shl 6).inv(), args[4])
         assertEquals(points, PageBoundaryPoints.fromJson(PageBoundaryPoints(cardSurfaces = points).toJson())!!.cardSurfaces)
     }
-    @Test fun multipleSemanticLeavesAreRejectedAndUnplannedQueryNeverOpensDex() {
+    fun multipleSemanticLeavesAreRejectedAndUnplannedQueryNeverOpensDex() {
         val query = DexAssistQuery.OGV_DOUBLE_CARD
         val session = DexAssistSession(DexAssistEngine { DexAssistResult.Candidates(listOf(card, second)) }, listOf("base.apk"), loader, setOf(query))
         assertTrue(HostCardSemanticAdapter.locate(loader, emptyMap(), session, setOf(query)).isEmpty())
@@ -45,7 +45,7 @@ class HostCardSemanticAdapterTest {
         assertEquals(mapOf("double" to point(card)), HostCardSemanticAdapter.locate(loader, mapOf("double" to point(card)), trap, emptySet()))
         assertFalse(HostCardSemanticAdapter.validCache(mapOf("outer_page" to point(card))))
     }
-    @Test fun renamedPegasusSeparatorRequiresTheCompleteDrawingAndFieldContract() {
+    fun renamedPegasusSeparatorRequiresTheCompleteDrawingAndFieldContract() {
         val method = RenamedDivider::class.java.declaredMethods.single { it.name == "onDrawOver" }
         val wrong = WrongDivider::class.java.declaredMethods.single { it.name == "onDrawOver" }
         assertTrue(HostVideoCardDividerHooks.verifiedPegasus(loader, method))
@@ -57,5 +57,16 @@ class HostCardSemanticAdapterTest {
         val session = DexAssistSession(DexAssistEngine { DexAssistResult.Candidates(listOf(wrong, lazy, method)) }, listOf("base.apk"), loader, setOf(query))
         val points = HostCardSemanticAdapter.locate(loader, emptyMap(), session, setOf(query))
         assertEquals(point(method), points["pegasus_divider"])
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostCardSemanticAdapterTest) -> Unit) {
+            val s = HostCardSemanticAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.semanticLeafSurvivesOwnerAndHelperRenamingAndReachesTheActualOgvConsumer() }
+        runIsolated { s -> s.multipleSemanticLeavesAreRejectedAndUnplannedQueryNeverOpensDex() }
+        runIsolated { s -> s.renamedPegasusSeparatorRequiresTheCompleteDrawingAndFieldContract() }
     }
 }

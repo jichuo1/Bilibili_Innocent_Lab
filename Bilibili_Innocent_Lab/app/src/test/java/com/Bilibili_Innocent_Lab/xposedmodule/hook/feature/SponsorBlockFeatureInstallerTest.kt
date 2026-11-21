@@ -17,7 +17,7 @@ class SponsorBlockFeatureInstallerTest {
     private fun environment(process: String = "tv.danmaku.bili", loader: ClassLoader? = null) = HookEnvironment(
         process, loader, HookPointRegistry(loader), TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> })
 
-    @Test fun disabledAndSecondaryProcessesNeverReachHostLookupOrCreateNetworkWorkers() {
+    fun disabledAndSecondaryProcessesNeverReachHostLookupOrCreateNetworkWorkers() {
         val unusable = object : ClassLoader() {
             override fun loadClass(name: String): Class<*> = throw AssertionError("Unexpected lookup: $name")
         }
@@ -27,7 +27,7 @@ class SponsorBlockFeatureInstallerTest {
             .install(environment("tv.danmaku.bili:push", unusable)))
     }
 
-    @Test fun missingLoaderAndMissingDetailBoundaryKeepTheHostUnchanged() {
+    fun missingLoaderAndMissingDetailBoundaryKeepTheHostUnchanged() {
         assertEquals(FeatureInstallResult.Skipped("missing-class-loader"), SponsorBlockFeatureInstaller(true, false)
             .install(environment()))
         val withoutDetail = object : ClassLoader(javaClass.classLoader) {
@@ -40,14 +40,14 @@ class SponsorBlockFeatureInstallerTest {
             .install(environment(loader = withoutDetail)))
     }
 
-    @Test fun lifecycleLookupMustTargetTheActualNoArgumentOverride() {
+    fun lifecycleLookupMustTargetTheActualNoArgumentOverride() {
         val method = com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
             .inheritedMethodOrNull(LifecycleDetail::class.java, "onResume")
         assertEquals(LifecycleDetail::class.java, method?.declaringClass)
         assertEquals(0, method?.parameterCount)
     }
 
-    @Test fun frameworkLifecycleDispatchersCarryTheActualActivityAsAnArgument() {
+    fun frameworkLifecycleDispatchersCarryTheActualActivityAsAnArgument() {
         for (name in listOf("callActivityOnResume", "callActivityOnPause", "callActivityOnDestroy")) {
             val method = com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
                 .methodOrNull(Instrumentation::class.java, name, Activity::class.java)
@@ -55,5 +55,17 @@ class SponsorBlockFeatureInstallerTest {
             assertEquals(Void.TYPE, method?.returnType)
             assertEquals(listOf(Activity::class.java), method?.parameterTypes?.toList())
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorBlockFeatureInstallerTest) -> Unit) {
+            val s = SponsorBlockFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.disabledAndSecondaryProcessesNeverReachHostLookupOrCreateNetworkWorkers() }
+        runIsolated { s -> s.missingLoaderAndMissingDetailBoundaryKeepTheHostUnchanged() }
+        runIsolated { s -> s.lifecycleLookupMustTargetTheActualNoArgumentOverride() }
+        runIsolated { s -> s.frameworkLifecycleDispatchersCarryTheActualActivityAsAnArgument() }
     }
 }

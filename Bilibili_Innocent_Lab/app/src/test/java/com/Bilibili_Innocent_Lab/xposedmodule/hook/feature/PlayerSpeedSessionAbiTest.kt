@@ -9,7 +9,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlayerSpeedSessionAbiTest {
-    @Test fun `relocated playable requires bound accessor payload and matching core wrapper`() {
+    fun `relocated playable requires bound accessor payload and matching core wrapper`() {
         val owner = Fixture.Owner::class.java
         val params = Fixture.Params::class.java
         val manager = Fixture.Manager::class.java
@@ -38,7 +38,7 @@ class PlayerSpeedSessionAbiTest {
             { _, _ -> }, { _, _ -> }, { _, _ -> }, runtimeEvidence = { _, stage, _ -> stages += stage })
     }
 
-    @Test fun `theseus2 press off returns no lease without executing the start callback`() {
+    fun `theseus2 press off returns no lease without executing the start callback`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
         val service = PressService::class.java
@@ -57,7 +57,7 @@ class PlayerSpeedSessionAbiTest {
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED, FeatureRuntimeStage.APPLIED), stages)
     }
 
-    @Test fun `theseus2 custom press calculates one speed for playback and its indicator`() {
+    fun `theseus2 custom press calculates one speed for playback and its indicator`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
         val port = PressPort(PressService())
@@ -86,5 +86,16 @@ class PlayerSpeedSessionAbiTest {
         assertEquals(3f, calculate())
         assertTrue(stages.isEmpty())
         assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(javaClass.classLoader!!, 9190500))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerSpeedSessionAbiTest) -> Unit) {
+            val s = PlayerSpeedSessionAbiTest()
+            block(s)
+        }
+        runIsolated { s -> s.`relocated playable requires bound accessor payload and matching core wrapper`() }
+        runIsolated { s -> s.`theseus2 press off returns no lease without executing the start callback`() }
+        runIsolated { s -> s.`theseus2 custom press calculates one speed for playback and its indicator`() }
     }
 }

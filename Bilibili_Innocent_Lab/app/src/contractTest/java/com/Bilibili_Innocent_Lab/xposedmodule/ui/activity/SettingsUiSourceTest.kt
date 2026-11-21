@@ -14,7 +14,7 @@ import org.junit.Test
  */
 class SettingsUiSourceTest {
 
-    @Test fun `braces inside strings and comments do not end the body`() {
+    fun `braces inside strings and comments do not end the body`() {
         val source = """
             private fun target(count: Int = 1) {
                 val text = "not a } close brace {"
@@ -36,7 +36,7 @@ class SettingsUiSourceTest {
         assertEquals(body.count { it == '{' }, body.count { it == '}' })
     }
 
-    @Test fun `lambda default arguments do not confuse the parameter list`() {
+    fun `lambda default arguments do not confuse the parameter list`() {
         val source = """
             private fun target(
                 onDone: () -> Unit = {},
@@ -54,7 +54,7 @@ class SettingsUiSourceTest {
      * 回归：表达式体里代码块**内嵌在括号中**（`= getString( when { … } )`）。
      * 只配对花括号会停在 `when` 的 `}`，把结尾的 `)` 漏在外面——搬迁脚本就这么翻过车。
      */
-    @Test fun `an expression body whose block is nested inside parentheses is fully captured`() {
+    fun `an expression body whose block is nested inside parentheses is fully captured`() {
         val source = """
             private fun target(enabled: Boolean): String = getString(
                 when {
@@ -72,7 +72,7 @@ class SettingsUiSourceTest {
     }
 
     /** 回归：首行括号已配平但以 `=` 结尾，表达式在下一行——不能就此收尾。 */
-    @Test fun `an expression body continued on the next line is not cut short`() {
+    fun `an expression body continued on the next line is not cut short`() {
         val source = """
             private fun target(spec: Surface): Snapshot? =
                 Store.read(this, spec.surface)
@@ -84,21 +84,21 @@ class SettingsUiSourceTest {
         assertFalse(body.contains("fun after"))
     }
 
-    @Test fun `a single expression body ends on its own line`() {
+    fun `a single expression body ends on its own line`() {
         val source = "private fun target() = helper(1, 2)\nprivate fun after() = 0\n"
         val body = SettingsUiSource.functions(source, "target").single()
         // 切片刻意从 `fun` 开始，不含可见性修饰符——这正是它对 private/internal 无感的原因。
         assertEquals("fun target() = helper(1, 2)", body)
     }
 
-    @Test fun `a receiver and any visibility are both accepted`() {
+    fun `a receiver and any visibility are both accepted`() {
         val extension = "internal fun MainActivity.target() {\n    val moved = 1\n}\n"
         assertTrue(SettingsUiSource.functions(extension, "target").single().contains("val moved = 1"))
         val member = "    private fun target() {\n        val kept = 1\n    }\n"
         assertTrue(SettingsUiSource.functions(member, "target").single().contains("val kept = 1"))
     }
 
-    @Test fun `declared functions ignore nested local functions`() {
+    fun `declared functions ignore nested local functions`() {
         val source = """
             internal fun MainActivity.showSomething() {
                 val dialog = Dialog(this)
@@ -115,7 +115,7 @@ class SettingsUiSourceTest {
         assertTrue(declared.single().second.contains("presentModalDialog(dialog, container)"))
     }
 
-    @Test fun `a missing or duplicated function fails loudly instead of returning an empty window`() {
+    fun `a missing or duplicated function fails loudly instead of returning an empty window`() {
         val message = assertThrows(IllegalStateException::class.java) {
             SettingsUiSource.function("thisFunctionDoesNotExistAnywhere")
         }.message.orEmpty()
@@ -123,7 +123,7 @@ class SettingsUiSourceTest {
         assertEquals(2, SettingsUiSource.functions("fun dup() {\n}\nfun dup() {\n}\n", "dup").size)
     }
 
-    @Test fun `the real presenter is extracted as exactly one function, not the whole file`() {
+    fun `the real presenter is extracted as exactly one function, not the whole file`() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         val whole = SettingsUiSource.mainActivity()
         assertTrue(present.contains("dialog.show()"))
@@ -142,7 +142,7 @@ class SettingsUiSourceTest {
      * 之后 `mask()` 从一个未闭合的字符串一路吞下去，整份文件的结构消失 ——
      * `declaredFunctions` 从 125 个降到 0 个，而依赖它的断言全在空列表上"通过"。
      */
-    @Test fun `stripping comments keeps string literals intact`() {
+    fun `stripping comments keeps string literals intact`() {
         val source = """
             private fun target() {
                 val url = "https://example.com/a/b" // 真注释要抹掉
@@ -171,7 +171,7 @@ class SettingsUiSourceTest {
      * 下限改为对准工具实际扫描的整个语料。外移只是把成员换个文件放，
      * 语料总量不该因此缩水。
      */
-    @Test fun `declaredFunctions survives the comment-stripped view of every scanned file`() {
+    fun `declaredFunctions survives the comment-stripped view of every scanned file`() {
         var total = 0
         SettingsUiSource.settingsUiFiles().forEach { (name, raw) ->
             val stripped = SettingsUiSource.code(raw)
@@ -190,7 +190,7 @@ class SettingsUiSourceTest {
         assertTrue("the scanned surface should declare plenty of members: $total", total > 100)
     }
 
-    @Test fun `MainActivity is always part of the scanned set`() {
+    fun `MainActivity is always part of the scanned set`() {
         assertTrue(SettingsUiSource.settingsUiFiles().map { it.first }.contains("MainActivity.kt"))
         assertTrue(SettingsUiSource.all().contains("class MainActivity"))
     }
@@ -208,7 +208,7 @@ class SettingsUiSourceTest {
      * 2026-09-15 首次跑这条时揪出了 `PendingCompatibilityRetry.kt`——
      * 它本身写得没问题，但那是运气：门禁一直没在看它。
      */
-    @Test fun `every extracted MainActivity extension lives in a scanned volume`() {
+    fun `every extracted MainActivity extension lives in a scanned volume`() {
         assertEquals(
             "these files declare fun MainActivity.<name> but escape the extraction gates; " +
                 "rename them to a SettingsUiSource.VOLUME_SUFFIXES suffix (or extend that list)",
@@ -218,7 +218,7 @@ class SettingsUiSourceTest {
     }
 
     /** 扫描集必须真的比弹窗集大（或相等），且弹窗集仍只认 `Dialogs.kt`。 */
-    @Test fun `the volume set is a superset of the dialog set`() {
+    fun `the volume set is a superset of the dialog set`() {
         val volumes = SettingsUiSource.volumeFileNames
         val dialogs = SettingsUiSource.dialogFileNames
         assertTrue("dialogs must stay inside the scanned volumes", volumes.containsAll(dialogs))
@@ -227,5 +227,27 @@ class SettingsUiSourceTest {
         assertEquals("the scanned set must not contain duplicates", volumes.distinct(), volumes)
         assertTrue("MainActivity is added separately, never as a volume",
             "MainActivity.kt" !in volumes)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsUiSourceTest) -> Unit) {
+            val s = SettingsUiSourceTest()
+            block(s)
+        }
+        runIsolated { s -> s.`braces inside strings and comments do not end the body`() }
+        runIsolated { s -> s.`lambda default arguments do not confuse the parameter list`() }
+        runIsolated { s -> s.`an expression body whose block is nested inside parentheses is fully captured`() }
+        runIsolated { s -> s.`an expression body continued on the next line is not cut short`() }
+        runIsolated { s -> s.`a single expression body ends on its own line`() }
+        runIsolated { s -> s.`a receiver and any visibility are both accepted`() }
+        runIsolated { s -> s.`declared functions ignore nested local functions`() }
+        runIsolated { s -> s.`a missing or duplicated function fails loudly instead of returning an empty window`() }
+        runIsolated { s -> s.`the real presenter is extracted as exactly one function, not the whole file`() }
+        runIsolated { s -> s.`stripping comments keeps string literals intact`() }
+        runIsolated { s -> s.`declaredFunctions survives the comment-stripped view of every scanned file`() }
+        runIsolated { s -> s.`MainActivity is always part of the scanned set`() }
+        runIsolated { s -> s.`every extracted MainActivity extension lives in a scanned volume`() }
+        runIsolated { s -> s.`the volume set is a superset of the dialog set`() }
     }
 }

@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsUserScrollSessionTest {
-    @Test fun acceptedSpaceHomeAndEndStillNotifyWhenTheInheritedKeyReturnIsFalse() {
+    fun acceptedSpaceHomeAndEndStillNotifyWhenTheInheritedKeyReturnIsFalse() {
         for (key in listOf("SPACE", "HOME", "END")) {
             val session = SettingsUserScrollSession()
             session.beginKey(true)
@@ -14,7 +14,7 @@ class SettingsUserScrollSessionTest {
         }
     }
 
-    @Test fun declinedBoundaryKeysAndUnrelatedKeysDoNotCancel() {
+    fun declinedBoundaryKeysAndUnrelatedKeysDoNotCancel() {
         val session = SettingsUserScrollSession()
         session.beginKey(true)
         session.pageResult(false)
@@ -24,7 +24,7 @@ class SettingsUserScrollSessionTest {
         assertFalse("Inherited focus handling of an unrelated key is not scrolling", session.finishKey(true))
     }
 
-    @Test fun programmaticPageScrollingAndPreviousDispatchStateStaySilent() {
+    fun programmaticPageScrollingAndPreviousDispatchStateStaySilent() {
         val session = SettingsUserScrollSession()
         session.pageResult(true)
         assertFalse(session.finishKey(false))
@@ -36,7 +36,7 @@ class SettingsUserScrollSessionTest {
         assertFalse(session.finishKey(false))
     }
 
-    @Test fun nonTouchIntegrationPreservesSuperResultsAndOnlyAcceptedScrollActionsNotify() {
+    fun nonTouchIntegrationPreservesSuperResultsAndOnlyAcceptedScrollActionsNotify() {
         val source = SettingsUiSource.file("SettingsHomeScrollView")
         val key = SettingsUiSource.functions(source, "executeKeyEvent").single()
         assertTrue(key.contains("event.action == KeyEvent.ACTION_DOWN"))
@@ -52,5 +52,17 @@ class SettingsUserScrollSessionTest {
         val generic = SettingsUiSource.functions(source, "onGenericMotionEvent").single()
         assertTrue(generic.contains("val handled = super.onGenericMotionEvent(event)"))
         assertTrue(generic.contains("if (handled && event.actionMasked == MotionEvent.ACTION_SCROLL) onUserScroll()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsUserScrollSessionTest) -> Unit) {
+            val s = SettingsUserScrollSessionTest()
+            block(s)
+        }
+        runIsolated { s -> s.acceptedSpaceHomeAndEndStillNotifyWhenTheInheritedKeyReturnIsFalse() }
+        runIsolated { s -> s.declinedBoundaryKeysAndUnrelatedKeysDoNotCancel() }
+        runIsolated { s -> s.programmaticPageScrollingAndPreviousDispatchStateStaySilent() }
+        runIsolated { s -> s.nonTouchIntegrationPreservesSuperResultsAndOnlyAcceptedScrollActionsNotify() }
     }
 }

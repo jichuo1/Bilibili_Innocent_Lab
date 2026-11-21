@@ -11,7 +11,7 @@ class FollowFeedUpdateIndexTest {
     private fun row(identity: Long, reference: Long? = null, position: Int = 0) = FollowFeedRow(identity, true, true, position,
         reference?.let { FollowFeedReference(it, true, true, false) })
 
-    @Test fun keysKeepBothLongsAndAreOnlyBuiltForRowsWithReferences() {
+    fun keysKeepBothLongsAndAreOnlyBuiltForRowsWithReferences() {
         val index = FollowFeedUpdateIndex()
         val rows = listOf(row(10), row(11, reference = 5), null, row(12, reference = 5))
         index.rebuild(rows.size) { rows[it] }
@@ -26,7 +26,7 @@ class FollowFeedUpdateIndexTest {
         assertFalse(index.hasReference(FollowFeedReferenceKey(13, 5)))
     }
 
-    @Test fun emptyListTakesTheShortPathAndLeavesNothingBehind() {
+    fun emptyListTakesTheShortPathAndLeavesNothingBehind() {
         val index = FollowFeedUpdateIndex()
         val rows = listOf(row(1, reference = 2))
         index.rebuild(1) { rows[it] }
@@ -36,7 +36,7 @@ class FollowFeedUpdateIndexTest {
         assertFalse("rows of the previous screen are not retained", index.hasReference(FollowFeedReferenceKey(1, 2)))
     }
 
-    @Test fun shorterScreensClearTheTailAndLongerScreensGrowTheSnapshot() {
+    fun shorterScreensClearTheTailAndLongerScreensGrowTheSnapshot() {
         val index = FollowFeedUpdateIndex()
         val long = List(40) { row(it.toLong(), reference = it.toLong() + 100) }
         index.rebuild(long.size) { long[it] }
@@ -48,7 +48,7 @@ class FollowFeedUpdateIndexTest {
         assertNull(index.rowAt(3).also { }) // 尾部已清空
     }
 
-    @Test fun hasReferenceMatchesTheScanTheControllerUsedToDoOnRandomScreens() {
+    fun hasReferenceMatchesTheScanTheControllerUsedToDoOnRandomScreens() {
         val random = Random(20261029L)
         val index = FollowFeedUpdateIndex()
         repeat(5_000) {
@@ -84,7 +84,7 @@ class FollowFeedUpdateIndexTest {
         }
     }
 
-    @Test fun operationCountDropsFromRTimesNToNForTheSameScreen() {
+    fun operationCountDropsFromRTimesNToNForTheSameScreen() {
         val random = Random(7L)
         val n = 14
         val rows = List(n) { row(it.toLong(), reference = if (it % 3 == 0) it.toLong() + 100 else null, position = it) }
@@ -102,5 +102,18 @@ class FollowFeedUpdateIndexTest {
         assertEquals(n.toLong(), index.lookups)
         assertTrue(index.lookups < legacy.lookups)
         assertTrue(index.keyAllocations < legacy.keyAllocations)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FollowFeedUpdateIndexTest) -> Unit) {
+            val s = FollowFeedUpdateIndexTest()
+            block(s)
+        }
+        runIsolated { s -> s.keysKeepBothLongsAndAreOnlyBuiltForRowsWithReferences() }
+        runIsolated { s -> s.emptyListTakesTheShortPathAndLeavesNothingBehind() }
+        runIsolated { s -> s.shorterScreensClearTheTailAndLongerScreensGrowTheSnapshot() }
+        runIsolated { s -> s.hasReferenceMatchesTheScanTheControllerUsedToDoOnRandomScreens() }
+        runIsolated { s -> s.operationCountDropsFromRTimesNToNForTheSameScreen() }
     }
 }

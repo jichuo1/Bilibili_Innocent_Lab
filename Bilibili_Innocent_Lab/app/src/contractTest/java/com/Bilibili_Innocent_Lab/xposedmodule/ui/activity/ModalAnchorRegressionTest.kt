@@ -17,7 +17,7 @@ class ModalAnchorRegressionTest {
         return LceMotionSource.read(path)
     }
 
-    @Test fun scannedAndUnscannedPanelsUseTheClickableSummaryNotTheEntireSettingsGroup() {
+    fun scannedAndUnscannedPanelsUseTheClickableSummaryNotTheEntireSettingsGroup() {
         // 原来是"从手填回退到规则编辑器为止"的窗口，实际覆盖的是**两个**入口：
         // 手填规则回退 + 组件选择弹窗，各取一次锚点，所以下面期望 2 次。
         // 改成按函数精确取这两个，既不依赖声明顺序，也不依赖它们还在哪个文件里。
@@ -28,7 +28,7 @@ class ModalAnchorRegressionTest {
         assertFalse(editors.contains("parentOrNull"))
     }
 
-    @Test fun modalGeometryUsesVisibleBoundsAndRefreshesTheOriginBeforeReturning() {
+    fun modalGeometryUsesVisibleBoundsAndRefreshesTheOriginBeforeReturning() {
         val origin = SettingsUiSource.function("modalAnchorBounds")
         assertTrue(origin.contains("getGlobalVisibleRect(visible)"))
         assertTrue(origin.contains("val sourceRoot = anchor.rootView"))
@@ -45,7 +45,7 @@ class ModalAnchorRegressionTest {
         assertTrue(present.contains("morphAnchor?.let(::modalAnchorBounds) ?: capturedAnchorBounds"))
     }
 
-    @Test fun visibleRootBoundsMapThroughScreenBeforeEnteringAnotherWindow() {
+    fun visibleRootBoundsMapThroughScreenBeforeEnteringAnotherWindow() {
         // 源窗口位于 (80,160)，键盘 adjustPan 又向上移 40；Dialog 的原点不同。
         val visibleLeft = 24f
         val visibleTop = 600f
@@ -57,7 +57,7 @@ class ModalAnchorRegressionTest {
         assertEquals(624f, visibleTop + sourceScreenY - dialogScreenY, 0f)
     }
 
-    @Test fun rowToPanelGeometryNeverUsesTheMultiScreenGroupHeight() {
+    fun rowToPanelGeometryNeverUsesTheMultiScreenGroupHeight() {
         val row = SettingsBackupMotionRect(24f, 800f, 384f, 880f)
         val panel = SettingsBackupMotionRect(32f, 200f, 376f, 780f)
         val geometry = IconAnchoredMotionGeometry(row, panel, 40f, 28f)
@@ -69,7 +69,7 @@ class ModalAnchorRegressionTest {
         }
     }
 
-    @Test fun titleCloseDoesNotReviveTheDialogTitleAndUsesOnlyOneNativeLayout() {
+    fun titleCloseDoesNotReviveTheDialogTitleAndUsesOnlyOneNativeLayout() {
         val title = source("ModalTitleMotion")
         val closed = title.after("fun closed() {").before("fun dispose()")
         assertTrue(closed.contains("target.alpha = 0f"))
@@ -83,7 +83,7 @@ class ModalAnchorRegressionTest {
         assertTrue(draw.contains("-layout.getLineBaseline(0)"))
     }
 
-    @Test fun nativeTitleGateAcceptsIdentityTransformationsButRejectsChangedTextAndMarquee() {
+    fun nativeTitleGateAcceptsIdentityTransformationsButRejectsChangedTextAndMarquee() {
         assertTrue(ModalTitleMotionSpec.renderedTextMatches("首页推荐过滤", "首页推荐过滤"))
         assertTrue(ModalTitleMotionSpec.renderedTextMatches("Filter", "Filter"))
         assertFalse(ModalTitleMotionSpec.renderedTextMatches("Filter", "FILTER"))
@@ -92,5 +92,19 @@ class ModalAnchorRegressionTest {
         assertTrue(title.contains("source.ellipsize == TextUtils.TruncateAt.MARQUEE"))
         assertTrue(title.contains("target.ellipsize == TextUtils.TruncateAt.MARQUEE"))
         assertFalse(title.contains("transformationMethod != null"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalAnchorRegressionTest) -> Unit) {
+            val s = ModalAnchorRegressionTest()
+            block(s)
+        }
+        runIsolated { s -> s.scannedAndUnscannedPanelsUseTheClickableSummaryNotTheEntireSettingsGroup() }
+        runIsolated { s -> s.modalGeometryUsesVisibleBoundsAndRefreshesTheOriginBeforeReturning() }
+        runIsolated { s -> s.visibleRootBoundsMapThroughScreenBeforeEnteringAnotherWindow() }
+        runIsolated { s -> s.rowToPanelGeometryNeverUsesTheMultiScreenGroupHeight() }
+        runIsolated { s -> s.titleCloseDoesNotReviveTheDialogTitleAndUsesOnlyOneNativeLayout() }
+        runIsolated { s -> s.nativeTitleGateAcceptsIdentityTransformationsButRejectsChangedTextAndMarquee() }
     }
 }

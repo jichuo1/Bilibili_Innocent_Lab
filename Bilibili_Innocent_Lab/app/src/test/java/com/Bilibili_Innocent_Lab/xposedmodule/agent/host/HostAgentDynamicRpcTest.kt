@@ -33,7 +33,7 @@ class HostAgentDynamicRpcTest {
         }
     }
 
-    @Before fun reset() {
+    fun reset() {
         CallOptions.ignoreTimeout = false
         DynamicMoss.calls = 0
         DynamicMoss.lastRequest = null
@@ -41,7 +41,7 @@ class HostAgentDynamicRpcTest {
         DynamicMoss.reply = DynAllReply(null, null)
     }
 
-    @Test fun `following requests exactly one native page and projects bounded post text and UP states`() {
+    fun `following requests exactly one native page and projects bounded post text and UP states`() {
         DynamicMoss.reply = DynAllReply(DynamicList((1..30).map { post(it, "<em>正文</em>\u0000" + "长".repeat(3000)) }, true, "next"),
             CardVideoUpList(listOf(user(1, 0), user(2, 1), user(3, 2), user(4, 99)), listOf(user(2, 1))))
         val content = rpc()
@@ -69,7 +69,7 @@ class HostAgentDynamicRpcTest {
         assertNull(page.next)
     }
 
-    @Test fun `live lookup stays in returned UP list and missing UID never means offline`() {
+    fun `live lookup stays in returned UP list and missing UID never means offline`() {
         DynamicMoss.reply = DynAllReply(null, CardVideoUpList(listOf(user(42, 2)), emptyList()))
         val content = rpc()
         val found = content.liveStatus("42", 100)
@@ -85,7 +85,7 @@ class HostAgentDynamicRpcTest {
         assertEquals(2, DynamicMoss.calls)
     }
 
-    @Test fun `dynamic archives expose real video identities and never attribute forwarder as video owner`() {
+    fun `dynamic archives expose real video identities and never attribute forwarder as video owner`() {
         fun video(aid: Long, uri: String = "bilibili://video/$aid", pgc: Boolean = false) = Module(null,
             ModuleDynamic(MdlDynArchive(aid, "", uri, "视频$aid", 123, pgc)))
         val items = listOf(DynamicItem(Extend("1", 42, "转发者"), listOf(video(600, "bilibili://video/601"), video(700, pgc = true)))) +
@@ -103,7 +103,7 @@ class HostAgentDynamicRpcTest {
         assertFalse(result.videos.any { it.id == "av600" || it.id == "av700" })
     }
 
-    @Test fun `positive room identity cannot turn unknown wire state into live`() {
+    fun `positive room identity cannot turn unknown wire state into live`() {
         DynamicMoss.reply = DynAllReply(null, CardVideoUpList(listOf(user(42, 999)), emptyList()))
         val result = rpc().liveStatus("42", 100)
         assertEquals("unknown", result.getString("live_status"))
@@ -111,7 +111,7 @@ class HostAgentDynamicRpcTest {
         assertEquals("unavailable", result.getString("live_status_source"))
     }
 
-    @Test fun `schema drift keeps following text available but disables unsupported live lookup`() {
+    fun `schema drift keeps following text available but disables unsupported live lookup`() {
         val content = rpc(missing("LiveState"))
         assertTrue(content.followingAvailable)
         assertFalse(content.liveStatusAvailable)
@@ -124,7 +124,7 @@ class HostAgentDynamicRpcTest {
         assertFalse(missingRefresh.liveStatusAvailable)
     }
 
-    @Test fun `explicit pagination uses native offset and history refresh without retaining replies`() {
+    fun `explicit pagination uses native offset and history refresh without retaining replies`() {
         DynamicMoss.reply = DynAllReply(DynamicList(listOf(post(1)), true, "native-offset"), null)
         val content = rpc()
         val first = content.following(null, 100)
@@ -140,7 +140,7 @@ class HostAgentDynamicRpcTest {
         assertEquals(2, DynamicMoss.calls)
     }
 
-    @Test fun `UP projection and lookup scans have hard limits`() {
+    fun `UP projection and lookup scans have hard limits`() {
         DynamicMoss.reply = DynAllReply(null, CardVideoUpList((1L..150L).map { user(it, 1) }, emptyList()))
         val content = rpc()
         val following = content.following(null, 100)
@@ -150,7 +150,7 @@ class HostAgentDynamicRpcTest {
         assertEquals("unknown", content.liveStatus("101", 100).getString("live_status"))
     }
 
-    @Test fun `malformed cursors and account selector are rejected before requesting data`() {
+    fun `malformed cursors and account selector are rejected before requesting data`() {
         val content = rpc()
         for (raw in listOf("", "[]", "{}", "{\"offset\":\"x\",\"page\":1}", "{\"offset\":\"x\",\"page\":2.5}",
             "{\"offset\":\"x\",\"page\":1000001}", "{\"offset\":\"x\",\"page\":2,\"url\":\"https://example.org\"}")) {
@@ -163,7 +163,7 @@ class HostAgentDynamicRpcTest {
         assertEquals(0, DynamicMoss.calls)
     }
 
-    @Test fun `room identity extraction rejects foreign credentials encoded paths and overflow`() {
+    fun `room identity extraction rejects foreign credentials encoded paths and overflow`() {
         assertEquals("123", HostAgentDynamicLivePolicy.roomId("bilibili://live/123?unused=x"))
         for (value in listOf("https://example.org/live/123", "bilibili://video/123", "bilibili://u@live/123", "bilibili://live:443/123",
             "bilibili://live/%31%32%33", "bilibili://live/0", "bilibili://live/9223372036854775808")) {
@@ -171,11 +171,30 @@ class HostAgentDynamicRpcTest {
         }
     }
 
-    @Test fun `native timeout must be honored before executing dynamic read`() {
+    fun `native timeout must be honored before executing dynamic read`() {
         val content = rpc()
         CallOptions.ignoreTimeout = true
         assertEquals("rpc_timeout_unavailable", failure { content.following(null, 100) })
         assertEquals("rpc_timeout_unavailable", failure { content.liveStatus("42", 100) })
         assertEquals(0, DynamicMoss.calls)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostAgentDynamicRpcTest) -> Unit) {
+            val s = HostAgentDynamicRpcTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.`following requests exactly one native page and projects bounded post text and UP states`() }
+        runIsolated { s -> s.`live lookup stays in returned UP list and missing UID never means offline`() }
+        runIsolated { s -> s.`dynamic archives expose real video identities and never attribute forwarder as video owner`() }
+        runIsolated { s -> s.`positive room identity cannot turn unknown wire state into live`() }
+        runIsolated { s -> s.`schema drift keeps following text available but disables unsupported live lookup`() }
+        runIsolated { s -> s.`explicit pagination uses native offset and history refresh without retaining replies`() }
+        runIsolated { s -> s.`UP projection and lookup scans have hard limits`() }
+        runIsolated { s -> s.`malformed cursors and account selector are rejected before requesting data`() }
+        runIsolated { s -> s.`room identity extraction rejects foreign credentials encoded paths and overflow`() }
+        runIsolated { s -> s.`native timeout must be honored before executing dynamic read`() }
     }
 }

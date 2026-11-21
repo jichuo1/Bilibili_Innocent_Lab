@@ -27,7 +27,7 @@ class DetailUnitedPresentationPurifyFeatureInstallerTest {
         capabilityEvidence = { id, result -> capabilities += id to result }
     )
 
-    @Test fun `skips when neither existing detail setting is enabled`() {
+    fun `skips when neither existing detail setting is enabled`() {
         val result = DetailUnitedPresentationPurifyFeatureInstaller(false, false).install(environment())
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(
@@ -37,14 +37,14 @@ class DetailUnitedPresentationPurifyFeatureInstallerTest {
         assertTrue(capabilities.isEmpty())
     }
 
-    @Test fun `skips in a non main process`() {
+    fun `skips in a non main process`() {
         val result = DetailUnitedPresentationPurifyFeatureInstaller(true, true)
             .install(environment(process = "tv.danmaku.bili:web"))
         assertEquals(FeatureInstallResult.Skipped("non-main-process"), result)
         assertTrue(statuses.isEmpty())
     }
 
-    @Test fun `degrades when the current host does not expose the United rendering classes`() {
+    fun `degrades when the current host does not expose the United rendering classes`() {
         val empty = object : ClassLoader(null) {}
         val result = DetailUnitedPresentationPurifyFeatureInstaller(true, true)
             .install(environment(loader = empty))
@@ -53,7 +53,7 @@ class DetailUnitedPresentationPurifyFeatureInstallerTest {
         assertTrue(statuses.single().second.startsWith("partial:0/2:"))
     }
 
-    @Test fun `enabled leaves are reported separately and reuse the existing setting keys`() {
+    fun `enabled leaves are reported separately and reuse the existing setting keys`() {
         val hotOnly = DetailUnitedPresentationPurifyFeatureInstaller(true, false)
         val topicOnly = DetailUnitedPresentationPurifyFeatureInstaller(false, true)
         assertEquals(
@@ -79,5 +79,17 @@ class DetailUnitedPresentationPurifyFeatureInstallerTest {
             setOf(SettingsCatalog.byStorageKey.getValue(FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS).id),
             topic.settingIds
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DetailUnitedPresentationPurifyFeatureInstallerTest) -> Unit) {
+            val s = DetailUnitedPresentationPurifyFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips when neither existing detail setting is enabled`() }
+        runIsolated { s -> s.`skips in a non main process`() }
+        runIsolated { s -> s.`degrades when the current host does not expose the United rendering classes`() }
+        runIsolated { s -> s.`enabled leaves are reported separately and reuse the existing setting keys`() }
     }
 }

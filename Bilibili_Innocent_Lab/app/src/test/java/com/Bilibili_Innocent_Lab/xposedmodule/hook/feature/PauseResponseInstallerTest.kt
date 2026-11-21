@@ -24,7 +24,7 @@ class PauseResponseInstallerTest {
     private fun points(java: Class<*> = JavaPauseMoss::class.java, kotlin: Class<*>? = KotlinPauseMoss::class.java) =
         PauseResponseAdapter.resolve(PauseReply::class.java, PauseReq::class.java, java, kotlin)
 
-    @Test fun `sync async and Kotlin responses each have their own registration`() {
+    fun `sync async and Kotlin responses each have their own registration`() {
         val registrar = PlayerPortTestRegistrar()
         val coverage = PauseResponseAdapter.install(environment(registrar), points())
         assertEquals(PauseResponseAdapter.Coverage(3, 3, kotlinInstalled = true), coverage)
@@ -33,7 +33,7 @@ class PauseResponseInstallerTest {
             "paused.response.kmoss.play_pause"), registrar.hooks.keys)
     }
 
-    @Test fun `absent methods ambiguous callbacks and registration failures remain in the denominator`() {
+    fun `absent methods ambiguous callbacks and registration failures remain in the denominator`() {
         val missing = points(MissingAsyncPauseMoss::class.java, AmbiguousKotlinPauseMoss::class.java)
         assertNull(missing.async)
         assertNull(missing.kotlin)
@@ -48,7 +48,7 @@ class PauseResponseInstallerTest {
         assertEquals(PauseResponseAdapter.Coverage(2, 3), kotlinFailed)
     }
 
-    @Test fun `request routes require the audited host ABI and the registered Kotlin boundary`() {
+    fun `request routes require the audited host ABI and the registered Kotlin boundary`() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> =
                 error("Unexpected host lookup without route evidence")
@@ -64,7 +64,7 @@ class PauseResponseInstallerTest {
         }
     }
 
-    @Test fun `request entry owner is pinned per verified build and unknown builds stay closed`() {
+    fun `request entry owner is pinned per verified build and unknown builds stay closed`() {
         val ad = "kntr.app.ad.biz.videodetail.pausedpage."
         for (version in listOf(9180100, 9180200, 9180300))
             assertEquals(ad + "a", PauseRequestCoverage.apiOwnerName(version))
@@ -74,7 +74,7 @@ class PauseResponseInstallerTest {
         assertNull(PauseRequestCoverage.apiOwnerName(null))
     }
 
-    @Test fun `sync cleans only ads and copies bar extra fields and Java unknown fields`() {
+    fun `sync cleans only ads and copies bar extra fields and Java unknown fields`() {
         val registrar = PlayerPortTestRegistrar()
         PauseResponseAdapter.install(environment(registrar), points())
         val original = PauseReply("ad", "pause bar", 7, "unrelated", byteArrayOf(1, 4, 9))
@@ -95,7 +95,7 @@ class PauseResponseInstallerTest {
         assertSame(default, registrar.invoke("paused.response.execute_play_pause") { default })
     }
 
-    @Test fun `async keeps callback errors completion and delegate exceptions unchanged`() {
+    fun `async keeps callback errors completion and delegate exceptions unchanged`() {
         val registrar = PlayerPortTestRegistrar()
         PauseResponseAdapter.install(environment(registrar), points())
         val replies = mutableListOf<Any?>()
@@ -131,7 +131,7 @@ class PauseResponseInstallerTest {
         })
     }
 
-    @Test fun `Kotlin bridge rewrites only a successful copy and preserves a bar only reply identity`() {
+    fun `Kotlin bridge rewrites only a successful copy and preserves a bar only reply identity`() {
         val registrar = PlayerPortTestRegistrar()
         PauseResponseAdapter.install(environment(registrar), points())
         val replies = mutableListOf<Any?>()
@@ -160,7 +160,7 @@ class PauseResponseInstallerTest {
         assertFalse(FeatureRuntimeStage.APPLIED in stages)
     }
 
-    @Test fun `failed Kotlin write or changed bar readback passes the original and never claims applied`() {
+    fun `failed Kotlin write or changed bar readback passes the original and never claims applied`() {
         val registrar = PlayerPortTestRegistrar()
         val env = environment(registrar)
         val cleaner = requireNotNull(PausePayloadCleaner.resolve(PauseReply::class.java))
@@ -186,7 +186,7 @@ class PauseResponseInstallerTest {
         assertFalse(FeatureRuntimeStage.APPLIED in stages)
     }
 
-    @Test fun `identified requests remain untouched and an incomplete response layer cannot turn green`() {
+    fun `identified requests remain untouched and an incomplete response layer cannot turn green`() {
         val registrar = PlayerPortTestRegistrar()
         val requests = VersionAdapter.PausePoints(listOf(VersionAdapter.HookPoint("shared.pause.Request", "invokeSuspend")), null, null, null)
         val result = PausedAdFeatureInstaller(true, requests).install(environment(registrar)) as FeatureInstallResult.Installed
@@ -257,5 +257,22 @@ class PauseResponseInstallerTest {
             (value as KotlinPause).message.toByteArray()
         override fun decodeFromByteArray(deserializer: DeserializationStrategy<*>, bytes: ByteArray): Any =
             KotlinPause(PauseReply.parseFrom(bytes))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PauseResponseInstallerTest) -> Unit) {
+            val s = PauseResponseInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`sync async and Kotlin responses each have their own registration`() }
+        runIsolated { s -> s.`absent methods ambiguous callbacks and registration failures remain in the denominator`() }
+        runIsolated { s -> s.`request routes require the audited host ABI and the registered Kotlin boundary`() }
+        runIsolated { s -> s.`request entry owner is pinned per verified build and unknown builds stay closed`() }
+        runIsolated { s -> s.`sync cleans only ads and copies bar extra fields and Java unknown fields`() }
+        runIsolated { s -> s.`async keeps callback errors completion and delegate exceptions unchanged`() }
+        runIsolated { s -> s.`Kotlin bridge rewrites only a successful copy and preserves a bar only reply identity`() }
+        runIsolated { s -> s.`failed Kotlin write or changed bar readback passes the original and never claims applied`() }
+        runIsolated { s -> s.`identified requests remain untouched and an incomplete response layer cannot turn green`() }
     }
 }

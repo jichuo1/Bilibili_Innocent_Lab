@@ -42,7 +42,7 @@ class FramePowerAdvisorIsolationTest {
         }
     }
 
-    @Test fun theRestrictedLoaderActuallyRejectsALeakingMethodSignature() {
+    fun theRestrictedLoaderActuallyRejectsALeakingMethodSignature() {
         val name = UnguardedFixture::class.java.name
         val loader = Api30LinkageLoader(javaClass.classLoader, hiddenType, name)
         assertThrows(LinkageError::class.java) {
@@ -50,7 +50,7 @@ class FramePowerAdvisorIsolationTest {
         }
     }
 
-    @Test fun theAdvisorLinksWithoutAnyHintManagerClasses() {
+    fun theAdvisorLinksWithoutAnyHintManagerClasses() {
         val loader = Api30LinkageLoader(javaClass.classLoader, hiddenType, advisorName)
         assertThrows(ClassNotFoundException::class.java) { loader.loadClass(hiddenType) }
         val advisor = Class.forName(advisorName, false, loader)
@@ -63,13 +63,13 @@ class FramePowerAdvisorIsolationTest {
     }
 
     /** 方法体里的 checkcast/invokevirtual 不进 declaredMethods；反射看不到，直接查常量池。 */
-    @Test fun theAdvisorBytecodeNeverNamesTheHintManager() {
+    fun theAdvisorBytecodeNeverNamesTheHintManager() {
         val path = advisorName.replace('.', '/') + ".class"
         val bytes = checkNotNull(javaClass.classLoader.getResourceAsStream(path)) { path }.use { it.readBytes() }
         assertFalse(String(bytes, Charsets.ISO_8859_1).contains(hiddenType.replace('.', '/')))
     }
 
-    @Test fun hintTypesStayInsideTheIsolationLayerBehindAVersionCheck() {
+    fun hintTypesStayInsideTheIsolationLayerBehindAVersionCheck() {
         val advisor = SourceContract.read("hook/feature/interpolation/FramePowerAdvisor.kt")
         assertFalse(advisor.contains("PerformanceHintManager"))
         assertFalse(advisor.contains("@SuppressLint(\"NewApi\")"))
@@ -81,7 +81,7 @@ class FramePowerAdvisorIsolationTest {
         assertEquals(3, Regex("""@DoNotInline""").findAll(isolation).count())
     }
 
-    @Test fun onlyApi31FilesMayNameTheHintManager() {
+    fun onlyApi31FilesMayNameTheHintManager() {
         var dir = checkNotNull(SourceContract.file("hook/feature/interpolation/FramePowerAdvisor.kt").canonicalFile.parentFile)
         while (!File(dir, "src/main/java").isDirectory) {
             dir = dir.parentFile ?: error("Could not locate the Gradle module root from $dir")
@@ -93,5 +93,18 @@ class FramePowerAdvisorIsolationTest {
         assertTrue("Found only ${sources.size} Kotlin sources; the walk is broken", sources.size > 100)
         val offenders = sources.filter { it.readText().contains("PerformanceHintManager") && !it.name.endsWith("Api31.kt") }
         assertTrue("API 31 type outside an isolation layer: $offenders", offenders.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FramePowerAdvisorIsolationTest) -> Unit) {
+            val s = FramePowerAdvisorIsolationTest()
+            block(s)
+        }
+        runIsolated { s -> s.theRestrictedLoaderActuallyRejectsALeakingMethodSignature() }
+        runIsolated { s -> s.theAdvisorLinksWithoutAnyHintManagerClasses() }
+        runIsolated { s -> s.theAdvisorBytecodeNeverNamesTheHintManager() }
+        runIsolated { s -> s.hintTypesStayInsideTheIsolationLayerBehindAVersionCheck() }
+        runIsolated { s -> s.onlyApi31FilesMayNameTheHintManager() }
     }
 }

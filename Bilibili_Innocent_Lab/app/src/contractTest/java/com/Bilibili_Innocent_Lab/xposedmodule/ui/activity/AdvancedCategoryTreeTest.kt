@@ -133,7 +133,7 @@ class AdvancedCategoryTreeTest {
         "enhancementAdvancedContent = this" to "ENHANCEMENT_ADVANCED"
     )
 
-    @Test fun `every declared category is registered exactly once`() {
+    fun `every declared category is registered exactly once`() {
         val declared = declaredCategories().map { it.first }
         assertTrue("enum looks empty: $declared", declared.size >= 15)
         val registered = markerPattern.findAll(SettingsUiSource.code(SettingsUiSource.all()))
@@ -143,7 +143,7 @@ class AdvancedCategoryTreeTest {
             declared.sorted(), registered.sorted())
     }
 
-    @Test fun `each container adds its categories in the enum declaration order`() {
+    fun `each container adds its categories in the enum declaration order`() {
         val bySection = declaredCategories().groupBy({ it.second }, { it.first })
         containers.forEach { (anchor, section) ->
             val expected = requireNotNull(bySection[section]) { "no categories for $section" }
@@ -154,7 +154,7 @@ class AdvancedCategoryTreeTest {
         }
     }
 
-    @Test fun `each container opens with its first category and nothing before it`() {
+    fun `each container opens with its first category and nothing before it`() {
         val bySection = declaredCategories().groupBy({ it.second }, { it.first })
         containers.forEach { (anchor, section) ->
             val expected = requireNotNull(bySection[section]).first()
@@ -170,7 +170,7 @@ class AdvancedCategoryTreeTest {
         }
     }
 
-    @Test fun `final category construction rejects duplicate or missing identity without reparents`() {
+    fun `final category construction rejects duplicate or missing identity without reparents`() {
         val factory = SettingsUiSource.function("advancedCategoryScope")
         val title = SettingsUiSource.function("advancedCategoryTitle")
         assertTrue(factory.contains("check(category !in advancedCategorySections)"))
@@ -183,5 +183,17 @@ class AdvancedCategoryTreeTest {
         assertFalse(factory.contains("removeView"))
         assertFalse(factory.contains("originalChildren"))
         assertTrue(SettingsUiSource.functions(SettingsUiSource.mainActivity(), "installAdvancedCategorySections").isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdvancedCategoryTreeTest) -> Unit) {
+            val s = AdvancedCategoryTreeTest()
+            block(s)
+        }
+        runIsolated { s -> s.`every declared category is registered exactly once`() }
+        runIsolated { s -> s.`each container adds its categories in the enum declaration order`() }
+        runIsolated { s -> s.`each container opens with its first category and nothing before it`() }
+        runIsolated { s -> s.`final category construction rejects duplicate or missing identity without reparents`() }
     }
 }

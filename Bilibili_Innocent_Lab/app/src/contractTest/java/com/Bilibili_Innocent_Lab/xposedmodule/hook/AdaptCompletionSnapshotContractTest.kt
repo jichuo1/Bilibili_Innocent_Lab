@@ -19,14 +19,14 @@ class AdaptCompletionSnapshotContractTest {
         .after("override fun onAdaptFinished(ok: Boolean) {")
         .before("startupCache = startupCache,")
 
-    @Test fun successCallbackReadsTheCacheExactlyOnce() {
+    fun successCallbackReadsTheCacheExactlyOnce() {
         val success = finished().before("} else {\n                                    VersionAdapter.showAdaptToast(")
         assertEquals(1, Regex("""VersionAdapter\.loadCached\(""").findAll(success).count())
         // 读取发生在所有 installer 分支之前，而不是藏在某个条件分支里。
         assertTrue(success.indexOf("VersionAdapter.loadCached(") < success.indexOf("qualityInstaller.requiresAdaptationRetry"))
     }
 
-    @Test fun everyInstallerConsumesTheSharedSnapshot() {
+    fun everyInstallerConsumesTheSharedSnapshot() {
         val body = finished()
         for (field in listOf("playerQuality", "playerPopupPromotion", "commentClassicStyle", "sponsorPlayer",
             "pageBoundaries", "homeChrome", "homeChromeSemantics")) {
@@ -35,7 +35,7 @@ class AdaptCompletionSnapshotContractTest {
         assertFalse(body.contains("adaptedChrome"))
     }
 
-    @Test fun retryGuardsAndMainThreadInstallationRemain() {
+    fun retryGuardsAndMainThreadInstallationRemain() {
         val body = finished()
         for (installer in listOf("qualityInstaller", "popupInstaller", "classicInstaller", "sponsorInstaller")) {
             // 进入分支前一次、主线程提交前再核对一次。
@@ -43,5 +43,16 @@ class AdaptCompletionSnapshotContractTest {
         }
         assertTrue(body.contains("hookEnvironment.postToMain?.invoke"))
         assertTrue(body.contains("featureInstallCoordinator.installAll("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptCompletionSnapshotContractTest) -> Unit) {
+            val s = AdaptCompletionSnapshotContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.successCallbackReadsTheCacheExactlyOnce() }
+        runIsolated { s -> s.everyInstallerConsumesTheSharedSnapshot() }
+        runIsolated { s -> s.retryGuardsAndMainThreadInstallationRemain() }
     }
 }

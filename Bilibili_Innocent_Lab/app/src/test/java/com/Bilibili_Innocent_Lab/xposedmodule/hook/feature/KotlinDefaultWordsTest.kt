@@ -77,7 +77,7 @@ class KotlinDefaultWordsTest {
         override fun onUpstreamAck(value: Long) = value + 1
     }
 
-    @Test fun opaqueKotlinResponseClearsOnlyTextAndLeavesNativeHooksInstalled() {
+    fun opaqueKotlinResponseClearsOnlyTextAndLeavesNativeHooksInstalled() {
         val harness = Harness().apply { install() }
         assertTrue(harness.registrar.hooks.containsKey("home.top_bar.search_default_words.false"))
         assertTrue(harness.registrar.hooks.containsKey("home.top_bar.search_default_words.true"))
@@ -94,7 +94,7 @@ class KotlinDefaultWordsTest {
         assertEquals("word", original.wire.getWord())
     }
 
-    @Test fun emptyTextDoesNotReplaceTheKotlinResponse() {
+    fun emptyTextDoesNotReplaceTheKotlinResponse() {
         val harness = Harness().apply { install() }
         val original = OpaqueWords(DefaultWordsReply(route = "bilibili://search"))
         val sink = Sink()
@@ -102,7 +102,7 @@ class KotlinDefaultWordsTest {
         assertSame(original, sink.value)
     }
 
-    @Test fun codecAndBuilderFailuresDeliverTheOriginalResponse() {
+    fun codecAndBuilderFailuresDeliverTheOriginalResponse() {
         for ((reply, proto) in listOf(
             OpaqueWords(DefaultWordsReply("show", "word", "value")) to WordsProtoBuf(true),
             OpaqueWords(DefaultWordsReply("show", "word", "value", failAt = "word")) to WordsProtoBuf())) {
@@ -113,7 +113,7 @@ class KotlinDefaultWordsTest {
         }
     }
 
-    @Test fun errorsCompletionAndAcknowledgementsRemainTransparent() {
+    fun errorsCompletionAndAcknowledgementsRemainTransparent() {
         val harness = Harness().apply { install() }
         val sink = Sink()
         val proxy = harness.callback(sink)
@@ -125,14 +125,14 @@ class KotlinDefaultWordsTest {
         assertEquals(43L, proxy.onUpstreamAck(42L))
     }
 
-    @Test fun disabledFeatureDoesNotResolveKotlinOrInstallAnyHooks() {
+    fun disabledFeatureDoesNotResolveKotlinOrInstallAnyHooks() {
         val harness = Harness()
         harness.install(enabled = false)
         assertEquals(0, harness.loader.kotlinLookups)
         assertTrue(harness.registrar.hooks.isEmpty())
     }
 
-    @Test fun missingKotlinClassKeepsTheJavaBoundaries() {
+    fun missingKotlinClassKeepsTheJavaBoundaries() {
         val harness = Harness(present = false).apply { install() }
         assertFalse(harness.registrar.hooks.containsKey(ID))
         assertFalse(harness.status.contains("search-protocol-kotlin"))
@@ -140,7 +140,7 @@ class KotlinDefaultWordsTest {
         assertTrue(harness.registrar.hooks.containsKey("home.top_bar.search_default_words.true"))
     }
 
-    @Test fun failedKotlinRegistrationRemainsVisibleWithoutDiscardingJavaHooks() {
+    fun failedKotlinRegistrationRemainsVisibleWithoutDiscardingJavaHooks() {
         val harness = Harness(failId = ID).apply { install() }
         assertFalse(harness.registrar.hooks.containsKey(ID))
         assertTrue(harness.status.contains("search-protocol-kotlin"))
@@ -148,7 +148,7 @@ class KotlinDefaultWordsTest {
         assertTrue(harness.registrar.hooks.containsKey("home.top_bar.search_default_words.true"))
     }
 
-    @Test fun cachedRenamedOwnerAndMethodInstallWithoutTheStableMossClass() {
+    fun cachedRenamedOwnerAndMethodInstallWithoutTheStableMossClass() {
         val method = RenamedSearch::class.java.declaredMethods.single { it.name == "x" }
         val points = VersionAdapter.HomeTopBarPoints(null, null, null, emptyList(), KotlinDefaultWordsLocator.point(method))
         val harness = Harness(present = false).apply { install(points = points) }
@@ -161,4 +161,20 @@ class KotlinDefaultWordsTest {
     }
 
     private companion object { const val ID = "home.top_bar.search_default_words.kotlin" }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KotlinDefaultWordsTest) -> Unit) {
+            val s = KotlinDefaultWordsTest()
+            block(s)
+        }
+        runIsolated { s -> s.opaqueKotlinResponseClearsOnlyTextAndLeavesNativeHooksInstalled() }
+        runIsolated { s -> s.emptyTextDoesNotReplaceTheKotlinResponse() }
+        runIsolated { s -> s.codecAndBuilderFailuresDeliverTheOriginalResponse() }
+        runIsolated { s -> s.errorsCompletionAndAcknowledgementsRemainTransparent() }
+        runIsolated { s -> s.disabledFeatureDoesNotResolveKotlinOrInstallAnyHooks() }
+        runIsolated { s -> s.missingKotlinClassKeepsTheJavaBoundaries() }
+        runIsolated { s -> s.failedKotlinRegistrationRemainsVisibleWithoutDiscardingJavaHooks() }
+        runIsolated { s -> s.cachedRenamedOwnerAndMethodInstallWithoutTheStableMossClass() }
+    }
 }

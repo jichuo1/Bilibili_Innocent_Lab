@@ -40,7 +40,7 @@ class HomeRecommendEarlyLoadTest {
 
     private fun small(@Suppress("UNUSED_PARAMETER") position: Int) = 1
 
-    @Test fun `accepts only the verified relocated listener and callback shape`() {
+    fun `accepts only the verified relocated listener and callback shape`() {
         val callback = w32()
         val listener = d571(callback)
         val access = requireNotNull(shape(listener.javaClass))
@@ -51,7 +51,7 @@ class HomeRecommendEarlyLoadTest {
 
     // ---- 行数判定 ----
 
-    @Test fun `the lead is counted in rows of the current column count`() {
+    fun `the lead is counted in rows of the current column count`() {
         // 双列手机：最后挂载第 5 项，后面还有 6 张小卡 = 3 行，在四行以内。
         assertTrue(HomeRecommendEarlyLoadPolicy.withinLead(5, 12, 2, spanSize = ::small))
         // 同样 6 项全是整行大卡 = 6 行，还早。
@@ -67,7 +67,7 @@ class HomeRecommendEarlyLoadTest {
         assertFalse(HomeRecommendEarlyLoadPolicy.withinLead(0, 6, 2) { 99 })
     }
 
-    @Test fun `invalid positions or counts never trigger`() {
+    fun `invalid positions or counts never trigger`() {
         assertFalse(HomeRecommendEarlyLoadPolicy.withinLead(-1, 3, 2, spanSize = ::small))
         assertFalse(HomeRecommendEarlyLoadPolicy.withinLead(3, 3, 2, spanSize = ::small))
         assertFalse(HomeRecommendEarlyLoadPolicy.withinLead(0, 3, 0, spanSize = ::small))
@@ -76,7 +76,7 @@ class HomeRecommendEarlyLoadTest {
         assertTrue(HomeRecommendEarlyLoadPolicy.withinLead(2, 3, 2, spanSize = ::small))
     }
 
-    @Test fun `the gate requests once per list length and reopens after growth or refresh`() {
+    fun `the gate requests once per list length and reopens after growth or refresh`() {
         val gate = EarlyLoadGate()
         assertFalse(gate.shouldRequest(enabled = false, 8, 10, 2, ::small))
         // 还没进入四行范围：不消耗这一长度的名额。
@@ -99,7 +99,7 @@ class HomeRecommendEarlyLoadTest {
         RecyclerFixtures.Function0::class.java
     )
 
-    @Test fun `the home load more listener is recognised by structure and its fields are readable`() {
+    fun `the home load more listener is recognised by structure and its fields are readable`() {
         val callback = RecyclerFixtures.MergedCallback()
         val listener = LoadMoreListenerFixtures.HomeLoadMore(callback, true)
         val shape = requireNotNull(shape(listener.javaClass))
@@ -108,7 +108,7 @@ class HomeRecommendEarlyLoadTest {
         assertFalse(shape.enabled.getBoolean(LoadMoreListenerFixtures.HomeLoadMore(callback, false)))
     }
 
-    @Test fun `look alike listeners are not mistaken for the home load more listener`() {
+    fun `look alike listeners are not mistaken for the home load more listener`() {
         assertNull(shape(LoadMoreListenerFixtures.OtherList::class.java))
         assertNull(shape(LoadMoreListenerFixtures.ScrollOnly::class.java))
         // 形状一致但不在宿主首页包下。
@@ -117,7 +117,7 @@ class HomeRecommendEarlyLoadTest {
 
     // ---- 安装 ----
 
-    @Test fun `installing hooks only the list scroll listener registration`() {
+    fun `installing hooks only the list scroll listener registration`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
         val statuses = mutableListOf<String>()
@@ -134,7 +134,7 @@ class HomeRecommendEarlyLoadTest {
         assertEquals(listOf("installed"), statuses)
     }
 
-    @Test fun `a list that is not a view is ignored without touching the host`() {
+    fun `a list that is not a view is ignored without touching the host`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
         HomeRecommendEarlyLoadFeatureInstaller(true, names).install(environment(registrar) { _, stage, _ -> stages += stage })
@@ -148,7 +148,7 @@ class HomeRecommendEarlyLoadTest {
         assertEquals(listOf(FeatureRuntimeStage.ADAPTED), stages)
     }
 
-    @Test fun `the watcher caches one structural verdict per listener class`() {
+    fun `the watcher caches one structural verdict per listener class`() {
         val access = requireNotNull(HomeRecommendEarlyLoadFeatureInstaller.RecyclerAccess.resolve(loader, names))
         val watcher = HomeRecommendEarlyLoadFeatureInstaller.LoadMoreWatcher(access, environment())
         val first = watcher.shapeOf(LoadMoreListenerFixtures.HomeLoadMore::class.java)
@@ -158,7 +158,7 @@ class HomeRecommendEarlyLoadTest {
         assertNull(watcher.shapeOf(LoadMoreListenerFixtures.OtherList::class.java))
     }
 
-    @Test fun `disabled and secondary processes register nothing`() {
+    fun `disabled and secondary processes register nothing`() {
         val registrar = PlayerPortTestRegistrar()
         val statuses = mutableListOf<String>()
         assertEquals(FeatureInstallResult.Skipped("disabled"),
@@ -169,7 +169,7 @@ class HomeRecommendEarlyLoadTest {
         assertTrue(registrar.registrationAttempts.isEmpty())
     }
 
-    @Test fun `a missing or reshaped list boundary fails closed`() {
+    fun `a missing or reshaped list boundary fails closed`() {
         assertEquals(FeatureInstallResult.Skipped("missing-class-loader"),
             HomeRecommendEarlyLoadFeatureInstaller(true, names).install(environment(classLoader = null)))
         val registrar = PlayerPortTestRegistrar()
@@ -181,16 +181,37 @@ class HomeRecommendEarlyLoadTest {
         assertTrue(registrar.registrationAttempts.isEmpty())
     }
 
-    @Test fun `the production names resolve against the real androidx list and kotlin function types`() {
+    fun `the production names resolve against the real androidx list and kotlin function types`() {
         // 模块自身依赖同一套 androidx RecyclerView 与 Kotlin 标准库：默认名必须能逐个解析出来。
         val registrar = PlayerPortTestRegistrar()
         assertEquals(FeatureInstallResult.Installed(1), HomeRecommendEarlyLoadFeatureInstaller(true).install(environment(registrar)))
         assertEquals("androidx.recyclerview.widget.RecyclerView", registrar.registrationAttempts.single().second.declaringClass.name)
     }
 
-    @Test fun `a registration failure is reported and not counted as installed`() {
+    fun `a registration failure is reported and not counted as installed`() {
         assertEquals(FeatureInstallResult.Skipped("registration-failed"),
             HomeRecommendEarlyLoadFeatureInstaller(true, names).install(
                 environment(PlayerPortTestRegistrar(HomeRecommendEarlyLoadFeatureInstaller.LISTENER_HOOK_ID))))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeRecommendEarlyLoadTest) -> Unit) {
+            val s = HomeRecommendEarlyLoadTest()
+            block(s)
+        }
+        runIsolated { s -> s.`accepts only the verified relocated listener and callback shape`() }
+        runIsolated { s -> s.`the lead is counted in rows of the current column count`() }
+        runIsolated { s -> s.`invalid positions or counts never trigger`() }
+        runIsolated { s -> s.`the gate requests once per list length and reopens after growth or refresh`() }
+        runIsolated { s -> s.`the home load more listener is recognised by structure and its fields are readable`() }
+        runIsolated { s -> s.`look alike listeners are not mistaken for the home load more listener`() }
+        runIsolated { s -> s.`installing hooks only the list scroll listener registration`() }
+        runIsolated { s -> s.`a list that is not a view is ignored without touching the host`() }
+        runIsolated { s -> s.`the watcher caches one structural verdict per listener class`() }
+        runIsolated { s -> s.`disabled and secondary processes register nothing`() }
+        runIsolated { s -> s.`a missing or reshaped list boundary fails closed`() }
+        runIsolated { s -> s.`the production names resolve against the real androidx list and kotlin function types`() }
+        runIsolated { s -> s.`a registration failure is reported and not counted as installed`() }
     }
 }

@@ -18,7 +18,7 @@ class AgentTextPlannerTest {
         catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.INVALID_RESPONSE, error.reason) }
     }
 
-    @Test fun ordinaryTextPacketsProduceExactlyOneValidatedActionOrAnswer() {
+    fun ordinaryTextPacketsProduceExactlyOneValidatedActionOrAnswer() {
         val turn = AgentTextPlanner.decode("```json\n{\"action\":\"get_ui_state\",\"arguments\":{}}\n```", false)
         assertEquals("get_ui_state", turn.toolCalls.single().name)
         assertTrue(turn.toolCalls.single().id.startsWith("text_"))
@@ -28,7 +28,7 @@ class AgentTextPlannerTest {
         invalid("{\"action\":\"get_ui_state\",\"arguments\":{\"offset\":12.5}}")
         invalid("{\"action\":\"get_ui_state\",\"arguments\":{\"offset\":1000}}")
     }
-    @Test fun proseDuplicatesMultipleActionsAndUnknownParametersNeverBecomeCommands() {
+    fun proseDuplicatesMultipleActionsAndUnknownParametersNeverBecomeCommands() {
         invalid("我建议点击按钮 {\"action\":\"get_ui_state\",\"arguments\":{}}")
         invalid("{\"action\":\"get_ui_state\",\"action\":\"press_back\",\"arguments\":{}}")
         invalid("{\"actions\":[{\"action\":\"get_ui_state\"}]}")
@@ -36,7 +36,7 @@ class AgentTextPlannerTest {
         invalid("{\"action\":\"get_ui_state\",\"arguments\":{\"url\":\"https://example.test\"}}")
         invalid("{\"action\":\"inspect_screen\",\"arguments\":{}}")
     }
-    @Test fun requestsHaveNoNativeToolsAndReturnExecutionFactsAsOrdinaryUserMessages() {
+    fun requestsHaveNoNativeToolsAndReturnExecutionFactsAsOrdinaryUserMessages() {
         val requests = mutableListOf<JSONObject>()
         val client = AgentModelClient(AgentHttpTransport { _, bytes, _, _ ->
             val body = JSONObject(String(bytes, Charsets.UTF_8)); requests += body
@@ -54,7 +54,7 @@ class AgentTextPlannerTest {
         assertEquals("读取到真实界面", planner.generate(source, proof, following, false, 5000) { false }.text)
         assertTrue(requests.last().getJSONArray("messages").toString().contains("REAL_OBSERVATION"))
     }
-    @Test fun formatRepairIsBoundedAndDoesNotExecuteTheInvalidFirstResponse() {
+    fun formatRepairIsBoundedAndDoesNotExecuteTheInvalidFirstResponse() {
         var count = 0
         val client = AgentModelClient(AgentHttpTransport { _, _, _, _ ->
             count++; response(if (count == 1) "点击全部按钮" else "{\"action\":\"get_host_state\",\"arguments\":{}}")
@@ -62,14 +62,14 @@ class AgentTextPlannerTest {
         assertEquals("get_host_state", AgentTextPlanner(client) { 10_000 }.generate(source, proof, history(), false, 5000) { false }.toolCalls.single().name)
         assertEquals(2, count)
     }
-    @Test fun noncompliantSecondReplyStopsWithoutInventingAnAction() {
+    fun noncompliantSecondReplyStopsWithoutInventingAnAction() {
         var count = 0
         val client = AgentModelClient(AgentHttpTransport { _, _, _, _ -> count++; response("我会操作") })
         try { AgentTextPlanner(client) { 10_000 }.generate(source, proof, history(), false, 5000) { false }; fail("invalid expected") }
         catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.INVALID_RESPONSE, error.reason) }
         assertEquals(2, count)
     }
-    @Test fun oldOrExpiredProofCannotGrantTextPlanning() {
+    fun oldOrExpiredProofCannotGrantTextPlanning() {
         val old = proof.toJson().apply { remove("plainPlanning"); remove("plainState") }
         assertFalse(AgentModelCapabilities.fromJson(old)!!.plainPlanning)
         assertEquals(proof, AgentModelCapabilities.fromJson(proof.toJson()))
@@ -77,7 +77,7 @@ class AgentTextPlannerTest {
         try { AgentTextPlanner(client) { 10_000 + AgentModelCapabilities.VALID_FOR_MS + 1 }.generate(source, proof, history(), false, 1000) { false }; fail("expired") }
         catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.PLAIN_UNVERIFIED, error.reason) }
     }
-    @Test fun realTextEchoReceiptProvesRoundTripAndEnablesPlannerRouting() {
+    fun realTextEchoReceiptProvesRoundTripAndEnablesPlannerRouting() {
         var count = 0
         val client = AgentModelClient(AgentHttpTransport { _, bytes, _, _ ->
             val body = JSONObject(String(bytes, Charsets.UTF_8))
@@ -98,5 +98,20 @@ class AgentTextPlannerTest {
         val router = AgentSourceRouter(listOf(source), mapOf(source.fingerprint to actual))
         router.acquire(AgentModelRole.PLANNER, AgentRoutePolicy(setOf(1)), 10_000)!!.use { assertEquals(source, it.source) }
         assertNull(router.acquire(true, false, AgentRoutePolicy(setOf(1)), 10_000))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentTextPlannerTest) -> Unit) {
+            val s = AgentTextPlannerTest()
+            block(s)
+        }
+        runIsolated { s -> s.ordinaryTextPacketsProduceExactlyOneValidatedActionOrAnswer() }
+        runIsolated { s -> s.proseDuplicatesMultipleActionsAndUnknownParametersNeverBecomeCommands() }
+        runIsolated { s -> s.requestsHaveNoNativeToolsAndReturnExecutionFactsAsOrdinaryUserMessages() }
+        runIsolated { s -> s.formatRepairIsBoundedAndDoesNotExecuteTheInvalidFirstResponse() }
+        runIsolated { s -> s.noncompliantSecondReplyStopsWithoutInventingAnAction() }
+        runIsolated { s -> s.oldOrExpiredProofCannotGrantTextPlanning() }
+        runIsolated { s -> s.realTextEchoReceiptProvesRoundTripAndEnablesPlannerRouting() }
     }
 }

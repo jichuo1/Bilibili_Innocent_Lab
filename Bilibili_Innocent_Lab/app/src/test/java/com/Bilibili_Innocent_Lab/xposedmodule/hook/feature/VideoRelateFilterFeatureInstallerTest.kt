@@ -9,7 +9,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoRelateFilterFeatureInstallerTest {
-    @Test
     fun normalizedTypeAndMissingDurationPublishSeparateCapabilityOutcomes() {
         val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
             .copy(directDurationGetters = emptyList(), durationChains = emptyList())
@@ -23,7 +22,6 @@ class VideoRelateFilterFeatureInstallerTest {
             (records.last { it.id == "video_related_duration_filter" }.result as FeatureInstallResult.Skipped).reasonCode)
     }
 
-    @Test
     fun normalizedTypeAndMissingPlayCountPublishSeparateCapabilityOutcomes() {
         val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
             .copy(playCountChains = emptyList())
@@ -39,7 +37,6 @@ class VideoRelateFilterFeatureInstallerTest {
     }
 
 
-    @Test
     fun `publish text chains cover the basic info desc and the legacy relate desc`() {
         val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
         val labels = points.publishTextChains.map { chain -> chain.steps.joinToString("->") { it.methodName } }
@@ -56,7 +53,6 @@ class VideoRelateFilterFeatureInstallerTest {
             VersionAdapter.VideoRelatePoints.fromJson(legacy).publishTextChains)
     }
 
-    @Test
     fun `publish time filter alone installs and reports usable coverage`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
@@ -72,7 +68,6 @@ class VideoRelateFilterFeatureInstallerTest {
         assertEquals(listOf("video_relate_filter_status" to "success"), statuses)
     }
 
-    @Test
     fun `missing publish text chains are partial instead of silently never matching`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
@@ -94,7 +89,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `corrupt publish time rule alone leaves the feature disabled`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val result = VideoRelateFilterFeatureInstaller(
@@ -119,7 +113,6 @@ class VideoRelateFilterFeatureInstallerTest {
         reportStatus = { channel, status -> statuses += channel to status }
     )
 
-    @Test
     fun `normalizes protobuf card type prefix and matches exact type`() {
         assertTrue(
             VideoRelateFilterFeatureInstaller.shouldRemove(
@@ -135,7 +128,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `matches old and new protocol evidence without coupling independent switches`() {
         assertTrue(
             VideoRelateFilterFeatureInstaller.matchesEvidence(
@@ -228,7 +220,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `strong mode distinguishes recognized and unknown card types`() {
         assertTrue(
             VideoRelateFilterFeatureInstaller.hasRecognizedTypeEvidence(
@@ -272,7 +263,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `response writeback replaces the verified internal list only`() {
         val response = ResponseFixture()
         val replacement = arrayListOf("kept")
@@ -285,7 +275,6 @@ class VideoRelateFilterFeatureInstallerTest {
         assertFalse(writeBackVideoRelateItems(Any(), field, replacement))
     }
 
-    @Test
     fun `duration-only configuration installs while an empty range stays hook free`() {
         val durationStatuses = mutableListOf<Pair<String, String>>()
         val disabledStatuses = mutableListOf<Pair<String, String>>()
@@ -315,7 +304,6 @@ class VideoRelateFilterFeatureInstallerTest {
         assertEquals(listOf("video_relate_filter_status" to "disabled"), disabledStatuses)
     }
 
-    @Test
     fun `play-count-only configuration installs while an empty range stays hook free`() {
         val playCountStatuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -336,7 +324,6 @@ class VideoRelateFilterFeatureInstallerTest {
         assertEquals(listOf("video_relate_filter_status" to "success"), playCountStatuses)
     }
 
-    @Test
     fun `missing play count paths do not disable an existing type filter`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -360,7 +347,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `missing duration paths do not disable an existing type filter`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -382,7 +368,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `missing type getters do not disable an adapted duration filter`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -412,7 +397,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `custom reason filter requires enhancement and installs without type filters`() {
         val enabledStatuses = mutableListOf<Pair<String, String>>()
         val disabledStatuses = mutableListOf<Pair<String, String>>()
@@ -448,7 +432,6 @@ class VideoRelateFilterFeatureInstallerTest {
         assertEquals(listOf("video_relate_filter_status" to "disabled"), disabledStatuses)
     }
 
-    @Test
     fun `missing reason paths do not disable existing type filtering`() {
         val statuses = mutableListOf<Pair<String, String>>()
         val points = requireNotNull(
@@ -472,7 +455,6 @@ class VideoRelateFilterFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `strong mode requires enhancement and keeps missing reasons as an aggressive signal`() {
         val enabledStatuses = mutableListOf<Pair<String, String>>()
         val disabledStatuses = mutableListOf<Pair<String, String>>()
@@ -510,5 +492,31 @@ class VideoRelateFilterFeatureInstallerTest {
     }
     private class ResponseFixture {
         var items: List<String> = listOf("original")
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VideoRelateFilterFeatureInstallerTest) -> Unit) {
+            val s = VideoRelateFilterFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.normalizedTypeAndMissingDurationPublishSeparateCapabilityOutcomes() }
+        runIsolated { s -> s.normalizedTypeAndMissingPlayCountPublishSeparateCapabilityOutcomes() }
+        runIsolated { s -> s.`publish text chains cover the basic info desc and the legacy relate desc`() }
+        runIsolated { s -> s.`publish time filter alone installs and reports usable coverage`() }
+        runIsolated { s -> s.`missing publish text chains are partial instead of silently never matching`() }
+        runIsolated { s -> s.`corrupt publish time rule alone leaves the feature disabled`() }
+        runIsolated { s -> s.`normalizes protobuf card type prefix and matches exact type`() }
+        runIsolated { s -> s.`matches old and new protocol evidence without coupling independent switches`() }
+        runIsolated { s -> s.`strong mode distinguishes recognized and unknown card types`() }
+        runIsolated { s -> s.`response writeback replaces the verified internal list only`() }
+        runIsolated { s -> s.`duration-only configuration installs while an empty range stays hook free`() }
+        runIsolated { s -> s.`play-count-only configuration installs while an empty range stays hook free`() }
+        runIsolated { s -> s.`missing play count paths do not disable an existing type filter`() }
+        runIsolated { s -> s.`missing duration paths do not disable an existing type filter`() }
+        runIsolated { s -> s.`missing type getters do not disable an adapted duration filter`() }
+        runIsolated { s -> s.`custom reason filter requires enhancement and installs without type filters`() }
+        runIsolated { s -> s.`missing reason paths do not disable existing type filtering`() }
+        runIsolated { s -> s.`strong mode requires enhancement and keeps missing reasons as an aggressive signal`() }
     }
 }

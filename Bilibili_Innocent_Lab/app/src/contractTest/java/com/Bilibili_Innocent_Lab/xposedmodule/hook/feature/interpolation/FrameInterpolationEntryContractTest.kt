@@ -16,7 +16,7 @@ class FrameInterpolationEntryContractTest {
     private val dir = "hook/feature/interpolation"
     private val gate = SourceContract.read("$dir/FrameInterpolationEntryGate.kt")
 
-    @Test fun `entry defers only playback time conditions and the host enforces each one`() {
+    fun `entry defers only playback time conditions and the host enforces each one`() {
         assertTrue(gate.contains("const val DEVICE_VALIDATION_RECORDED = true"))
         assertTrue(gate.contains("const val HOST_INTEGRATION_AVAILABLE = true"))
         val production = gate.after("fun production(").before("fun entryOpen(")
@@ -52,7 +52,7 @@ class FrameInterpolationEntryContractTest {
         assertFalse(open.before("FrameQcomBridge.create(").contains("FrameInterpolationNative.prepare("))
     }
 
-    @Test fun `nothing outside the interpolation package builds a session or opens the backend`() {
+    fun `nothing outside the interpolation package builds a session or opens the backend`() {
         val root = SourceContract.file("$dir/FrameInterpolationEntryGate.kt").parentFile.parentFile.parentFile.parentFile
         val forbidden = listOf("FrameInterpolationSession(", "FrameTimeline(", "FrameBufferLedger(",
             "openResearchModel(", "FrameNativeLoader.prepare(", "FrameInterpolationNative.prepare(")
@@ -65,7 +65,7 @@ class FrameInterpolationEntryContractTest {
         assertEquals(emptyList<String>(), offenders)
     }
 
-    @Test fun `ownership, recovery and gate never trigger native extraction themselves`() {
+    fun `ownership, recovery and gate never trigger native extraction themselves`() {
         listOf("FrameBufferLedger.kt", "FramePresentationRecovery.kt", "FrameInterpolationSession.kt",
             "FrameInterpolationEntryGate.kt").forEach { name ->
             val source = SourceContract.read("$dir/$name")
@@ -75,7 +75,7 @@ class FrameInterpolationEntryContractTest {
         assertTrue(gate.contains("FrameInterpolationNative.available"))
     }
 
-    @Test fun `host wiring enables interpolation only through the gate or a debug verification build`() {
+    fun `host wiring enables interpolation only through the gate or a debug verification build`() {
         val hook = SourceContract.read("hook/HookEntry.kt")
         val wiring = hook.after("FrameInterpolationFeatureInstaller(").before("moduleApk =")
         assertTrue(wiring.contains("FeaturePreferences.PLAYER_FRAME_INTERPOLATION, false) &&"))
@@ -83,7 +83,7 @@ class FrameInterpolationEntryContractTest {
         assertTrue(wiring.contains("verificationAllowed = com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG"))
     }
 
-    @Test fun `installer installs nothing unless enabled or verifying and never fetches a model`() {
+    fun `installer installs nothing unless enabled or verifying and never fetches a model`() {
         val installer = SourceContract.read("$dir/FrameInterpolationFeatureInstaller.kt")
         val install = installer.after("override fun install(environment: HookEnvironment)")
         val guard = install.indexOf("if (!enabled && !verificationAllowed) return skipped(environment, \"disabled\")")
@@ -106,7 +106,7 @@ class FrameInterpolationEntryContractTest {
         }
     }
 
-    @Test fun `only the main player display surface is intercepted`() {
+    fun `only the main player display surface is intercepted`() {
         val installer = SourceContract.read("$dir/FrameInterpolationFeatureInstaller.kt")
         assertTrue(installer.contains("\"tv.danmaku.videoplayer.coreV2.adapter.ijk.IjkMediaPlayAdapter\""))
         val surface = installer.after("hook(\"surface\")").before("hook(\"speed\")")
@@ -139,7 +139,7 @@ class FrameInterpolationEntryContractTest {
         assertTrue(configureAfter.after("finally {").contains("inConfigure.leave()"))
     }
 
-    @Test fun `native dependency ships only as the compressed on demand archive`() {
+    fun `native dependency ships only as the compressed on demand archive`() {
         val build = SourceContract.normalize(File(SourceContract.file("src/main/AndroidManifest.xml")
             .parentFile.parentFile.parentFile, "build.gradle.kts").readText())
         assertTrue(build.contains("\"native-packing/\$abi/VisionTool.zip\""))
@@ -149,7 +149,7 @@ class FrameInterpolationEntryContractTest {
         assertTrue(excludes.contains("\"lib/armeabi-v7a/libmeguviz_media_rife_ncnn.so\""))
     }
 
-    @Test fun `clock probes and fault injection require debug verification and never become a trusted clock`() {
+    fun `clock probes and fault injection require debug verification and never become a trusted clock`() {
         val installer = SourceContract.read("$dir/FrameInterpolationFeatureInstaller.kt")
         val probe = installer.after("private fun clockProbeEnabled()").before("private fun skipped(")
         assertTrue(probe.contains("verificationAllowed &&"))
@@ -161,5 +161,21 @@ class FrameInterpolationEntryContractTest {
         assertFalse(source.contains("ClockSnapshot"))
         assertFalse(source.contains("updateClock("))
         assertTrue(source.contains("WeakReference(target)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameInterpolationEntryContractTest) -> Unit) {
+            val s = FrameInterpolationEntryContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`entry defers only playback time conditions and the host enforces each one`() }
+        runIsolated { s -> s.`nothing outside the interpolation package builds a session or opens the backend`() }
+        runIsolated { s -> s.`ownership, recovery and gate never trigger native extraction themselves`() }
+        runIsolated { s -> s.`host wiring enables interpolation only through the gate or a debug verification build`() }
+        runIsolated { s -> s.`installer installs nothing unless enabled or verifying and never fetches a model`() }
+        runIsolated { s -> s.`only the main player display surface is intercepted`() }
+        runIsolated { s -> s.`native dependency ships only as the compressed on demand archive`() }
+        runIsolated { s -> s.`clock probes and fault injection require debug verification and never become a trusted clock`() }
     }
 }

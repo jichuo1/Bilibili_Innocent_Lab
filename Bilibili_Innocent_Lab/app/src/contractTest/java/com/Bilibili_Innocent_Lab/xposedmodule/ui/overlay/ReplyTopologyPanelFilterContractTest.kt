@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReplyTopologyPanelFilterContractTest {
-    @Test fun unfilteredPagingRetainsIncrementalInsertionAndSelectionUpdates() {
+    fun unfilteredPagingRetainsIncrementalInsertionAndSelectionUpdates() {
         val submit = SourceContract.read("ui/overlay/ReplyTopologyWorkflowAdapter.kt")
             .after("fun submit(snapshot:").before("fun setKeywordQuery")
         assertTrue(submit.contains("val appendOnly = keywordQuery.isEmpty() && old != null"))
@@ -17,7 +17,7 @@ class ReplyTopologyPanelFilterContractTest {
         assertTrue(submit.contains("notifySelectionChange(old, oldSelection, snapshot.graph, selectedRpid)"))
     }
 
-    @Test fun drawingAndRowIdentityUseTheFilteredDisplayMapping() {
+    fun drawingAndRowIdentityUseTheFilteredDisplayMapping() {
         val source = SourceContract.read("ui/overlay/ReplyTopologyWorkflowAdapter.kt")
         assertTrue(source.contains("if (selectRpid(rpid) == RecyclerView.NO_POSITION) return@setOnClickListener"))
         assertTrue(source.contains("if (selectRpid(rpid) == RecyclerView.NO_POSITION) return@setOnMessageLongPress false"))
@@ -33,7 +33,7 @@ class ReplyTopologyPanelFilterContractTest {
         assertFalse(draw.contains("graph.flags[position]"))
     }
 
-    @Test fun branchShapeCannotDependOnTheParentViewBeingVisibleOrRecycled() {
+    fun branchShapeCannotDependOnTheParentViewBeingVisibleOrRecycled() {
         val source = SourceContract.read("ui/overlay/ReplyTopologyWorkflowAdapter.kt")
         val draw = source.after("override fun onDrawOver").before("private fun laneX")
         assertFalse(draw.contains("findViewHolderForAdapterPosition"))
@@ -45,7 +45,7 @@ class ReplyTopologyPanelFilterContractTest {
         assertTrue(draw.contains("branchPath.moveTo(branchGeometry.startX, branchGeometry.startY)"))
     }
 
-    @Test fun keywordChangesRefreshExportAndTrackStateUnderTheHostGuard() {
+    fun keywordChangesRefreshExportAndTrackStateUnderTheHostGuard() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         val watcher = panel.after("private val keywordWatcher").before("private var panelListener")
         assertTrue(watcher.contains("HostThreadGuard.run(\"reply_topology.keyword_change\")"))
@@ -58,7 +58,7 @@ class ReplyTopologyPanelFilterContractTest {
         assertTrue(row.contains("HostThreadGuard.run(\"reply_topology.export\")"))
     }
 
-    @Test fun closingAndDetachmentBothReleaseTextAndClickListeners() {
+    fun closingAndDetachmentBothReleaseTextAndClickListeners() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         assertTrue(panel.after("fun playExit").before("fun submit").contains("releaseKeywordControls()"))
         assertTrue(panel.after("fun releaseResources").before("override fun onDetachedFromWindow")
@@ -73,7 +73,7 @@ class ReplyTopologyPanelFilterContractTest {
         assertTrue(compact.contains("keywordRow.visibility = View.VISIBLE"))
     }
 
-    @Test fun ownedClipboardWritesAreExemptBeforeAnySemanticSuppression() {
+    fun ownedClipboardWritesAreExemptBeforeAnySemanticSuppression() {
         val hook = SourceContract.read("hook/HookEntry.kt")
             .after("val clip = args.getOrNull(0) as? android.content.ClipData")
             .before("logInfo(\"free_copy_desc_ok\"")
@@ -85,7 +85,7 @@ class ReplyTopologyPanelFilterContractTest {
         assertTrue(export.contains("strings.exportTooLarge"))
     }
 
-    @Test fun everyLanguageHasUsedExportMessagesAndTheFeatureHasAHighlight() {
+    fun everyLanguageHasUsedExportMessagesAndTheFeatureHasAHighlight() {
         val source = SourceContract.read("ui/overlay/ReplyTopologyPanelContract.kt")
         for ((start, end) in listOf("private val SIMPLIFIED_CHINESE" to "private val TRADITIONAL_CHINESE",
                 "private val TRADITIONAL_CHINESE" to "private val ENGLISH",
@@ -99,5 +99,20 @@ class ReplyTopologyPanelFilterContractTest {
         val highlights = SourceContract.read("ui/release/ReleaseHighlightsCatalog.kt")
         assertTrue(highlights.contains("reply-topology-keyword-export"))
         assertTrue(highlights.contains("HighlightDestination(\"comments.reply_topology.enabled\")"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ReplyTopologyPanelFilterContractTest) -> Unit) {
+            val s = ReplyTopologyPanelFilterContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.unfilteredPagingRetainsIncrementalInsertionAndSelectionUpdates() }
+        runIsolated { s -> s.drawingAndRowIdentityUseTheFilteredDisplayMapping() }
+        runIsolated { s -> s.branchShapeCannotDependOnTheParentViewBeingVisibleOrRecycled() }
+        runIsolated { s -> s.keywordChangesRefreshExportAndTrackStateUnderTheHostGuard() }
+        runIsolated { s -> s.closingAndDetachmentBothReleaseTextAndClickListeners() }
+        runIsolated { s -> s.ownedClipboardWritesAreExemptBeforeAnySemanticSuppression() }
+        runIsolated { s -> s.everyLanguageHasUsedExportMessagesAndTheFeatureHasAHighlight() }
     }
 }

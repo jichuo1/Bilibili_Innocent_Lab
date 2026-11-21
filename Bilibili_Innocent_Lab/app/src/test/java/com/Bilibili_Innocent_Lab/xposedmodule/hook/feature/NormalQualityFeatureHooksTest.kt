@@ -23,7 +23,7 @@ class NormalQualityFeatureHooksTest {
         fun scope(index: Int = 0, action: () -> Any?) = registrar.invoke("player.quality.normal.scope.$index") { action() }
     }
 
-    @Test fun verifiedProfileRejectsUnverifiedDefaultOwnersAndMissingMembers() {
+    fun verifiedProfileRejectsUnverifiedDefaultOwnersAndMissingMembers() {
         assertTrue(NormalQualityLocator.applicable(VersionAdapter.HookPoint("gh6.h", "c", emptyList())))
         assertFalse(NormalQualityLocator.applicable(VersionAdapter.HookPoint("gh6.h", "c")))
         assertFalse(NormalQualityLocator.applicable(VersionAdapter.HookPoint("gh6.h", "d", emptyList())))
@@ -38,7 +38,7 @@ class NormalQualityFeatureHooksTest {
         assertNull(NormalQualityLocator.resolve(missing))
     }
 
-    @Test fun allThreeDefaultBoundariesOverrideOnlyTheAutoPreferenceAndRestoreOutside() {
+    fun allThreeDefaultBoundariesOverrideOnlyTheAutoPreferenceAndRestoreOutside() {
         val h = Harness()
         for (index in 0..2) {
             assertTrue(h.read())
@@ -52,7 +52,7 @@ class NormalQualityFeatureHooksTest {
         assertEquals(3, h.stages.count { it == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun nestedDefaultScopesDoNotClearOuterScopeEarly() {
+    fun nestedDefaultScopesDoNotClearOuterScopeEarly() {
         val h = Harness()
         h.scope {
             assertFalse(h.read())
@@ -62,7 +62,7 @@ class NormalQualityFeatureHooksTest {
         assertTrue(h.read())
     }
 
-    @Test fun originalFailureCannotLeakAnOverrideIntoLaterManualReads() {
+    fun originalFailureCannotLeakAnOverrideIntoLaterManualReads() {
         val h = Harness()
         try {
             h.scope { assertFalse(h.read()); error("original failure") }
@@ -71,7 +71,7 @@ class NormalQualityFeatureHooksTest {
         assertTrue(h.read())
     }
 
-    @Test fun concurrentThreadCannotBorrowAnotherThreadsDefaultScope() {
+    fun concurrentThreadCannotBorrowAnotherThreadsDefaultScope() {
         val h = Harness()
         h.scope {
             assertFalse(h.read())
@@ -81,7 +81,7 @@ class NormalQualityFeatureHooksTest {
         }
     }
 
-    @Test fun originalPreferenceFailurePropagatesWithoutInventingAnAppliedOverride() {
+    fun originalPreferenceFailurePropagatesWithoutInventingAnAppliedOverride() {
         val h = Harness()
         val failure = IllegalArgumentException("preference failure")
         try {
@@ -98,7 +98,7 @@ class NormalQualityFeatureHooksTest {
         assertTrue(h.stages.isEmpty())
     }
 
-    @Test fun unavailableStoryTargetNeverAcquiresAnOrdinaryDefaultOverride() {
+    fun unavailableStoryTargetNeverAcquiresAnOrdinaryDefaultOverride() {
         val h = Harness(target = null)
         h.scope { assertTrue(h.read()) }
         assertTrue(h.stages.isEmpty())
@@ -108,7 +108,7 @@ class NormalQualityFeatureHooksTest {
         assertTrue(h.read())
     }
 
-    @Test fun partialRegistrationStaysInactiveAndRetryDoesNotDuplicateInstalledHooks() {
+    fun partialRegistrationStaysInactiveAndRetryDoesNotDuplicateInstalledHooks() {
         val h = Harness()
         val another = NormalQualityFeatureHooks { 16 }
         val registrar = PlayerPortTestRegistrar("player.quality.normal.scope.1")
@@ -125,5 +125,21 @@ class NormalQualityFeatureHooksTest {
         assertEquals(4, another.hookCount)
         assertEquals(1, registrar.registrationAttempts.count { it.first == "player.quality.normal.auto" })
         assertEquals(1, registrar.registrationAttempts.count { it.first == "player.quality.normal.scope.0" })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (NormalQualityFeatureHooksTest) -> Unit) {
+            val s = NormalQualityFeatureHooksTest()
+            block(s)
+        }
+        runIsolated { s -> s.verifiedProfileRejectsUnverifiedDefaultOwnersAndMissingMembers() }
+        runIsolated { s -> s.allThreeDefaultBoundariesOverrideOnlyTheAutoPreferenceAndRestoreOutside() }
+        runIsolated { s -> s.nestedDefaultScopesDoNotClearOuterScopeEarly() }
+        runIsolated { s -> s.originalFailureCannotLeakAnOverrideIntoLaterManualReads() }
+        runIsolated { s -> s.concurrentThreadCannotBorrowAnotherThreadsDefaultScope() }
+        runIsolated { s -> s.originalPreferenceFailurePropagatesWithoutInventingAnAppliedOverride() }
+        runIsolated { s -> s.unavailableStoryTargetNeverAcquiresAnOrdinaryDefaultOverride() }
+        runIsolated { s -> s.partialRegistrationStaysInactiveAndRetryDoesNotDuplicateInstalledHooks() }
     }
 }

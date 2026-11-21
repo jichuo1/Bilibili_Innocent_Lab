@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostCardMaterialMigrationTest {
-    @Test fun `import planner restores explicit legacy choices and skips defaults and conflicting records`() {
+    fun `import planner restores explicit legacy choices and skips defaults and conflicting records`() {
         val spec = SettingsCatalog.byId.getValue("host.cards.material")
         val snapshot = SettingsSnapshot(mapOf(spec.id to StoredSetting(true, SettingValue.Text("mica"))))
         fun plan(records: List<BackupSetting>) = SettingsImportPlanner(catalog = listOf(spec)).plan(
@@ -27,7 +27,7 @@ class HostCardMaterialMigrationTest {
         assertTrue(invalid.writes.isEmpty())
     }
 
-    @Test fun `legacy backup choices retain explicitness and become material values`() {
+    fun `legacy backup choices retain explicitness and become material values`() {
         for (enabled in listOf(false, true)) for (explicit in listOf(false, true)) {
             val record = BackupSetting("host.cards.acrylic.enabled", 1, explicit, SettingValue.Bool(enabled))
             val migrated = SettingsCatalogMigrations.current.migrate(54, 55, listOf(record)) as MigrationRun.Success
@@ -37,7 +37,7 @@ class HostCardMaterialMigrationTest {
         }
     }
 
-    @Test fun `old backups reach migration while missing settings and unrelated values stay unchanged`() {
+    fun `old backups reach migration while missing settings and unrelated values stay unchanged`() {
         val other = BackupSetting("host.video_cards.enabled", 1, true, SettingValue.Bool(true))
         val old = BackupSetting("host.cards.acrylic.enabled", 1, true, SettingValue.Bool(true))
         val result = SettingsCatalogMigrations.current.migrate(10, 55, listOf(other, old)) as MigrationRun.Success
@@ -48,7 +48,7 @@ class HostCardMaterialMigrationTest {
         assertTrue(absent.notesByResultId.isEmpty())
     }
 
-    @Test fun `invalid and duplicate legacy records remain rejectable by planner`() {
+    fun `invalid and duplicate legacy records remain rejectable by planner`() {
         val malformed = BackupSetting("host.cards.acrylic.enabled", 1, true, SettingValue.Text("true"))
         val future = BackupSetting("host.cards.acrylic.enabled", 2, true, SettingValue.Bool(true))
         val result = SettingsCatalogMigrations.current.migrate(54, 55, listOf(malformed, future)) as MigrationRun.Success
@@ -56,5 +56,17 @@ class HostCardMaterialMigrationTest {
         assertEquals(SettingValue.Text("true"), result.records[0].value)
         assertEquals(2, result.records[1].valueVersion)
         assertEquals(SettingValue.Bool(true), result.records[1].value)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostCardMaterialMigrationTest) -> Unit) {
+            val s = HostCardMaterialMigrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.`import planner restores explicit legacy choices and skips defaults and conflicting records`() }
+        runIsolated { s -> s.`legacy backup choices retain explicitness and become material values`() }
+        runIsolated { s -> s.`old backups reach migration while missing settings and unrelated values stay unchanged`() }
+        runIsolated { s -> s.`invalid and duplicate legacy records remain rejectable by planner`() }
     }
 }

@@ -13,7 +13,7 @@ class HostBackgroundThemeTest {
         HookEnvironment(process, hostLoader, HookPointRegistry(hostLoader), registrar,
             logInfo = { _, _ -> }, logError = { _, _ -> }, reportStatus = { _, _ -> })
 
-    @Test fun celestialPresetsOverrideReadsAndPreserveTheSavedTheme() {
+    fun celestialPresetsOverrideReadsAndPreserveTheSavedTheme() {
         MultipleThemeUtils.savedTheme = 8
         MultipleThemeUtils.followSystem = true
         for (preset in listOf(HostBackgroundPreset.STARRY, HostBackgroundPreset.NEBULA, HostBackgroundPreset.METEOR)) {
@@ -35,7 +35,7 @@ class HostBackgroundThemeTest {
         }
     }
 
-    @Test fun webProcessUsesTheSamePolicyButUnrelatedProcessesRemainUntouched() {
+    fun webProcessUsesTheSamePolicyButUnrelatedProcessesRemainUntouched() {
         val web = PlayerPortTestRegistrar()
         assertEquals(2, HostBackgroundTheme.install(environment(web, "tv.danmaku.bili:web"), HostBackgroundPreset.STARRY))
         val other = PlayerPortTestRegistrar()
@@ -43,7 +43,7 @@ class HostBackgroundThemeTest {
         assertTrue(other.hooks.isEmpty())
     }
 
-    @Test fun missingThemeApiLeavesNoHooksInstalled() {
+    fun missingThemeApiLeavesNoHooksInstalled() {
         val unknown = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == "com.bilibili.lib.ui.util.MultipleThemeUtils") throw ClassNotFoundException(name)
@@ -55,7 +55,7 @@ class HostBackgroundThemeTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun originalThemeReadFailureIsNotSilenced() {
+    fun originalThemeReadFailureIsNotSilenced() {
         val registrar = PlayerPortTestRegistrar()
         HostBackgroundTheme.install(environment(registrar), HostBackgroundPreset.STARRY)
         val failure = IllegalStateException("Native theme read failed")
@@ -63,5 +63,17 @@ class HostBackgroundThemeTest {
             registrar.invoke("host_background.theme", args = arrayOf(null)) { throw failure }
             fail("Native failure must still be delivered")
         } catch (caught: IllegalStateException) { assertSame(failure, caught) }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostBackgroundThemeTest) -> Unit) {
+            val s = HostBackgroundThemeTest()
+            block(s)
+        }
+        runIsolated { s -> s.celestialPresetsOverrideReadsAndPreserveTheSavedTheme() }
+        runIsolated { s -> s.webProcessUsesTheSamePolicyButUnrelatedProcessesRemainUntouched() }
+        runIsolated { s -> s.missingThemeApiLeavesNoHooksInstalled() }
+        runIsolated { s -> s.originalThemeReadFailureIsNotSilenced() }
     }
 }

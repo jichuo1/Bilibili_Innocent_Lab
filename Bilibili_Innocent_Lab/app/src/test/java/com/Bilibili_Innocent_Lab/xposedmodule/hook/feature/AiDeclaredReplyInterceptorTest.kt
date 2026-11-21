@@ -43,16 +43,16 @@ class AiDeclaredReplyInterceptorTest {
         AiDeclaredReplyInterceptor.resolve(javaClass.classLoader!!, "aistub.v1.", "aistub.common.")
     )
 
-    @Before @After fun reset() {
+    fun reset() {
         AiDeclaredVideoRegistry.resetForTest()
         AuthorPickSession.resetForTest()
     }
 
-    @Test fun everyReaderAndBothWriteChainsResolveAgainstBapisShapedClasses() {
+    fun everyReaderAndBothWriteChainsResolveAgainstBapisShapedClasses() {
         assertTrue(interceptor.relateStripReady)
     }
 
-    @Test fun declaredVideoRedirectsToTheFirstUsableRelatedVideo() {
+    fun declaredVideoRedirectsToTheFirstUsableRelatedVideo() {
         val authors = mutableListOf<Pair<String?, Long>>()
         val original = reply(
             aid = 100, ownerMid = 1, declaration = "含AI生成内容",
@@ -76,7 +76,7 @@ class AiDeclaredReplyInterceptorTest {
         assertTrue(AiDeclaredVideoPolicy.CAPABILITY_DETAIL to FeatureRuntimeStage.APPLIED in evidence)
     }
 
-    @Test fun declaredVideoWithoutAUsableReplacementShowsTheHostPrivacyPageWithOurHint() {
+    fun declaredVideoWithoutAUsableReplacementShowsTheHostPrivacyPageWithOurHint() {
         val original = reply(aid = 100, ownerMid = 1, declaration = "含AI生成内容", cards = listOf(video(101, mid = 1)))
         val updated = process(original) as ViewReply
         assertEquals(ECode.CODE_ARC_PRIVACY_VALUE, updated.ecodeValue)
@@ -84,7 +84,7 @@ class AiDeclaredReplyInterceptorTest {
         assertEquals(InjectedUiLocale.messages().aiDeclaredBlockedHint, updated.ecodeConfig.msg)
     }
 
-    @Test fun exhaustedRedirectGuardFallsBackToThePrivacyPage() {
+    fun exhaustedRedirectGuardFallsBackToThePrivacyPage() {
         val guard = AiRedirectGuard(maxRedirects = 1, windowMillis = 60_000L)
         val first = process(reply(100, 1, "含AI生成内容", listOf(video(103, mid = 6))), guard) as ViewReply
         val second = process(reply(103, 6, "含AI生成内容", listOf(video(104, mid = 7))), guard) as ViewReply
@@ -92,7 +92,7 @@ class AiDeclaredReplyInterceptorTest {
         assertEquals(ECode.CODE_ARC_PRIVACY_VALUE, second.ecodeValue)
     }
 
-    @Test fun undeclaredVideoIsReturnedAsTheSameInstance() {
+    fun undeclaredVideoIsReturnedAsTheSameInstance() {
         val original = reply(100, 1, "个人观点，仅供参考", listOf(video(103, mid = 6)))
         assertSame(original, process(original))
         val plain = reply(100, 1, null, listOf(video(103, mid = 6)))
@@ -100,7 +100,7 @@ class AiDeclaredReplyInterceptorTest {
         assertTrue(errors.isEmpty())
     }
 
-    @Test fun undeclaredVideoDropsOnlyKnownAiRelatedCards() {
+    fun undeclaredVideoDropsOnlyKnownAiRelatedCards() {
         AiDeclaredVideoRegistry.add(102)
         val original = reply(100, 1, null, listOf(video(101, mid = 2), video(102, mid = 3), live(102)))
         val updated = process(original) as ViewReply
@@ -114,7 +114,7 @@ class AiDeclaredReplyInterceptorTest {
     }
 
     /** 9.13.0 历史记录页的后台 View 请求：只记 aid，不改写、不记发布者、不占连锁保险。 */
-    @Test fun passiveHistoryRequestOnlyRecordsTheAid() {
+    fun passiveHistoryRequestOnlyRecordsTheAid() {
         val guard = AiRedirectGuard(maxRedirects = 1, windowMillis = 60_000L)
         val authors = mutableListOf<String?>()
         val original = reply(100, 1, "含AI生成内容", listOf(video(103, mid = 6)))
@@ -127,13 +127,13 @@ class AiDeclaredReplyInterceptorTest {
     }
 
     /** 已有错误码（服务端报错，或同一份响应第二次经过）就不再改写，也不重复提示与占额度。 */
-    @Test fun alreadyErroredReplyIsLeftToTheHost() {
+    fun alreadyErroredReplyIsLeftToTheHost() {
         val guard = AiRedirectGuard(maxRedirects = 1, windowMillis = 60_000L)
         val once = process(reply(100, 1, "含AI生成内容", listOf(video(103, mid = 6))), guard)
         assertSame(once, process(once, guard))
     }
 
-    @Test fun authorLedgerIsIndependentOfTheSharedSessionCapacity() {
+    fun authorLedgerIsIndependentOfTheSharedSessionCapacity() {
         val ledger = AiAuthorLedger(max = 3)
         assertTrue(ledger.claim("UP A"))
         assertFalse(ledger.claim(" up a "))
@@ -146,7 +146,7 @@ class AiDeclaredReplyInterceptorTest {
         assertTrue(AiAuthorLedger(max = 256).claim("UP E"))
     }
 
-    @Test fun defaultInstanceAndForeignObjectsAreNeverTouched() {
+    fun defaultInstanceAndForeignObjectsAreNeverTouched() {
         assertSame(ViewReply.getDefaultInstance(), process(ViewReply.getDefaultInstance()))
         val foreign = Any()
         assertSame(foreign, process(foreign))
@@ -174,7 +174,7 @@ class AiDeclaredReplyInterceptorTest {
     }
 
     /** 连播里的条目：不改写跳转（否则离开整个列表），交给宿主切下一集，响应原样交付。 */
-    @Test fun playlistItemSkipsToTheNextEpisodeInsteadOfLeavingThePlaylist() {
+    fun playlistItemSkipsToTheNextEpisodeInsteadOfLeavingThePlaylist() {
         val route = FakeRoute(owned = setOf(100L), hasNext = true)
         val authors = mutableListOf<String?>()
         val original = reply(100, 1, "含AI生成内容", listOf(video(103, mid = 6)))
@@ -185,14 +185,14 @@ class AiDeclaredReplyInterceptorTest {
         assertEquals(listOf<String?>("owner"), authors)
     }
 
-    @Test fun lastPlaylistItemShowsTheHintPageAndStaysInThePlaylist() {
+    fun lastPlaylistItemShowsTheHintPageAndStaysInThePlaylist() {
         val route = FakeRoute(owned = setOf(100L), hasNext = false)
         val updated = process(reply(100, 1, "含AI生成内容", listOf(video(103, mid = 6))), playlist = route) as ViewReply
         assertEquals(ECode.CODE_ARC_PRIVACY_VALUE, updated.ecodeValue)
         assertEquals("", updated.ecodeConfig.redirectUrl)
     }
 
-    @Test fun exhaustedPlaylistGuardStopsSkippingAndShowsTheHint() {
+    fun exhaustedPlaylistGuardStopsSkippingAndShowsTheHint() {
         val route = FakeRoute(owned = setOf(100L, 200L), hasNext = true)
         val playlistGuard = AiRedirectGuard(maxRedirects = 1, windowMillis = 60_000L)
         process(reply(100, 1, "含AI生成内容", emptyList()), playlist = route, playlistGuard = playlistGuard)
@@ -202,7 +202,7 @@ class AiDeclaredReplyInterceptorTest {
     }
 
     /** 不属于当前连播的 View（例如从连播页里点开的另一个视频）仍走详情页补位。 */
-    @Test fun nonPlaylistItemKeepsTheDetailRedirect() {
+    fun nonPlaylistItemKeepsTheDetailRedirect() {
         val route = FakeRoute(owned = setOf(999L), hasNext = true)
         val updated = process(reply(100, 1, "含AI生成内容", listOf(video(103, mid = 6))), playlist = route) as ViewReply
         assertEquals(ECode.CODE_404_VALUE, updated.ecodeValue)
@@ -226,4 +226,31 @@ class AiDeclaredReplyInterceptorTest {
 
     private fun relatesOf(reply: ViewReply): Relates =
         reply.tab.tabModuleList.single().introduction.modulesList.single { it.hasRelates() }.relates
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AiDeclaredReplyInterceptorTest) -> Unit) {
+            val s = AiDeclaredReplyInterceptorTest()
+            s.reset()
+            try {
+                block(s)
+            } finally {
+                s.reset()
+            }
+        }
+        runIsolated { s -> s.everyReaderAndBothWriteChainsResolveAgainstBapisShapedClasses() }
+        runIsolated { s -> s.declaredVideoRedirectsToTheFirstUsableRelatedVideo() }
+        runIsolated { s -> s.declaredVideoWithoutAUsableReplacementShowsTheHostPrivacyPageWithOurHint() }
+        runIsolated { s -> s.exhaustedRedirectGuardFallsBackToThePrivacyPage() }
+        runIsolated { s -> s.undeclaredVideoIsReturnedAsTheSameInstance() }
+        runIsolated { s -> s.undeclaredVideoDropsOnlyKnownAiRelatedCards() }
+        runIsolated { s -> s.passiveHistoryRequestOnlyRecordsTheAid() }
+        runIsolated { s -> s.alreadyErroredReplyIsLeftToTheHost() }
+        runIsolated { s -> s.authorLedgerIsIndependentOfTheSharedSessionCapacity() }
+        runIsolated { s -> s.defaultInstanceAndForeignObjectsAreNeverTouched() }
+        runIsolated { s -> s.playlistItemSkipsToTheNextEpisodeInsteadOfLeavingThePlaylist() }
+        runIsolated { s -> s.lastPlaylistItemShowsTheHintPageAndStaysInThePlaylist() }
+        runIsolated { s -> s.exhaustedPlaylistGuardStopsSkippingAndShowsTheHint() }
+        runIsolated { s -> s.nonPlaylistItemKeepsTheDetailRedirect() }
+    }
 }

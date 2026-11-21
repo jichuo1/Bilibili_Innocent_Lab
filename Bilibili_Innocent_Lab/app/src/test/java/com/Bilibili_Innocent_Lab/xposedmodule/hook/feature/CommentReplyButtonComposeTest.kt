@@ -7,7 +7,6 @@ import org.junit.Test
 
 @Suppress("UNUSED_PARAMETER")
 class CommentReplyButtonComposeTest {
-    @Test
     fun selectsTheUniqueRendererWithoutDependingOnItsName() {
         val method = renderer(UniqueRenderer::class.java)
 
@@ -20,7 +19,6 @@ class CommentReplyButtonComposeTest {
         )
     }
 
-    @Test
     fun ignoresAnOtherwiseMatchingStaticMethod() {
         val method = renderer(RendererWithStaticDecoy::class.java)
 
@@ -28,23 +26,19 @@ class CommentReplyButtonComposeTest {
         assertEquals(RendererWithStaticDecoy::class.java, method?.declaringClass)
     }
 
-    @Test
     fun rejectsTwoMatchingMethodsInsteadOfChoosingByDeclarationOrder() {
         assertNull(renderer(AmbiguousRenderer::class.java))
     }
 
-    @Test
     fun rejectsNonVoidMissingRepeatedAndMisplacedComposerShapes() {
         assertNull(renderer(WrongShapes::class.java))
     }
 
-    @Test
     fun requiresTheExactButtonAndComposerClasses() {
         assertNull(renderer(UniqueRenderer::class.java, OtherButton::class.java))
         assertNull(renderer(UniqueRenderer::class.java, composer = OtherComposer::class.java))
     }
 
-    @Test
     fun ignoresACompilerBridgeEvenWhenItsErasedSignatureMatches() {
         val owner = ConcreteComposerRenderer::class.java
         assertTrue(owner.declaredMethods.any { method ->
@@ -56,7 +50,6 @@ class CommentReplyButtonComposeTest {
         assertNull(renderer(owner))
     }
 
-    @Test
     fun doesNotTreatAnInheritedRendererAsADeclaredCandidate() {
         assertNull(renderer(InheritedRenderer::class.java))
     }
@@ -116,4 +109,19 @@ class CommentReplyButtonComposeTest {
     }
 
     private class InheritedRenderer : BaseRenderer()
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentReplyButtonComposeTest) -> Unit) {
+            val s = CommentReplyButtonComposeTest()
+            block(s)
+        }
+        runIsolated { s -> s.selectsTheUniqueRendererWithoutDependingOnItsName() }
+        runIsolated { s -> s.ignoresAnOtherwiseMatchingStaticMethod() }
+        runIsolated { s -> s.rejectsTwoMatchingMethodsInsteadOfChoosingByDeclarationOrder() }
+        runIsolated { s -> s.rejectsNonVoidMissingRepeatedAndMisplacedComposerShapes() }
+        runIsolated { s -> s.requiresTheExactButtonAndComposerClasses() }
+        runIsolated { s -> s.ignoresACompilerBridgeEvenWhenItsErasedSignatureMatches() }
+        runIsolated { s -> s.doesNotTreatAnInheritedRendererAsADeclaredCandidate() }
+    }
 }

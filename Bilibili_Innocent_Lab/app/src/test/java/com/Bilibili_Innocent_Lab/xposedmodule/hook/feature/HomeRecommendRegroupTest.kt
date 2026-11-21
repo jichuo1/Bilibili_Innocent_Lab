@@ -67,7 +67,7 @@ class HomeRecommendRegroupTest {
         }
     }
 
-    @Test fun removingOneCardFromTwoPairsNoLongerCostsTheirPartners() {
+    fun removingOneCardFromTwoPairsNoLongerCostsTheirPartners() {
         val s1 = small("one"); val s4 = small("four")
         val a = large("A"); val b = large("B")
         val source = listOf(s1, small("blocked two"), a, small("blocked three"), s4, b)
@@ -75,24 +75,24 @@ class HomeRecommendRegroupTest {
         assertEquals(listOf(a, s1, s4, b), Harness().group(PegasusResponse(), source))
     }
 
-    @Test fun aServerPageThatWasAlreadyIncompleteIsNotReordered() {
+    fun aServerPageThatWasAlreadyIncompleteIsNotReordered() {
         val s1 = small("one"); val a = large("A")
         assertEquals(listOf(s1, a), Harness().group(PegasusResponse(), listOf(s1, a, large("blocked large"))))
     }
 
-    @Test fun anOddRemainderThatCannotBePairedIsLeftForTheHost() {
+    fun anOddRemainderThatCannotBePairedIsLeftForTheHost() {
         val s1 = small("one"); val s3 = small("three"); val s4 = small("four"); val a = large("A")
         // 三张小卡无论怎么排都会剩一张；不为不能改善的结果改变顺序。
         assertEquals(listOf(s1, a, s3, s4), Harness().group(PegasusResponse(), listOf(s1, small("blocked two"), a, s3, s4)))
     }
 
-    @Test fun anUnreadableCardStyleKeepsThePlainFilterResult() {
+    fun anUnreadableCardStyleKeepsThePlainFilterResult() {
         val s1 = small("one"); val unknown = Card("unknown", null); val a = large("A"); val s4 = small("four")
         val source = listOf(s1, small("blocked two"), a, unknown, small("blocked three"), s4)
         assertEquals(listOf(s1, a, unknown, s4), Harness().group(PegasusResponse(), source))
     }
 
-    @Test fun readsBeforeTheHostGroupsThePageKeepTheFilterOrderThenSettleOnTheRegroupedList() {
+    fun readsBeforeTheHostGroupsThePageKeepTheFilterOrderThenSettleOnTheRegroupedList() {
         val h = Harness()
         val response = PegasusResponse()
         val s1 = small("one"); val s4 = small("four"); val a = large("A")
@@ -107,13 +107,13 @@ class HomeRecommendRegroupTest {
         assertEquals(1, h.logs.count { it.contains("重新凑组") })
     }
 
-    @Test fun pagesTheHostNeverGroupsAreNotReordered() {
+    fun pagesTheHostNeverGroupsAreNotReordered() {
         val s1 = small("one"); val s4 = small("four"); val a = large("A")
         val source = listOf(s1, small("blocked"), a, small("blocked too"), s4)
         assertEquals(listOf(s1, a, s4), Harness().read(PegasusResponse(), source))
     }
 
-    @Test fun aWidePageIsRegroupedWithTheColumnsOfItsOwnRequest() {
+    fun aWidePageIsRegroupedWithTheColumnsOfItsOwnRequest() {
         val h = Harness(HomeFeedSmallCards.HostNames(windowProfile = WindowColumnsFixtures.WindowProfile::class.java.name))
         val (s1, s2, s3, s4) = (1..4).map { small("s$it") }
         val a = large("A")
@@ -125,7 +125,7 @@ class HomeRecommendRegroupTest {
         assertEquals(listOf(s1, s2, a, s3, s4), h.group(PegasusResponse(), page(), windowSizeType = 1))
     }
 
-    @Test fun theGroupSizeFollowsTheRequestWindowTypeAndFallsBackToNormalLikeTheHost() {
+    fun theGroupSizeFollowsTheRequestWindowTypeAndFallsBackToNormalLikeTheHost() {
         val registrar = PlayerPortTestRegistrar()
         val cards = requireNotNull(HomeFeedSmallCards.resolve(environment(registrar),
             HomeFeedSmallCards.HostNames(windowProfile = WindowColumnsFixtures.WindowProfile::class.java.name)))
@@ -143,7 +143,7 @@ class HomeRecommendRegroupTest {
         assertEquals(2, sizeFor(99))
     }
 
-    @Test fun onlyTheMostRecentPagesAreRemembered() {
+    fun onlyTheMostRecentPagesAreRemembered() {
         val registrar = PlayerPortTestRegistrar()
         val cards = requireNotNull(HomeFeedSmallCards.resolve(environment(registrar)))
         val responses = (0..HomeFeedSmallCards.PAGE_CAPACITY).map { PegasusResponse() }
@@ -157,7 +157,7 @@ class HomeRecommendRegroupTest {
         assertNull(cards.groupSizeFor(null))
     }
 
-    @Test fun aGroupingEntryWithTheWrongShapeDisablesRegroupingInsteadOfGuessing() {
+    fun aGroupingEntryWithTheWrongShapeDisablesRegroupingInsteadOfGuessing() {
         val registrar = PlayerPortTestRegistrar()
         val environment = environment(registrar)
         assertNull(HomeFeedSmallCards.resolve(environment, HomeFeedSmallCards.HostNames(
@@ -170,11 +170,30 @@ class HomeRecommendRegroupTest {
         assertEquals(0, registrar.registrationAttempts.size)
     }
 
-    @Test fun theWindowTypeIsReadFromItsOwnLabelOnly() {
+    fun theWindowTypeIsReadFromItsOwnLabelOnly() {
         assertEquals(3, HomeFeedSmallCards.windowSizeType("RequestParam(idx=1, windowSizeType=3, rawWindowSizeType=7)"))
         assertEquals(2, HomeFeedSmallCards.windowSizeType("RequestParam(windowSizeType=2)"))
         assertNull(HomeFeedSmallCards.windowSizeType("RequestParam(idx=1, rawWindowSizeType=7)"))
         assertNull(HomeFeedSmallCards.windowSizeType("RequestParam(windowSizeType=, rawWindowSizeType=7)"))
         assertNull(HomeFeedSmallCards.windowSizeType(null))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeRecommendRegroupTest) -> Unit) {
+            val s = HomeRecommendRegroupTest()
+            block(s)
+        }
+        runIsolated { s -> s.removingOneCardFromTwoPairsNoLongerCostsTheirPartners() }
+        runIsolated { s -> s.aServerPageThatWasAlreadyIncompleteIsNotReordered() }
+        runIsolated { s -> s.anOddRemainderThatCannotBePairedIsLeftForTheHost() }
+        runIsolated { s -> s.anUnreadableCardStyleKeepsThePlainFilterResult() }
+        runIsolated { s -> s.readsBeforeTheHostGroupsThePageKeepTheFilterOrderThenSettleOnTheRegroupedList() }
+        runIsolated { s -> s.pagesTheHostNeverGroupsAreNotReordered() }
+        runIsolated { s -> s.aWidePageIsRegroupedWithTheColumnsOfItsOwnRequest() }
+        runIsolated { s -> s.theGroupSizeFollowsTheRequestWindowTypeAndFallsBackToNormalLikeTheHost() }
+        runIsolated { s -> s.onlyTheMostRecentPagesAreRemembered() }
+        runIsolated { s -> s.aGroupingEntryWithTheWrongShapeDisablesRegroupingInsteadOfGuessing() }
+        runIsolated { s -> s.theWindowTypeIsReadFromItsOwnLabelOnly() }
     }
 }

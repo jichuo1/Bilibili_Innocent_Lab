@@ -48,7 +48,6 @@ class BlockComponentLibraryFeatureInstallerTest {
      * 返回具体消息的 `build()`；具体 builder 只能从静态 `newBuilder(owner)` 拿。
      * 替身要是被改回具体返回类型，这条会红。
      */
-    @Test
     fun `the doubles reproduce the protobuf-lite builder trap instead of hiding it`() {
         listOf(ListReply::class.java, PoolReply::class.java).forEach { message ->
             val declared = message.methods.single { it.name == "toBuilder" && it.parameterCount == 0 }
@@ -66,7 +65,6 @@ class BlockComponentLibraryFeatureInstallerTest {
         }
     }
 
-    @Test
     fun `real response hook clears only the recognized component pool`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
@@ -89,7 +87,6 @@ class BlockComponentLibraryFeatureInstallerTest {
         assertEquals(1, source.getPoolsList()[1].getModulesList().size)
     }
 
-    @Test
     fun `module name hit removes only that module and reuses untouched pools`() {
         val registrar = PlayerPortTestRegistrar()
         val sourcePool = PoolReply(
@@ -114,7 +111,6 @@ class BlockComponentLibraryFeatureInstallerTest {
         assertEquals(listOf("module-a", "video-core"), sourcePool.getModulesList().map { it.getModuleName() })
     }
 
-    @Test
     fun `async response hook transforms only the delegated onNext reply`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
@@ -152,7 +148,6 @@ class BlockComponentLibraryFeatureInstallerTest {
      * 尾部的 `:scan` 表达——2026-09-15 之前这里是 `observing-target-unconfirmed`，
      * 那是"模块自己猜目标池"的旧模型，已随勾选面板作废。
      */
-    @Test
     fun `unrecognized response is preserved by identity`() {
         val registrar = PlayerPortTestRegistrar()
         val stages = mutableListOf<FeatureRuntimeStage>()
@@ -180,7 +175,6 @@ class BlockComponentLibraryFeatureInstallerTest {
      * 而同一场里落盘快照先后是 `appletBasic（1）`、`uper（1）` —— 三个不同的单池分片
      * 互相覆盖，面板里永远只有一条；磁盘上 `app_mod_resource/manifest/` 实际有 17 个池。
      */
-    @Test
     fun `fragmented manifest responses accumulate instead of overwriting the candidate list`() {
         val registrar = PlayerPortTestRegistrar()
         val published = mutableListOf<Pair<String, ScanSnapshotContent>>()
@@ -207,7 +201,6 @@ class BlockComponentLibraryFeatureInstallerTest {
     }
 
     /** 同一个池被多次分片提到时，模块数取并集计数，而不是只报最后一片的数量。 */
-    @Test
     fun `module counts union per pool across fragments`() {
         val registrar = PlayerPortTestRegistrar()
         val published = mutableListOf<Pair<String, ScanSnapshotContent>>()
@@ -228,7 +221,6 @@ class BlockComponentLibraryFeatureInstallerTest {
     }
 
     /** 模块名读不出来时退到"单次响应见过的最大模块数"，不显示 0；池数与模块名都有上界。 */
-    @Test
     fun `the catalog falls back to observed counts and stays bounded`() {
         val catalog = ComponentPoolCatalog()
         assertEquals(
@@ -254,7 +246,6 @@ class BlockComponentLibraryFeatureInstallerTest {
     }
 
     /** 勾过池之后就不再是"只扫描"，状态串不该再带 `:scan` 尾巴。 */
-    @Test
     fun `a picked pool drops the scan only status suffix`() {
         val statuses = mutableListOf<Pair<String, String>>()
         BlockComponentLibraryFeatureInstaller(true, setOf("基础组件库"))
@@ -267,7 +258,6 @@ class BlockComponentLibraryFeatureInstallerTest {
      * selector 键，手填框存的是分隔符串，两边取并集后才交给 [ComponentLibraryPoolMatcher.match]。
      * 前缀要是没剥干净，池名就永远对不上，功能会静默不拦。
      */
-    @Test
     fun `selection unions picked selectors with typed rules and strips the selector prefix`() {
         val selectors = MineComponentSelectionCodec.encode(
             listOf("component_pool:mod-fitness", "component_pool:mod-search")
@@ -285,7 +275,6 @@ class BlockComponentLibraryFeatureInstallerTest {
      * 「全量禁止」开关写进手填规则的就是 `*`。它必须先于池名比对短路，
      * 否则宿主新增的池会漏——真机当时 17 个池，名单式拦不全。
      */
-    @Test
     fun `the block all sentinel clears every pool regardless of its name`() {
         val keywords = ComponentLibraryPoolMatcher.selection("", ComponentLibraryPoolMatcher.MATCH_ALL_POOLS)
         assertEquals(setOf("*"), keywords)
@@ -296,7 +285,6 @@ class BlockComponentLibraryFeatureInstallerTest {
     }
 
     /** 没有哨兵时仍是保守判据：只清命中的池/模块，认不出来的一律放行。 */
-    @Test
     fun `picked pool names clear that pool only and unknown names never match`() {
         val keywords = ComponentLibraryPoolMatcher.selection(
             MineComponentSelectionCodec.encode(listOf("component_pool:MOD-Fitness")),
@@ -312,7 +300,6 @@ class BlockComponentLibraryFeatureInstallerTest {
         assertEquals(null, ComponentLibraryPoolMatcher.match("mod-fitness", listOf("a"), emptySet()))
     }
 
-    @Test
     fun `disabled feature never resolves or registers the host hook`() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(
@@ -320,5 +307,26 @@ class BlockComponentLibraryFeatureInstallerTest {
             BlockComponentLibraryFeatureInstaller(false).install(environment(registrar))
         )
         assertTrue(registrar.hooks.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BlockComponentLibraryFeatureInstallerTest) -> Unit) {
+            val s = BlockComponentLibraryFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`the doubles reproduce the protobuf-lite builder trap instead of hiding it`() }
+        runIsolated { s -> s.`real response hook clears only the recognized component pool`() }
+        runIsolated { s -> s.`module name hit removes only that module and reuses untouched pools`() }
+        runIsolated { s -> s.`async response hook transforms only the delegated onNext reply`() }
+        runIsolated { s -> s.`unrecognized response is preserved by identity`() }
+        runIsolated { s -> s.`fragmented manifest responses accumulate instead of overwriting the candidate list`() }
+        runIsolated { s -> s.`module counts union per pool across fragments`() }
+        runIsolated { s -> s.`the catalog falls back to observed counts and stays bounded`() }
+        runIsolated { s -> s.`a picked pool drops the scan only status suffix`() }
+        runIsolated { s -> s.`selection unions picked selectors with typed rules and strips the selector prefix`() }
+        runIsolated { s -> s.`the block all sentinel clears every pool regardless of its name`() }
+        runIsolated { s -> s.`picked pool names clear that pool only and unknown names never match`() }
+        runIsolated { s -> s.`disabled feature never resolves or registers the host hook`() }
     }
 }

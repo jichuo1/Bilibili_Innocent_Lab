@@ -41,14 +41,14 @@ class CommentClassicStyleLocatorTest {
             .let { HookPoint(it.declaringClass.name, it.name, it.parameterTypes.map(Class<*>::getName)) }
     }
 
-    @Test fun `semantic candidate selection rejects merged lambda and multiple owners`() {
+    fun `semantic candidate selection rejects merged lambda and multiple owners`() {
         val native = Native::class.java.declaredMethods.toList()
         assertEquals(listOf("read"), CommentClassicStyleLocator.select(native, Family.NATIVE).map { it.name })
         assertTrue(CommentClassicStyleLocator.select(native + OtherNative::class.java.declaredMethods, Family.NATIVE).isEmpty())
         assertEquals(setOf("getBool", "getBool\$default"), CommentClassicStyleLocator.select(KotlinReaders::class.java.declaredMethods.toList(), Family.KOTLIN).map { it.name }.toSet())
     }
 
-    @Test fun `known kotlin key index and default wrapper shapes are kept`() {
+    fun `known kotlin key index and default wrapper shapes are kept`() {
         assertEquals(1, Family.KOTLIN.keyIndex)
         assertEquals(2, CommentClassicStyleLocator.direct(loader(kotlin = true), Family.KOTLIN).size)
         assertFalse(CommentClassicStyleLocator.matchesKey("comment.kntr.enabled_extra"))
@@ -60,7 +60,7 @@ class CommentClassicStyleLocatorTest {
         assertFalse(CommentClassicStyleLocator.isDefaultDelegate(wrapper, methods.single { it.name == "bad" }))
     }
 
-    @Test fun `per family cache fills only missing direct readers and is verified again`() {
+    fun `per family cache fills only missing direct readers and is verified again`() {
         val k = listOf(point(KotlinReaders::class.java, "getBool"))
         val cache = CommentClassicStylePoints(emptyList(), k)
         assertEquals(1, CommentClassicStyleLocator.readers(loader(kotlin = true, missingKotlin = true), cache, Family.KOTLIN).size)
@@ -71,14 +71,14 @@ class CommentClassicStyleLocatorTest {
         assertEquals(CommentClassicStylePoints(listOf(native), k), CommentClassicStyleLocator.merge(live, CommentClassicStylePoints(listOf(native), emptyList())))
     }
 
-    @Test fun `cache is optional bounded and round trips without experiment values`() {
+    fun `cache is optional bounded and round trips without experiment values`() {
         val points = CommentClassicStylePoints(emptyList(), listOf(point(KotlinReaders::class.java, "getBool")))
         assertEquals(points, CommentClassicStylePoints.fromJson(points.toJson()))
         assertNull(CommentClassicStylePoints.fromJson(JSONObject().put("native", JSONArray()).put("kotlin", "bad")))
         assertNull(CommentClassicStylePoints.fromJson(points.toJson().put("kotlin", JSONArray((0..16).map { points.kotlinReaders[0].toJson() }))))
     }
 
-    @Test fun `disabled and direct paths never invoke the dex engine while missing families share a pass`() {
+    fun `disabled and direct paths never invoke the dex engine while missing families share a pass`() {
         var batches = 0
         val engine = DexAssistEngine { request ->
             batches++
@@ -97,5 +97,18 @@ class CommentClassicStyleLocatorTest {
         assertEquals(2, batches) // 默认引擎逐查询；Session 的 resolveAll 仍只调用一趟。
         assertEquals(1, points.nativeReaders.size)
         assertEquals(2, points.kotlinReaders.size)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentClassicStyleLocatorTest) -> Unit) {
+            val s = CommentClassicStyleLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`semantic candidate selection rejects merged lambda and multiple owners`() }
+        runIsolated { s -> s.`known kotlin key index and default wrapper shapes are kept`() }
+        runIsolated { s -> s.`per family cache fills only missing direct readers and is verified again`() }
+        runIsolated { s -> s.`cache is optional bounded and round trips without experiment values`() }
+        runIsolated { s -> s.`disabled and direct paths never invoke the dex engine while missing families share a pass`() }
     }
 }

@@ -20,7 +20,7 @@ class MineVipVisibilityTest {
             HookPointRegistry(javaClass.classLoader), TestHookRegistrar, { _, _ -> }, { _, message -> fail(message) }, { _, _ -> },
             runtimeEvidence = { _, stage, _ -> evidence += stage })
     }
-    @Test fun `host hidden cards never acquire blank space or false applied evidence`() {
+    fun `host hidden cards never acquire blank space or false applied evidence`() {
         for (initial in listOf(View.GONE, View.INVISIBLE)) {
             val h = Harness(); val card = Card(initial)
             MineVipVisibility(h.environment, true).hide(card)
@@ -29,7 +29,7 @@ class MineVipVisibilityTest {
             assertEquals(listOf(FeatureRuntimeStage.OBSERVED), h.evidence)
         }
     }
-    @Test fun `asynchronous host updates stay hidden without reviving a naturally absent card`() {
+    fun `asynchronous host updates stay hidden without reviving a naturally absent card`() {
         val h = Harness(); val card = Card(View.VISIBLE)
         val guard = MineVipVisibility(h.environment, true)
         guard.hide(card); assertEquals(View.INVISIBLE, card.current)
@@ -39,5 +39,15 @@ class MineVipVisibilityTest {
         guard.hide(card); assertEquals(View.INVISIBLE, card.current)
         assertEquals(2, card.writes)
         assertEquals(1, h.evidence.count { it == FeatureRuntimeStage.APPLIED })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (MineVipVisibilityTest) -> Unit) {
+            val s = MineVipVisibilityTest()
+            block(s)
+        }
+        runIsolated { s -> s.`host hidden cards never acquire blank space or false applied evidence`() }
+        runIsolated { s -> s.`asynchronous host updates stay hidden without reviving a naturally absent card`() }
     }
 }

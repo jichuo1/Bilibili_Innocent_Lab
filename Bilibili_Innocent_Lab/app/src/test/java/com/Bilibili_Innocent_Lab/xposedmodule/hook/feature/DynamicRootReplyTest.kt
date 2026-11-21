@@ -35,7 +35,7 @@ class DynamicRootReplyTest {
         fun friends(reply: DynFriendReply) = registrar.invoke("dynamic.purify.sync.executeDynFriend") { reply } as DynFriendReply
     }
 
-    @Test fun `both personal lists filter root items and retain pagination relation title and source`() {
+    fun `both personal lists filter root items and retain pagination relation title and source`() {
         val h = Harness()
         val kept = DynamicItem("keep")
         val all = DynAllPersonalReply(listOf(DynamicItem("blocked"), kept))
@@ -56,7 +56,7 @@ class DynamicRootReplyTest {
         assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun `unchanged empty default and failed builds do not publish replacements`() {
+    fun `unchanged empty default and failed builds do not publish replacements`() {
         val h = Harness()
         val kept = DynAllPersonalReply(listOf(DynamicItem("keep")))
         assertSame(kept, h.all(kept))
@@ -71,7 +71,7 @@ class DynamicRootReplyTest {
         assertFalse(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun `topic only installation counts the topic carrier and keeps unrelated endpoints untouched`() {
+    fun `topic only installation counts the topic carrier and keeps unrelated endpoints untouched`() {
         val h = Harness(topicOnly = true)
         assertEquals(setOf("dynamic.purify.sync.executeDynAll", "dynamic.purify.async.dynAll"), h.registrar.hooks.keys)
         val topic = h.records.single { it.id == "dynamic_topic_list_hidden" }.result as FeatureInstallResult.Installed
@@ -81,7 +81,7 @@ class DynamicRootReplyTest {
         assertTrue(parent.complete)
     }
 
-    @Test fun `filtered following feed can become empty without changing its cursor and more flag`() {
+    fun `filtered following feed can become empty without changing its cursor and more flag`() {
         val h = Harness()
         val source = FeedFilterReply(listOf(DynamicItem("blocked")))
         val updated = h.filtered(source)
@@ -93,7 +93,7 @@ class DynamicRootReplyTest {
         assertSame(updated, h.filtered(updated))
     }
 
-    @Test fun `friend feed uses its DynList field and preserves metadata when all cards are blocked`() {
+    fun `friend feed uses its DynList field and preserves metadata when all cards are blocked`() {
         val h = Harness()
         val source = DynFriendReply(listOf(DynamicItem("blocked")))
         val updated = h.friends(source)
@@ -105,7 +105,7 @@ class DynamicRootReplyTest {
         assertSame(DynFriendReply.getDefaultInstance(), h.friends(DynFriendReply.getDefaultInstance()))
     }
 
-    @Test fun `a missing personal response remains partial while the other personal list works`() {
+    fun `a missing personal response remains partial while the other personal list works`() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == DynVideoPersonalReply::class.java.name) throw ClassNotFoundException(name)
@@ -118,7 +118,7 @@ class DynamicRootReplyTest {
         assertFalse(record.complete)
     }
 
-    @Test fun `personal async responses use the same root transform and preserve null and other callbacks`() {
+    fun `personal async responses use the same root transform and preserve null and other callbacks`() {
         val h = Harness()
         val replies = mutableListOf<Any?>()
         val errors = mutableListOf<Throwable>()
@@ -142,7 +142,7 @@ class DynamicRootReplyTest {
         assertEquals(1, source.items.size)
     }
 
-    @Test fun `Kotlin root callback confirms delivery and decode failure never reports applied`() {
+    fun `Kotlin root callback confirms delivery and decode failure never reports applied`() {
         for (failDecode in listOf(false, true)) {
             val h = Harness()
             val specType = DynamicPurifyFeatureInstaller::class.java.declaredClasses.single { it.simpleName == "FeedSpec" }
@@ -194,7 +194,7 @@ class DynamicRootReplyTest {
         }
     }
 
-    @Test fun `whole UP Kotlin callback confirms only after a successful final delivery`() {
+    fun `whole UP Kotlin callback confirms only after a successful final delivery`() {
         for (failDecode in listOf(false, true)) {
             val h = Harness()
             val installer = DynamicPurifyFeatureInstaller(false, "", false, "", false, false, false, false, true)
@@ -238,5 +238,22 @@ class DynamicRootReplyTest {
                 assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
             }
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DynamicRootReplyTest) -> Unit) {
+            val s = DynamicRootReplyTest()
+            block(s)
+        }
+        runIsolated { s -> s.`both personal lists filter root items and retain pagination relation title and source`() }
+        runIsolated { s -> s.`unchanged empty default and failed builds do not publish replacements`() }
+        runIsolated { s -> s.`topic only installation counts the topic carrier and keeps unrelated endpoints untouched`() }
+        runIsolated { s -> s.`filtered following feed can become empty without changing its cursor and more flag`() }
+        runIsolated { s -> s.`friend feed uses its DynList field and preserves metadata when all cards are blocked`() }
+        runIsolated { s -> s.`a missing personal response remains partial while the other personal list works`() }
+        runIsolated { s -> s.`personal async responses use the same root transform and preserve null and other callbacks`() }
+        runIsolated { s -> s.`Kotlin root callback confirms delivery and decode failure never reports applied`() }
+        runIsolated { s -> s.`whole UP Kotlin callback confirms only after a successful final delivery`() }
     }
 }

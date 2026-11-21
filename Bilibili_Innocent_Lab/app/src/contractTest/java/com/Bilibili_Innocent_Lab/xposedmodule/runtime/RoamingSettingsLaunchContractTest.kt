@@ -10,7 +10,6 @@ import org.junit.Test
 class RoamingSettingsLaunchContractTest {
     private val launcher = SourceContract.read("runtime/RoamingSettingsLauncher.kt")
 
-    @Test
     fun `module no longer changes system activity start decisions`() {
         val entry = SourceContract.read("hook/HookEntry.kt")
         listOf("onSystemServerStarting", "installSystemHooks", "systemHooksStarted",
@@ -18,7 +17,6 @@ class RoamingSettingsLaunchContractTest {
             "system:allow-module-background-start").forEach { assertFalse(it, entry.contains(it)) }
     }
 
-    @Test
     fun `instance mine menu route opens only the module settings`() {
         val route = SourceContract.read("hook/RoamingCompatHook.kt")
             .after("fun patchMineEntry(").before("private fun injectMineEntry(")
@@ -30,7 +28,6 @@ class RoamingSettingsLaunchContractTest {
         assertTrue(route.contains("uri == MODULE_URI && moduleEntryRequested -> RoamingSettingsLauncher.requestModule(ctx)"))
     }
 
-    @Test
     fun `receiver returns a token and never starts a background activity`() {
         val receiver = SourceContract.read("receiver/RoamingOpenReceiver.kt")
         assertTrue(receiver.contains("RoamingSettingsLauncher.reply(context, intent"))
@@ -41,7 +38,6 @@ class RoamingSettingsLaunchContractTest {
         assertTrue(hook.contains("RoamingSettingsLauncher.request(context)"))
     }
 
-    @Test
     fun `module owns an immutable one-shot fixed activity target`() {
         val factory = launcher.after("internal fun createLaunchToken(").before("private class Request(")
         assertTrue(factory.contains("PendingIntent.getActivity(context"))
@@ -53,7 +49,6 @@ class RoamingSettingsLaunchContractTest {
         assertFalse(launcher.contains("MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS"))
     }
 
-    @Test
     fun `host callbacks are guarded and bounded to a visible original activity`() {
         assertTrue(launcher.contains("WeakReference(activity)"))
         assertTrue(launcher.contains("isVisible(source.get())"))
@@ -67,7 +62,6 @@ class RoamingSettingsLaunchContractTest {
         assertFalse(launcher.contains(".get(5"))
     }
 
-    @Test
     fun `new platform API calls stay in version-specific implementations`() {
         val api31 = launcher.after("private object Api31").before("@RequiresApi(34)")
         assertTrue(api31.contains("token.isActivity && token.isImmutable"))
@@ -77,7 +71,6 @@ class RoamingSettingsLaunchContractTest {
         assertTrue(api36.contains("MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE"))
     }
 
-    @Test
     fun `lifecycle registration has a real application and seeds late resumed authorization`() {
         val entry = SourceContract.read("hook/HookEntry.kt")
         val retry = entry.after("scheduleAuthorizationRetry = retry@").before("// 未授权前只保留两个")
@@ -86,7 +79,6 @@ class RoamingSettingsLaunchContractTest {
         assertTrue(applicationCreate.contains(".initializeHost(application)"))
     }
 
-    @Test
     fun `admission recovery runs IPC off lifecycle callbacks and releases result ownership`() {
         val recovery = SourceContract.read("runtime/HostAdmissionRecovery.kt")
         val resume = recovery.after("override fun onActivityResumed(").before("override fun onActivityPaused(")
@@ -106,10 +98,26 @@ class RoamingSettingsLaunchContractTest {
         assertTrue(recovery.contains("WeakReference(value)"))
     }
 
-    @Test
     fun `fast admission drains already arrived refusals before installing a grant`() {
         val client = SourceContract.read("runtime/HostAdmissionClient.kt")
         val fast = client.after("if (collect.grant != null) {").before("if (collect.sawDenied)")
         assertTrue(fast.contains("drainRouted(collect, responses, acceptGrant = false"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (RoamingSettingsLaunchContractTest) -> Unit) {
+            val s = RoamingSettingsLaunchContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`module no longer changes system activity start decisions`() }
+        runIsolated { s -> s.`instance mine menu route opens only the module settings`() }
+        runIsolated { s -> s.`receiver returns a token and never starts a background activity`() }
+        runIsolated { s -> s.`module owns an immutable one-shot fixed activity target`() }
+        runIsolated { s -> s.`host callbacks are guarded and bounded to a visible original activity`() }
+        runIsolated { s -> s.`new platform API calls stay in version-specific implementations`() }
+        runIsolated { s -> s.`lifecycle registration has a real application and seeds late resumed authorization`() }
+        runIsolated { s -> s.`admission recovery runs IPC off lifecycle callbacks and releases result ownership`() }
+        runIsolated { s -> s.`fast admission drains already arrived refusals before installing a grant`() }
     }
 }

@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentNotificationLogWiringContractTest {
-    @Test fun runningNotificationUsesOnlyTaskBoundImmutableBroadcastsForLogsAndStop() {
+    fun runningNotificationUsesOnlyTaskBoundImmutableBroadcastsForLogsAndStop() {
         val notification = SourceContract.read("agent/ui/AgentTaskNotification.kt")
         assertFalse(notification.contains("PendingIntent.getActivity"))
         assertFalse(notification.contains("MainActivity::class.java"))
@@ -27,7 +27,7 @@ class AgentNotificationLogWiringContractTest {
         assertTrue(manifest.contains("<receiver android:name=\".agent.AgentNotificationReceiver\" android:exported=\"false\" />"))
     }
 
-    @Test fun logToggleOnlyRefreshesExistingServiceDisplayAndCleansItsObserver() {
+    fun logToggleOnlyRefreshesExistingServiceDisplayAndCleansItsObserver() {
         val service = SourceContract.read("agent/AgentSessionService.kt")
         val toggle = service.after("private fun toggleLogs(").before("override fun onDestroy()")
         assertTrue(toggle.contains("!AgentController.owns(task)"))
@@ -48,7 +48,7 @@ class AgentNotificationLogWiringContractTest {
         assertFalse(service.contains("getStringExtra"))
     }
 
-    @Test fun notificationLogContainsOnlyBoundedEnumDescriptionsAndNumbers() {
+    fun notificationLogContainsOnlyBoundedEnumDescriptionsAndNumbers() {
         val notification = SourceContract.read("agent/ui/AgentTaskNotification.kt")
         val text = notification.after("private fun logText(").before("fun settingsIntent(")
         assertTrue(text.contains("AgentNotificationLogContent.recent(AgentExecutionLogStore.snapshot(), task)"))
@@ -63,7 +63,7 @@ class AgentNotificationLogWiringContractTest {
         assertTrue(promoted.contains("allowed && manager.canPostPromotedNotifications()"))
     }
 
-    @Test fun allSupportedLocalesHaveBothNeutralModeLabels() {
+    fun allSupportedLocalesHaveBothNeutralModeLabels() {
         for (folder in listOf("values", "values-zh-rCN", "values-b+zh+Hant")) {
             val strings = SourceContract.read("src/main/res/$folder/strings.xml")
             assertTrue(strings.contains("name=\"agent_notification_show_status\""))
@@ -71,5 +71,17 @@ class AgentNotificationLogWiringContractTest {
         }
         val logEntry = SourceContract.read("ui/activity/AgentLogDialogs.kt")
         assertTrue(logEntry.contains("showAgentLogsDialog"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentNotificationLogWiringContractTest) -> Unit) {
+            val s = AgentNotificationLogWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.runningNotificationUsesOnlyTaskBoundImmutableBroadcastsForLogsAndStop() }
+        runIsolated { s -> s.logToggleOnlyRefreshesExistingServiceDisplayAndCleansItsObserver() }
+        runIsolated { s -> s.notificationLogContainsOnlyBoundedEnumDescriptionsAndNumbers() }
+        runIsolated { s -> s.allSupportedLocalesHaveBothNeutralModeLabels() }
     }
 }

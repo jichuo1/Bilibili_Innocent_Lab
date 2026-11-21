@@ -41,14 +41,14 @@ class InteractiveOverdrawClipConventionTest {
     private fun overdrawHosts(): List<Pair<String, String>> =
         builderFunctions().filter { (_, body) -> OVERDRAW_CONTROLS.any { body.contains(it) } }
 
-    @Test fun theScanActuallySeesTheKnownHosts() {
+    fun theScanActuallySeesTheKnownHosts() {
         val names = overdrawHosts().map { it.first }
         assertTrue("没扫到任何宿主函数，护栏会静默通过：$names", names.size >= 2)
         assertTrue("logSettingsCard（LogSegmentScrubBar 的宿主）应在扫描范围内", "logSettingsCard" in names)
         assertTrue("install（ModernNavigationBar 的宿主）应在扫描范围内", "install" in names)
     }
 
-    @Test fun overdrawingControlsLiveInContainersWithBothClipFlagsOff() {
+    fun overdrawingControlsLiveInContainersWithBothClipFlagsOff() {
         val offenders = overdrawHosts()
             .filter { (_, body) ->
                 !body.contains("clipChildren = false") || !body.contains("clipToPadding = false")
@@ -64,7 +64,7 @@ class InteractiveOverdrawClipConventionTest {
         )
     }
 
-    @Test fun theControlsThemselvesLetTheirChildrenOverdraw() {
+    fun theControlsThemselvesLetTheirChildrenOverdraw() {
         listOf("LogSegmentScrubBar", "ModernNavigationBar").forEach { name ->
             assertTrue(
                 "$name 自身必须 clipChildren = false，否则滑块/光晕画不出控件边界",
@@ -78,7 +78,7 @@ class InteractiveOverdrawClipConventionTest {
      * 卡片/图标/行（「兼容」卡、工具栏图标），它们沿途的祖先裁剪必须在拖动期间
      * 由控制器临时解除、收尾统一恢复——否则溢出的拉伸/位移仍被裁成矩形断边。
      */
-    @Test fun elasticDragRelievesAncestorClippingAtRuntime() {
+    fun elasticDragRelievesAncestorClippingAtRuntime() {
         val controller = LceMotionSource.read("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/interaction/ElasticInteractionController.kt")
         // 解除发生在进入 DRAG 的那一刻（PRESS 只有按压缩小、不会溢出）。
         val dragEntry = controller.after("motion = Motion.DRAG")
@@ -93,5 +93,17 @@ class InteractiveOverdrawClipConventionTest {
         val restore = controller.after("private fun restoreAncestorClipping()")
         assertTrue(restore.contains("relief.view.clipChildren = relief.clipChildren"))
         assertTrue(restore.contains("relief.view.clipToPadding = relief.clipToPadding"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (InteractiveOverdrawClipConventionTest) -> Unit) {
+            val s = InteractiveOverdrawClipConventionTest()
+            block(s)
+        }
+        runIsolated { s -> s.theScanActuallySeesTheKnownHosts() }
+        runIsolated { s -> s.overdrawingControlsLiveInContainersWithBothClipFlagsOff() }
+        runIsolated { s -> s.theControlsThemselvesLetTheirChildrenOverdraw() }
+        runIsolated { s -> s.elasticDragRelievesAncestorClippingAtRuntime() }
     }
 }

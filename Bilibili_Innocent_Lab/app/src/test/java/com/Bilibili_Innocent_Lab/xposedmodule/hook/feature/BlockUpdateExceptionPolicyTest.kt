@@ -49,7 +49,6 @@ class BlockUpdateExceptionPolicyTest {
         reportStatus = { _, status -> statuses += status }
     )
 
-    @Test
     fun `update block registers with deliver-to-host so the host actually receives the exception`() {
         val result = BlockUpdateFeatureInstaller(enabled = true, point = point)
             .install(environment())
@@ -60,7 +59,6 @@ class BlockUpdateExceptionPolicyTest {
         assertTrue("success" in statuses)
     }
 
-    @Test
     fun `disabled and non-main-process paths never register anything`() {
         assertEquals(
             FeatureInstallResult.Skipped("disabled"),
@@ -82,7 +80,6 @@ class BlockUpdateExceptionPolicyTest {
      * 现在两道互不知情：`adapted` 一次都没注册（`policies` 为空），
      * 但三个未混淆的调用方入口照样短路。
      */
-    @Test
     fun `the caller layer still installs when the supplier point is missing`() {
         val callerIds = mutableListOf<String>()
         val recording = object : HookRegistrar by this.registrar {
@@ -110,7 +107,6 @@ class BlockUpdateExceptionPolicyTest {
     }
 
     /** 强更恢复刻意不在屏蔽表里：它返回 bolts.Task，语义是"恢复未完成的强更"。 */
-    @Test
     fun `the force update recovery entry is deliberately left alone`() {
         assertTrue(
             BlockUpdateFeatureInstaller.EXCLUDED_FORCE_UPDATE !in
@@ -123,7 +119,6 @@ class BlockUpdateExceptionPolicyTest {
     }
 
     /** 宿主没有 UpdateHelper 时只装 supplier 层，且不记 error（预期降级）。 */
-    @Test
     fun `a host without the update helper keeps the supplier layer only`() {
         val bare = object : ClassLoader(null) {}
         val errors = mutableListOf<String>()
@@ -140,5 +135,18 @@ class BlockUpdateExceptionPolicyTest {
         assertEquals(FeatureInstallResult.Installed(1, complete = false), result)
         assertEquals(listOf("update.block.check"), ids)
         assertTrue(errors.none { it.startsWith("block_update_caller") })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BlockUpdateExceptionPolicyTest) -> Unit) {
+            val s = BlockUpdateExceptionPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.`update block registers with deliver-to-host so the host actually receives the exception`() }
+        runIsolated { s -> s.`disabled and non-main-process paths never register anything`() }
+        runIsolated { s -> s.`the caller layer still installs when the supplier point is missing`() }
+        runIsolated { s -> s.`the force update recovery entry is deliberately left alone`() }
+        runIsolated { s -> s.`a host without the update helper keeps the supplier layer only`() }
     }
 }

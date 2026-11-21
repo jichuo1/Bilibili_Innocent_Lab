@@ -13,7 +13,7 @@ class AudioRescuePanelControlsContractTest {
     private fun dialog() = SettingsUiSource.code(SettingsUiSource.function("showAudioRescueDialog"))
     private fun assets() = SettingsUiSource.code(SettingsUiSource.function("addAudioAssetControls"))
 
-    @Test fun `options and channel mode use the module switch and the sliding selection`() {
+    fun `options and channel mode use the module switch and the sliding selection`() {
         val panel = dialog()
         assertTrue(panel.contains("MaterialSwitch(this, null)"))
         assertTrue(panel.contains("createSlidingChoice(labels = channelLabels, selectedIndex = channelMode)"))
@@ -23,7 +23,7 @@ class AudioRescuePanelControlsContractTest {
         }
     }
 
-    @Test fun `confirming commits the whole draft once and a failed write keeps the panel open`() {
+    fun `confirming commits the whole draft once and a failed write keeps the panel open`() {
         val panel = dialog()
         assertTrue(panel.contains("createTermsActionButton(getString(R.string.dialog_cancel), filled = false)"))
         val confirm = panel.substring(panel.indexOf("createTermsActionButton(getString(R.string.dialog_confirm), filled = true)"))
@@ -35,7 +35,7 @@ class AudioRescuePanelControlsContractTest {
         assertTrue("a failed write must return before the panel is dismissed", failure in 0 until dismiss)
     }
 
-    @Test fun `asset actions are standard buttons and a status card instead of clickable text rows`() {
+    fun `asset actions are standard buttons and a status card instead of clickable text rows`() {
         val controls = assets()
         assertTrue(controls.contains("createTermsActionButton(getString(resource), filled, onClick)"))
         assertTrue(controls.contains("createModalStatusCard()"))
@@ -46,10 +46,22 @@ class AudioRescuePanelControlsContractTest {
         assertTrue("busy state disables through the shared helper", controls.contains("enable(download, !value.busy)"))
     }
 
-    @Test fun `shared modal body controls use the skin card surface and the grey tip style`() {
+    fun `shared modal body controls use the skin card surface and the grey tip style`() {
         val tip = SettingsUiSource.code(SettingsUiSource.function("createModalTip"))
         assertTrue(tip.contains("R.color.colorTextGray"))
         val card = SettingsUiSource.code(SettingsUiSource.function("createModalStatusCard"))
         assertTrue(card.contains("skinCardBackground(monetColors.surfaceVariant, 14f)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AudioRescuePanelControlsContractTest) -> Unit) {
+            val s = AudioRescuePanelControlsContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`options and channel mode use the module switch and the sliding selection`() }
+        runIsolated { s -> s.`confirming commits the whole draft once and a failed write keeps the panel open`() }
+        runIsolated { s -> s.`asset actions are standard buttons and a status card instead of clickable text rows`() }
+        runIsolated { s -> s.`shared modal body controls use the skin card surface and the grey tip style`() }
     }
 }

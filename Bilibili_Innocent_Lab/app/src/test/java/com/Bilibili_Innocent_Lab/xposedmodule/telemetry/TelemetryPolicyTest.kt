@@ -8,7 +8,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TelemetryPolicyTest {
-    @Test
     fun `manual quota is rolling persistent and fails closed on corruption or clock rollback`() {
         val now = 200_000_000L
         val window = TelemetryPolicy.SUCCESS_INTERVAL_MS
@@ -24,7 +23,6 @@ class TelemetryPolicyTest {
             TelemetryPolicy.manualDecision(true, false, now, 0, "${now - window},$now,$now"))
     }
 
-    @Test
     fun `manual and automatic gates are independent but consent retirement and server backoff remain mandatory`() {
         val now = 200_000_000L
         assertEquals(TelemetryAttemptDecision.NOT_DUE,
@@ -41,7 +39,6 @@ class TelemetryPolicyTest {
             TelemetryPolicy.attemptDecision(true, false, now, now, now - TelemetryPolicy.SUCCESS_INTERVAL_MS, force = false))
     }
 
-    @Test
     fun `telemetry consent identity and runtime state stay outside settings backup`() {
         assertTrue(
             SettingsCatalog.specs.none { spec ->
@@ -51,7 +48,6 @@ class TelemetryPolicyTest {
         assertTrue(RemoteHookConfigContract.persistedKeys.none { "telemetry" in it })
     }
 
-    @Test
     fun `terms choice is visually on by default but never authorizes without a current record`() {
         assertTrue(TelemetryPolicy.termsChoice(hasCurrentChoice = false, currentChoice = false))
         assertFalse(
@@ -65,7 +61,6 @@ class TelemetryPolicyTest {
         )
     }
 
-    @Test
     fun `upload requires terms authorization current consent version and enabled choice`() {
         assertTrue(
             TelemetryPolicy.consentAuthorizesUpload(
@@ -94,7 +89,6 @@ class TelemetryPolicyTest {
         }
     }
 
-    @Test
     fun `force bypasses daily interval but not disable retirement or retry window`() {
         val now = 1_000_000L
         assertEquals(
@@ -115,7 +109,6 @@ class TelemetryPolicyTest {
         )
     }
 
-    @Test
     fun `identity rotation is bounded and clock rollback fails closed`() {
         val now = 2_000_000_000L
         assertFalse(TelemetryPolicy.shouldRotateIdentity(now - 1_000L, now))
@@ -129,7 +122,6 @@ class TelemetryPolicyTest {
         )
     }
 
-    @Test
     fun `HTTP status classification keeps retirement and retry semantics distinct`() {
         assertEquals(TelemetryHttpOutcome.SUCCESS, TelemetryPolicy.classifyHttpStatus(204))
         assertEquals(TelemetryHttpOutcome.RETIRED, TelemetryPolicy.classifyHttpStatus(410))
@@ -139,5 +131,21 @@ class TelemetryPolicyTest {
             TelemetryHttpOutcome.RETRYABLE_FAILURE,
             TelemetryPolicy.classifyHttpStatus(503)
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TelemetryPolicyTest) -> Unit) {
+            val s = TelemetryPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.`manual quota is rolling persistent and fails closed on corruption or clock rollback`() }
+        runIsolated { s -> s.`manual and automatic gates are independent but consent retirement and server backoff remain mandatory`() }
+        runIsolated { s -> s.`telemetry consent identity and runtime state stay outside settings backup`() }
+        runIsolated { s -> s.`terms choice is visually on by default but never authorizes without a current record`() }
+        runIsolated { s -> s.`upload requires terms authorization current consent version and enabled choice`() }
+        runIsolated { s -> s.`force bypasses daily interval but not disable retirement or retry window`() }
+        runIsolated { s -> s.`identity rotation is bounded and clock rollback fails closed`() }
+        runIsolated { s -> s.`HTTP status classification keeps retirement and retry semantics distinct`() }
     }
 }

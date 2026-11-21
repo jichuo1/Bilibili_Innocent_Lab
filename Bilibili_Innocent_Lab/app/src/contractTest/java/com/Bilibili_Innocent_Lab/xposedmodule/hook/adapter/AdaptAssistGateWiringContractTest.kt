@@ -16,7 +16,7 @@ class AdaptAssistGateWiringContractTest {
     private val adapter = SourceContract.read("hook/VersionAdapter.kt")
     private val adapt = adapter.after("private fun adapt(context: Context").before("private data class ProtocolFingerprint")
 
-    @Test fun plannedQueriesComeFromTheGateNotFromDirectLocationAlone() {
+    fun plannedQueriesComeFromTheGateNotFromDirectLocationAlone() {
         val planned = adapt.after("planned = buildSet {").before("classicMissing.forEach")
         assertTrue(planned.contains("if (blockUpdatePlanned) add(DexAssistQuery.BLOCK_UPDATE)"))
         assertTrue(planned.contains("if (playerQualityPlanned) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)"))
@@ -26,7 +26,7 @@ class AdaptAssistGateWiringContractTest {
         assertFalse(planned.contains("if (directTopologyOutcome.points == null)"))
     }
 
-    @Test fun everyGateUsesFeatureFlagCachedPointAndHistory() {
+    fun everyGateUsesFeatureFlagCachedPointAndHistory() {
         for ((flag, planned) in listOf("blockUpdateEnabled" to "blockUpdatePlanned", "playerQualityEnabled" to "playerQualityPlanned",
             "commentTopologyEnabled" to "topologyPlanned")) {
             val line = adapt.after("val $planned = AdaptAssistGate.needsQuery($flag,").before("val ")
@@ -34,7 +34,7 @@ class AdaptAssistGateWiringContractTest {
         }
     }
 
-    @Test fun dexLocatorsRunOnlyForPlannedFamilies() {
+    fun dexLocatorsRunOnlyForPlannedFamilies() {
         assertTrue(adapt.contains("blockUpdatePlanned -> locateBlockUpdateByDex(loader, dexAssist)"))
         assertTrue(adapt.contains("playerQualityPlanned -> locatePlayerQualityByDex(loader, dexAssist)"))
         assertTrue(adapt.contains("topologyPlanned -> locateCommentTopologyMapperByDex(loader, dexAssist)"))
@@ -43,14 +43,14 @@ class AdaptAssistGateWiringContractTest {
         }
     }
 
-    @Test fun skippedFamiliesKeepCachedPointsAndNeverBecomeMissing() {
+    fun skippedFamiliesKeepCachedPointsAndNeverBecomeMissing() {
         assertTrue(adapt.contains("point = assistHistory.blockUpdate"))
         assertTrue(adapt.contains("val carriedQuality = if (playerQualityNeedsAssist && !playerQualityPlanned) assistHistory.assistedQuality else null"))
         assertTrue(adapt.contains("?: if (topologyPlanned) null else assistHistory.commentTopology"))
         assertEquals(3, Regex("""AdaptAssistGate\.skippedDiagnostic\(""").findAll(adapt).count())
     }
 
-    @Test fun cacheFastPathRequestsASupplementalScanWhenAFeatureIsEnabledLater() {
+    fun cacheFastPathRequestsASupplementalScanWhenAFeatureIsEnabledLater() {
         val refreshCheck = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
             .before("val refreshRequested = usable?.let(::requiresFeatureRefresh)")
         assertTrue(refreshCheck.contains("assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)"))
@@ -64,7 +64,7 @@ class AdaptAssistGateWiringContractTest {
         assertFalse(refresh.contains("AdaptAssistGate.needsQuery("))
     }
 
-    @Test fun startupPassesTheFeatureSwitchesFromTheSameConfigurationSnapshot() {
+    fun startupPassesTheFeatureSwitchesFromTheSameConfigurationSnapshot() {
         val hook = SourceContract.read("hook/HookEntry.kt").after("VersionAdapter.ensureAdapted(").before("}.onFailure")
         assertTrue(hook.contains("blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false)"))
         assertTrue(hook.contains("commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)"))
@@ -72,5 +72,19 @@ class AdaptAssistGateWiringContractTest {
         val source = SourceContract.read("hook/HookEntry.kt")
         assertTrue(source.contains("enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false)"))
         assertTrue(source.contains("val commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptAssistGateWiringContractTest) -> Unit) {
+            val s = AdaptAssistGateWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.plannedQueriesComeFromTheGateNotFromDirectLocationAlone() }
+        runIsolated { s -> s.everyGateUsesFeatureFlagCachedPointAndHistory() }
+        runIsolated { s -> s.dexLocatorsRunOnlyForPlannedFamilies() }
+        runIsolated { s -> s.skippedFamiliesKeepCachedPointsAndNeverBecomeMissing() }
+        runIsolated { s -> s.cacheFastPathRequestsASupplementalScanWhenAFeatureIsEnabledLater() }
+        runIsolated { s -> s.startupPassesTheFeatureSwitchesFromTheSameConfigurationSnapshot() }
     }
 }

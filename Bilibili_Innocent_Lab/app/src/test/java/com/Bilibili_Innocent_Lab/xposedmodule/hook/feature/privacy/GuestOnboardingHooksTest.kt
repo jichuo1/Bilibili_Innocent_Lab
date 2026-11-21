@@ -22,13 +22,13 @@ class GuestOnboardingHooksTest {
     private fun PlayerPortTestRegistrar.callGate(): Any? =
         invoke("guest.onboarding.gate", null, emptyArray()) { FirstStartGate.h() }
 
-    @Before fun resetFixture() {
+    fun resetFixture() {
         FirstStartGate.firstStart = true
         FirstStartGate.a = true
         statuses.clear()
     }
 
-    @Test fun bothPluginsAreFinishedForGuestsByShapeWithoutSubmittingChoicesAndPassThroughAfterLogin() {
+    fun bothPluginsAreFinishedForGuestsByShapeWithoutSubmittingChoicesAndPassThroughAfterLogin() {
         var guest = true
         val registrar = PlayerPortTestRegistrar()
         // The first-start gate, the wizard data source, the V2 entry rejection, and both legacy plugins.
@@ -55,7 +55,7 @@ class GuestOnboardingHooksTest {
         assertEquals(1, low.dialogs)
     }
 
-    @Test fun guestOnFirstStartTakesTheHostsNonFirstStartPathInsteadOfWaitingForTheWizard() {
+    fun guestOnFirstStartTakesTheHostsNonFirstStartPathInsteadOfWaitingForTheWizard() {
         var guest = true
         val registrar = PlayerPortTestRegistrar()
         GuestOnboardingHooks { guest }.install(environment(registrar))
@@ -75,7 +75,7 @@ class GuestOnboardingHooksTest {
         assertEquals(true, registrar.callGate())
     }
 
-    @Test fun installingTheGateAloneDoesNotClaimItWasApplied() {
+    fun installingTheGateAloneDoesNotClaimItWasApplied() {
         val registrar = PlayerPortTestRegistrar()
         GuestOnboardingHooks { false }.install(environment(registrar))
         assertEquals("installed", statuses["guest_onboarding_gate"])
@@ -83,7 +83,7 @@ class GuestOnboardingHooksTest {
         assertNull(statuses["guest_onboarding_gate_applied"]) // a logged-in call never reports applied
     }
 
-    @Test fun guestEntryIsRejectedSoTheHostMountsNoWizardAndNothingNeedsUnwinding() {
+    fun guestEntryIsRejectedSoTheHostMountsNoWizardAndNothingNeedsUnwinding() {
         var guest = true
         val registrar = PlayerPortTestRegistrar()
         GuestOnboardingHooks { guest }.install(environment(registrar))
@@ -103,7 +103,7 @@ class GuestOnboardingHooksTest {
         assertEquals(1, entry.started)
     }
 
-    @Test fun guestGetsNoWizardDataButALoggedInUserStillDoes() {
+    fun guestGetsNoWizardDataButALoggedInUserStillDoes() {
         var guest = true
         val registrar = PlayerPortTestRegistrar()
         GuestOnboardingHooks { guest }.install(environment(registrar))
@@ -120,7 +120,7 @@ class GuestOnboardingHooksTest {
             registrar.invoke("guest.onboarding.data", response, emptyArray()) { response.getInterestChoose() })
     }
 
-    @Test fun dataAndEntryHooksAreNeverInstalledWithoutTheFirstStartGate() {
+    fun dataAndEntryHooksAreNeverInstalledWithoutTheFirstStartGate() {
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String?, resolve: Boolean): Class<*> =
@@ -133,7 +133,7 @@ class GuestOnboardingHooksTest {
         assertNull(registrar.hooks["guest.onboarding.entry"])
     }
 
-    @Test fun entryIsNeverRejectedWithoutTheFirstStartGate() {
+    fun entryIsNeverRejectedWithoutTheFirstStartGate() {
         // No pegasus request class on this build: the gate is absent, so rejecting the entry would strand the feed.
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {
@@ -145,7 +145,7 @@ class GuestOnboardingHooksTest {
         assertNull(registrar.hooks["guest.onboarding.entry"])
     }
 
-    @Test fun entryLocatorFollowsSessionToRuntimeToEntryAndAcceptsBothSignatures() {
+    fun entryLocatorFollowsSessionToRuntimeToEntryAndAcceptsBothSignatures() {
         // 9.15.2+: (int, String, ref, boolean, ref).
         val five = GuestOnboardingHooks.locateEntryDecision(
             com.bilibili.pegasus.components.interestv2.host.AndroidInterestChooseSession::class.java)
@@ -156,14 +156,14 @@ class GuestOnboardingHooksTest {
         assertEquals(4, four?.parameterCount)
     }
 
-    @Test fun entryLocatorFailsClosedOnAmbiguityOrAMissingController() {
+    fun entryLocatorFailsClosedOnAmbiguityOrAMissingController() {
         assertNull(GuestOnboardingHooks.locateEntryDecision(TwoEntriesSession::class.java))
         assertNull(GuestOnboardingHooks.locateEntryDecision(NoEntrySession::class.java))
         // Platform-typed fields are never walked into.
         assertNull(GuestOnboardingHooks.locateEntryDecision(PlatformFieldsSession::class.java))
     }
 
-    @Test fun gateLocatorFailsClosedUnlessExactlyOneStaticBooleanExists() {
+    fun gateLocatorFailsClosedUnlessExactlyOneStaticBooleanExists() {
         assertEquals("h", GuestOnboardingHooks.locateGate(FirstStartGate::class.java)?.name)
         assertEquals("only", GuestOnboardingHooks.locateGate(OneStaticBoolean::class.java)?.name)
         assertNull(GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java))
@@ -171,7 +171,7 @@ class GuestOnboardingHooksTest {
         assertNull(GuestOnboardingHooks.locateGate(StaticBooleanWithArgument::class.java))
     }
 
-    @Test fun gateOnRequestBIsUsedWhenRequestDHasNone() {
+    fun gateOnRequestBIsUsedWhenRequestDHasNone() {
         // 8.99-9.01 and 9.08-9.15: request.d is the Retrofit interface, the predicate is request.b.g()/f()/h().
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {
@@ -189,7 +189,7 @@ class GuestOnboardingHooksTest {
         assertEquals("installed", statuses["guest_onboarding_entry"])
     }
 
-    @Test fun gateOnRequestAOrCIsFoundOnTheOtherV2Builds() {
+    fun gateOnRequestAOrCIsFoundOnTheOtherV2Builds() {
         // 8.97, 8.98, 9.02-9.05, 9.13 and 9.17 keep the predicate on request.c; 9.06, 9.07 and one 9.14 on request.a (q70).
         for (holder in listOf("a", "c")) {
             statuses.clear()
@@ -207,13 +207,13 @@ class GuestOnboardingHooksTest {
         }
     }
 
-    @Test fun gateLocatorNeverPicksBetweenPredicatesInBothRequestClasses() {
+    fun gateLocatorNeverPicksBetweenPredicatesInBothRequestClasses() {
         assertEquals("only", GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java, OneStaticBoolean::class.java)?.name)
         assertNull(GuestOnboardingHooks.locateGate(FirstStartGate::class.java, OneStaticBoolean::class.java))
         assertNull(GuestOnboardingHooks.locateGate(NoStaticBoolean::class.java, NoStaticBoolean::class.java))
     }
 
-    @Test fun legacyGateIsTheFirstOfExactlyFourStaticBooleans() {
+    fun legacyGateIsTheFirstOfExactlyFourStaticBooleans() {
         // 8.84-8.90 declare s/t/u/v; 8.91-8.95 declare r/s/t/u. The onCreate gate is the first by name in both.
         assertEquals("s", GuestOnboardingHooks.locateLegacyGate(LegacyGateSTUV::class.java)?.name)
         assertEquals("r", GuestOnboardingHooks.locateLegacyGate(LegacyGateRSTU::class.java)?.name)
@@ -222,7 +222,7 @@ class GuestOnboardingHooksTest {
         assertNull(GuestOnboardingHooks.locateLegacyGate(TwoStaticBooleans::class.java))
     }
 
-    @Test fun legacyLayoutInstallsTheGateOnPreV2Builds() {
+    fun legacyLayoutInstallsTheGateOnPreV2Builds() {
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String?, resolve: Boolean): Class<*> = when (name) {
@@ -239,7 +239,7 @@ class GuestOnboardingHooksTest {
         assertEquals("seen", statuses["guest_onboarding_gate_applied"])
     }
 
-    @Test fun reportsGateAbsentAndRegistersNothingWhenTheBuildHasNoSuchPredicate() {
+    fun reportsGateAbsentAndRegistersNothingWhenTheBuildHasNoSuchPredicate() {
         val registrar = PlayerPortTestRegistrar()
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String?, resolve: Boolean): Class<*> =
@@ -282,4 +282,29 @@ class GuestOnboardingHooksTest {
     class NoEntrySession { @JvmField val runtime = NoEntryRuntime() }
 
     class PlatformFieldsSession { @JvmField val list: java.util.List<*>? = null; @JvmField val text: String = "" }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestOnboardingHooksTest) -> Unit) {
+            val s = GuestOnboardingHooksTest()
+            s.resetFixture()
+            block(s)
+        }
+        runIsolated { s -> s.bothPluginsAreFinishedForGuestsByShapeWithoutSubmittingChoicesAndPassThroughAfterLogin() }
+        runIsolated { s -> s.guestOnFirstStartTakesTheHostsNonFirstStartPathInsteadOfWaitingForTheWizard() }
+        runIsolated { s -> s.installingTheGateAloneDoesNotClaimItWasApplied() }
+        runIsolated { s -> s.guestEntryIsRejectedSoTheHostMountsNoWizardAndNothingNeedsUnwinding() }
+        runIsolated { s -> s.guestGetsNoWizardDataButALoggedInUserStillDoes() }
+        runIsolated { s -> s.dataAndEntryHooksAreNeverInstalledWithoutTheFirstStartGate() }
+        runIsolated { s -> s.entryIsNeverRejectedWithoutTheFirstStartGate() }
+        runIsolated { s -> s.entryLocatorFollowsSessionToRuntimeToEntryAndAcceptsBothSignatures() }
+        runIsolated { s -> s.entryLocatorFailsClosedOnAmbiguityOrAMissingController() }
+        runIsolated { s -> s.gateLocatorFailsClosedUnlessExactlyOneStaticBooleanExists() }
+        runIsolated { s -> s.gateOnRequestBIsUsedWhenRequestDHasNone() }
+        runIsolated { s -> s.gateOnRequestAOrCIsFoundOnTheOtherV2Builds() }
+        runIsolated { s -> s.gateLocatorNeverPicksBetweenPredicatesInBothRequestClasses() }
+        runIsolated { s -> s.legacyGateIsTheFirstOfExactlyFourStaticBooleans() }
+        runIsolated { s -> s.legacyLayoutInstallsTheGateOnPreV2Builds() }
+        runIsolated { s -> s.reportsGateAbsentAndRegistersNothingWhenTheBuildHasNoSuchPredicate() }
+    }
 }

@@ -19,25 +19,25 @@ class LensCaptureGroupingTest {
         LensCaptureGrouping.group(count) { a, b -> (a to b) in pairs || (b to a) in pairs }
             .map(IntArray::toList)
 
-    @Test fun overlappingSurfacesShareOneRecordingAndDisjointOnesStayAlone() {
+    fun overlappingSurfacesShareOneRecordingAndDisjointOnesStayAlone() {
         // 0 = 顶栏，1..3 = 圆按钮（都叠在顶栏上），4 = 底栏。
         val result = groups(5, setOf(0 to 1, 0 to 2, 0 to 3))
         assertEquals(listOf(listOf(0, 1, 2, 3), listOf(4)), result)
     }
 
-    @Test fun overlapIsTransitive() {
+    fun overlapIsTransitive() {
         // A 叠 B、B 叠 C，A 与 C 不直接相交：仍是一组，否则 C 的录制区会漏掉与 B 共享的内容。
         assertEquals(listOf(listOf(0, 1, 2)), groups(3, setOf(0 to 1, 1 to 2)))
     }
 
-    @Test fun orderIsStableSoPooledPicturesKeepTheirGroup() {
+    fun orderIsStableSoPooledPicturesKeepTheirGroup() {
         val first = groups(4, setOf(2 to 3))
         val second = groups(4, setOf(3 to 2))
         assertEquals(first, second)
         assertEquals(listOf(listOf(0), listOf(1), listOf(2, 3)), first)
     }
 
-    @Test fun degenerateInputs() {
+    fun degenerateInputs() {
         assertEquals(emptyList<List<Int>>(), groups(0, emptySet()))
         assertEquals(listOf(listOf(0)), groups(1, emptySet()))
     }
@@ -51,7 +51,7 @@ class LensCaptureGroupingTest {
      * 录制期间的祖先备忘只能包住"视图树静止"的区间：本次 pre-draw 的采集。放到别处（比如跨帧
      * 或包住动画回调）会把移动前的矩阵带进移动后的绘制。
      */
-    @Test fun ancestorMemoIsScopedToOneCaptureBatchOnASharedMatrixTool() {
+    fun ancestorMemoIsScopedToOneCaptureBatchOnASharedMatrixTool() {
         val sampler = source("material/LiveBackdropSampler.kt")
         assertTrue("采集批次必须包在祖先备忘里",
             sampler.contains("samplingMatrices.withAncestorMemo { collectJobs(content) }"))
@@ -76,7 +76,7 @@ class LensCaptureGroupingTest {
      * 采样器不能被自己失效的宿主反复唤醒（2026-09-24：柔光皮肤静止时持续 ~62fps 重绘，
      * 调用栈全部是 onBatchDone → 位于内容层内部的宿主 invalidate → 内容层变脏 → 下一帧再采样）。
      */
-    @Test fun samplerIgnoresDirtinessItCausedItself() {
+    fun samplerIgnoresDirtinessItCausedItself() {
         val sampler = SourceContract.read("ui/skin/material/LiveBackdropSampler.kt")
         val done = sampler.after("private fun onBatchDone(").before("private fun isInside(")
         assertTrue(done.contains("if (!dirty && isInside(job.view, source)) ignoreSelfInflictedDirty = true"))
@@ -85,5 +85,19 @@ class LensCaptureGroupingTest {
         val skip = preDraw.indexOf("if (ignoreSelfInflictedDirty)")
         assertTrue(gate in 0 until skip)
         assertTrue(preDraw.contains("if (!dirty) return"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LensCaptureGroupingTest) -> Unit) {
+            val s = LensCaptureGroupingTest()
+            block(s)
+        }
+        runIsolated { s -> s.overlappingSurfacesShareOneRecordingAndDisjointOnesStayAlone() }
+        runIsolated { s -> s.overlapIsTransitive() }
+        runIsolated { s -> s.orderIsStableSoPooledPicturesKeepTheirGroup() }
+        runIsolated { s -> s.degenerateInputs() }
+        runIsolated { s -> s.ancestorMemoIsScopedToOneCaptureBatchOnASharedMatrixTool() }
+        runIsolated { s -> s.samplerIgnoresDirtinessItCausedItself() }
     }
 }

@@ -25,7 +25,7 @@ class ReplyTopologyComposeMenuContextTest {
         }
     }
 
-    @Test fun commentWithoutSeedInvalidatesPreviousMenuAndItsCallback() {
+    fun commentWithoutSeedInvalidatesPreviousMenuAndItsCallback() {
         val f = Fixture().apply { remember() }
         val previous = f.context.current()!!
         assertTrue(f.context.bindMenu(previous, f.menu, f.menuRoot, f.menuWindow))
@@ -36,7 +36,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertFalse(f.context.bindMenu(previous, f.menu, f.menuRoot, f.menuWindow))
     }
 
-    @Test fun nextCommentOnSameWindowGetsFreshSeedAndBindings() {
+    fun nextCommentOnSameWindowGetsFreshSeedAndBindings() {
         val f = Fixture().apply { remember() }
         val previous = f.context.current()!!
         previous.legacyModifier = Any()
@@ -49,7 +49,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertTrue(f.context.acceptsSource(next, f.sourceRoot, f.sourceWindow, 201L))
     }
 
-    @Test fun resetRejectsOldCallbacksEvenWhenTheirViewsRemainAlive() {
+    fun resetRejectsOldCallbacksEvenWhenTheirViewsRemainAlive() {
         val f = Fixture().apply { remember() }
         val previous = f.context.current()!!
         f.context.clear()
@@ -57,7 +57,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertFalse(f.context.bindMenu(previous, f.menu, f.menuRoot, f.menuWindow))
     }
 
-    @Test fun aDifferentMenuCannotReuseAnActiveFrame() {
+    fun aDifferentMenuCannotReuseAnActiveFrame() {
         val f = Fixture().apply { remember() }
         val current = f.context.current()!!
         assertTrue(f.context.bindMenu(current, f.menu, f.menuRoot, f.menuWindow))
@@ -71,7 +71,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertFalse(f.context.bindMenu(current, f.menu, f.menuRoot, Any()))
     }
 
-    @Test fun popupMayComposeBeforeAttachButCannotChangeWindowAfterAttach() {
+    fun popupMayComposeBeforeAttachButCannotChangeWindowAfterAttach() {
         val f = Fixture().apply { remember() }
         val current = f.context.current()!!
         assertTrue(f.context.bindMenu(current, f.menu, f.menuRoot, null))
@@ -80,7 +80,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertFalse(f.context.bindMenu(current, f.menu, f.menuRoot, Any()))
     }
 
-    @Test fun hostDismissalKeepsOnlyTheKnownMenusActionValidUntilTheNextMoreAction() {
+    fun hostDismissalKeepsOnlyTheKnownMenusActionValidUntilTheNextMoreAction() {
         val f = Fixture().apply { remember() }
         val current = f.context.current()!!
         assertTrue(f.context.bindMenu(current, f.menu, f.menuRoot, f.menuWindow))
@@ -91,7 +91,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertFalse(f.context.ownsMenu(current, f.menu))
     }
 
-    @Test fun movingTheSourceToAnotherWindowInvalidatesItsFrame() {
+    fun movingTheSourceToAnotherWindowInvalidatesItsFrame() {
         val f = Fixture().apply { remember() }
         val current = f.context.current()!!
         assertFalse(f.context.acceptsSource(current, f.sourceRoot, Any(), 101L))
@@ -101,7 +101,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertNull(f.context.current())
     }
 
-    @Test fun aReboundCardCannotOpenThePreviousThread() {
+    fun aReboundCardCannotOpenThePreviousThread() {
         val f = Fixture()
         var currentCard = 100L
         f.remember { currentCard == 100L }
@@ -112,7 +112,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertNull(f.context.current())
     }
 
-    @Test fun expiredOrCollectedSourcesCannotLeaveUsableCallbacks() {
+    fun expiredOrCollectedSourcesCannotLeaveUsableCallbacks() {
         val f = Fixture().apply { remember() }
         assertTrue(f.context.acceptsSource(f.context.current()!!, f.sourceRoot, f.sourceWindow, 30_100L))
         assertFalse(f.context.acceptsSource(f.context.current()!!, f.sourceRoot, f.sourceWindow, 30_101L))
@@ -124,7 +124,7 @@ class ReplyTopologyComposeMenuContextTest {
         assertNull(f.context.current())
     }
 
-    @Test fun collectedMenuCannotBeReboundToAnUnrelatedMenu() {
+    fun collectedMenuCannotBeReboundToAnUnrelatedMenu() {
         val f = Fixture().apply { remember() }
         val current = f.context.current()!!
         assertTrue(f.context.bindMenu(current, f.menu, f.menuRoot, f.menuWindow))
@@ -132,13 +132,13 @@ class ReplyTopologyComposeMenuContextTest {
         assertFalse(f.context.bindMenu(current, Any(), f.menuRoot, f.menuWindow))
     }
 
-    @Test fun sourceVerificationFailureDisablesTheEntry() {
+    fun sourceVerificationFailureDisablesTheEntry() {
         val f = Fixture().apply { remember { error("binding unavailable") } }
         assertFalse(f.context.acceptsSource(f.context.current()!!, f.sourceRoot, f.sourceWindow, 101L))
         assertNull(f.context.current())
     }
 
-    @Test fun installerMissingSeedClearsAnAlreadyRememberedMenu() {
+    fun installerMissingSeedClearsAnAlreadyRememberedMenu() {
         // 只分配身份，不调用 Android View 的测试桩方法；覆盖审查中实际失败的安装器调用。
         val unsafe = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
         val anchor = unsafe.allocateInstance(View::class.java) as View
@@ -153,5 +153,25 @@ class ReplyTopologyComposeMenuContextTest {
         installer.javaClass.getDeclaredField("composeMenu").apply { isAccessible = true }.set(installer, menu)
         installer.rememberComposeMenu(anchor, 200L)
         assertNull(context.current())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ReplyTopologyComposeMenuContextTest) -> Unit) {
+            val s = ReplyTopologyComposeMenuContextTest()
+            block(s)
+        }
+        runIsolated { s -> s.commentWithoutSeedInvalidatesPreviousMenuAndItsCallback() }
+        runIsolated { s -> s.nextCommentOnSameWindowGetsFreshSeedAndBindings() }
+        runIsolated { s -> s.resetRejectsOldCallbacksEvenWhenTheirViewsRemainAlive() }
+        runIsolated { s -> s.aDifferentMenuCannotReuseAnActiveFrame() }
+        runIsolated { s -> s.popupMayComposeBeforeAttachButCannotChangeWindowAfterAttach() }
+        runIsolated { s -> s.hostDismissalKeepsOnlyTheKnownMenusActionValidUntilTheNextMoreAction() }
+        runIsolated { s -> s.movingTheSourceToAnotherWindowInvalidatesItsFrame() }
+        runIsolated { s -> s.aReboundCardCannotOpenThePreviousThread() }
+        runIsolated { s -> s.expiredOrCollectedSourcesCannotLeaveUsableCallbacks() }
+        runIsolated { s -> s.collectedMenuCannotBeReboundToAnUnrelatedMenu() }
+        runIsolated { s -> s.sourceVerificationFailureDisablesTheEntry() }
+        runIsolated { s -> s.installerMissingSeedClearsAnAlreadyRememberedMenu() }
     }
 }

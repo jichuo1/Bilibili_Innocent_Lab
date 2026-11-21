@@ -6,7 +6,7 @@ import org.junit.Test
 
 /** 策略面板的安全边界：草稿不提前发布，五项共用一个导航入口和原有模态生命周期。 */
 class PlayerBufferSettingsContractTest {
-    @Test fun allBufferSettingsShareTheAnchoredEntryAndUseTheTypedUiSnapshot() {
+    fun allBufferSettingsShareTheAnchoredEntryAndUseTheTypedUiSnapshot() {
         // 入口调用点在增强分区里，已随分区外移到 *Sections.kt。
         val main = SettingsUiSource.settingsPage()
         val entry = SettingsUiSource.function("playerBufferSettingsRows")
@@ -21,7 +21,7 @@ class PlayerBufferSettingsContractTest {
         assertTrue(main.contains("uiSettings.bool(FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY)"))
     }
 
-    @Test fun failedReadbackKeepsTheDraftPanelOpenAndDoesNotUpdateTheActivityMirror() {
+    fun failedReadbackKeepsTheDraftPanelOpenAndDoesNotUpdateTheActivityMirror() {
         val panel = SettingsUiSource.function("showPlayerBufferDialog")
         val failure = panel.indexOf("if (!saved)")
         val update = panel.indexOf("playerBufferMode = draftMode.value")
@@ -34,7 +34,7 @@ class PlayerBufferSettingsContractTest {
         assertTrue(panel.contains("dismissWithAnimation(dialog, container)"))
     }
 
-    @Test fun inactiveFieldsAreRetainedAndOnlyWholePrefetchEnablesNetworkAndDiskControls() {
+    fun inactiveFieldsAreRetainedAndOnlyWholePrefetchEnablesNetworkAndDiskControls() {
         val panel = SettingsUiSource.function("showPlayerBufferDialog")
         assertTrue(panel.contains("if (!editor.isEnabled) return current"))
         assertTrue(panel.contains("seconds.isEnabled = draftMode == PlayerBufferMode.CUSTOM"))
@@ -42,5 +42,16 @@ class PlayerBufferSettingsContractTest {
         assertTrue(panel.contains("wifiOnly.isEnabled = draftMode == PlayerBufferMode.WHOLE"))
         assertFalse(panel.contains("setWindowAnimations("))
         assertFalse(panel.contains("registerReceiver("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerBufferSettingsContractTest) -> Unit) {
+            val s = PlayerBufferSettingsContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.allBufferSettingsShareTheAnchoredEntryAndUseTheTypedUiSnapshot() }
+        runIsolated { s -> s.failedReadbackKeepsTheDraftPanelOpenAndDoesNotUpdateTheActivityMirror() }
+        runIsolated { s -> s.inactiveFieldsAreRetainedAndOnlyWholePrefetchEnablesNetworkAndDiskControls() }
     }
 }

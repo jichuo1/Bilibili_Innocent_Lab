@@ -36,7 +36,7 @@ class HostProcessWakeCallSiteTest {
         dirOf("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/telemetry")
     ).flatMap { dir -> dir.walkTopDown().filter { it.isFile && it.name.endsWith(".kt") } }
 
-    @Test fun theScanActuallySeesTheSources() {
+    fun theScanActuallySeesTheSources() {
         val names = sources().map(File::getName)
         assertTrue("没扫到源码，护栏会静默通过", names.size >= 30)
         listOf("ReceiptQueryTransport.kt", "MineComponentSnapshotQueryClient.kt",
@@ -47,7 +47,7 @@ class HostProcessWakeCallSiteTest {
     }
 
     /** 唯一把 `allowWake` 打开的地方只能是扫描快照客户端，而且要转发自己的参数。 */
-    @Test fun onlyTheScanSnapshotClientMayEnableTheTransportWake() {
+    fun onlyTheScanSnapshotClientMayEnableTheTransportWake() {
         val client = File(runtimeDir, "MineComponentSnapshotQueryClient.kt").readText()
         assertTrue("扫描客户端应当把自己的开关转发给 transport",
             client.contains("allowWake = wakeHost"))
@@ -57,7 +57,7 @@ class HostProcessWakeCallSiteTest {
     }
 
     /** 诊断通道（遥测、激活卡检查）必须停在默认值上。 */
-    @Test fun theDiagnosticsChannelStaysOnTheDefault() {
+    fun theDiagnosticsChannelStaysOnTheDefault() {
         val diagnostics = File(runtimeDir, "HostRuntimeDiagnosticsQueryClient.kt").readText()
         assertTrue("诊断通道仍应调用同一条 transport",
             diagnostics.contains("ReceiptQueryTransport.query("))
@@ -71,12 +71,24 @@ class HostProcessWakeCallSiteTest {
      * 这里反过来钉：源码里只准出现 `wakeHost = false`，出现 `wakeHost = true` 说明
      * 有人在静默路径上打开了它。
      */
-    @Test fun silentPullsMustOptOutOfWakingTheHost() {
+    fun silentPullsMustOptOutOfWakingTheHost() {
         val offenders = sources().filter { it.readText().contains("wakeHost = true") }
             .map(File::getName)
         assertEquals("静默拉取不准唤起宿主", emptyList<String>(), offenders)
         val autoConfirm = sources().first { it.name == "RecommendationBlocklistDialogs.kt" }.readText()
         assertTrue("自动确认的后台合并必须显式关掉唤起",
             autoConfirm.contains("wakeHost = false"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostProcessWakeCallSiteTest) -> Unit) {
+            val s = HostProcessWakeCallSiteTest()
+            block(s)
+        }
+        runIsolated { s -> s.theScanActuallySeesTheSources() }
+        runIsolated { s -> s.onlyTheScanSnapshotClientMayEnableTheTransportWake() }
+        runIsolated { s -> s.theDiagnosticsChannelStaysOnTheDefault() }
+        runIsolated { s -> s.silentPullsMustOptOutOfWakingTheHost() }
     }
 }

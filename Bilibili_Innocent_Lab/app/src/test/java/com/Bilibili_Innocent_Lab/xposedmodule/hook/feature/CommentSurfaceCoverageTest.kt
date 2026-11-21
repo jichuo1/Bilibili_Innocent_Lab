@@ -26,7 +26,7 @@ class CommentSurfaceCoverageTest {
     private class LegacyListener(@JvmField val first: BiliComment, @JvmField val second: BiliComment? = null)
     private class GetterRich(private val value: String) { @Suppress("unused") fun e() = value }
 
-    @Test fun translatingUsesCompleteOriginAndNeverControlSuffix() {
+    fun translatingUsesCompleteOriginAndNeverControlSuffix() {
         val reader = ComposeCommentText.resolve(TextModel::class.java)
         assertNotNull(reader)
         val model = TextModel(21, Translation.TRANSLATING, Rich("完整原文[dog]"), Rich("译文"))
@@ -34,20 +34,20 @@ class CommentSurfaceCoverageTest {
         assertEquals(21L, reader.cardId(model))
     }
 
-    @Test fun translatedDisplayUsesTranslationWithOriginFallback() {
+    fun translatedDisplayUsesTranslationWithOriginFallback() {
         val reader = ComposeCommentText.resolve(TextModel::class.java)!!
         assertEquals("translated emoji [dog]", reader.read(TextModel(1, Translation.TRANSLATION,
             Rich("原文"), Rich("translated emoji [dog]"))))
         assertEquals("原文", reader.read(TextModel(1, Translation.TRANSLATION, Rich("原文"), null)))
     }
 
-    @Test fun blankBodyAndWrongShapeKeepTheHostActionAvailable() {
+    fun blankBodyAndWrongShapeKeepTheHostActionAvailable() {
         val reader = ComposeCommentText.resolve(TextModel::class.java)!!
         assertNull(reader.read(TextModel(1, Translation.ORIGIN, Rich("  \n"), null)))
         assertNull(ComposeCommentText.resolve(WrongTextModel::class.java))
     }
 
-    @Test fun rebindAndSameCardOnAnotherDispatcherCannotCrossWindows() {
+    fun rebindAndSameCardOnAnotherDispatcherCannotCrossWindows() {
         val registry = ComposeCommentBindings<Any, Any, Any>()
         val firstOwner = Any()
         val secondOwner = Any()
@@ -65,7 +65,7 @@ class CommentSurfaceCoverageTest {
         assertNull(registry.get(Any()))
     }
 
-    @Test fun failedFamilyStaysInDenominatorEvenIfOtherFamiliesAreReady() {
+    fun failedFamilyStaysInDenominatorEvenIfOtherFamiliesAreReady() {
         val coverage = CommentFamilyCoverage()
         assertFalse(coverage.isComplete())
         coverage.record("legacy", true)
@@ -78,7 +78,7 @@ class CommentSurfaceCoverageTest {
         assertTrue(coverage.isComplete())
     }
 
-    @Test fun composeFailureCannotDisappearBehindSuccessfulNativeLayer() {
+    fun composeFailureCannotDisappearBehindSuccessfulNativeLayer() {
         val merged = mergeCommentLayer(FeatureInstallResult.Installed(3),
             FeatureInstallResult.Skipped("missing-compose-structure")) as FeatureInstallResult.Installed
         assertEquals(3, merged.hookCount)
@@ -89,7 +89,7 @@ class CommentSurfaceCoverageTest {
         assertTrue(complete.complete)
     }
 
-    @Test fun legacyListenerMustIdentifyExactlyOneCurrentComment() {
+    fun legacyListenerMustIdentifyExactlyOneCurrentComment() {
         val reader = CommentLegacyCopyBridge(javaClass.classLoader!!)
         val comment = BiliComment(BiliComment.Content("完整评论[dog]"))
         assertEquals("完整评论[dog]", reader.capture(LegacyListener(comment))!!.first)
@@ -97,15 +97,32 @@ class CommentSurfaceCoverageTest {
         assertNull(reader.capture(LegacyListener(comment, BiliComment(BiliComment.Content("另一条")))))
     }
 
-    @Test fun nativeRichTextReaderSupportsOldGetterAndNewFieldWithoutTruncation() {
+    fun nativeRichTextReaderSupportsOldGetterAndNewFieldWithoutTruncation() {
         val text = "[dog]".repeat(800)
         assertEquals(text, CommentRichTextReader.resolve(GetterRich::class.java)!!.read(GetterRich(text)))
         assertEquals(text, CommentRichTextReader.resolve(Rich::class.java)!!.read(Rich(text)))
     }
 
-    @Test fun rootAndChildModelSelectTheirOwnThread() {
+    fun rootAndChildModelSelectTheirOwnThread() {
         val reader = ComposeCommentText.resolve(TextModel::class.java)!!
         assertEquals(10L, reader.rootCommentId(TextModel(1, Translation.ORIGIN, Rich("主楼"), null, b = 10)))
         assertEquals(10L, reader.rootCommentId(TextModel(2, Translation.ORIGIN, Rich("子回复"), null, b = 11, c = 10)))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentSurfaceCoverageTest) -> Unit) {
+            val s = CommentSurfaceCoverageTest()
+            block(s)
+        }
+        runIsolated { s -> s.translatingUsesCompleteOriginAndNeverControlSuffix() }
+        runIsolated { s -> s.translatedDisplayUsesTranslationWithOriginFallback() }
+        runIsolated { s -> s.blankBodyAndWrongShapeKeepTheHostActionAvailable() }
+        runIsolated { s -> s.rebindAndSameCardOnAnotherDispatcherCannotCrossWindows() }
+        runIsolated { s -> s.failedFamilyStaysInDenominatorEvenIfOtherFamiliesAreReady() }
+        runIsolated { s -> s.composeFailureCannotDisappearBehindSuccessfulNativeLayer() }
+        runIsolated { s -> s.legacyListenerMustIdentifyExactlyOneCurrentComment() }
+        runIsolated { s -> s.nativeRichTextReaderSupportsOldGetterAndNewFieldWithoutTruncation() }
+        runIsolated { s -> s.rootAndChildModelSelectTheirOwnThread() }
     }
 }

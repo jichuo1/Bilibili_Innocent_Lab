@@ -16,7 +16,6 @@ class MerchandiseFeatureInstallerTest {
         reportStatus = { _, _ -> }
     )
 
-    @Test
     fun `skips cleanly when disabled`() {
         assertEquals(
             FeatureInstallResult.Skipped("disabled"),
@@ -24,12 +23,21 @@ class MerchandiseFeatureInstallerTest {
         )
     }
 
-    @Test
     fun `skips cleanly when host component is absent`() {
         assertEquals(
             true,
             (MerchandiseFeatureInstaller(enabled = true).install(environment)
                 as FeatureInstallResult.Skipped).reason.startsWith("missing:")
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (MerchandiseFeatureInstallerTest) -> Unit) {
+            val s = MerchandiseFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips cleanly when disabled`() }
+        runIsolated { s -> s.`skips cleanly when host component is absent`() }
     }
 }

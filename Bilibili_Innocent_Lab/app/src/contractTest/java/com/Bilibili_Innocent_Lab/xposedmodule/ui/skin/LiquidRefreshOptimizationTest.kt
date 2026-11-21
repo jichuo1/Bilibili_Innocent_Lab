@@ -11,7 +11,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 
 class LiquidRefreshOptimizationTest {
-    @Test fun `horizontal thumb travel does not rebuild the vertical gradient`() {
+    fun `horizontal thumb travel does not rebuild the vertical gradient`() {
         val cache = LiquidControlGradientCache()
         var rebuilds = 0
         // 10,000 different horizontal positions have exactly the same vertical/color inputs.
@@ -19,7 +19,7 @@ class LiquidRefreshOptimizationTest {
         assertEquals(1, rebuilds)
     }
 
-    @Test fun `vertical bounds and both colors invalidate independently`() {
+    fun `vertical bounds and both colors invalidate independently`() {
         val cache = LiquidControlGradientCache()
         assertTrue(cache.update(1f, 19f, 1, 2))
         assertFalse(cache.update(1f, 19f, 1, 2))
@@ -34,7 +34,7 @@ class LiquidRefreshOptimizationTest {
     private fun visible(left: Float, top: Float, right: Float, bottom: Float, margin: Float = 10f) =
         LiquidRefreshVisibilityPolicy.intersectsWindow(left, top, right, bottom, 0f, 0f, 100f, 100f, margin)
 
-    @Test fun `definitely off-window surfaces skip on all four edges`() {
+    fun `definitely off-window surfaces skip on all four edges`() {
         assertFalse(visible(-30f, 20f, -11f, 40f))
         assertFalse(visible(111f, 20f, 140f, 40f))
         assertFalse(visible(20f, -30f, 40f, -11f))
@@ -42,7 +42,7 @@ class LiquidRefreshOptimizationTest {
         assertTrue(visible(20f, 20f, 40f, 40f))
     }
 
-    @Test fun `partial visibility and exact optical margin remain refreshable`() {
+    fun `partial visibility and exact optical margin remain refreshable`() {
         assertTrue(visible(-30f, 20f, -10f, 40f))
         assertTrue(visible(110f, 20f, 140f, 40f))
         assertTrue(visible(20f, -30f, 40f, -10f))
@@ -51,7 +51,7 @@ class LiquidRefreshOptimizationTest {
         assertTrue(visible(99f, 20f, 140f, 40f, 0f))
     }
 
-    @Test fun `unknown or invalid geometry fails open`() {
+    fun `unknown or invalid geometry fails open`() {
         assertTrue(visible(Float.NaN, 0f, 10f, 10f))
         assertTrue(visible(0f, 0f, Float.POSITIVE_INFINITY, 10f))
         assertTrue(visible(0f, 0f, 0f, 10f))
@@ -61,14 +61,14 @@ class LiquidRefreshOptimizationTest {
             0f, 0f, 0f, 0f, 0f))
     }
 
-    @Test fun `window offsets do not assume the activity origin`() {
+    fun `window offsets do not assume the activity origin`() {
         assertTrue(LiquidRefreshVisibilityPolicy.intersectsWindow(220f, 320f, 250f, 350f,
             200f, 300f, 400f, 500f, 10f))
         assertFalse(LiquidRefreshVisibilityPolicy.intersectsWindow(20f, 20f, 50f, 50f,
             200f, 300f, 400f, 500f, 10f))
     }
 
-    @Test fun `reentry refreshes even when returning to the exact last recorded origin`() {
+    fun `reentry refreshes even when returning to the exact last recorded origin`() {
         val state = LiquidSurfaceRefreshState()
         assertFalse(state.shouldRefresh(true, false, false))
         repeat(120) { assertFalse(state.shouldRefresh(false, true, true)) }
@@ -78,7 +78,7 @@ class LiquidRefreshOptimizationTest {
         assertTrue(state.shouldRefresh(true, false, true))
     }
 
-    @Test fun `off-window content changes are not lost and state is per surface`() {
+    fun `off-window content changes are not lost and state is per surface`() {
         val first = LiquidSurfaceRefreshState()
         val second = LiquidSurfaceRefreshState()
         assertFalse(first.shouldRefresh(false, false, true))
@@ -91,7 +91,7 @@ class LiquidRefreshOptimizationTest {
         return SourceContract.read(path)
     }
 
-    @Test fun `drawable bounds path gates shader creation and does not allocate switch ticks`() {
+    fun `drawable bounds path gates shader creation and does not allocate switch ticks`() {
         val drawable = source("LiquidChoiceDrawable")
         assertTrue(drawable.contains("private val tick = if (checkbox) Path() else null"))
         assertTrue(drawable.contains("private val mark = if (checkbox) Paint"))
@@ -100,7 +100,7 @@ class LiquidRefreshOptimizationTest {
         assertTrue(update.contains("gradientCache.update(rect.top, bottom, startColor, endColor)"))
     }
 
-    @Test fun `culling retains scroll hooks transforms stretch and capture-time mask ordering`() {
+    fun `culling retains scroll hooks transforms stretch and capture-time mask ordering`() {
         val renderer = source("LiquidActivityRenderer")
         val visibility = renderer.after("private fun isSurfacePotentiallyVisible").before("private fun configureRealtimeRefreshRate")
         assertTrue(visibility.contains("stretchOpticalIntensity > 1f"))
@@ -124,7 +124,7 @@ class LiquidRefreshOptimizationTest {
      * 实时采集静止门控的接线（2026-09-23）。静止空转既让 GPU 持续 30% 占空，又把"采集管线节奏"
      * 喂给吞吐统计，误判跟不上而把窗口压到 60Hz。
      */
-    @Test fun `realtime capture idles on identical frames without breaking triple buffering`() {
+    fun `realtime capture idles on identical frames without breaking triple buffering`() {
         val renderer = source("LiquidActivityRenderer")
         val result = renderer.after("private fun handleRealtimeCaptureResult(")
             .before("private fun applyCaptureThroughputSample(")
@@ -154,7 +154,7 @@ class LiquidRefreshOptimizationTest {
      * 路径填充）与整图 `sameAs` 原来在 PixelCopy 的主线程回调里；现在回调投到截图线程，主线程只做
      * 验票与提交。单飞必须覆盖"截图 → 后处理 → 提交"全程，否则下一次请求会在后台还在读时改写遮罩。
      */
-    @Test fun `realtime capture post-processing runs off the ui thread under one flight`() {
+    fun `realtime capture post-processing runs off the ui thread under one flight`() {
         val renderer = source("LiquidActivityRenderer")
         val request = renderer.after("private fun requestRealtimeCapture(")
             .before("private fun handleRealtimeCaptureResult(")
@@ -191,5 +191,25 @@ class LiquidRefreshOptimizationTest {
             Regex("@MainThread\\s+internal class").containsMatchIn(suppressor))
         assertTrue(suppressor.before("fun sanitizeRealtimeCapture(").trimEnd().endsWith("@AnyThread"))
         assertTrue(suppressor.before("fun buildSuppressionMask(").trimEnd().endsWith("@MainThread"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidRefreshOptimizationTest) -> Unit) {
+            val s = LiquidRefreshOptimizationTest()
+            block(s)
+        }
+        runIsolated { s -> s.`horizontal thumb travel does not rebuild the vertical gradient`() }
+        runIsolated { s -> s.`vertical bounds and both colors invalidate independently`() }
+        runIsolated { s -> s.`definitely off-window surfaces skip on all four edges`() }
+        runIsolated { s -> s.`partial visibility and exact optical margin remain refreshable`() }
+        runIsolated { s -> s.`unknown or invalid geometry fails open`() }
+        runIsolated { s -> s.`window offsets do not assume the activity origin`() }
+        runIsolated { s -> s.`reentry refreshes even when returning to the exact last recorded origin`() }
+        runIsolated { s -> s.`off-window content changes are not lost and state is per surface`() }
+        runIsolated { s -> s.`drawable bounds path gates shader creation and does not allocate switch ticks`() }
+        runIsolated { s -> s.`culling retains scroll hooks transforms stretch and capture-time mask ordering`() }
+        runIsolated { s -> s.`realtime capture idles on identical frames without breaking triple buffering`() }
+        runIsolated { s -> s.`realtime capture post-processing runs off the ui thread under one flight`() }
     }
 }

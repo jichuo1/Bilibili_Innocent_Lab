@@ -11,9 +11,9 @@ class HostAgentMossFactoryTest {
     class Moss(val address: String, val port: Int, val options: CallOptions)
     class NoTimeoutMoss
 
-    @Before fun reset() { CallOptions.ignoreTimeout = false }
+    fun reset() { CallOptions.ignoreTimeout = false }
 
-    @Test fun `native timeout preserves short deadline and caps expensive calls`() {
+    fun `native timeout preserves short deadline and caps expensive calls`() {
         val factory = checkNotNull(HostAgentMossFactory.resolve(javaClass.classLoader!!, Moss::class.java))
         val short = factory.create(125) as Moss
         assertEquals("grpc.biliapi.net", short.address)
@@ -23,15 +23,27 @@ class HostAgentMossFactoryTest {
         assertEquals(1L, (factory.create(0) as Moss).options.getTimeoutInMs())
     }
 
-    @Test fun `missing timeout constructor does not fall back to unbounded RPC`() {
+    fun `missing timeout constructor does not fall back to unbounded RPC`() {
         assertNull(HostAgentMossFactory.resolve(javaClass.classLoader!!, NoTimeoutMoss::class.java))
     }
 
-    @Test fun `timeout silently ignored by a drifted host is rejected before creating moss`() {
+    fun `timeout silently ignored by a drifted host is rejected before creating moss`() {
         val factory = checkNotNull(HostAgentMossFactory.resolve(javaClass.classLoader!!, Moss::class.java))
         CallOptions.ignoreTimeout = true
         val failure = runCatching { factory.create(1000) }.exceptionOrNull()
         assertTrue(failure is IllegalStateException)
         assertEquals("rpc_timeout_unavailable", failure?.message)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostAgentMossFactoryTest) -> Unit) {
+            val s = HostAgentMossFactoryTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.`native timeout preserves short deadline and caps expensive calls`() }
+        runIsolated { s -> s.`missing timeout constructor does not fall back to unbounded RPC`() }
+        runIsolated { s -> s.`timeout silently ignored by a drifted host is rejected before creating moss`() }
     }
 }

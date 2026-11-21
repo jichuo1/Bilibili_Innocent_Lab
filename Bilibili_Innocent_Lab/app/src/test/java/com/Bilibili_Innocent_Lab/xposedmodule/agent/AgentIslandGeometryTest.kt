@@ -7,7 +7,7 @@ import org.junit.Test
 class AgentIslandGeometryTest {
     private val phone = Geometry.Input(1080, 2400, 3f, 90, bottomInsetPx = 72)
 
-    @Test fun `no reported cutout uses a safe centered capsule`() {
+    fun `no reported cutout uses a safe centered capsule`() {
         val island = Geometry.collapsed(phone)!!
         assertFalse(island.cameraProjected)
         assertEquals(1080, island.bounds.left + island.bounds.right)
@@ -17,7 +17,7 @@ class AgentIslandGeometryTest {
         assertTrue(island.agentCenterXPx > island.gapEndPx)
     }
 
-    @Test fun `central narrow top hole aligns icons with horizontal camera projection`() {
+    fun `central narrow top hole aligns icons with horizontal camera projection`() {
         val hole = Geometry.Rect(492, 0, 588, 108)
         val island = Geometry.collapsed(phone.copy(cutouts = listOf(hole)))!!
         assertTrue(island.cameraProjected)
@@ -28,7 +28,7 @@ class AgentIslandGeometryTest {
         assertTrue(island.bounds.left + island.agentCenterXPx > hole.right)
     }
 
-    @Test fun `left hole wide notch and multiple cutouts use centered fallback`() {
+    fun `left hole wide notch and multiple cutouts use centered fallback`() {
         val cuts = listOf(
             listOf(Geometry.Rect(30, 0, 126, 108)),
             listOf(Geometry.Rect(240, 0, 840, 120)),
@@ -42,7 +42,7 @@ class AgentIslandGeometryTest {
         }
     }
 
-    @Test fun `landscape and lateral cutout respect safe horizontal insets`() {
+    fun `landscape and lateral cutout respect safe horizontal insets`() {
         val input = Geometry.Input(2400, 1080, 3f, 72, listOf(Geometry.Rect(0, 420, 108, 588)),
             leftInsetPx = 108, rightInsetPx = 36, bottomInsetPx = 60)
         val island = Geometry.collapsed(input)!!
@@ -52,7 +52,7 @@ class AgentIslandGeometryTest {
         assertEquals(84, island.bounds.top)
     }
 
-    @Test fun `expanded panel follows island with bounded width and requested height`() {
+    fun `expanded panel follows island with bounded width and requested height`() {
         val island = Geometry.collapsed(phone)!!
         val panel = Geometry.panel(phone, island)!!
         assertEquals(island.bounds.bottom + 24, panel.top)
@@ -61,7 +61,7 @@ class AgentIslandGeometryTest {
         assertTrue(panel.bottom <= 2304)
     }
 
-    @Test fun `short viewport caps panel height above bottom inset`() {
+    fun `short viewport caps panel height above bottom inset`() {
         val input = Geometry.Input(400, 320, 1f, 24, bottomInsetPx = 24)
         val island = Geometry.collapsed(input)!!
         val panel = Geometry.panel(input, island, 240)!!
@@ -69,7 +69,7 @@ class AgentIslandGeometryTest {
         assertEquals(204, panel.height)
     }
 
-    @Test fun `panel clamps an off center anchor and rejects stale bounds after rotation`() {
+    fun `panel clamps an off center anchor and rejects stale bounds after rotation`() {
         val input = phone.copy(cutouts = listOf(Geometry.Rect(402, 0, 498, 108)))
         val island = Geometry.collapsed(input)!!
         val panel = Geometry.panel(input, island)!!
@@ -78,32 +78,51 @@ class AgentIslandGeometryTest {
         assertNull(Geometry.panel(Geometry.Input(320, 1080, 3f, 24), island))
     }
 
-    @Test fun `invalid dimensions densities and insets have no placement`() {
+    fun `invalid dimensions densities and insets have no placement`() {
         for (input in listOf(phone.copy(widthPx = 0), phone.copy(heightPx = -1), phone.copy(density = 0f),
             phone.copy(density = Float.NaN), phone.copy(density = Float.POSITIVE_INFINITY),
             phone.copy(leftInsetPx = -1), phone.copy(topInsetPx = 2500), phone.copy(rightInsetPx = 1200),
             Geometry.Input(100, 400, 1f))) assertNull(Geometry.collapsed(input))
     }
 
-    @Test fun `invalid cutout rectangles do not influence placement`() {
+    fun `invalid cutout rectangles do not influence placement`() {
         val input = phone.copy(cutouts = listOf(Geometry.Rect(500, 80, 490, 100),
             Geometry.Rect(-40, -40, -1, -1), Geometry.Rect(1500, 0, 1600, 100)))
         assertEquals(Geometry.collapsed(phone), Geometry.collapsed(input))
     }
 
-    @Test fun `too little panel space and invalid requested height return no panel`() {
+    fun `too little panel space and invalid requested height return no panel`() {
         val input = Geometry.Input(400, 130, 1f, 24)
         val island = Geometry.collapsed(input)!!
         assertNull(Geometry.panel(input, island))
         assertNull(Geometry.panel(phone, Geometry.collapsed(phone)!!, 0))
     }
 
-    @Test fun `large coordinate and density arithmetic remains bounded without overflow`() {
+    fun `large coordinate and density arithmetic remains bounded without overflow`() {
         val input = Geometry.Input(Int.MAX_VALUE, Int.MAX_VALUE, 1f, 24)
         val island = Geometry.collapsed(input)!!
         val panel = Geometry.panel(input, island, Int.MAX_VALUE)!!
         assertTrue(island.bounds.left >= 0 && island.bounds.right <= input.widthPx)
         assertTrue(panel.top >= 0 && panel.bottom <= input.heightPx - 8)
         assertNull(Geometry.collapsed(input.copy(density = Float.MAX_VALUE)))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AgentIslandGeometryTest) -> Unit) {
+            val s = AgentIslandGeometryTest()
+            block(s)
+        }
+        runIsolated { s -> s.`no reported cutout uses a safe centered capsule`() }
+        runIsolated { s -> s.`central narrow top hole aligns icons with horizontal camera projection`() }
+        runIsolated { s -> s.`left hole wide notch and multiple cutouts use centered fallback`() }
+        runIsolated { s -> s.`landscape and lateral cutout respect safe horizontal insets`() }
+        runIsolated { s -> s.`expanded panel follows island with bounded width and requested height`() }
+        runIsolated { s -> s.`short viewport caps panel height above bottom inset`() }
+        runIsolated { s -> s.`panel clamps an off center anchor and rejects stale bounds after rotation`() }
+        runIsolated { s -> s.`invalid dimensions densities and insets have no placement`() }
+        runIsolated { s -> s.`invalid cutout rectangles do not influence placement`() }
+        runIsolated { s -> s.`too little panel space and invalid requested height return no panel`() }
+        runIsolated { s -> s.`large coordinate and density arithmetic remains bounded without overflow`() }
     }
 }

@@ -63,7 +63,7 @@ class GuestVideoFollowInitialStateTest {
         }
     }
 
-    @Test fun localFollowStateUpdatesTheOwnerButtonAndPreservesItsGuestFlag() {
+    fun localFollowStateUpdatesTheOwnerButtonAndPreservesItsGuestFlag() {
         val h = Harness()
         h.bind(Config(42, OwnerCallback(), true))
         assertEquals(42L, h.source.requests.single().first)
@@ -73,7 +73,7 @@ class GuestVideoFollowInitialStateTest {
         assertEquals("applied", h.statuses["guest_video_follow_initial"])
     }
 
-    @Test fun legacyOwnerCallbackReceivesTheLocalState() {
+    fun legacyOwnerCallbackReceivesTheLocalState() {
         val h = Harness()
         h.bind(Config(42, LegacyOwnerCallback(), false))
         h.source.requests.single().second(true)
@@ -81,7 +81,7 @@ class GuestVideoFollowInitialStateTest {
         assertEquals(false, h.button.secondary)
     }
 
-    @Test fun renamedOwnerCallbackReceivesLocalStateWithoutMatchingOtherCallbacks() {
+    fun renamedOwnerCallbackReceivesLocalStateWithoutMatchingOtherCallbacks() {
         val h = Harness(knownOwners = false)
         assertEquals("owner-scope", h.statuses["guest_video_follow_initial_callback_match"])
         h.bind(Config(42, FutureOwnerService.WrongBaseCallback(), false))
@@ -95,13 +95,13 @@ class GuestVideoFollowInitialStateTest {
         assertEquals(false, h.button.secondary)
     }
 
-    @Test fun missingOwnerServiceAndKnownCallbacksDoNotInstallInitialStateHook() {
+    fun missingOwnerServiceAndKnownCallbacksDoNotInstallInitialStateHook() {
         assertThrows(IllegalArgumentException::class.java) {
             Harness(knownOwners = false, ownerServiceName = "missing.OwnerService")
         }
     }
 
-    @Test fun delayedReadsCannotChangeAReboundButton() {
+    fun delayedReadsCannotChangeAReboundButton() {
         val h = Harness()
         h.bind(Config(42, OwnerCallback(), null))
         h.bind(Config(99, OwnerCallback(), null))
@@ -113,7 +113,7 @@ class GuestVideoFollowInitialStateTest {
         assertNull(h.button.secondary)
     }
 
-    @Test fun otherPagesAndLoginChangesDoNotReceiveGuestState() {
+    fun otherPagesAndLoginChangesDoNotReceiveGuestState() {
         val h = Harness()
         h.bind(Config(42, OtherCallback(), false))
         assertTrue(h.source.requests.isEmpty())
@@ -125,5 +125,19 @@ class GuestVideoFollowInitialStateTest {
         assertEquals(0, h.button.updates)
         h.bind(Config(99, OwnerCallback(), false))
         assertEquals(1, h.source.requests.size)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestVideoFollowInitialStateTest) -> Unit) {
+            val s = GuestVideoFollowInitialStateTest()
+            block(s)
+        }
+        runIsolated { s -> s.localFollowStateUpdatesTheOwnerButtonAndPreservesItsGuestFlag() }
+        runIsolated { s -> s.legacyOwnerCallbackReceivesTheLocalState() }
+        runIsolated { s -> s.renamedOwnerCallbackReceivesLocalStateWithoutMatchingOtherCallbacks() }
+        runIsolated { s -> s.missingOwnerServiceAndKnownCallbacksDoNotInstallInitialStateHook() }
+        runIsolated { s -> s.delayedReadsCannotChangeAReboundButton() }
+        runIsolated { s -> s.otherPagesAndLoginChangesDoNotReceiveGuestState() }
     }
 }

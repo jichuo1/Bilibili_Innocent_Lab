@@ -22,7 +22,7 @@ class IncognitoTelemetryHooksTest {
         }.key
     }
 
-    @Test fun eventProducersCannotEnqueueOrEvaluateUploadConditions() {
+    fun eventProducersCannotEnqueueOrEvaluateUploadConditions() {
         val h = Harness()
         var originalCalls = 0
         var conditionCalls = 0
@@ -39,7 +39,7 @@ class IncognitoTelemetryHooksTest {
         assertFalse(h.registrar.hooks.values.any { it.member.name in listOf("initialize", "reportCountAfterLastFetch") })
     }
 
-    @Test fun uuidRefreshNeverReadsOrWritesPersistentIdentity() {
+    fun uuidRefreshNeverReadsOrWritesPersistentIdentity() {
         val h = Harness()
         var originalCalls = 0
         fun read() = h.registrar.invoke(h.id("getUUID"), Neurons()) { originalCalls++; "persistent" }
@@ -50,5 +50,15 @@ class IncognitoTelemetryHooksTest {
         assertNotEquals(first, read())
         assertEquals(h.session.identity()!!.sessionId, read())
         assertEquals(0, originalCalls)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (IncognitoTelemetryHooksTest) -> Unit) {
+            val s = IncognitoTelemetryHooksTest()
+            block(s)
+        }
+        runIsolated { s -> s.eventProducersCannotEnqueueOrEvaluateUploadConditions() }
+        runIsolated { s -> s.uuidRefreshNeverReadsOrWritesPersistentIdentity() }
     }
 }

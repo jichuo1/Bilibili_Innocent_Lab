@@ -38,7 +38,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         .also { assertEquals(CHANNEL, it.first) }
         .second
 
-    @Test
     fun `skips when disabled`() {
         val result = PlayerInteractiveOverlayFeatureInstaller(
             enabled = false,
@@ -59,7 +58,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         assertEquals(listOf(CHANNEL to "disabled"), statuses)
     }
 
-    @Test
     fun `skips when adapter points are missing`() {
         val result = PlayerInteractiveOverlayFeatureInstaller(
             enabled = true,
@@ -70,7 +68,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         assertEquals(listOf(CHANNEL to "missing-adapter-point"), statuses)
     }
 
-    @Test
     fun `reports success when every coverage unit installs`() {
         val points = locatedPoints()
         val result = PlayerInteractiveOverlayFeatureInstaller(
@@ -83,7 +80,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         assertEquals("success", status())
     }
 
-    @Test
     fun `a family whose whitelist cannot resolve is reported as partial`() {
         val points = locatedPoints()
         val broken = points.copy(
@@ -112,7 +108,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         assertEquals("partial:22/28", status())
     }
 
-    @Test
     fun `command danmaku is not claimed when neither getter rewrite nor moss clear works`() {
         val points = locatedPoints()
         val stranded = points.copy(
@@ -132,7 +127,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         assertEquals("partial:24/28", status())
     }
 
-    @Test
     fun `command danmaku falls back to the moss boundary when the default instance is missing`() {
         val points = locatedPoints()
         val fallback = points.copy(commandDefault = null)
@@ -151,5 +145,19 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
 
     private companion object {
         const val CHANNEL = "player_interactive_overlay_status"
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerInteractiveOverlayFeatureInstallerTest) -> Unit) {
+            val s = PlayerInteractiveOverlayFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`skips when disabled`() }
+        runIsolated { s -> s.`skips when adapter points are missing`() }
+        runIsolated { s -> s.`reports success when every coverage unit installs`() }
+        runIsolated { s -> s.`a family whose whitelist cannot resolve is reported as partial`() }
+        runIsolated { s -> s.`command danmaku is not claimed when neither getter rewrite nor moss clear works`() }
+        runIsolated { s -> s.`command danmaku falls back to the moss boundary when the default instance is missing`() }
     }
 }

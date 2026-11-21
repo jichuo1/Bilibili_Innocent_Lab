@@ -8,7 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameThermalControlContractTest {
-    @Test fun `the confirmed preference reaches both player processes with protection on by default`() {
+    fun `the confirmed preference reaches both player processes with protection on by default`() {
         val entry = SourceContract.read("hook/HookEntry.kt").after("FrameInterpolationFeatureInstaller(")
             .before("featureInstallCoordinator.installAll(")
         assertTrue(entry.contains("disableThermalControl = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, false)"))
@@ -21,7 +21,7 @@ class FrameThermalControlContractTest {
         assertTrue(temperature.contains("FrameThermalControl.pauseHeadroom(host.thermalControlEnabled()) { power?.thermalHeadroom(now) }"))
     }
 
-    @Test fun `a switch request rolls back before confirming and only confirmation enables bypass`() {
+    fun `a switch request rolls back before confirming and only confirmation enables bypass`() {
         val ui = SourceContract.read("ui/activity/PlayerFrameInterpolationPresenter.kt")
             .after("val thermalKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL")
             .before("val statusKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST")
@@ -49,5 +49,15 @@ class FrameThermalControlContractTest {
         val confirm = dialog.after("R.string.player_frame_thermal_confirm_accept").before("container.addView(buttons)")
         assertTrue(confirm.contains("dismissWithAnimation(dialog, container) { onConfirm() }"))
         assertFalse(dialog.contains("putBoolean("))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameThermalControlContractTest) -> Unit) {
+            val s = FrameThermalControlContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`the confirmed preference reaches both player processes with protection on by default`() }
+        runIsolated { s -> s.`a switch request rolls back before confirming and only confirmation enables bypass`() }
     }
 }

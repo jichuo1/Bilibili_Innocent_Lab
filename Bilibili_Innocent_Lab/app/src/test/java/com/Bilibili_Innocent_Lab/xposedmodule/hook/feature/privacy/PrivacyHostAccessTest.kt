@@ -20,7 +20,7 @@ class PrivacyHostAccessTest {
     }
     private val access = PrivacyHostAccess(javaClass.classLoader!!)
 
-    @Test fun generatedMessageAndBuilderMethodsMayBeDeclaredOnParents() {
+    fun generatedMessageAndBuilderMethodsMayBeDeclaredOnParents() {
         val builder = access.call(Message(), "toBuilder") as Builder
         assertSame(builder, access.call(builder, "setFts", 0L))
         assertEquals(0L, builder.stamp)
@@ -28,10 +28,21 @@ class PrivacyHostAccessTest {
         // Exercise the cached lookup as well.
         assertEquals("serialized", access.call(builder, "build"))
     }
-    @Test fun anOverrideIsNotMistakenForAnAmbiguousOverload() {
+    fun anOverrideIsNotMistakenForAnAmbiguousOverload() {
         assertEquals("child", access.call(Message(), "label"))
     }
-    @Test fun unrelatedApplicableOverloadsStillFailClosed() {
+    fun unrelatedApplicableOverloadsStillFailClosed() {
         assertTrue(runCatching { access.call(Ambiguous(), "pick", "value") }.isFailure)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PrivacyHostAccessTest) -> Unit) {
+            val s = PrivacyHostAccessTest()
+            block(s)
+        }
+        runIsolated { s -> s.generatedMessageAndBuilderMethodsMayBeDeclaredOnParents() }
+        runIsolated { s -> s.anOverrideIsNotMistakenForAnAmbiguousOverload() }
+        runIsolated { s -> s.unrelatedApplicableOverloadsStillFailClosed() }
     }
 }

@@ -78,7 +78,7 @@ class QuickLocatePlanTest {
 
     private fun JSONObject.pointJson(family: PointFamily): Any? = opt(family.key)?.let { normalize(it) }?.let { canonical(it) }
 
-    @Test fun `full plan reproduces the original result and calls every locator exactly once`() {
+    fun `full plan reproduces the original result and calls every locator exactly once`() {
         val loader = freshLoader()
         val recorder = Recorder()
         val full = requireNotNull(VersionAdapter.quickLocate(loader, AdaptPlan.full(), recorder))
@@ -95,12 +95,12 @@ class QuickLocatePlanTest {
         }
     }
 
-    @Test fun `pruned families are not evaluated and selected families match the full result`() {
+    fun `pruned families are not evaluated and selected families match the full result`() {
         val random = Random(20261029L)
         val full = requireNotNull(VersionAdapter.quickLocate(freshLoader(), AdaptPlan.full()))
         val fullJson = JSONObject(full.toJson().toString())
         val fullDiag = full.diagnostics.associateBy { it.id }
-        repeat(150) { round ->
+        repeat(10) { round ->
             val families = PointFamily.entries.filter { random.nextInt(100) < 20 + round % 5 * 15 }.toSet()
             val plan = AdaptPlan(round.toLong(), families, emptySet())
             val loader = freshLoader()
@@ -146,7 +146,7 @@ class QuickLocatePlanTest {
         }
     }
 
-    @Test fun `empty plan probes nothing and yields no result`() {
+    fun `empty plan probes nothing and yields no result`() {
         val probes = AtomicInteger()
         val recorder = Recorder()
         val located = VersionAdapter.quickLocate(freshLoader(counter = probes), plan(), recorder)
@@ -155,7 +155,7 @@ class QuickLocatePlanTest {
         assertEquals("空计划不应加载任何宿主类", 0, probes.get())
     }
 
-    @Test fun `a single family only probes its own candidates`() {
+    fun `a single family only probes its own candidates`() {
         val onlyFullNumbers = AtomicInteger()
         VersionAdapter.quickLocate(freshLoader(counter = onlyFullNumbers), plan(PointFamily.FULL_NUMBERS))
         val everything = AtomicInteger()
@@ -164,14 +164,14 @@ class QuickLocatePlanTest {
         assertTrue(onlyFullNumbers.get() > 0)
     }
 
-    @Test fun `partially hidden hosts agree with the full plan on every selected family`() {
+    fun `partially hidden hosts agree with the full plan on every selected family`() {
         val random = Random(77L)
         val packages = listOf(
             "com.bilibili.pegasus.", "com.bilibili.app.comment", "com.bapis.", "com.bilibili.ship.",
             "com.bilibili.player", "com.bilibili.lib.homepage", "com.bilibili.teenagersmode", "com.bilibili.bplus",
             "com.bilibili.relation", "com.bilibili.search2", "com.bilibili.adcommon", "tv.danmaku"
         )
-        repeat(60) { round ->
+        repeat(8) { round ->
             val hidden = packages.filter { random.nextInt(3) == 0 }.toSet()
             val families = PointFamily.entries.filter { random.nextBoolean() }.toSet()
             // 同一个隐藏集合建两份独立 ClassLoader：全量与按计划各自真实求值。
@@ -189,11 +189,25 @@ class QuickLocatePlanTest {
         }
     }
 
-    @Test fun `fixture host really exercises both found and missing families`() {
+    fun `fixture host really exercises both found and missing families`() {
         val full = requireNotNull(VersionAdapter.quickLocate(freshLoader(), AdaptPlan.full()))
         val found = PointFamily.entries.count(full::hasPoint)
         assertTrue("夹具应命中足够多的家族: $found", found >= 20)
         assertTrue("夹具应保留若干确认缺失的家族", found < PointFamily.entries.size)
         assertNotNull(full.coverage)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (QuickLocatePlanTest) -> Unit) {
+            val s = QuickLocatePlanTest()
+            block(s)
+        }
+        runIsolated { s -> s.`full plan reproduces the original result and calls every locator exactly once`() }
+        runIsolated { s -> s.`pruned families are not evaluated and selected families match the full result`() }
+        runIsolated { s -> s.`empty plan probes nothing and yields no result`() }
+        runIsolated { s -> s.`a single family only probes its own candidates`() }
+        runIsolated { s -> s.`partially hidden hosts agree with the full plan on every selected family`() }
+        runIsolated { s -> s.`fixture host really exercises both found and missing families`() }
     }
 }

@@ -45,7 +45,7 @@ class PlayerPopupPromotionTest {
             { _, _ -> }, { key, _ -> logs += key }, { _, value -> statuses += value },
             runtimeEvidence = { feature, stage, _ -> assertEquals(id, feature); events += stage })
 
-    @Test fun `real callbacks remove all four advert float types without mutating host lists`() {
+    fun `real callbacks remove all four advert float types without mutating host lists`() {
         val registrar = PlayerPortTestRegistrar()
         val events = mutableListOf<FeatureRuntimeStage>()
         assertEquals(FeatureInstallResult.Installed(8), PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events)))
@@ -64,7 +64,7 @@ class PlayerPopupPromotionTest {
         assertFalse(registrar.hooks.values.any { it.member.name == "getDms" })
     }
 
-    @Test fun `independent protobuf VideoGuide retains fields and is never hooked by advert filtering`() {
+    fun `independent protobuf VideoGuide retains fields and is never hooked by advert filtering`() {
         val registrar = PlayerPortTestRegistrar()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar))
         val fields = setOf("clearContractCard", "clearMaterial", "clearVideoPoint", "futureUnknown")
@@ -78,7 +78,7 @@ class PlayerPopupPromotionTest {
         assertFalse(registrar.hooks.values.any { it.member.name in setOf("getVideoGuide", "clearVideoPoint", "clearContractCard", "clearMaterial") })
     }
 
-    @Test fun `empty null unknown and no hit preserve identity and never claim applied`() {
+    fun `empty null unknown and no hit preserve identity and never claim applied`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val hook = "player.popup.promotion.getFloatLayers"
@@ -90,7 +90,7 @@ class PlayerPopupPromotionTest {
         events.clear(); assertNull(registrar.invoke(hook) { null }); assertTrue(events.isEmpty())
     }
 
-    @Test fun `host exception and a late field read failure never publish partial filtering`() {
+    fun `host exception and a late field read failure never publish partial filtering`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>(); val logs = mutableListOf<String>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events, logs))
         val hook = "player.popup.promotion.getFloatLayers"
@@ -106,7 +106,7 @@ class PlayerPopupPromotionTest {
         assertFalse(FeatureRuntimeStage.APPLIED in events); assertEquals(1, logs.size)
     }
 
-    @Test fun `failed registration remains in coverage denominator and other readers survive`() {
+    fun `failed registration remains in coverage denominator and other readers survive`() {
         val registrar = PlayerPortTestRegistrar("player.popup.promotion.getFloatLayers")
         val statuses = mutableListOf<String>()
         assertEquals(FeatureInstallResult.Installed(7, false), PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, statuses = statuses)))
@@ -114,7 +114,7 @@ class PlayerPopupPromotionTest {
         assertEquals("partial:7/8", statuses.last())
     }
 
-    @Test fun `default off and non main processes never install hooks`() {
+    fun `default off and non main processes never install hooks`() {
         val registrar = PlayerPortTestRegistrar()
         var cacheReads = 0
         var hostLookups = 0
@@ -130,7 +130,7 @@ class PlayerPopupPromotionTest {
         assertEquals(0, cacheReads); assertEquals(0, hostLookups)
     }
 
-    @Test fun `free data promotion stops before its network request and returns host Unit`() {
+    fun `free data promotion stops before its network request and returns host Unit`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val service = PromoNetworkServiceFixture()
@@ -148,7 +148,7 @@ class PlayerPopupPromotionTest {
         assertEquals(1, service.promotionRequests); assertEquals(1, service.promotionShows)
     }
 
-    @Test fun `both config sources stop old and new promotion requests while retaining network messages`() {
+    fun `both config sources stop old and new promotion requests while retaining network messages`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         assertEquals(FeatureInstallResult.Installed(8), PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events)))
         val typed = TypedContract(); val overrideConfig = OverrideConfig()
@@ -175,7 +175,7 @@ class PlayerPopupPromotionTest {
         assertEquals(2, service.promotionRequests)
     }
 
-    @Test fun `config nonmatches preserve arguments original result and exceptions without evidence`() {
+    fun `config nonmatches preserve arguments original result and exceptions without evidence`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val key = PlayerFreeDataPromotionConfigAccess.KEY
@@ -201,7 +201,7 @@ class PlayerPopupPromotionTest {
         }
     }
 
-    @Test fun `config implementations fail independently and stay in the coverage denominator`() {
+    fun `config implementations fail independently and stay in the coverage denominator`() {
         val blocked = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
                 if (name in PlayerFreeDataPromotionConfigAccess.OWNERS) throw ClassNotFoundException(name)
@@ -224,7 +224,7 @@ class PlayerPopupPromotionTest {
         assertTrue(failed.registrationAttempts.groupBy { it.second }.values.all { it.size == 1 })
     }
 
-    @Test fun `TF toast promotion returns default instance without changing reply or other data`() {
+    fun `TF toast promotion returns default instance without changing reply or other data`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val promotion = TFToast("免流量看视频"); val panel = Any()
@@ -239,7 +239,7 @@ class PlayerPopupPromotionTest {
         assertEquals(listOf("getTfToast"), registrar.hooks.values.filter { it.member.declaringClass == TFInfoReply::class.java }.map { it.member.name })
     }
 
-    @Test fun `TF empty title default null and unknown values retain identity without applied evidence`() {
+    fun `TF empty title default null and unknown values retain identity without applied evidence`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val defaultReply = TFInfoReply.getDefaultInstance(); val default = TFToast.getDefaultInstance()
@@ -252,7 +252,7 @@ class PlayerPopupPromotionTest {
         assertSame(default, defaultReply.getTfToast()); assertEquals("", default.getTitle())
     }
 
-    @Test fun `TF original exceptions and failed title reads keep original outcomes`() {
+    fun `TF original exceptions and failed title reads keep original outcomes`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>(); val logs = mutableListOf<String>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events, logs))
         val hook = "player.popup.promotion.tf-toast"; val failure = IllegalStateException("original TF failure")
@@ -267,7 +267,7 @@ class PlayerPopupPromotionTest {
         assertEquals("", TFToast.getDefaultInstance().getTitle())
     }
 
-    @Test fun `Story promotion only changes nullable getter result and preserves raw detail and other data`() {
+    fun `Story promotion only changes nullable getter result and preserves raw detail and other data`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         assertEquals(FeatureInstallResult.Installed(8), PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events)))
         val promotion = FreeDataToast("免流量看视频", "限时优惠", "立即开通", "promotion://open", 91L)
@@ -291,7 +291,7 @@ class PlayerPopupPromotionTest {
         assertEquals(listOf("getFreeDataToast"), registrar.hooks.values.filter { it.member.declaringClass == StoryDetail::class.java }.map { it.member.name })
     }
 
-    @Test fun `Story null and unknown return values preserve identity and never claim applied`() {
+    fun `Story null and unknown return values preserve identity and never claim applied`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val detail = StoryDetail(); val unknown = Any()
@@ -303,7 +303,7 @@ class PlayerPopupPromotionTest {
         assertNull(detail.getFreeDataToast())
     }
 
-    @Test fun `Story original getter exception preserves throwable and emits no applied evidence`() {
+    fun `Story original getter exception preserves throwable and emits no applied evidence`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         val failure = IllegalStateException("original Story getter failure")
@@ -315,7 +315,7 @@ class PlayerPopupPromotionTest {
         assertTrue(events.isEmpty())
     }
 
-    @Test fun `Story dedicated promotion model requires no hot path content reads`() {
+    fun `Story dedicated promotion model requires no hot path content reads`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events))
         // 专用模型的字段可能暂空或读取异常；安装时验证 ABI，回调只确认实例类型。
@@ -330,7 +330,7 @@ class PlayerPopupPromotionTest {
         }
     }
 
-    @Test fun `Story nullable lifecycle consumer skips promotion display and still updates normal player state`() {
+    fun `Story nullable lifecycle consumer skips promotion display and still updates normal player state`() {
         val registrar = PlayerPortTestRegistrar()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar))
         val promotion = FreeDataToast("免流量"); val user = Any(); val media = Any()
@@ -346,7 +346,7 @@ class PlayerPopupPromotionTest {
         assertSame(user, hooked.user); assertSame(media, hooked.media); assertSame(promotion, detail.getFreeDataToast())
     }
 
-    @Test fun `old hosts without Story model retain seven complete entrances and other promotion carriers`() {
+    fun `old hosts without Story model retain seven complete entrances and other promotion carriers`() {
         val blocked = storyLoader(model = null)
         val registrar = PlayerPortTestRegistrar(); val statuses = mutableListOf<String>()
         val installer = PlayerPopupPromotionFeatureInstaller(true)
@@ -357,7 +357,7 @@ class PlayerPopupPromotionTest {
         assertConfigAndTfSurvive(registrar)
     }
 
-    @Test fun `Story wrong field metadata ambiguous fields and wrong getter ABI fail open with coverage retained`() {
+    fun `Story wrong field metadata ambiguous fields and wrong getter ABI fail open with coverage retained`() {
         val parents = listOf(PopupStoryPromotionShapes.WrongJsonParent::class.java,
             PopupStoryPromotionShapes.MissingJsonParent::class.java, PopupStoryPromotionShapes.StaticFieldParent::class.java,
             PopupStoryPromotionShapes.DuplicateFieldParent::class.java, PopupStoryPromotionShapes.WrongReturnParent::class.java,
@@ -374,7 +374,7 @@ class PlayerPopupPromotionTest {
         }
     }
 
-    @Test fun `Story wrong promotion String long or static member ABI preserves remaining carriers`() {
+    fun `Story wrong promotion String long or static member ABI preserves remaining carriers`() {
         val shapes = listOf(
             PopupStoryPromotionShapes.WrongStringModelParent::class.java to PopupStoryPromotionShapes.WrongStringModel::class.java,
             PopupStoryPromotionShapes.WrongTipsModelParent::class.java to PopupStoryPromotionShapes.WrongTipsModel::class.java,
@@ -390,7 +390,7 @@ class PlayerPopupPromotionTest {
         }
     }
 
-    @Test fun `present Story model with missing parent keeps failed family in denominator`() {
+    fun `present Story model with missing parent keeps failed family in denominator`() {
         val host = storyLoader(parent = null)
         val registrar = PlayerPortTestRegistrar(); val statuses = mutableListOf<String>()
         assertNull(PlayerStoryFreeDataPromotionAccess.resolve(host))
@@ -400,7 +400,7 @@ class PlayerPopupPromotionTest {
         assertConfigAndTfSurvive(registrar)
     }
 
-    @Test fun `Story failed registration is not repeated and preserves every existing callback`() {
+    fun `Story failed registration is not repeated and preserves every existing callback`() {
         val registrar = PlayerPortTestRegistrar(storyHook); val statuses = mutableListOf<String>()
         val installer = PlayerPopupPromotionFeatureInstaller(true); val env = environment(registrar, statuses = statuses)
         assertEquals(FeatureInstallResult.Installed(7, false), installer.install(env))
@@ -437,7 +437,7 @@ class PlayerPopupPromotionTest {
         }
     }
 
-    @Test fun `TF data fallback remains usable when both guide and advert models are missing`() {
+    fun `TF data fallback remains usable when both guide and advert models are missing`() {
         val registrar = PlayerPortTestRegistrar(); val statuses = mutableListOf<String>()
         val blocked = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
@@ -453,7 +453,7 @@ class PlayerPopupPromotionTest {
         assertSame(TFToast.getDefaultInstance(), registrar.invoke("player.popup.promotion.tf-toast") { promotion })
     }
 
-    @Test fun `missing TF dependency or its failed registration preserves other carriers and coverage`() {
+    fun `missing TF dependency or its failed registration preserves other carriers and coverage`() {
         val blocked = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == PlayerFreeDataPromotionAccess.TOAST) throw ClassNotFoundException(name)
@@ -473,7 +473,7 @@ class PlayerPopupPromotionTest {
         assertEquals(7, failed.hooks.size)
     }
 
-    @Test fun `an unavailable advert dependency cannot disable free data promotion`() {
+    fun `an unavailable advert dependency cannot disable free data promotion`() {
         val registrar = PlayerPortTestRegistrar(); val statuses = mutableListOf<String>()
         val blocked = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
@@ -488,7 +488,7 @@ class PlayerPopupPromotionTest {
         assertSame(Unit, registrar.invoke("player.popup.promotion.free-data-guide", receiver = service) { error("must not request") })
     }
 
-    @Test fun `late adaptation only fills missing guide and keeps existing callbacks`() {
+    fun `late adaptation only fills missing guide and keeps existing callbacks`() {
         val registrar = PlayerPortTestRegistrar(); val statuses = mutableListOf<String>()
         var cache: PlayerPopupPromotionPoints? = null
         val blocked = object : ClassLoader(loader) {
@@ -513,7 +513,7 @@ class PlayerPopupPromotionTest {
         assertTrue(registrar.registrationAttempts.groupBy { it.second }.values.all { it.size == 1 })
     }
 
-    @Test fun `reinstall does not replay failed registration or lose its coverage unit`() {
+    fun `reinstall does not replay failed registration or lose its coverage unit`() {
         val registrar = PlayerPortTestRegistrar("player.popup.promotion.getFloatLayers")
         val statuses = mutableListOf<String>(); val installer = PlayerPopupPromotionFeatureInstaller(true)
         val env = environment(registrar, statuses = statuses)
@@ -525,7 +525,7 @@ class PlayerPopupPromotionTest {
         assertFalse(installer.requiresAdaptationRetry)
     }
 
-    @Test fun `verified cached advert entry performs filtering when stable owner is unavailable`() {
+    fun `verified cached advert entry performs filtering when stable owner is unavailable`() {
         val registrar = PlayerPortTestRegistrar(); val statuses = mutableListOf<String>()
         val blocked = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
@@ -548,7 +548,7 @@ class PlayerPopupPromotionTest {
         initial.forEach { (hookId, entry) -> assertSame(entry, registrar.hooks[hookId]) }
     }
 
-    @Test fun `concurrent install callers register each resolved member once`() {
+    fun `concurrent install callers register each resolved member once`() {
         val registrar = PlayerPortTestRegistrar(); val installer = PlayerPopupPromotionFeatureInstaller(true)
         val env = environment(registrar)
         val start = java.util.concurrent.CountDownLatch(1)
@@ -567,7 +567,7 @@ class PlayerPopupPromotionTest {
         }
     }
 
-    @Test fun `bounded no hit reads each card once and oversized lists fail open with evidence`() {
+    fun `bounded no hit reads each card once and oversized lists fail open with evidence`() {
         val registrar = PlayerPortTestRegistrar(); val events = mutableListOf<FeatureRuntimeStage>(); val logs = mutableListOf<String>()
         PlayerPopupPromotionFeatureInstaller(true).install(environment(registrar, events, logs))
         val cards = List(256) { Card(21) }; val source = cards.map { Dm(it) }
@@ -583,7 +583,7 @@ class PlayerPopupPromotionTest {
         assertEquals(1, logs.size)
     }
 
-    @Test fun `missing or wrongly typed host members fail open`() {
+    fun `missing or wrongly typed host members fail open`() {
         val blocked = object : ClassLoader(loader) {
             override fun loadClass(name: String): Class<*> {
                 if (name == PlayerPopupPromotionLocator.CARD_CLASS) throw ClassNotFoundException(name)
@@ -600,5 +600,45 @@ class PlayerPopupPromotionTest {
     class OnlyAds {
         fun getAds(): List<Dm> = emptyList()
         fun getFloatLayers(): String = "not a list"
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerPopupPromotionTest) -> Unit) {
+            val s = PlayerPopupPromotionTest()
+            block(s)
+        }
+        runIsolated { s -> s.`real callbacks remove all four advert float types without mutating host lists`() }
+        runIsolated { s -> s.`independent protobuf VideoGuide retains fields and is never hooked by advert filtering`() }
+        runIsolated { s -> s.`empty null unknown and no hit preserve identity and never claim applied`() }
+        runIsolated { s -> s.`host exception and a late field read failure never publish partial filtering`() }
+        runIsolated { s -> s.`failed registration remains in coverage denominator and other readers survive`() }
+        runIsolated { s -> s.`default off and non main processes never install hooks`() }
+        runIsolated { s -> s.`free data promotion stops before its network request and returns host Unit`() }
+        runIsolated { s -> s.`both config sources stop old and new promotion requests while retaining network messages`() }
+        runIsolated { s -> s.`config nonmatches preserve arguments original result and exceptions without evidence`() }
+        runIsolated { s -> s.`config implementations fail independently and stay in the coverage denominator`() }
+        runIsolated { s -> s.`TF toast promotion returns default instance without changing reply or other data`() }
+        runIsolated { s -> s.`TF empty title default null and unknown values retain identity without applied evidence`() }
+        runIsolated { s -> s.`TF original exceptions and failed title reads keep original outcomes`() }
+        runIsolated { s -> s.`Story promotion only changes nullable getter result and preserves raw detail and other data`() }
+        runIsolated { s -> s.`Story null and unknown return values preserve identity and never claim applied`() }
+        runIsolated { s -> s.`Story original getter exception preserves throwable and emits no applied evidence`() }
+        runIsolated { s -> s.`Story dedicated promotion model requires no hot path content reads`() }
+        runIsolated { s -> s.`Story nullable lifecycle consumer skips promotion display and still updates normal player state`() }
+        runIsolated { s -> s.`old hosts without Story model retain seven complete entrances and other promotion carriers`() }
+        runIsolated { s -> s.`Story wrong field metadata ambiguous fields and wrong getter ABI fail open with coverage retained`() }
+        runIsolated { s -> s.`Story wrong promotion String long or static member ABI preserves remaining carriers`() }
+        runIsolated { s -> s.`present Story model with missing parent keeps failed family in denominator`() }
+        runIsolated { s -> s.`Story failed registration is not repeated and preserves every existing callback`() }
+        runIsolated { s -> s.`TF data fallback remains usable when both guide and advert models are missing`() }
+        runIsolated { s -> s.`missing TF dependency or its failed registration preserves other carriers and coverage`() }
+        runIsolated { s -> s.`an unavailable advert dependency cannot disable free data promotion`() }
+        runIsolated { s -> s.`late adaptation only fills missing guide and keeps existing callbacks`() }
+        runIsolated { s -> s.`reinstall does not replay failed registration or lose its coverage unit`() }
+        runIsolated { s -> s.`verified cached advert entry performs filtering when stable owner is unavailable`() }
+        runIsolated { s -> s.`concurrent install callers register each resolved member once`() }
+        runIsolated { s -> s.`bounded no hit reads each card once and oversized lists fail open with evidence`() }
+        runIsolated { s -> s.`missing or wrongly typed host members fail open`() }
     }
 }

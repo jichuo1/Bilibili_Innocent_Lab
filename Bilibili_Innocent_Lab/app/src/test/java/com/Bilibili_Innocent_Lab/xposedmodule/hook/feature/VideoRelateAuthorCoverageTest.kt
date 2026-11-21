@@ -47,7 +47,7 @@ class VideoRelateAuthorCoverageTest {
         fun filter(source: List<*>) = registrar.items("video.relate.response.0", Relates(), source)
     }
 
-    @Test fun currentAndLegacyAuthorPathsSurviveSerialization() {
+    fun currentAndLegacyAuthorPathsSurviveSerialization() {
         val located = requireNotNull(VersionAdapter.locateVideoRelate(loader))
         val restored = VersionAdapter.VideoRelatePoints.fromJson(located.toJson())
         assertEquals(setOf(listOf("getAuthor", "getName"), listOf("getBasicInfo", "getAuthor", "getTitle")),
@@ -56,7 +56,7 @@ class VideoRelateAuthorCoverageTest {
             restored.authorMidChains.map { it.steps.map { point -> point.methodName } }.toSet())
     }
 
-    @Test fun nestedOwnerMidRemovesOnlyTheExactPublicUid() {
+    fun nestedOwnerMidRemovesOnlyTheExactPublicUid() {
         val target = card("public author", 208259L)
         val prefix = card("another author", 20825L)
         val suffix = card("another author", 1208259L)
@@ -69,7 +69,7 @@ class VideoRelateAuthorCoverageTest {
         assertFalse(h.runtime.any { it.first == "video_related_tag_block" || it.second == FeatureRuntimeStage.ERROR })
     }
 
-    @Test fun nestedOwnerDisplayNameMatchesExactlyWithoutUsingCardTitles() {
+    fun nestedOwnerDisplayNameMatchesExactlyWithoutUsingCardTitles() {
         val target = card("  PublicAuthor  ", 208259L)
         val prefix = card("PublicAuthorExtra", 10L)
         val suffix = card("OtherPublicAuthor", 20L)
@@ -80,7 +80,7 @@ class VideoRelateAuthorCoverageTest {
         assertFalse(h.runtime.any { it.first == "video_related_author_block" && it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun absentAndUnreadableOwnersRemainWhileReadableNamesCanStillMatch() {
+    fun absentAndUnreadableOwnersRemainWhileReadableNamesCanStillMatch() {
         val noOwner = RelateCard()
         val unreadableOwner = object : RelateCard() {
             override fun getBasicInfo(): CardBasicInfo = error("unreadable basic info")
@@ -93,7 +93,7 @@ class VideoRelateAuthorCoverageTest {
         assertEquals(emptyList<Any>(), Harness("publicauthor").filter(listOf(card("PublicAuthor", unreadable = true))))
     }
 
-    @Test fun directLegacyAuthorNameAndMidContinueToFilter() {
+    fun directLegacyAuthorNameAndMidContinueToFilter() {
         val target = object : Relate() {
             override fun getAuthor() = Author(208259L, "LegacyAuthor")
         }
@@ -101,5 +101,18 @@ class VideoRelateAuthorCoverageTest {
         for (rule in listOf("legacyauthor", "208259")) {
             assertEquals(listOf(other), Harness(rule).filter(listOf(target, other)))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VideoRelateAuthorCoverageTest) -> Unit) {
+            val s = VideoRelateAuthorCoverageTest()
+            block(s)
+        }
+        runIsolated { s -> s.currentAndLegacyAuthorPathsSurviveSerialization() }
+        runIsolated { s -> s.nestedOwnerMidRemovesOnlyTheExactPublicUid() }
+        runIsolated { s -> s.nestedOwnerDisplayNameMatchesExactlyWithoutUsingCardTitles() }
+        runIsolated { s -> s.absentAndUnreadableOwnersRemainWhileReadableNamesCanStillMatch() }
+        runIsolated { s -> s.directLegacyAuthorNameAndMidContinueToFilter() }
     }
 }

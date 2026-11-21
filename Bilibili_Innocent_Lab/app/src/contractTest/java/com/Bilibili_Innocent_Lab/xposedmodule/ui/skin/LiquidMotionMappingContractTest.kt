@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidMotionMappingContractTest {
-    @Test fun modalControlsUseSharedSelectionAndStretchGeometry() {
+    fun modalControlsUseSharedSelectionAndStretchGeometry() {
         val main = SourceContract.read("ui/activity/MainActivity.kt")
             .after("internal fun createSkinSlidingSelection(").before("internal fun createGitHubMenuRow(")
         assertTrue(main.contains("LumenSlidingSelection("))
@@ -25,7 +25,7 @@ class LiquidMotionMappingContractTest {
         assertTrue(renderer.contains("stretchCoordinates.resolve(host, root, stretchSampling)"))
     }
 
-    @Test fun preparedModalsDelegateBoundedScrollAndStretchToTheEngine() {
+    fun preparedModalsDelegateBoundedScrollAndStretchToTheEngine() {
         val presenter = SourceContract.read("ui/activity/MainActivity.kt")
             .after("stylePreparedSkinControls(container)").before("val density = resources.displayMetrics.density")
         assertTrue(presenter.contains("LumenPanelScroll.prepare(container)"))
@@ -34,7 +34,7 @@ class LiquidMotionMappingContractTest {
         assertTrue(bounded.contains("typealias MaxHeightScrollView = com.lumen.coacervation.engine.widget.LumenMaxHeightScrollView"))
     }
 
-    @Test fun mappingAndMaskShareTheRecordedFullTransform() {
+    fun mappingAndMaskShareTheRecordedFullTransform() {
         val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
         assertTrue(renderer.contains("surfaceCoordinates.sourceToTarget(screenTransform, root, surfaceToBackdrop)"))
         assertTrue(renderer.contains("surfaceCoordinates.localToScreen(view, footprint.screenTransform)"))
@@ -46,7 +46,7 @@ class LiquidMotionMappingContractTest {
         assertFalse(mask.contains("Path()"))
     }
 
-    @Test fun edgePullWithoutScrollSuppressesCaptureUntilTheExistingQuietRelease() {
+    fun edgePullWithoutScrollSuppressesCaptureUntilTheExistingQuietRelease() {
         val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
         val stretch = renderer.after("private fun onStretchDistanceChanged(").before("override fun onTrimMemory(")
         assertTrue(stretch.contains("stretchWindows.updateForScrollHost(scrollHost, distance, next, nextDir)"))
@@ -58,5 +58,17 @@ class LiquidMotionMappingContractTest {
         assertTrue(viewport.contains("if (nativeStretch) super.draw(canvas)"))
         assertTrue(stretch.contains("flushSurfaceRefresh(windowRoot)"))
         assertTrue(stretch.contains("if (windowRoot === boundRoot?.rootView)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidMotionMappingContractTest) -> Unit) {
+            val s = LiquidMotionMappingContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.modalControlsUseSharedSelectionAndStretchGeometry() }
+        runIsolated { s -> s.preparedModalsDelegateBoundedScrollAndStretchToTheEngine() }
+        runIsolated { s -> s.mappingAndMaskShareTheRecordedFullTransform() }
+        runIsolated { s -> s.edgePullWithoutScrollSuppressesCaptureUntilTheExistingQuietRelease() }
     }
 }

@@ -62,7 +62,7 @@ class HomeSurfaceDiagnosticsTest {
         VersionAdapter.HookPoint(Fragment::class.java.name, "onViewCreated", listOf(View::class.java.name)),
         VersionAdapter.HookPoint(Fragment::class.java.name, "getParentFragment", emptyList()))
 
-    @Test fun legacyTabRegistrationIsNotApplicationAndTheActualConsumedListReportsRemovalCount() {
+    fun legacyTabRegistrationIsNotApplicationAndTheActualConsumedListReportsRemovalCount() {
         val h = Harness()
         HomeTabFilterFeatureInstaller("隐藏", points = VersionAdapter.HomeTabPoints(
             VersionAdapter.HookPoint(Tabs::class.java.name, "build", listOf(List::class.java.name)),
@@ -79,7 +79,7 @@ class HomeSurfaceDiagnosticsTest {
         assertEquals(1, h.evidence.single { it.second == FeatureRuntimeStage.APPLIED }.third)
     }
 
-    @Test fun emptyLegacyQueryStillCountsAsObservedWithoutClaimingAnAppliedChange() {
+    fun emptyLegacyQueryStillCountsAsObservedWithoutClaimingAnAppliedChange() {
         val h = Harness()
         HomeTabFilterFeatureInstaller("", points = VersionAdapter.HomeTabPoints(
             VersionAdapter.HookPoint(Tabs::class.java.name, "build", listOf(List::class.java.name)),
@@ -91,7 +91,7 @@ class HomeSurfaceDiagnosticsTest {
         assertFalse(h.evidence.any { it.second == FeatureRuntimeStage.APPLIED })
     }
 
-    @Test fun componentReportsApplicationOnlyAfterItChangesActualVisibility() {
+    fun componentReportsApplicationOnlyAfterItChangesActualVisibility() {
         val h = Harness()
         HomeComponentFilterFeatureInstaller("CandidateComponent", points = componentPoints()).install(h.environment)
         assertTrue("home_component_filter_status" to "installed:mode=filter+scan" in h.statuses)
@@ -106,7 +106,7 @@ class HomeSurfaceDiagnosticsTest {
         assertTrue(h.statuses.none { "CandidateComponent" in it.second })
     }
 
-    @Test fun componentScanAndAnAlreadyHiddenNativeViewNeverClaimApplied() {
+    fun componentScanAndAnAlreadyHiddenNativeViewNeverClaimApplied() {
         for ((rules, visibility) in listOf("" to View.VISIBLE, "CandidateComponent" to View.GONE)) {
             val h = Harness()
             HomeComponentFilterFeatureInstaller(rules, points = componentPoints()).install(h.environment)
@@ -118,7 +118,7 @@ class HomeSurfaceDiagnosticsTest {
         }
     }
 
-    @Test fun tabhostReportsOneActuallyChangedSlotWithoutClaimingTheWholeMatchedList() {
+    fun tabhostReportsOneActuallyChangedSlotWithoutClaimingTheWholeMatchedList() {
         val h = Harness()
         val host = com.bilibili.lib.homepage.widget.TabHost()
         val keep = com.bilibili.lib.homepage.widget.TabHost.h().also { it.name = "保留"; it.uri = "bili://keep" }
@@ -139,5 +139,18 @@ class HomeSurfaceDiagnosticsTest {
         assertTrue("bottom_bar_status" to "observed:path=tabhost,count=2" in h.statuses)
         assertTrue("bottom_bar_status" to "applied:path=tabhost,count=1" in h.statuses)
         assertEquals(1, h.evidence.single { it.second == FeatureRuntimeStage.APPLIED }.third)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeSurfaceDiagnosticsTest) -> Unit) {
+            val s = HomeSurfaceDiagnosticsTest()
+            block(s)
+        }
+        runIsolated { s -> s.legacyTabRegistrationIsNotApplicationAndTheActualConsumedListReportsRemovalCount() }
+        runIsolated { s -> s.emptyLegacyQueryStillCountsAsObservedWithoutClaimingAnAppliedChange() }
+        runIsolated { s -> s.componentReportsApplicationOnlyAfterItChangesActualVisibility() }
+        runIsolated { s -> s.componentScanAndAnAlreadyHiddenNativeViewNeverClaimApplied() }
+        runIsolated { s -> s.tabhostReportsOneActuallyChangedSlotWithoutClaimingTheWholeMatchedList() }
     }
 }

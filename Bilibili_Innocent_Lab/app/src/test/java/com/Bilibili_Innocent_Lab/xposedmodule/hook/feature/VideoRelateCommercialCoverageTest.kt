@@ -85,7 +85,7 @@ class VideoRelateCommercialCoverageTest {
             runtime.filter { it.first == id && it.second == stage }.sumOf { it.third }
     }
 
-    @Test fun explicitCommercialPayloadWorksWithoutEnhancementOrStrongMode() {
+    fun explicitCommercialPayloadWorksWithoutEnhancementOrStrongMode() {
         for (type in listOf("CM", "SPECIAL")) {
             val h = Harness(setOf(type))
             val normal = Card()
@@ -95,7 +95,7 @@ class VideoRelateCommercialCoverageTest {
         }
     }
 
-    @Test fun normalFeedbackIsNotPromotedToCommercialEvidenceOutsideStrongMode() {
+    fun normalFeedbackIsNotPromotedToCommercialEvidenceOutsideStrongMode() {
         for (enhancement in listOf(false, true)) {
             val h = Harness(setOf("CM"), enhancement = enhancement)
             val source = listOf(Card(feedback = true))
@@ -103,7 +103,7 @@ class VideoRelateCommercialCoverageTest {
         }
     }
 
-    @Test fun strongModeDoesNotTreatOrdinaryFeedbackMenusAsCommercialPayloads() {
+    fun strongModeDoesNotTreatOrdinaryFeedbackMenusAsCommercialPayloads() {
         val h = Harness(emptySet(), enhancement = true, strong = true)
         val coinReason = Card(feedback = true, reason = "10万投币")
         val likeReason = Card(feedback = true, reason = "5万点赞")
@@ -114,33 +114,33 @@ class VideoRelateCommercialCoverageTest {
         assertEquals(0, h.count("video_related_commercial_removed"))
     }
 
-    @Test fun gameOnlyDoesNotAcquireCommercialRemovalFromAnotherDimension() {
+    fun gameOnlyDoesNotAcquireCommercialRemovalFromAnotherDimension() {
         val h = Harness(setOf("GAME"))
         val source = listOf(Card(stock = true))
         assertSame(source, h.filter(source))
     }
 
-    @Test fun payloadFallbackContinuesWhenTypeReadersAreMissing() {
+    fun payloadFallbackContinuesWhenTypeReadersAreMissing() {
         val h = Harness(setOf("CM"), typeReaders = false)
         assertTrue(h.result is FeatureInstallResult.Installed)
         val normal = Card()
         assertEquals(listOf(normal), h.filter(listOf(Card(stock = true), normal)))
     }
 
-    @Test fun failingPayloadReaderDoesNotRemoveUnknownVideo() {
+    fun failingPayloadReaderDoesNotRemoveUnknownVideo() {
         val h = Harness(setOf("CM"))
         val source = listOf(Card(failStock = true))
         assertSame(source, h.filter(source))
     }
 
-    @Test fun missingPayloadReaderReportsPartialButTypedCommercialFilteringContinues() {
+    fun missingPayloadReaderReportsPartialButTypedCommercialFilteringContinues() {
         val h = Harness(setOf("CM"), missingStockReader = true)
         assertTrue(h.statuses.single().contains("missing-commercial-payload-accessor"))
         val normal = Card()
         assertEquals(listOf(normal), h.filter(listOf(Card(case = RelateCard.CardCase.CM), normal)))
     }
 
-    @Test fun mixedTypedRemovalsReportOnlyTheirActualCauses() {
+    fun mixedTypedRemovalsReportOnlyTheirActualCauses() {
         val h = Harness(linkedSetOf("CM", "GAME", "COURSE"))
         val normal = Card()
         assertEquals(listOf(normal), h.filter(listOf(Card(case = RelateCard.CardCase.CM),
@@ -151,14 +151,14 @@ class VideoRelateCommercialCoverageTest {
         assertEquals(1, h.count("video_related_commercial_removed", FeatureRuntimeStage.OBSERVED))
     }
 
-    @Test fun unmatchedEnabledTypesRemainWithoutRuntimeEvidence() {
+    fun unmatchedEnabledTypesRemainWithoutRuntimeEvidence() {
         val h = Harness(setOf("CM", "GAME"))
         val source = listOf(Card())
         assertSame(source, h.filter(source))
         assertFalse(h.runtime.any { it.first.startsWith("video_related_") })
     }
 
-    @Test fun commercialPayloadUsesTheEnabledRemovalDimension() {
+    fun commercialPayloadUsesTheEnabledRemovalDimension() {
         for ((type, capability) in listOf("CM" to "video_related_commercial_removed",
             "SPECIAL" to "video_related_special_removed")) {
             val h = Harness(setOf(type))
@@ -169,7 +169,7 @@ class VideoRelateCommercialCoverageTest {
         }
     }
 
-    @Test fun strongOnlyPayloadDoesNotClaimCommercialOrMatchingHits() {
+    fun strongOnlyPayloadDoesNotClaimCommercialOrMatchingHits() {
         val h = Harness(emptySet(), enhancement = true, strong = true)
         assertTrue(h.filter(listOf(Card(stock = true))).isEmpty())
         assertEquals(1, h.count("video_related_strong_mode_enabled"))
@@ -177,14 +177,14 @@ class VideoRelateCommercialCoverageTest {
         assertEquals(0, h.count("video_related_matching_enhancement_enabled"))
     }
 
-    @Test fun numericRemovalDoesNotClaimAnEnabledType() {
+    fun numericRemovalDoesNotClaimAnEnabledType() {
         val h = Harness(setOf("CM"), minDuration = 10_000)
         assertTrue(h.filter(listOf(Card())).isEmpty())
         assertEquals(1, h.count("video_related_duration_filter"))
         assertEquals(0, h.count("video_related_commercial_removed"))
     }
 
-    @Test fun failedWritebackMarksOnlyMatchedCausesAndPreservesGetterFiltering() {
+    fun failedWritebackMarksOnlyMatchedCausesAndPreservesGetterFiltering() {
         val h = Harness(setOf("CM", "GAME"))
         val normal = Card()
         repeat(2) {
@@ -194,5 +194,26 @@ class VideoRelateCommercialCoverageTest {
         assertEquals(2, h.count("video_related_commercial_removed"))
         assertEquals(0, h.count("video_related_game_removed", FeatureRuntimeStage.ERROR))
         assertEquals(0, h.count("video_related_game_removed"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VideoRelateCommercialCoverageTest) -> Unit) {
+            val s = VideoRelateCommercialCoverageTest()
+            block(s)
+        }
+        runIsolated { s -> s.explicitCommercialPayloadWorksWithoutEnhancementOrStrongMode() }
+        runIsolated { s -> s.normalFeedbackIsNotPromotedToCommercialEvidenceOutsideStrongMode() }
+        runIsolated { s -> s.strongModeDoesNotTreatOrdinaryFeedbackMenusAsCommercialPayloads() }
+        runIsolated { s -> s.gameOnlyDoesNotAcquireCommercialRemovalFromAnotherDimension() }
+        runIsolated { s -> s.payloadFallbackContinuesWhenTypeReadersAreMissing() }
+        runIsolated { s -> s.failingPayloadReaderDoesNotRemoveUnknownVideo() }
+        runIsolated { s -> s.missingPayloadReaderReportsPartialButTypedCommercialFilteringContinues() }
+        runIsolated { s -> s.mixedTypedRemovalsReportOnlyTheirActualCauses() }
+        runIsolated { s -> s.unmatchedEnabledTypesRemainWithoutRuntimeEvidence() }
+        runIsolated { s -> s.commercialPayloadUsesTheEnabledRemovalDimension() }
+        runIsolated { s -> s.strongOnlyPayloadDoesNotClaimCommercialOrMatchingHits() }
+        runIsolated { s -> s.numericRemovalDoesNotClaimAnEnabledType() }
+        runIsolated { s -> s.failedWritebackMarksOnlyMatchedCausesAndPreservesGetterFiltering() }
     }
 }

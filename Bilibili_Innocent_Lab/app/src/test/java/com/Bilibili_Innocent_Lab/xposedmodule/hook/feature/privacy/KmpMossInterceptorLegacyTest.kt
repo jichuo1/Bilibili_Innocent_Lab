@@ -56,7 +56,7 @@ class KmpMossInterceptorLegacyTest {
 
     private fun incognito() = IncognitoSession(run { var n = 0; { "id-${n++}" } }).also { it.enter() }
 
-    @Test fun localReplyCarriesTheRequestInTheFourArgResponse() {
+    fun localReplyCarriesTheRequestInTheFourArgResponse() {
         val chain = Chain(request("History", "CursorV2"))
         val response = interceptor(reply = { _, payload -> payload + 5 }).b(chain, continuation) as MossInterceptor.Response
         assertNull(chain.proceeded)
@@ -67,7 +67,7 @@ class KmpMossInterceptorLegacyTest {
         assertFalse(response.headers === (chain.request as RequestImpl).headers)
     }
 
-    @Test fun incognitoSealsThroughTheAccessorsAndProceeds() {
+    fun incognitoSealsThroughTheAccessorsAndProceeds() {
         val chain = Chain(request("Feed", "Index"))
         assertEquals("downstream", interceptor(session = incognito()).b(chain, continuation))
         val headers = (chain.proceeded as RequestImpl).headers
@@ -75,7 +75,7 @@ class KmpMossInterceptorLegacyTest {
         assertArrayEquals(byteArrayOf(1, 1), headers.binary["x-bili-metadata-bin"])
     }
 
-    @Test fun incognitoBlockedRpcAndFailureBothAnswerWithoutProceeding() {
+    fun incognitoBlockedRpcAndFailureBothAnswerWithoutProceeding() {
         val blocked = Chain(request("Report", "Heartbeat"))
         val empty = interceptor(session = incognito()).b(blocked, continuation) as MossInterceptor.Response
         assertNull(blocked.proceeded)
@@ -85,5 +85,16 @@ class KmpMossInterceptorLegacyTest {
         val error = interceptor(reply = { _, _ -> error("disk") }).b(failing, continuation) as MossInterceptor.Response
         assertNull(failing.proceeded)
         assertTrue(error.error is KMossException)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KmpMossInterceptorLegacyTest) -> Unit) {
+            val s = KmpMossInterceptorLegacyTest()
+            block(s)
+        }
+        runIsolated { s -> s.localReplyCarriesTheRequestInTheFourArgResponse() }
+        runIsolated { s -> s.incognitoSealsThroughTheAccessorsAndProceeds() }
+        runIsolated { s -> s.incognitoBlockedRpcAndFailureBothAnswerWithoutProceeding() }
     }
 }

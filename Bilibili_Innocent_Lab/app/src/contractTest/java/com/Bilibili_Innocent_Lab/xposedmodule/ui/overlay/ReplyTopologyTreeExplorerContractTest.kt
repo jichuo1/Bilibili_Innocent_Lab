@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReplyTopologyTreeExplorerContractTest {
-    @Test fun rootPackageComposeMenuItemRequiresTheVerifiedRendererSignature() {
+    fun rootPackageComposeMenuItemRequiresTheVerifiedRendererSignature() {
         val menu = SourceContract.read("hook/feature/ReplyTopologyComposeMenu.kt")
             .after("fun install(environment: HookEnvironment)")
             .before("private fun installLegacy(")
@@ -20,7 +20,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(menu.contains("source.any { !item.isInstance(it) }"))
     }
 
-    @Test fun compactRowsAndTracksShareOneBudgetAndNeverPaintOverText() {
+    fun compactRowsAndTracksShareOneBudgetAndNeverPaintOverText() {
         val adapter = SourceContract.read("ui/overlay/ReplyTopologyWorkflowAdapter.kt")
         assertTrue(adapter.contains("ReplyTopologyTrackLayout.resolve(w.toFloat(), density, resources.configuration.fontScale)"))
         assertTrue(adapter.contains("setPadding(layout.trackWidth.roundToInt()"))
@@ -31,7 +31,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(adapter.contains("strings.depthLabel(trueDepth)"))
     }
 
-    @Test fun fullTreeIsAvailableForEveryNonemptyGraphAndPathHasItsOwnAction() {
+    fun fullTreeIsAvailableForEveryNonemptyGraphAndPathHasItsOwnAction() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         assertTrue(panel.contains("workflowAdapter.hasCompressedDepth(layout.maxLane)"))
         assertTrue(panel.contains("fullTreeAvailable = (workflowAdapter.currentGraph()?.size ?: 0) > 0"))
@@ -46,7 +46,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(panel.contains("treeExplorer?.submit(snapshot.graph"))
     }
 
-    @Test fun fullTreeUsesVirtualCanvasAndOriginalGraphDepthsWithoutMassiveViews() {
+    fun fullTreeUsesVirtualCanvasAndOriginalGraphDepthsWithoutMassiveViews() {
         val layout = SourceContract.read("runtime/replytopology/ReplyTopologyTreeLayout.kt")
         assertTrue(layout.contains("graph.depths[index] - baseDepth"))
         assertFalse(layout.contains("coerceAtMost(7)"))
@@ -62,7 +62,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(canvas.contains("viewport.pan(-distanceX.toDouble(), -distanceY.toDouble())"))
     }
 
-    @Test fun callbacksAndGestureQueuesAreReleasedWhenTheWindowCloses() {
+    fun callbacksAndGestureQueuesAreReleasedWhenTheWindowCloses() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         assertTrue(panel.after("fun playExit").before("fun submit").contains("closeTreeExplorer()"))
         assertTrue(panel.after("fun releaseResources").before("override fun onDetachedFromWindow").contains("closeTreeExplorer()"))
@@ -81,7 +81,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(canvas.contains("HostThreadGuard.call(\"reply_topology.tree_accessibility\", false)"))
     }
 
-    @Test fun visibleRowsAndNearbyRowsArePreparedWithoutDoingTextLayoutInDraw() {
+    fun visibleRowsAndNearbyRowsArePreparedWithoutDoingTextLayoutInDraw() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         assertTrue(panel.contains("initialPrefetchItemCount = 8"))
         assertTrue(panel.contains("for (step in 1..4)"))
@@ -111,7 +111,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(panel.contains("viewer.submit(graph, rpid, initialPath = rpid.takeIf { path })"))
     }
 
-    @Test fun focusChangesKeepTheFullLayoutAndViewportAndRestoreCachedTextAlpha() {
+    fun focusChangesKeepTheFullLayoutAndViewportAndRestoreCachedTextAlpha() {
         val explorer = SourceContract.read("ui/overlay/ReplyTopologyTreeExplorer.kt")
         assertFalse(explorer.contains("pathIndex?.resolve("))
         assertFalse(explorer.contains("path.indexes"))
@@ -141,7 +141,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertFalse(draw.contains("StaticLayout.Builder"))
     }
 
-    @Test fun openingEitherTreeRequestsAllRepliesAndDisplaysCurrentStateAndControls() {
+    fun openingEitherTreeRequestsAllRepliesAndDisplaysCurrentStateAndControls() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         assertTrue(panel.after("fun updateState").before("fun setBackgroundOpacity").contains("treeExplorer?.updateState(state)"))
         val show = panel.after("private fun showTreeExplorer").before("private fun closeTreeExplorer")
@@ -157,7 +157,7 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(explorer.contains("retry = null; continueLoading = null"))
     }
 
-    @Test fun resizingRecomputesSizeBeforePositionAndFullViewUsesTheSourceWindow() {
+    fun resizingRecomputesSizeBeforePositionAndFullViewUsesTheSourceWindow() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         val listener = panel.after("private val parentLayoutListener").before("init {")
         assertTrue(listener.contains("updateDimensionsToParent()"))
@@ -169,5 +169,22 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(show.contains("it === this.parent && it.windowToken == windowToken"))
         assertTrue(show.contains("parent.addView(viewer, params)"))
         assertFalse(show.contains("SYSTEM_ALERT_WINDOW"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ReplyTopologyTreeExplorerContractTest) -> Unit) {
+            val s = ReplyTopologyTreeExplorerContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.rootPackageComposeMenuItemRequiresTheVerifiedRendererSignature() }
+        runIsolated { s -> s.compactRowsAndTracksShareOneBudgetAndNeverPaintOverText() }
+        runIsolated { s -> s.fullTreeIsAvailableForEveryNonemptyGraphAndPathHasItsOwnAction() }
+        runIsolated { s -> s.fullTreeUsesVirtualCanvasAndOriginalGraphDepthsWithoutMassiveViews() }
+        runIsolated { s -> s.callbacksAndGestureQueuesAreReleasedWhenTheWindowCloses() }
+        runIsolated { s -> s.visibleRowsAndNearbyRowsArePreparedWithoutDoingTextLayoutInDraw() }
+        runIsolated { s -> s.focusChangesKeepTheFullLayoutAndViewportAndRestoreCachedTextAlpha() }
+        runIsolated { s -> s.openingEitherTreeRequestsAllRepliesAndDisplaysCurrentStateAndControls() }
+        runIsolated { s -> s.resizingRecomputesSizeBeforePositionAndFullViewUsesTheSourceWindow() }
     }
 }

@@ -27,7 +27,7 @@ class LiveHookConfigStateTest {
     private fun identity(revision: Long = 1) = PublicationIdentity("installation", 1, revision, revision, "%064x".format(revision))
     private fun state(values: Map<String, Any> = base) = LiveHookConfigState(snapshot(values = values), identity())
 
-    @Test fun acceptedPublicationGenerationIsVisibleToTheAdaptationPlan() {
+    fun acceptedPublicationGenerationIsVisibleToTheAdaptationPlan() {
         val state = state()
         assertEquals(1L, state.revision)
         state.apply(snapshot(2, base + (P.DANMAKU_WEIGHT_FILTER_MINIMUM to 8)), identity(2), installed)
@@ -36,7 +36,7 @@ class LiveHookConfigStateTest {
         assertEquals(2L, state.revision)
     }
 
-    @Test fun installedValuesUpdateTogetherWhileStructuralChangesRemainDeferred() {
+    fun installedValuesUpdateTogetherWhileStructuralChangesRemainDeferred() {
         val state = state()
         val report = state.apply(snapshot(2, base + mapOf(HookEntry.PREF_FREE_COPY_LIGHT_MODE to true,
             P.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS to "new", P.DANMAKU_WEIGHT_FILTER_MINIMUM to 8,
@@ -47,7 +47,7 @@ class LiveHookConfigStateTest {
         assertFalse(state.getBoolean("structural", true)); assertEquals("old", base[P.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS])
     }
 
-    @Test fun missingInstallationEvidenceNeverBecomesAnAppliedValue() {
+    fun missingInstallationEvidenceNeverBecomesAnAppliedValue() {
         val state = state()
         val next = snapshot(2, base + (HookEntry.PREF_FREE_COPY_LIGHT_MODE to true))
         assertEquals("RESTART_REQUIRED", state.apply(next, identity(2), emptySet()).status)
@@ -55,7 +55,7 @@ class LiveHookConfigStateTest {
         assertEquals(1, state.apply(next, identity(2), installed).applied)
     }
 
-    @Test fun newHookFamiliesAndAutomaticLightCannotBeEnabledThroughValues() {
+    fun newHookFamiliesAndAutomaticLightCannotBeEnabledThroughValues() {
         val state = state(base + mapOf(HookEntry.PREF_FREE_COPY_ENABLED to false,
             P.REMOVE_VIP_COLORFUL_DANMAKU to false))
         val report = state.apply(snapshot(2, base + (HookEntry.PREF_FREE_COPY_AUTO_LIGHT to true)), identity(2), installed)
@@ -64,7 +64,7 @@ class LiveHookConfigStateTest {
         assertFalse(state.danmaku().colorful)
     }
 
-    @Test fun registeredCopyAndColourPathsCanBeDisabledAndRestoredWithoutChangingTheirPlan() {
+    fun registeredCopyAndColourPathsCanBeDisabledAndRestoredWithoutChangingTheirPlan() {
         val state = state()
         val off = base + mapOf(HookEntry.PREF_FREE_COPY_ENABLED to false, P.REMOVE_VIP_COLORFUL_DANMAKU to false)
         assertEquals(2, state.apply(snapshot(2, off), identity(2), installed).applied)
@@ -73,7 +73,7 @@ class LiveHookConfigStateTest {
         assertTrue(state.getBoolean(HookEntry.PREF_FREE_COPY_ENABLED, false)); assertTrue(state.danmaku().colorful)
     }
 
-    @Test fun invalidRangesAndTypesDoNotPartiallyApply() {
+    fun invalidRangesAndTypesDoNotPartiallyApply() {
         val state = state()
         val report = state.apply(snapshot(2, base + mapOf(P.RECOMMEND_VIDEO_MIN_DURATION_SECONDS to 99,
             P.RECOMMEND_VIDEO_MAX_PLAY_COUNT to "bad", P.DANMAKU_WEIGHT_FILTER_MINIMUM to 11)), identity(2), installed)
@@ -82,7 +82,7 @@ class LiveHookConfigStateTest {
         assertEquals(3, state.danmaku().minimum)
     }
 
-    @Test fun olderOrConflictingRevisionsCannotUndoNewerValues() {
+    fun olderOrConflictingRevisionsCannotUndoNewerValues() {
         val state = state()
         val next = snapshot(3, base + (P.DANMAKU_WEIGHT_FILTER_MINIMUM to 9))
         assertEquals(1, state.apply(next, identity(3), installed).applied)
@@ -92,7 +92,7 @@ class LiveHookConfigStateTest {
         assertEquals(9, state.danmaku().minimum)
     }
 
-    @Test fun changedInstallationConsentVersionOrAuthorizationRequiresColdStart() {
+    fun changedInstallationConsentVersionOrAuthorizationRequiresColdStart() {
         val state = state()
         val next = snapshot(2, base + (P.DANMAKU_WEIGHT_FILTER_MINIMUM to 9))
         for (id in listOf(identity(2).copy(incarnation = "new"), identity(2).copy(consentRevision = 2),
@@ -104,14 +104,14 @@ class LiveHookConfigStateTest {
         assertEquals(3, state.danmaku().minimum)
     }
 
-    @Test fun expirationAtCommitLeavesAllValuesUntouched() {
+    fun expirationAtCommitLeavesAllValuesUntouched() {
         val state = state()
         assertEquals("REJECTED", state.apply(snapshot(2, base + (P.DANMAKU_WEIGHT_FILTER_MINIMUM to 9)),
             identity(2), installed) { false }.status)
         assertEquals(3, state.danmaku().minimum)
     }
 
-    @Test fun lspatchUsesItsPublicationRevisionWithoutNpatchOptIn() {
+    fun lspatchUsesItsPublicationRevisionWithoutNpatchOptIn() {
         val initial = snapshot().copy(noRootRevision = 0)
         val state = LiveHookConfigState(initial, identity(), HostConfigChannel.LSPATCH)
         val next = snapshot(7, base + mapOf(HookEntry.PREF_FREE_COPY_LIGHT_MODE to true,
@@ -129,7 +129,7 @@ class LiveHookConfigStateTest {
         assertEquals("REJECTED", state.apply(next, identity(7).copy(fingerprint = "f".repeat(64)), installed).status)
     }
 
-    @Test fun liveChannelCannotAcceptAnotherCarriersDocumentOrStandardFramework() {
+    fun liveChannelCannotAcceptAnotherCarriersDocumentOrStandardFramework() {
         val changed = snapshot(2, base + (HookEntry.PREF_FREE_COPY_LIGHT_MODE to true))
         val lspatch = LiveHookConfigState(snapshot().copy(noRootRevision = 0), identity(), HostConfigChannel.LSPATCH)
         assertEquals("REJECTED", lspatch.apply(changed, identity(2), installed).status)
@@ -139,7 +139,7 @@ class LiveHookConfigStateTest {
         assertFalse(lspatch.getBoolean(HookEntry.PREF_FREE_COPY_LIGHT_MODE, false))
     }
 
-    @Test fun lspatchKeepsAuthorizationInstallationAndDeadlineBoundaries() {
+    fun lspatchKeepsAuthorizationInstallationAndDeadlineBoundaries() {
         val initial = snapshot().copy(noRootRevision = 0)
         val state = LiveHookConfigState(initial, identity(), HostConfigChannel.LSPATCH)
         val next = snapshot(2, base + (HookEntry.PREF_FREE_COPY_LIGHT_MODE to true)).copy(noRootRevision = 0)
@@ -156,7 +156,7 @@ class LiveHookConfigStateTest {
         assertFalse(state.getBoolean(HookEntry.PREF_FREE_COPY_LIGHT_MODE, false))
     }
 
-    @Test fun npatchCannotRegressThePublicationOrderWhileIncreasingSnapshotRevision() {
+    fun npatchCannotRegressThePublicationOrderWhileIncreasingSnapshotRevision() {
         val state = LiveHookConfigState(snapshot(5), identity(5))
         val next = snapshot(4, base + (HookEntry.PREF_FREE_COPY_LIGHT_MODE to true)).copy(noRootRevision = 6)
         assertEquals("REJECTED", state.apply(next, identity(4), installed).status)
@@ -165,7 +165,7 @@ class LiveHookConfigStateTest {
         assertEquals("REJECTED", invalidInitial.apply(snapshot(3), identity(3), installed).status)
     }
 
-    @Test fun concurrentReadersOnlySeeWholeImmutableRuleSets() {
+    fun concurrentReadersOnlySeeWholeImmutableRuleSets() {
         val state = state()
         val running = AtomicBoolean(true)
         val invalid = AtomicBoolean(false)
@@ -186,5 +186,27 @@ class LiveHookConfigStateTest {
             }
         } finally { running.set(false); reader.join(2_000) }
         assertFalse(reader.isAlive); assertFalse(invalid.get()); assertEquals(109, state.home().duration.maxSeconds)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiveHookConfigStateTest) -> Unit) {
+            val s = LiveHookConfigStateTest()
+            block(s)
+        }
+        runIsolated { s -> s.acceptedPublicationGenerationIsVisibleToTheAdaptationPlan() }
+        runIsolated { s -> s.installedValuesUpdateTogetherWhileStructuralChangesRemainDeferred() }
+        runIsolated { s -> s.missingInstallationEvidenceNeverBecomesAnAppliedValue() }
+        runIsolated { s -> s.newHookFamiliesAndAutomaticLightCannotBeEnabledThroughValues() }
+        runIsolated { s -> s.registeredCopyAndColourPathsCanBeDisabledAndRestoredWithoutChangingTheirPlan() }
+        runIsolated { s -> s.invalidRangesAndTypesDoNotPartiallyApply() }
+        runIsolated { s -> s.olderOrConflictingRevisionsCannotUndoNewerValues() }
+        runIsolated { s -> s.changedInstallationConsentVersionOrAuthorizationRequiresColdStart() }
+        runIsolated { s -> s.expirationAtCommitLeavesAllValuesUntouched() }
+        runIsolated { s -> s.lspatchUsesItsPublicationRevisionWithoutNpatchOptIn() }
+        runIsolated { s -> s.liveChannelCannotAcceptAnotherCarriersDocumentOrStandardFramework() }
+        runIsolated { s -> s.lspatchKeepsAuthorizationInstallationAndDeadlineBoundaries() }
+        runIsolated { s -> s.npatchCannotRegressThePublicationOrderWhileIncreasingSnapshotRevision() }
+        runIsolated { s -> s.concurrentReadersOnlySeeWholeImmutableRuleSets() }
     }
 }

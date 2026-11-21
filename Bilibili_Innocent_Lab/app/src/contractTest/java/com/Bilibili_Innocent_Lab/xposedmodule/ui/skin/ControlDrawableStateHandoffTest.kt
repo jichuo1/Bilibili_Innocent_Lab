@@ -24,7 +24,7 @@ class ControlDrawableStateHandoffTest {
         File("app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/$relative")
     ).firstOrNull(File::isFile)?.readText() ?: error("cannot locate $relative")
 
-    @Test fun theSkinControlPassRefreshesStateAfterSwappingDrawables() {
+    fun theSkinControlPassRefreshesStateAfterSwappingDrawables() {
         val activity = source("ui/skin/activity/SkinnedActivity.kt")
         val pass = activity.substringAfter("protected fun stylePreparedSkinControls(", "MISSING")
             .before("/** Shared modern controls")
@@ -39,7 +39,7 @@ class ControlDrawableStateHandoffTest {
         assertTrue("复选框换 drawable 后必须刷新状态", checkBoxBranch.contains("refreshDrawableState()"))
     }
 
-    @Test fun theSelfAppliedMonetStyleRefreshesStateToo() {
+    fun theSelfAppliedMonetStyleRefreshesStateToo() {
         val view = source("ui/view/MaterialSwitch.kt")
         val apply = view.substringAfter("private fun applyMonetStyle()", "MISSING")
             .before("    init {")
@@ -47,5 +47,15 @@ class ControlDrawableStateHandoffTest {
         assertTrue("弹窗里的开关自取 Monet 配色后同样要刷新状态",
             apply.contains("refreshDrawableState()"))
         assertTrue(apply.indexOf("trackDrawable = choice(") < apply.indexOf("refreshDrawableState()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ControlDrawableStateHandoffTest) -> Unit) {
+            val s = ControlDrawableStateHandoffTest()
+            block(s)
+        }
+        runIsolated { s -> s.theSkinControlPassRefreshesStateAfterSwappingDrawables() }
+        runIsolated { s -> s.theSelfAppliedMonetStyleRefreshesStateToo() }
     }
 }

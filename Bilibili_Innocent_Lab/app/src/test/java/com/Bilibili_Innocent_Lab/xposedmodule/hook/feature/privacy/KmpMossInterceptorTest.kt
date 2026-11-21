@@ -63,14 +63,14 @@ class KmpMossInterceptorTest {
 
     private fun incognito() = IncognitoSession(run { var n = 0; { "id-${n++}" } }).also { it.enter() }
 
-    @Test fun proxyAdvertisesAllProtocolsAndSortsLast() {
+    fun proxyAdvertisesAllProtocolsAndSortsLast() {
         val proxy = interceptor(null, Events())
         assertEquals(MossInterceptor.Protocol.ALL, proxy.a())
         assertEquals(Int.MAX_VALUE, proxy.priority)
         assertEquals(KmpMossInterceptor.NAME, proxy.name)
     }
 
-    @Test fun guestOnlySessionLeavesUnservedRequestsUntouched() {
+    fun guestOnlySessionLeavesUnservedRequestsUntouched() {
         val events = Events()
         val chain = Chain(request("History", "Other"))
         val result = interceptor(null, events, reply = { _, _ -> null }).b(chain, continuation)
@@ -81,7 +81,7 @@ class KmpMossInterceptorTest {
         assertTrue(events.replies.isEmpty() && events.sanitized == null)
     }
 
-    @Test fun localRpcIsAnsweredFromTheLibraryWithoutTouchingTheNetwork() {
+    fun localRpcIsAnsweredFromTheLibraryWithoutTouchingTheNetwork() {
         val events = Events()
         val chain = Chain(request("History", "CursorV2"))
         val response = interceptor(null, events, reply = { rpc, payload ->
@@ -94,7 +94,7 @@ class KmpMossInterceptorTest {
         assertEquals(listOf(true to "bilibili.app.test.v1.History/CursorV2"), events.replies)
     }
 
-    @Test fun libraryFailureIsAnErrorNotAFallbackToTheCloud() {
+    fun libraryFailureIsAnErrorNotAFallbackToTheCloud() {
         val events = Events()
         val chain = Chain(request("History", "CursorV2"))
         val response = interceptor(null, events, reply = { _, _ -> error("disk") }).b(chain, continuation) as MossInterceptor.Response
@@ -103,7 +103,7 @@ class KmpMossInterceptorTest {
         assertEquals(1, events.failures.size)
     }
 
-    @Test fun incognitoBlocksPolicyForbiddenRpcsWithAnEmptySuccess() {
+    fun incognitoBlocksPolicyForbiddenRpcsWithAnEmptySuccess() {
         val events = Events()
         val chain = Chain(request("Report", "Heartbeat"))
         val response = interceptor(incognito(), events).b(chain, continuation) as MossInterceptor.Response
@@ -113,7 +113,7 @@ class KmpMossInterceptorTest {
         assertEquals(listOf(false to "bilibili.app.test.v1.Report/Heartbeat"), events.replies)
     }
 
-    @Test fun incognitoSealsIdentityThenProceedsOnAllowedRpcs() {
+    fun incognitoSealsIdentityThenProceedsOnAllowedRpcs() {
         val events = Events()
         val chain = Chain(request("Feed", "Index"))
         val result = interceptor(incognito(), events).b(chain, continuation)
@@ -126,7 +126,7 @@ class KmpMossInterceptorTest {
         assertEquals(listOf("bilibili.app.test.v1.Feed/Index"), events.passed)
     }
 
-    @Test fun incognitoThatIsNotReadyBlocksEverything() {
+    fun incognitoThatIsNotReadyBlocksEverything() {
         val chain = Chain(request("Feed", "Index"))
         val response = interceptor(incognito(), Events(), ready = { false }).b(chain, continuation) as MossInterceptor.Response
         assertNull(chain.proceeded)
@@ -134,7 +134,7 @@ class KmpMossInterceptorTest {
         assertEquals("identify_v1 secret", (chain.request as RequestImpl).headers.ascii["authorization"])
     }
 
-    @Test fun sanitizerFailureFailsTheCallAndNeverSendsTheOriginal() {
+    fun sanitizerFailureFailsTheCallAndNeverSendsTheOriginal() {
         val events = Events()
         val failing = KmpHeaderSanitizer({ _, _ -> error("parse") }, { b, _ -> b })
         val chain = Chain(request("Feed", "Index"))
@@ -144,14 +144,14 @@ class KmpMossInterceptorTest {
         assertEquals(1, events.failures.size)
     }
 
-    @Test fun incognitoWithoutASanitizerCannotProceed() {
+    fun incognitoWithoutASanitizerCannotProceed() {
         val chain = Chain(request("Feed", "Index"))
         val response = interceptor(incognito(), Events(), sanitizer = null).b(chain, continuation) as MossInterceptor.Response
         assertNull(chain.proceeded)
         assertTrue(response.error is KMossException)
     }
 
-    @Test fun incognitoSessionThatEndedBlocksInsteadOfSendingAnonymousLooking() {
+    fun incognitoSessionThatEndedBlocksInsteadOfSendingAnonymousLooking() {
         val session = incognito().also { it.exit() }
         val chain = Chain(request("Feed", "Index"))
         val response = interceptor(session, Events()).b(chain, continuation) as MossInterceptor.Response
@@ -159,7 +159,7 @@ class KmpMossInterceptorTest {
         assertEquals(0, response.payload!!.size)
     }
 
-    @Test fun unrecognisedDescriptorIsBlockedInIncognitoAndPassesThroughForGuestOnly() {
+    fun unrecognisedDescriptorIsBlockedInIncognitoAndPassesThroughForGuestOnly() {
         val strategy = object : kotlinx.serialization.SerializationStrategy<String> {}
         fun unrecognised() = RequestImpl(Service("h"), object : Descriptor("p", "S", "M", String::class, strategy) {
             override fun toString() = "SomethingElse()"
@@ -172,5 +172,24 @@ class KmpMossInterceptorTest {
         // A guest-only session does not filter traffic, so an unnamed RPC simply goes through.
         val open = Chain(unrecognised())
         assertEquals("downstream", interceptor(null, Events(), reply = { _, _ -> error("not asked") }).b(open, continuation))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (KmpMossInterceptorTest) -> Unit) {
+            val s = KmpMossInterceptorTest()
+            block(s)
+        }
+        runIsolated { s -> s.proxyAdvertisesAllProtocolsAndSortsLast() }
+        runIsolated { s -> s.guestOnlySessionLeavesUnservedRequestsUntouched() }
+        runIsolated { s -> s.localRpcIsAnsweredFromTheLibraryWithoutTouchingTheNetwork() }
+        runIsolated { s -> s.libraryFailureIsAnErrorNotAFallbackToTheCloud() }
+        runIsolated { s -> s.incognitoBlocksPolicyForbiddenRpcsWithAnEmptySuccess() }
+        runIsolated { s -> s.incognitoSealsIdentityThenProceedsOnAllowedRpcs() }
+        runIsolated { s -> s.incognitoThatIsNotReadyBlocksEverything() }
+        runIsolated { s -> s.sanitizerFailureFailsTheCallAndNeverSendsTheOriginal() }
+        runIsolated { s -> s.incognitoWithoutASanitizerCannotProceed() }
+        runIsolated { s -> s.incognitoSessionThatEndedBlocksInsteadOfSendingAnonymousLooking() }
+        runIsolated { s -> s.unrecognisedDescriptorIsBlockedInIncognitoAndPassesThroughForGuestOnly() }
     }
 }

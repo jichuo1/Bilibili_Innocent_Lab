@@ -24,7 +24,7 @@ class TitleFreeCopyWiringContractTest {
         t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
     }.joinToString("\n")
 
-    @Test fun titleSwitchIsStartupOnlyAndDefaultsOff() {
+    fun titleSwitchIsStartupOnlyAndDefaultsOff() {
         val init = source().after("val initialDescriptionFreeCopyEnabled =").before("val commentFreeCopyInstallerRef =")
         assertTrue(init.contains("runtimeTitleFreeCopyEnabled = hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)"))
         // 标题声明为“重启宿主生效”，不能混进 NPatch 热应用的回调。
@@ -33,7 +33,7 @@ class TitleFreeCopyWiringContractTest {
         assertFalse(live.contains("runtimeTitleFreeCopyEnabled"))
     }
 
-    @Test fun bothSetTextHooksShareOneEntryAndTitleCannotBreakDescription() {
+    fun bothSetTextHooksShareOneEntryAndTitleCannotBreakDescription() {
         val hooks = source().after("val descTextHook = object").before("// 强覆盖：B 站官方对 desc")
         assertEquals(2, occurrences(hooks, "onDetailTextSet(v)"))
         assertTrue(hooks.contains("for (cn in TitleFreeCopyPolicy.WIDGET_CLASS_NAMES)"))
@@ -44,7 +44,7 @@ class TitleFreeCopyWiringContractTest {
         assertTrue(entry.contains("applyFreeCopyListener(v, null, false)"))
     }
 
-    @Test fun titleViewsAreRegisteredOnlyAfterIdClassAndArrowSiblingAllMatch() {
+    fun titleViewsAreRegisteredOnlyAfterIdClassAndArrowSiblingAllMatch() {
         val register = source().after("private fun onTitleCandidateTextSet(").before("private fun applyTitleFreeCopyListener(")
         assertTrue(register.contains("if (v.id != titleViewId) return"))
         assertTrue(register.contains("findViewById<View>(titleArrowId)"))
@@ -65,7 +65,7 @@ class TitleFreeCopyWiringContractTest {
         assertTrue(ids.indexOf("titleArrowId = arrow") < ids.indexOf("titleViewId = title"))
     }
 
-    @Test fun titleSharesTheUnifiedGestureAndBubbleChain() {
+    fun titleSharesTheUnifiedGestureAndBubbleChain() {
         val listener = source().after("private val sharedFreeCopyListener =").before("private fun hapticFeedback(")
         assertTrue(listener.contains("val isTitle = !isDescOnly && isTitleView(view)"))
         assertTrue(listener.contains("val isDesc = isDescOnly || isTitle"))
@@ -86,7 +86,7 @@ class TitleFreeCopyWiringContractTest {
         assertEquals(1, Regex("""applyTitleFreeCopyListener\(v\)""").findAll(codeOnly(source())).count())
     }
 
-    @Test fun commonHooksInstallForTitleAloneAndCapabilityIsPublished() {
+    fun commonHooksInstallForTitleAloneAndCapabilityIsPublished() {
         val tail = source().after("fun publishFreeCopyCapabilities()")
         assertTrue(tail.contains("if (runtimeTitleFreeCopyEnabled)"))
         assertTrue(tail.contains("\"free_copy_title_enabled\""))
@@ -96,12 +96,26 @@ class TitleFreeCopyWiringContractTest {
         assertTrue(source().after("free-copy:haptic:").before("free-copy:popup:").contains("descLikeFreeCopyEnabled &&"))
     }
 
-    @Test fun titleTextPrefersTheOriginalFieldBecauseCollapsedTextIsTruncated() {
+    fun titleTextPrefersTheOriginalFieldBecauseCollapsedTextIsTruncated() {
         val extract = source().after("private fun extractTitleText(").before("/** 按类名递归匹配评论正文 TextView")
         assertTrue(extract.contains("titleOriginField(v.javaClass)"))
         assertTrue(extract.contains("stripSpanPlaceholderChars(it)"))
         assertTrue(extract.contains("TitleFreeCopyPolicy.choose(origin, visible)"))
         // 原文字段读取失败只能退回可见文本，不能抛出去。
         assertTrue(extract.contains("runCatching"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TitleFreeCopyWiringContractTest) -> Unit) {
+            val s = TitleFreeCopyWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.titleSwitchIsStartupOnlyAndDefaultsOff() }
+        runIsolated { s -> s.bothSetTextHooksShareOneEntryAndTitleCannotBreakDescription() }
+        runIsolated { s -> s.titleViewsAreRegisteredOnlyAfterIdClassAndArrowSiblingAllMatch() }
+        runIsolated { s -> s.titleSharesTheUnifiedGestureAndBubbleChain() }
+        runIsolated { s -> s.commonHooksInstallForTitleAloneAndCapabilityIsPublished() }
+        runIsolated { s -> s.titleTextPrefersTheOriginalFieldBecauseCollapsedTextIsTruncated() }
     }
 }

@@ -15,7 +15,7 @@ import org.junit.Test
 class HostUiPowerWiringContractTest {
     private fun read(path: String) = SourceContract.read("hook/hostui/$path")
 
-    @Test fun theSwitchIsReadIntoTheProcessPolicyBeforeAnyHostUiScopeExists() {
+    fun theSwitchIsReadIntoTheProcessPolicyBeforeAnyHostUiScopeExists() {
         val entry = SourceContract.read("hook/HookEntry.kt")
         val configure = entry.indexOf("HostUiPowerPolicy.configure(prefs.getBoolean(FeaturePreferences.HOST_UI_POWER_SAVING, HostUiPowerPolicy.DEFAULT_ENABLED))")
         assertTrue("HookEntry must configure the policy from the host config", configure > 0)
@@ -23,14 +23,14 @@ class HostUiPowerWiringContractTest {
         assertTrue(configure < entry.indexOf("val bottomBarFxInstaller = createBottomBarFx()"))
     }
 
-    @Test fun bothScopesTakeTheirPowerPathsFromThePolicyByDefault() {
+    fun bothScopesTakeTheirPowerPathsFromThePolicyByDefault() {
         val cards = read("cards/HostCardMaterialScope.kt")
         assertTrue(cards.contains("reuseGpuFrames: Boolean = HostUiPowerPolicy.current.retainsGpuFrames"))
         assertTrue(cards.contains("optimizeCardRendering: Boolean = HostUiPowerPolicy.current.shortcutsCardRendering"))
         assertTrue(read("common/HostSurfaceScope.kt").contains("reuseGpuFrames: Boolean = HostUiPowerPolicy.current.retainsGpuFrames"))
     }
 
-    @Test fun theRetentionDecisionAlwaysGoesThroughThePolicyAndTheModernSdkConstant() {
+    fun theRetentionDecisionAlwaysGoesThroughThePolicyAndTheModernSdkConstant() {
         for (path in listOf("cards/HostCardMaterialScope.kt", "common/HostSurfaceScope.kt")) {
             val source = read(path)
             assertTrue("$path must decide through HostUiPowerPolicy", source.contains("HostUiPowerPolicy.canRetainGpuFrame(reuseGpuFrames, AndroidVersion.code)"))
@@ -39,14 +39,14 @@ class HostUiPowerWiringContractTest {
     }
 
     /** 预绘制里每次内容变化都会走到这里；引擎状态改由监听器事件送达，不再逐帧取诊断快照。 */
-    @Test fun theCardScopeLearnsTheBackendFromEngineEventsInsteadOfPollingDiagnosticsWhileDrawing() {
+    fun theCardScopeLearnsTheBackendFromEngineEventsInsteadOfPollingDiagnosticsWhileDrawing() {
         val cards = read("cards/HostCardMaterialScope.kt")
         assertTrue(cards.contains("session?.setListener {"))
         val refresh = cards.after("    fun refresh(night: Boolean) {").before("    private fun materialOptions()")
         assertFalse("refresh runs in pre-draw and must not take diagnostics snapshots", refresh.contains("diagnostics()"))
     }
 
-    @Test fun theTrailingFlushRunsThroughTheHostGuardAndCanBeCancelled() {
+    fun theTrailingFlushRunsThroughTheHostGuardAndCanBeCancelled() {
         val cards = read("cards/HostCardMaterialScope.kt")
         assertTrue(cards.contains("""HostThreadGuard.runnable("host.card.material.refresh") { onContentRefreshTimer() }"""))
         assertFalse("the delayed flush must be the guarded instance", cards.contains("object : Runnable"))
@@ -55,10 +55,24 @@ class HostUiPowerWiringContractTest {
         assertTrue("close must drop a pending flush", close.contains("cancelContentRefresh()"))
     }
 
-    @Test fun theSurfaceScopeKeepsTheDiagnosticsReadOffTheEveryFramePath() {
+    fun theSurfaceScopeKeepsTheDiagnosticsReadOffTheEveryFramePath() {
         val surface = read("common/HostSurfaceScope.kt")
         val predraw = surface.after("private val backdropPreDraw").before("private val focusListener")
         assertFalse("the pre-draw listener must not read diagnostics itself", predraw.contains("diagnostics()"))
         assertTrue(surface.contains("now - gpuCheckedAt >= gpuRecheckMs"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostUiPowerWiringContractTest) -> Unit) {
+            val s = HostUiPowerWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.theSwitchIsReadIntoTheProcessPolicyBeforeAnyHostUiScopeExists() }
+        runIsolated { s -> s.bothScopesTakeTheirPowerPathsFromThePolicyByDefault() }
+        runIsolated { s -> s.theRetentionDecisionAlwaysGoesThroughThePolicyAndTheModernSdkConstant() }
+        runIsolated { s -> s.theCardScopeLearnsTheBackendFromEngineEventsInsteadOfPollingDiagnosticsWhileDrawing() }
+        runIsolated { s -> s.theTrailingFlushRunsThroughTheHostGuardAndCanBeCancelled() }
+        runIsolated { s -> s.theSurfaceScopeKeepsTheDiagnosticsReadOffTheEveryFramePath() }
     }
 }

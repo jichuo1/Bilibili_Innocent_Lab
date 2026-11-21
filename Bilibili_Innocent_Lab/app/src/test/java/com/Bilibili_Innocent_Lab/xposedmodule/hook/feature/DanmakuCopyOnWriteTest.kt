@@ -20,7 +20,7 @@ class DanmakuCopyOnWriteTest {
             .invoke(installer, environment, reply, members, DmSegMobileReply.getDefaultInstance()) as DmSegMobileReply
     }
 
-    @Test fun liveRulesChangeTheSameInstallerWithoutMutatingSourceMessages() {
+    fun liveRulesChangeTheSameInstallerWithoutMutatingSourceMessages() {
         var rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules(1, false)
         val installer = DanmakuPurifyFeatureInstaller(true, 5, true, liveRules = { rules })
         val original = DmSegMobileReply(listOf(DanmakuElem(2, colorful = 60001), DanmakuElem(9, colorful = 60001)), listOf(DmColorful(60001)))
@@ -33,7 +33,7 @@ class DanmakuCopyOnWriteTest {
         assertSame(original, purify(original, installer))
     }
 
-    @Test fun `failure at either list or build retains original message and both lists`() {
+    fun `failure at either list or build retains original message and both lists`() {
         for (failure in listOf("elems", "colorful", "build")) {
             stages.clear(); errors.clear()
             val original = DmSegMobileReply(listOf(DanmakuElem(1), DanmakuElem(10)), listOf(DmColorful(60001), DmColorful(0)), failAt = failure)
@@ -44,7 +44,7 @@ class DanmakuCopyOnWriteTest {
         }
     }
 
-    @Test fun `successful filtering replaces reply without modifying source or unrelated fields`() {
+    fun `successful filtering replaces reply without modifying source or unrelated fields`() {
         val kept = DanmakuElem(10)
         val original = DmSegMobileReply(listOf(DanmakuElem(1), kept), listOf(DmColorful(60001), DmColorful(0)))
         val updated = purify(original)
@@ -58,7 +58,7 @@ class DanmakuCopyOnWriteTest {
      * 删了会员渐变样式定义，引用它的弹幕必须同时改回普通色。
      * 弹幕分段整包交给原生引擎（libchronos）解析，不能留"条目引用一个已不存在的样式"。
      */
-    @Test fun `removing the vip gradient style also neutralizes the danmaku that reference it`() {
+    fun `removing the vip gradient style also neutralizes the danmaku that reference it`() {
         val gradient = DanmakuElem(10, colorful = 60001)
         val plain = DanmakuElem(10, colorful = 0)
         val original = DmSegMobileReply(listOf(gradient, plain), listOf(DmColorful(60001), DmColorful(0)))
@@ -71,7 +71,7 @@ class DanmakuCopyOnWriteTest {
     }
 
     /** 权重过滤与改色在同一份列表上叠加：先删低权重，再给保留下来的渐变弹幕改色。 */
-    @Test fun `weight filtering and colour neutralization compose on the same list`() {
+    fun `weight filtering and colour neutralization compose on the same list`() {
         val original = DmSegMobileReply(
             listOf(DanmakuElem(1, colorful = 60001), DanmakuElem(10, colorful = 60001)),
             listOf(DmColorful(60001))
@@ -82,10 +82,24 @@ class DanmakuCopyOnWriteTest {
         assertTrue(updated.colorful.isEmpty())
     }
 
-    @Test fun `no matching rule and absent weight preserve identity and do not report an error`() {
+    fun `no matching rule and absent weight preserve identity and do not report an error`() {
         val original = DmSegMobileReply(listOf(DanmakuElem(0)), listOf(DmColorful(0)))
         assertSame(original, purify(original)); assertTrue(errors.isEmpty())
         assertFalse(FeatureRuntimeStage.ERROR in stages)
         assertSame(DmSegMobileReply.getDefaultInstance(), purify(DmSegMobileReply.getDefaultInstance()))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DanmakuCopyOnWriteTest) -> Unit) {
+            val s = DanmakuCopyOnWriteTest()
+            block(s)
+        }
+        runIsolated { s -> s.liveRulesChangeTheSameInstallerWithoutMutatingSourceMessages() }
+        runIsolated { s -> s.`failure at either list or build retains original message and both lists`() }
+        runIsolated { s -> s.`successful filtering replaces reply without modifying source or unrelated fields`() }
+        runIsolated { s -> s.`removing the vip gradient style also neutralizes the danmaku that reference it`() }
+        runIsolated { s -> s.`weight filtering and colour neutralization compose on the same list`() }
+        runIsolated { s -> s.`no matching rule and absent weight preserve identity and do not report an error`() }
     }
 }

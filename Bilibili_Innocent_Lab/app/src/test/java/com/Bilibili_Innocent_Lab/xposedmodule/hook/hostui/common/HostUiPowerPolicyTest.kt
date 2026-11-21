@@ -7,9 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HostUiPowerPolicyTest {
-    @After fun restore() = HostUiPowerPolicy.resetForTests()
+    fun restore() = HostUiPowerPolicy.resetForTests()
 
-    @Test fun `power saving is on by default and the switch turns both paths off together`() {
+    fun `power saving is on by default and the switch turns both paths off together`() {
         assertTrue(HostUiPowerPolicy.current.retainsGpuFrames)
         assertTrue(HostUiPowerPolicy.current.shortcutsCardRendering)
         HostUiPowerPolicy.configure(false)
@@ -19,7 +19,7 @@ class HostUiPowerPolicyTest {
         assertTrue(HostUiPowerPolicy.current.retainsGpuFrames)
     }
 
-    @Test fun `retention needs the switch, API 32 and GPU backing`() {
+    fun `retention needs the switch, API 32 and GPU backing`() {
         assertEquals(32, HostUiPowerPolicy.RETAINED_GPU_FRAME_SDK)
         assertTrue(HostUiPowerPolicy.canRetainGpuFrame(true, 32) { true })
         assertTrue(HostUiPowerPolicy.canRetainGpuFrame(true, 36) { true })
@@ -28,12 +28,27 @@ class HostUiPowerPolicyTest {
         assertFalse(HostUiPowerPolicy.canRetainGpuFrame(true, 36) { false })
     }
 
-    @Test fun `the GPU probe is only evaluated when the cheaper conditions hold`() {
+    fun `the GPU probe is only evaluated when the cheaper conditions hold`() {
         var probes = 0
         HostUiPowerPolicy.canRetainGpuFrame(false, 36) { probes++; true }
         HostUiPowerPolicy.canRetainGpuFrame(true, 31) { probes++; true }
         assertEquals(0, probes)
         HostUiPowerPolicy.canRetainGpuFrame(true, 32) { probes++; true }
         assertEquals(1, probes)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostUiPowerPolicyTest) -> Unit) {
+            val s = HostUiPowerPolicyTest()
+            try {
+                block(s)
+            } finally {
+                s.restore()
+            }
+        }
+        runIsolated { s -> s.`power saving is on by default and the switch turns both paths off together`() }
+        runIsolated { s -> s.`retention needs the switch, API 32 and GPU backing`() }
+        runIsolated { s -> s.`the GPU probe is only evaluated when the cheaper conditions hold`() }
     }
 }

@@ -28,7 +28,7 @@ class SettingsDialogExtractionTest {
     private fun volumeCode(): List<Pair<String, String>> =
         volumeFiles().map { (name, text) -> name to SettingsUiSource.code(text) }
 
-    @Test fun `the dialogs were actually extracted into per-topic files`() {
+    fun `the dialogs were actually extracted into per-topic files`() {
         // 这条仍按**弹窗**计数：它防的是"弹窗被搬回 MainActivity"，
         // 逻辑分卷的增减不该把这个下限稀释掉。
         val dialogs = SettingsUiSource.dialogFileNames
@@ -46,7 +46,7 @@ class SettingsDialogExtractionTest {
      * Activity 重建后仍残留，两个 Activity 实例还会互相干扰。
      * 所以外移只搬函数，状态一律留在 MainActivity 上（放宽成 internal）。
      */
-    @Test fun `extracted dialog files declare no top-level mutable state`() {
+    fun `extracted dialog files declare no top-level mutable state`() {
         val offenders = mutableListOf<String>()
         volumeCode().forEach { (name, code) ->
             Regex("""(?m)^(?:private |internal |public )*var\s+(\w+)""")
@@ -62,7 +62,7 @@ class SettingsDialogExtractionTest {
      * `registerForActivityResult` 必须在 Activity 构造期完成注册，
      * 搬成顶层属性会直接失去注册（点了没反应，且不报错）。
      */
-    @Test fun `extracted dialog files do not register lifecycle-scoped callbacks`() {
+    fun `extracted dialog files do not register lifecycle-scoped callbacks`() {
         val offenders = mutableListOf<String>()
         volumeCode().forEach { (name, code) ->
             listOf("registerForActivityResult", "registerReceiver(", "getOnBackInvokedDispatcher")
@@ -73,7 +73,7 @@ class SettingsDialogExtractionTest {
     }
 
     /** 每个外移文件的顶层函数都必须挂在 MainActivity 上（或是不需要 Activity 的纯函数）。 */
-    @Test fun `top-level functions are MainActivity extensions or pure helpers`() {
+    fun `top-level functions are MainActivity extensions or pure helpers`() {
         val offenders = mutableListOf<String>()
         volumeFiles().forEach { (name, text) ->
             SettingsUiSource.declaredFunctions(text, indent = 0).forEach { (fn, body) ->
@@ -96,7 +96,7 @@ class SettingsDialogExtractionTest {
      * MainActivity 是文件级抑制 SetTextI18n 的；搬出去的弹窗里凡是拼接过 setText 文案的，
      * 都要自己带上这条抑制，否则门禁里会凭空多出 Warning。
      */
-    @Test fun `files that concatenate setText content carry the same file-level suppression`() {
+    fun `files that concatenate setText content carry the same file-level suppression`() {
         val offenders = mutableListOf<String>()
         volumeFiles().forEach { (name, text) ->
             val concatenates = Regex("""text = getString\([^)]*\)\s*\+""").containsMatchIn(text) ||
@@ -109,7 +109,7 @@ class SettingsDialogExtractionTest {
     }
 
     /** 共用底座必须留在 MainActivity：它承载返回手势、形变、气泡与模糊的整条时序。 */
-    @Test fun `the shared modal presenter stays in MainActivity`() {
+    fun `the shared modal presenter stays in MainActivity`() {
         val main = SettingsUiSource.mainActivity()
         listOf(
             "fun presentSizedModalDialog(",
@@ -121,5 +121,19 @@ class SettingsDialogExtractionTest {
             assertFalse("$name must not fork the presenter",
                 text.contains("fun MainActivity.presentSizedModalDialog("))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsDialogExtractionTest) -> Unit) {
+            val s = SettingsDialogExtractionTest()
+            block(s)
+        }
+        runIsolated { s -> s.`the dialogs were actually extracted into per-topic files`() }
+        runIsolated { s -> s.`extracted dialog files declare no top-level mutable state`() }
+        runIsolated { s -> s.`extracted dialog files do not register lifecycle-scoped callbacks`() }
+        runIsolated { s -> s.`top-level functions are MainActivity extensions or pure helpers`() }
+        runIsolated { s -> s.`files that concatenate setText content carry the same file-level suppression`() }
+        runIsolated { s -> s.`the shared modal presenter stays in MainActivity`() }
     }
 }

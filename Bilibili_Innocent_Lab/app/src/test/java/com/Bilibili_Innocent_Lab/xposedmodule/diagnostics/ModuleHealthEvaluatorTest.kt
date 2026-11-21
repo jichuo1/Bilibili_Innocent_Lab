@@ -6,7 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModuleHealthEvaluatorTest {
-    @Test
     fun `verified no-root heartbeat produces healthy overall state`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -28,7 +27,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `missing activation evidence requires action`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -45,7 +43,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `missing NPatch scope requires action even with a stored heartbeat`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -64,7 +61,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `a silently unloaded module escalates to action required`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -83,7 +79,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `an unconfirmed no-root run asks for verification instead of claiming health`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -102,7 +97,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `remote read-back failure remains visible even while activated`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -121,7 +115,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `explicit bypass state keeps a healthy NPatch report ready`() {
         val selected = ModuleHealthEvaluator.evaluate(inputs(
             activationState = DiagnosticActivationState.ACTIVE_NPATCH,
@@ -132,7 +125,6 @@ class ModuleHealthEvaluatorTest {
         assertEquals(DiagnosticSeverity.OK, selected.overallSeverity)
     }
 
-    @Test
     fun `bypassed standard publisher is informational once NPatch is selected`() {
         // 选中 NPatch 时 RemoteHookConfigStore 故意返回 "NPatch selected"（FAILED/publish_failed）；
         // 那是设计内状态，不该把整份诊断染成“需要留意”。
@@ -167,7 +159,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `skin fallback is attention and unknown adaptation is not a failure`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -183,7 +174,6 @@ class ModuleHealthEvaluatorTest {
         assertTrue(snapshot.items.any { it.severity == DiagnosticSeverity.UNKNOWN })
     }
 
-    @Test
     fun `ready generation with a queued update is still shown as pending`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(remotePublishPending = true)
@@ -195,7 +185,6 @@ class ModuleHealthEvaluatorTest {
         )
     }
 
-    @Test
     fun `host receipt distinguishes adapted observed and applied evidence`() {
         val adapted = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -217,7 +206,6 @@ class ModuleHealthEvaluatorTest {
         assertEquals(DiagnosticEvidence.APPLIED, applied.evidence)
     }
 
-    @Test
     fun `rejected host config identifies the authorization chain as actionable`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -235,7 +223,6 @@ class ModuleHealthEvaluatorTest {
         assertEquals(DiagnosticSeverity.ACTION_REQUIRED, snapshot.overallSeverity)
     }
 
-    @Test
     fun `isolated feature registration failure is attention without claiming runtime failure`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -261,7 +248,6 @@ class ModuleHealthEvaluatorTest {
 
     private fun ModuleDiagnosticSnapshot.item(id: DiagnosticItemId): DiagnosticItem =
         requireNotNull(items.firstOrNull { it.id == id })
-    @Test
     fun `bypassed-publisher predicate covers exactly the states the bypass leaves idle`() {
         val expectedIdle = setOf(
             DiagnosticRemotePublishState.BYPASSED,
@@ -285,6 +271,28 @@ class ModuleHealthEvaluatorTest {
         }
         assertTrue(inputs(noRootDesiredEnabled = true).standardPublisherBypassed)
         assertFalse(inputs(noRootDesiredEnabled = false).standardPublisherBypassed)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModuleHealthEvaluatorTest) -> Unit) {
+            val s = ModuleHealthEvaluatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`verified no-root heartbeat produces healthy overall state`() }
+        runIsolated { s -> s.`missing activation evidence requires action`() }
+        runIsolated { s -> s.`missing NPatch scope requires action even with a stored heartbeat`() }
+        runIsolated { s -> s.`a silently unloaded module escalates to action required`() }
+        runIsolated { s -> s.`an unconfirmed no-root run asks for verification instead of claiming health`() }
+        runIsolated { s -> s.`remote read-back failure remains visible even while activated`() }
+        runIsolated { s -> s.`explicit bypass state keeps a healthy NPatch report ready`() }
+        runIsolated { s -> s.`bypassed standard publisher is informational once NPatch is selected`() }
+        runIsolated { s -> s.`skin fallback is attention and unknown adaptation is not a failure`() }
+        runIsolated { s -> s.`ready generation with a queued update is still shown as pending`() }
+        runIsolated { s -> s.`host receipt distinguishes adapted observed and applied evidence`() }
+        runIsolated { s -> s.`rejected host config identifies the authorization chain as actionable`() }
+        runIsolated { s -> s.`isolated feature registration failure is attention without claiming runtime failure`() }
+        runIsolated { s -> s.`bypassed-publisher predicate covers exactly the states the bypass leaves idle`() }
     }
 }
 

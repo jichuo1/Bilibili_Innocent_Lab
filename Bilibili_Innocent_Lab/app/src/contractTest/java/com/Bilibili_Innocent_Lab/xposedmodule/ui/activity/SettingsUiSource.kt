@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 设置页源码扫描器，供"以源码文本断言结构"的门禁使用。
@@ -92,6 +93,15 @@ internal object SettingsUiSource {
             .sorted()
     }
 
+    private val codeCache = ConcurrentHashMap<String, String>()
+    private val maskCache = ConcurrentHashMap<String, String>()
+    private val settingsPageCache: List<Pair<String, String>> by lazy {
+        listOf("MainActivity.kt" to mainActivity()) + named("Sections.kt").map { it to file(it) }
+    }
+    private val settingsUiCache: List<Pair<String, String>> by lazy {
+        listOf("MainActivity.kt" to file("MainActivity")) + volumeFileNames.map { it to file(it) }
+    }
+
     /** `ui/activity/<name>.kt` 的源码；[name] 可带或不带 `.kt`。 */
     fun file(name: String): String {
         val fileName = if (name.endsWith(".kt")) name else "$name.kt"
@@ -109,8 +119,7 @@ internal object SettingsUiSource {
      * 分区 builder、它们注册的 marker、常用开关绑定与规则编辑入口都在这里面；
      * 只扫 MainActivity 的断言在分区外移后会在空集上"通过"，必须改扫这个集合。
      */
-    fun settingsPageFiles(): List<Pair<String, String>> =
-        listOf("MainActivity.kt" to mainActivity()) + named("Sections.kt").map { it to file(it) }
+    fun settingsPageFiles(): List<Pair<String, String>> = settingsPageCache
 
     /** [settingsPageFiles] 拼在一起。 */
     fun settingsPage(): String = settingsPageFiles().joinToString("\n") { it.second }
@@ -127,9 +136,7 @@ internal object SettingsUiSource {
     }
 
     /** 文件名 → 源码：MainActivity 加上所有已外移分卷（弹窗与逻辑分卷）。 */
-    fun settingsUiFiles(): List<Pair<String, String>> =
-        listOf("MainActivity.kt" to file("MainActivity")) +
-            volumeFileNames.map { it to file(it) }
+    fun settingsUiFiles(): List<Pair<String, String>> = settingsUiCache
 
     /** MainActivity 与所有已外移分卷拼在一起，供"整体存在性"断言使用。 */
     fun all(): String = settingsUiFiles().joinToString("\n") { it.second }
@@ -168,7 +175,7 @@ internal object SettingsUiSource {
      * 于是一路吞到很远的下一个引号 —— 整份文件的结构消失，
      * `declaredFunctions` 从 125 个成员函数变成 0 个，而依赖它的断言全在空列表上"通过"。
      */
-    fun code(source: String): String = scan(source, blankStrings = false)
+    fun code(source: String): String = codeCache.computeIfAbsent(source) { scan(it, blankStrings = false) }
 
     /**
      * 注释与字符串都抹成等量空白的结构视图，长度与 [source] 逐字符对齐；
@@ -261,7 +268,7 @@ internal object SettingsUiSource {
      * 但返回给断言的必须是原文——门禁本身要断言字符串字面量
      * （例如 `telemetry_choice_save_failed`），所以不能返回被抹掉的版本。
      */
-    private fun mask(source: String): String = scan(source, blankStrings = true)
+    private fun mask(source: String): String = maskCache.computeIfAbsent(source) { scan(it, blankStrings = true) }
 
     /**
      * 唯一的源码扫描器：注释一律抹成等量空白，字符串按 [blankStrings] 决定抹还是留。

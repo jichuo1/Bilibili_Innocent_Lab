@@ -7,7 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 /** 气泡路径几何：箭头底边必须落在圆角之外的直边上，描边必须留在 View 边界内。 */
 class BubbleDrawableGeometryTest {
 
-    @Test fun updateBadgeUsesThePublishedBubbleDrawableAndFlipsOnlyItsArrowDirection() {
+    fun updateBadgeUsesThePublishedBubbleDrawableAndFlipsOnlyItsArrowDirection() {
         val base = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/widget/"
         assertTrue(source(base + "BubbleDrawable.kt").contains(
             "typealias BubbleDrawable = com.lumen.coacervation.engine.widget.BubbleDrawable"))
@@ -19,7 +19,7 @@ class BubbleDrawableGeometryTest {
         assertTrue(badge.contains("bubble.colorFilter = colorFilter"))
     }
 
-    @Test fun newBadgeReservesHalfTheStrokeSoTheRimStaysInsideTheBounds() {
+    fun newBadgeReservesHalfTheStrokeSoTheRimStaysInsideTheBounds() {
         val badge = source("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/widget/GithubUpdateBadgeDrawable.kt")
         // 描边以路径为中心内外各半：整体内缩半宽，箭头尖与四边才不会画出 View。
         assertTrue(badge.contains("strokeInset = strokeWidthPx / 2f"))
@@ -31,4 +31,14 @@ class BubbleDrawableGeometryTest {
 
     private fun source(relative: String): String =
         SourceContract.read(relative)
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BubbleDrawableGeometryTest) -> Unit) {
+            val s = BubbleDrawableGeometryTest()
+            block(s)
+        }
+        runIsolated { s -> s.updateBadgeUsesThePublishedBubbleDrawableAndFlipsOnlyItsArrowDirection() }
+        runIsolated { s -> s.newBadgeReservesHalfTheStrokeSoTheRimStaysInsideTheBounds() }
+    }
 }

@@ -11,7 +11,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class LiquidFeedbackIsolationTest {
-    @Test fun ownedOutputHasZeroRecursiveContributionAndUnmaskedPixelsStayLive() {
+    fun ownedOutputHasZeroRecursiveContributionAndUnmaskedPixelsStayLive() {
         val alpha = Policy.BASE_SUPPRESSION_ALPHA
         // The cached stable backdrop is opaque. Test every possible captured channel and several backgrounds.
         for (clean in listOf(0, 19, 128, 240, 255)) for (captured in 0..255) {
@@ -25,7 +25,7 @@ class LiquidFeedbackIsolationTest {
         assertEquals(120f, Policy.MAX_TARGET_FRAMES_PER_SECOND, 0f)
     }
 
-    @Test fun sourceWiringFreezesMasksBeforeCaptureAndSanitationReplacesOwnedOutput() {
+    fun sourceWiringFreezesMasksBeforeCaptureAndSanitationReplacesOwnedOutput() {
         val renderer = source("LiquidActivityRenderer")
         val request = renderer.after("private fun requestRealtimeCapture(").before("private fun handleRealtimeCaptureResult")
         assertTrue(request.indexOf("buildSuppressionMask") < request.indexOf("PixelCopy.request"))
@@ -47,7 +47,7 @@ class LiquidFeedbackIsolationTest {
      * 这条钉住"移除"本身：环的绘制、记账与 retired 机制都不许静默复活；而系统 stretch 与
      * 回弹光学强度提升是不同机制，必须保留。
      */
-    @Test fun overscrollKeepsTheSystemStretchButPaintsNoBoundaryRing() {
+    fun overscrollKeepsTheSystemStretchButPaintsNoBoundaryRing() {
         val renderer = source("LiquidActivityRenderer")
         listOf("drawStretchBoundary", "stretchBoundaryFootprints", "stretchViewports",
             "LiquidStretchBoundaryFootprint", "LiquidBoundaryCaptureState", "LiquidBoundaryMaskGeometry",
@@ -73,7 +73,7 @@ class LiquidFeedbackIsolationTest {
      * 违反方向直觉）。方向从 viewport 的主导边出发，经 renderer 的 stretchDirY 进
      * shader，再按边缘外法线点积无极分配——对侧边缘保持基准强度。
      */
-    @Test fun stretchOpticsFollowTheActiveEdgeDirection() {
+    fun stretchOpticsFollowTheActiveEdgeDirection() {
         val renderer = source("LiquidActivityRenderer")
         val handler = renderer.after("private fun onStretchDistanceChanged(")
             .substringBefore("@MainThread", "MISSING")
@@ -95,7 +95,7 @@ class LiquidFeedbackIsolationTest {
      * 实时截屏把旧位置文字折射进表面，形成沿滑动方向偏移的残影）。链路要求：位移回调
      * 触发抑制 → 抑制期间不再发起新采集、迟到的回读不绑定 → 静默窗口后才放行。
      */
-    @Test fun scrollingSuppressesStaleRealtimeSampling() {
+    fun scrollingSuppressesStaleRealtimeSampling() {
         val renderer = source("LiquidActivityRenderer")
         val moved = renderer.after("private fun invalidateMovedSurfaces()")
             .before("private fun invalidateRegisteredSurfaces()")
@@ -136,7 +136,7 @@ class LiquidFeedbackIsolationTest {
      * 外部窗口仍走 drawOpticalRegion；窗口内表面抑制期以 motionLite 跑同一 shader——
      * 驱动层已绑稳定底图，跳过散射多抽样但保留边缘光与 contentAlpha 通透。
      */
-    @Test fun suppressedSurfacesStayRefractiveInLiteMode() {
+    fun suppressedSurfacesStayRefractiveInLiteMode() {
         val renderer = source("LiquidActivityRenderer")
         val draw = renderer.after("internal fun drawSurface(")
             .before("private fun drawSurfaceLayers(")
@@ -170,7 +170,7 @@ class LiquidFeedbackIsolationTest {
      * 还必须保留 `saturateColor`——chromaMultiplier 是 0.98，直接返回原样本会让内面
      * 少掉 2% 去饱和、与边缘带接不上。
      */
-    @Test fun theInteriorFastPathOnlyFiresWhereItIsProvablyEquivalent() {
+    fun theInteriorFastPathOnlyFiresWhereItIsProvablyEquivalent() {
         val backend = source("LiquidRefractionBackendApi33")
         val main = backend.substringAfter("half4 main(float2 coord)", "MISSING")
             .before("float smoothRadius")
@@ -195,7 +195,7 @@ class LiquidFeedbackIsolationTest {
      * 卡片内面占玻璃像素的绝大多数，而运动期正是 GPU 最紧的时候（真机：高级材质手风琴
      * GPU 50th 7ms / 90th 9ms，Slow issue draw commands 占掉帧 46/47）。
      */
-    @Test fun theMotionLiteInteriorSkipsTheEdgeMath() {
+    fun theMotionLiteInteriorSkipsTheEdgeMath() {
         val backend = source("LiquidRefractionBackendApi33")
         val fast = backend.substringAfter("if (motionLite > 0.5 && deepInterior)", "MISSING")
             .before("float smoothRadius")
@@ -211,7 +211,7 @@ class LiquidFeedbackIsolationTest {
      * 色散必须限域在 rim 带内（2026-09-22）。旧实现全域等量位移，内部高对比文字
      * 也会裂成红蓝边——那正是它当初被整条关闭的原因。限域后才允许重新开启。
      */
-    @Test fun chromaticDispersionIsConfinedToTheRimBand() {
+    fun chromaticDispersionIsConfinedToTheRimBand() {
         val backend = source("LiquidRefractionBackendApi33")
         val fn = backend.substringAfter("half4 sampleRefracted(", "MISSING")
             .before("half4 sampleScattered(")
@@ -231,7 +231,7 @@ class LiquidFeedbackIsolationTest {
      * 折射下限完全不生效）。契约：回弹回调不触发抑制；静默检查在形变未归零前不解除；
      * shader 按 |stretchDirY| 在全向与定向投影间连续混合。
      */
-    @Test fun stretchKeepsTheRefractivePathAndTheRestingGlow() {
+    fun stretchKeepsTheRefractivePathAndTheRestingGlow() {
         val renderer = source("LiquidActivityRenderer")
         val handler = renderer.after("private fun onStretchDistanceChanged(")
             .substringBefore("@MainThread", "MISSING")
@@ -256,7 +256,7 @@ class LiquidFeedbackIsolationTest {
      * 切页时折射 shader 的菲涅尔/镜面/焦散边缘光晕整条缺席，只剩细描边——所有控件
      * "边缘高光先消失再加载"）。廉价路径用顶沿提亮渐变保住"边缘有光"的读感。
      */
-    @Test fun cheapOpticalPathKeepsALuminousEdgeOnEveryRole() {
+    fun cheapOpticalPathKeepsALuminousEdgeOnEveryRole() {
         val renderer = source("LiquidActivityRenderer")
         val layers = renderer.after("private fun drawSurfaceLayers(")
             .substringBefore("private inline fun drawWithFallback", "MISSING")
@@ -278,7 +278,7 @@ class LiquidFeedbackIsolationTest {
      * EdgeEffect 在非 RecordingCanvas 上 draw() 会直接 mDistance=0 并置 STATE_IDLE，
      * 任何正在累积的回弹形变都被取样帧抹掉——表现为完全没有回弹动画。
      */
-    @Test fun stretchEffectsOnlyDrawOnHardwareCanvases() {
+    fun stretchEffectsOnlyDrawOnHardwareCanvases() {
         val viewport = source("LiquidStretchViewport")
         val draw = viewport.after("override fun draw(canvas: Canvas)")
             .substringBefore("override fun onStartNestedScroll", "MISSING")
@@ -299,7 +299,7 @@ class LiquidFeedbackIsolationTest {
      * 的是偏离真实位置的底图区域，落定换回卡片 0 基 drawable 时采样区瞬移，现场
      * 就是"面板跳变加载通透背景"（rec.mp4 f259 实测：rim +4、内衬亮度重分布）。
      */
-    @Test fun motionSurfaceSamplingOriginStaysAtViewOrigin() {
+    fun motionSurfaceSamplingOriginStaysAtViewOrigin() {
         // 2026-09-23 表面 Drawable 拆到 LiquidSurfaceDrawables（凝光视效引擎重构）。
         val renderer = source("LiquidSurfaceDrawables")
         val provider = renderer.after("val motionProvider = view as? LiquidMotionSurfaceFrameProvider")
@@ -321,7 +321,7 @@ class LiquidFeedbackIsolationTest {
      * 与承载层填充叠成 ~86% 覆盖，面板近乎实心；落定摘层后回到单层才透出底页——
      * 现场就是"呼出动画没有通透，播完突然加载"（g_1 ghost_std≈1 → g_2 ≈7.5）。
      */
-    @Test fun drawableAlphaScalesTheGlassFillOnBothPaths() {
+    fun drawableAlphaScalesTheGlassFillOnBothPaths() {
         val renderer = source("LiquidActivityRenderer")
         val draw = renderer.after("internal fun drawSurface(")
             .substringBefore("private fun drawSurfaceLayers(", "MISSING")
@@ -342,7 +342,7 @@ class LiquidFeedbackIsolationTest {
      *
      * 上界必须存在：长按不动本来就该恢复实时档，不能因为手指贴着就无限停在磨砂观感。
      */
-    @Test fun theSuppressionReleaseWaitsOutAnActiveGesture() {
+    fun theSuppressionReleaseWaitsOutAnActiveGesture() {
         val renderer = source("LiquidActivityRenderer")
         val settle = renderer.substringAfter("private fun onScrollSettleCheck()", "MISSING")
             .before("private fun clearScrollSuppression()")
@@ -372,7 +372,7 @@ class LiquidFeedbackIsolationTest {
      * 关实时截图缝即消失）。这种抑制只换底图、不降级着色，动画结束解除时光影不跳变；
      * 一旦有真实滚动立即回到 lite。
      */
-    @Test fun morphingSurfacesSampleTheStableBackdropWithoutLiteShading() {
+    fun morphingSurfacesSampleTheStableBackdropWithoutLiteShading() {
         val renderer = source("LiquidActivityRenderer")
         val register = renderer.after("internal fun registerSurfaceView(")
             .before("override fun notifyPositionChanged()")
@@ -393,7 +393,7 @@ class LiquidFeedbackIsolationTest {
      * 二级页（设置备份、统一诊断）从不发起实时截图（2026-09-24 用户报告：动画结束约 0.5s
      * 后控件光影跳变，正是采样源从稳定底图换成截图的时刻）。卡片背后只有背景，截图无收益。
      */
-    @Test fun staticBackdropHostsNeverStartRealtimeCapture() {
+    fun staticBackdropHostsNeverStartRealtimeCapture() {
         val renderer = source("LiquidActivityRenderer")
         assertTrue(renderer.contains("private val staticBackdropHost = activity is LiquidStaticBackdropHost"))
         val post = renderer.after("private fun postRealtimeFrameCallback()").take(400)
@@ -415,7 +415,7 @@ class LiquidFeedbackIsolationTest {
      * 主窗口失焦（弹窗盖在上面）期间不发 PixelCopy（2026-09-24 atrace：面板入场收尾时主窗口
      * 连截 3 张、偶有 12–16ms 一张顶掉一帧）。重新获焦补排一次采集，监听随关闭摘除。
      */
-    @Test fun unfocusedWindowSkipsRealtimeCapture() {
+    fun unfocusedWindowSkipsRealtimeCapture() {
         val renderer = source("LiquidActivityRenderer")
         val post = renderer.after("private fun postRealtimeFrameCallback()").take(300)
         assertTrue(post.contains("windowObscured"))
@@ -426,5 +426,31 @@ class LiquidFeedbackIsolationTest {
         assertTrue(listener.contains("scheduleRealtimeCapture(LiquidRealtimeCapturePolicy.INITIAL_DELAY_MS)"))
         assertTrue(renderer.contains("addOnWindowFocusChangeListener(windowFocusListener)"))
         assertTrue(renderer.contains("removeOnWindowFocusChangeListener(windowFocusListener)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidFeedbackIsolationTest) -> Unit) {
+            val s = LiquidFeedbackIsolationTest()
+            block(s)
+        }
+        runIsolated { s -> s.ownedOutputHasZeroRecursiveContributionAndUnmaskedPixelsStayLive() }
+        runIsolated { s -> s.sourceWiringFreezesMasksBeforeCaptureAndSanitationReplacesOwnedOutput() }
+        runIsolated { s -> s.overscrollKeepsTheSystemStretchButPaintsNoBoundaryRing() }
+        runIsolated { s -> s.stretchOpticsFollowTheActiveEdgeDirection() }
+        runIsolated { s -> s.scrollingSuppressesStaleRealtimeSampling() }
+        runIsolated { s -> s.suppressedSurfacesStayRefractiveInLiteMode() }
+        runIsolated { s -> s.theInteriorFastPathOnlyFiresWhereItIsProvablyEquivalent() }
+        runIsolated { s -> s.theMotionLiteInteriorSkipsTheEdgeMath() }
+        runIsolated { s -> s.chromaticDispersionIsConfinedToTheRimBand() }
+        runIsolated { s -> s.stretchKeepsTheRefractivePathAndTheRestingGlow() }
+        runIsolated { s -> s.cheapOpticalPathKeepsALuminousEdgeOnEveryRole() }
+        runIsolated { s -> s.stretchEffectsOnlyDrawOnHardwareCanvases() }
+        runIsolated { s -> s.motionSurfaceSamplingOriginStaysAtViewOrigin() }
+        runIsolated { s -> s.drawableAlphaScalesTheGlassFillOnBothPaths() }
+        runIsolated { s -> s.theSuppressionReleaseWaitsOutAnActiveGesture() }
+        runIsolated { s -> s.morphingSurfacesSampleTheStableBackdropWithoutLiteShading() }
+        runIsolated { s -> s.staticBackdropHostsNeverStartRealtimeCapture() }
+        runIsolated { s -> s.unfocusedWindowSkipsRealtimeCapture() }
     }
 }

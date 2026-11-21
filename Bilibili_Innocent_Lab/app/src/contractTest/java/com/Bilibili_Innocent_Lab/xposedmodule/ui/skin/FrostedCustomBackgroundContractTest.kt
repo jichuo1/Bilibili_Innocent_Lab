@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrostedCustomBackgroundContractTest {
-    @Test fun ordinarySessionPassesApplicationContextAndWorkerUsesTheExistingAssetDecoder() {
+    fun ordinarySessionPassesApplicationContextAndWorkerUsesTheExistingAssetDecoder() {
         val session = SourceContract.read("ui/skin/runtime/ActivitySkinSession.kt")
         assertTrue(session.contains("backgroundContext = activity.applicationContext"))
         val renderer = SourceContract.read("ui/skin/material/FrostedMaterialRenderer.kt")
@@ -24,7 +24,7 @@ class FrostedCustomBackgroundContractTest {
         assertFalse(renderer.contains("PixelCopy"))
     }
 
-    @Test fun foregroundMemoryReleaseKeepsTheDisplayUnderlayUntilStopOrClose() {
+    fun foregroundMemoryReleaseKeepsTheDisplayUnderlayUntilStopOrClose() {
         val renderer = SourceContract.read("ui/skin/material/FrostedMaterialRenderer.kt")
         val root = renderer.after("fun bindRoot(view: View)").before("override fun surface")
         assertTrue(root.contains("val current = rootBackdrop"))
@@ -33,7 +33,7 @@ class FrostedCustomBackgroundContractTest {
         assertTrue(release.contains("frame = null; sampleShader = null; samplePaint.shader = null"))
     }
 
-    @Test fun customImageSummaryDoesNotRequireAdvancedMaterial() {
+    fun customImageSummaryDoesNotRequireAdvancedMaterial() {
         val presenter = SourceContract.read("ui/activity/SkinSummaryPresenter.kt")
         val background = presenter.after("fun MainActivity.currentLiquidBackgroundSummary()").before("@StringRes")
         assertTrue(background.contains("R.string.liquid_background_summary_active"))
@@ -41,4 +41,15 @@ class FrostedCustomBackgroundContractTest {
         assertFalse(background.contains("liquid_background_summary_saved"))
     }
 
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrostedCustomBackgroundContractTest) -> Unit) {
+            val s = FrostedCustomBackgroundContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.ordinarySessionPassesApplicationContextAndWorkerUsesTheExistingAssetDecoder() }
+        runIsolated { s -> s.foregroundMemoryReleaseKeepsTheDisplayUnderlayUntilStopOrClose() }
+        runIsolated { s -> s.customImageSummaryDoesNotRequireAdvancedMaterial() }
+    }
 }

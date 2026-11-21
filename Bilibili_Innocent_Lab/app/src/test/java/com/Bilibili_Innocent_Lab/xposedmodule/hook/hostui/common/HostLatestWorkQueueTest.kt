@@ -5,7 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostLatestWorkQueueTest {
-    @Test fun `rapid changes prepare only active and latest inputs`() {
+    fun `rapid changes prepare only active and latest inputs`() {
         val executor = ArrayDeque<Runnable>()
         val queue = HostLatestWorkQueue { executor.addLast(it) }
         val prepared = mutableListOf<Int>()
@@ -23,7 +23,7 @@ class HostLatestWorkQueueTest {
         assertTrue(executor.isEmpty())
     }
 
-    @Test fun `queued changes never multiply executor entries and clear drops obsolete work`() {
+    fun `queued changes never multiply executor entries and clear drops obsolete work`() {
         val executor = ArrayDeque<Runnable>()
         val queue = HostLatestWorkQueue { executor.addLast(it) }
         repeat(100) { queue.submit { fail("obsolete input executed") } }
@@ -41,7 +41,7 @@ class HostLatestWorkQueueTest {
         assertTrue(executor.isEmpty())
     }
 
-    @Test fun `independent owners sharing one executor remain fair`() {
+    fun `independent owners sharing one executor remain fair`() {
         val executor = ArrayDeque<Runnable>()
         val first = HostLatestWorkQueue { executor.addLast(it) }
         val second = HostLatestWorkQueue { executor.addLast(it) }
@@ -52,7 +52,7 @@ class HostLatestWorkQueueTest {
         assertEquals(listOf("first-active", "second", "first-latest"), order)
     }
 
-    @Test fun `failed work cannot strand a newer preparation`() {
+    fun `failed work cannot strand a newer preparation`() {
         val executor = ArrayDeque<Runnable>()
         val queue = HostLatestWorkQueue { executor.addLast(it) }
         val failure = IllegalStateException("preparation failed")
@@ -65,7 +65,7 @@ class HostLatestWorkQueueTest {
         assertTrue(executor.isEmpty())
     }
 
-    @Test fun `executor rejection releases ownership so the next request can proceed`() {
+    fun `executor rejection releases ownership so the next request can proceed`() {
         val executor = ArrayDeque<Runnable>()
         var rejecting = true
         val queue = HostLatestWorkQueue {
@@ -79,5 +79,18 @@ class HostLatestWorkQueueTest {
         queue.submit { prepared = true }
         executor.removeFirst().run()
         assertTrue(prepared)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostLatestWorkQueueTest) -> Unit) {
+            val s = HostLatestWorkQueueTest()
+            block(s)
+        }
+        runIsolated { s -> s.`rapid changes prepare only active and latest inputs`() }
+        runIsolated { s -> s.`queued changes never multiply executor entries and clear drops obsolete work`() }
+        runIsolated { s -> s.`independent owners sharing one executor remain fair`() }
+        runIsolated { s -> s.`failed work cannot strand a newer preparation`() }
+        runIsolated { s -> s.`executor rejection releases ownership so the next request can proceed`() }
     }
 }

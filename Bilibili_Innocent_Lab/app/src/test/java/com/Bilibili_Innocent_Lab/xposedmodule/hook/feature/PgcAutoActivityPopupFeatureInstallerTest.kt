@@ -69,7 +69,6 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         return result
     }
 
-    @Test
     fun `one descriptor hook removes only the automatic half before model construction`() {
         assertEquals(FeatureInstallResult.Installed(1), install())
         assertEquals(1, registrations)
@@ -92,7 +91,6 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         assertTrue(errors.isEmpty())
     }
 
-    @Test
     fun `disabled feature and non-main process install no hooks`() {
         assertEquals(
             FeatureInstallResult.Skipped("disabled"),
@@ -107,7 +105,6 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         assertSame(manual[7], (descriptor.constructWith(manual) as OgvActivityVo).half)
     }
 
-    @Test
     fun `missing stale and failed registration never report installed`() {
         assertEquals(
             FeatureInstallResult.Skipped("missing-adapter-point"),
@@ -131,7 +128,6 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         assertFalse("success" in statuses)
     }
 
-    @Test
     fun `no half and bad input pass through with bounded diagnostics and no applied evidence`() {
         install()
         val absent = values(null)
@@ -152,7 +148,6 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         assertEquals(2, errors.size)
     }
 
-    @Test
     fun `failed or ineffective original construction is never counted as applied`() {
         install()
         val failure = IllegalStateException("original failure")
@@ -165,14 +160,12 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         assertEquals(1, errors.size)
     }
 
-    @Test
     fun `diagnostic callback failure cannot affect original construction or filtering`() {
         install(environment.copy(runtimeEvidence = { _, _, _ -> error("diagnostics only") }))
         assertNull((invoke(values()) as OgvActivityVo).half)
         assertTrue(errors.isEmpty())
     }
 
-    @Test
     fun `sanitized capture replay filters one half and preserves five absent responses`() {
         install()
         val samples = JSONArray(requireNotNull(
@@ -210,5 +203,20 @@ class PgcAutoActivityPopupFeatureInstallerTest {
         override fun proceed(args: Array<Any?>): Any? { calls++; return original(args) }
         override fun proceedWith(thisObject: Any): Any? = proceed()
         override fun proceedWith(thisObject: Any, args: Array<Any?>): Any? = proceed(args)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PgcAutoActivityPopupFeatureInstallerTest) -> Unit) {
+            val s = PgcAutoActivityPopupFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`one descriptor hook removes only the automatic half before model construction`() }
+        runIsolated { s -> s.`disabled feature and non-main process install no hooks`() }
+        runIsolated { s -> s.`missing stale and failed registration never report installed`() }
+        runIsolated { s -> s.`no half and bad input pass through with bounded diagnostics and no applied evidence`() }
+        runIsolated { s -> s.`failed or ineffective original construction is never counted as applied`() }
+        runIsolated { s -> s.`diagnostic callback failure cannot affect original construction or filtering`() }
+        runIsolated { s -> s.`sanitized capture replay filters one half and preserves five absent responses`() }
     }
 }

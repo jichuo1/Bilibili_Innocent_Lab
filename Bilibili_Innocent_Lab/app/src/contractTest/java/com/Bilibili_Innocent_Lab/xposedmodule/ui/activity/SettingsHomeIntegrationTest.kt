@@ -8,7 +8,7 @@ import org.junit.Test
 
 /** Source contracts protect integration boundaries that are not exercised by JVM View stubs. */
 class SettingsHomeIntegrationTest {
-    @Test fun replyButtonVisibilitySwitchHasAHighlightDestinationOnThePurificationPage() {
+    fun replyButtonVisibilitySwitchHasAHighlightDestinationOnThePurificationPage() {
         val rows = SourceContract.read("ui/activity/CommentReplyButtonPresenter.kt")
         val binding = rows.after("bindFavoriteSwitch(this, FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, directToggle = true)")
             .before("text = stringResource(R.string.remove_comment_reply_button)")
@@ -16,7 +16,7 @@ class SettingsHomeIntegrationTest {
         assertTrue(SettingsUiSource.function("purifyCommentsCategory").contains("commentReplyButtonSettingsRows(this, removeCommentReplyButton)"))
     }
 
-    @Test fun searchTraversesOriginalPagesAndSwitchesBeforeSchedulingCoordinates() {
+    fun searchTraversesOriginalPagesAndSwitchesBeforeSchedulingCoordinates() {
         val collect = SettingsUiSource.function("collectSettingsSearchTargets")
         assertTrue(collect.contains("settingsHome?.searchRoots"))
         val reveal = SettingsUiSource.function("revealSettingsSearchTarget")
@@ -34,7 +34,7 @@ class SettingsHomeIntegrationTest {
         assertFalse(home.contains("settingsDestinations.bind"))
     }
 
-    @Test fun favoritesReadConfirmedModelAndConfirmationSwitchRemainsNavigationOnly() {
+    fun favoritesReadConfirmedModelAndConfirmationSwitchRemainsNavigationOnly() {
         val home = SettingsUiSource.file("SettingsHomePresenter")
         val callback = SettingsUiSource.functions(home, "renderFavorites").single()
             .after("peer.setOnCheckedChangeListener").before("card.addView(peer")
@@ -79,7 +79,7 @@ class SettingsHomeIntegrationTest {
         assertTrue(playback.contains("bindFavoriteSwitch(this, key)"))
     }
 
-    @Test fun unbuiltPagesHaveStableMetadataAndAreCreatedInTheirFinalContainer() {
+    fun unbuiltPagesHaveStableMetadataAndAreCreatedInTheirFinalContainer() {
         val home = SettingsUiSource.file("SettingsHomePresenter")
         val main = SettingsUiSource.file("MainActivity")
         assertTrue(home.contains("store.descriptors.filter { it.favoriteEligible }"))
@@ -93,7 +93,7 @@ class SettingsHomeIntegrationTest {
         assertTrue(main.contains("SettingsSearchItem(\"model:${'$'}{descriptor.id}\""))
     }
 
-    @Test fun arrangementRoundTripKeepsUnavailableRowsDuringReordering() {
+    fun arrangementRoundTripKeepsUnavailableRowsDuringReordering() {
         val state = SettingsFavoritesState(listOf("future", "A", "removed", "B", "C"))
         val first = SettingsFavoritesPolicy.move(state, "C", state.ids.indexOf("C") - 1)!!
         val second = SettingsFavoritesPolicy.move(first, "C", first.ids.indexOf("C") - 1)!!
@@ -107,7 +107,7 @@ class SettingsHomeIntegrationTest {
         assertTrue(management.contains("settings_favorites_missing"))
     }
 
-    @Test fun retainedPagesAndAsyncEditsHaveLifecycleCleanupAndRestoration() {
+    fun retainedPagesAndAsyncEditsHaveLifecycleCleanupAndRestoration() {
         val home = SettingsUiSource.file("SettingsHomePresenter")
         assertTrue(home.contains("settings_home_page"))
         assertTrue(home.contains("settings_home_scroll_"))
@@ -124,5 +124,19 @@ class SettingsHomeIntegrationTest {
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("if (home.editing) return"))
         assertTrue(SettingsUiSource.function("onDestroy").contains("settingsHome?.dispose()"))
         assertTrue(SettingsUiSource.function("onSaveInstanceState").contains("settingsHome?.saveState(outState)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsHomeIntegrationTest) -> Unit) {
+            val s = SettingsHomeIntegrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.replyButtonVisibilitySwitchHasAHighlightDestinationOnThePurificationPage() }
+        runIsolated { s -> s.searchTraversesOriginalPagesAndSwitchesBeforeSchedulingCoordinates() }
+        runIsolated { s -> s.favoritesReadConfirmedModelAndConfirmationSwitchRemainsNavigationOnly() }
+        runIsolated { s -> s.unbuiltPagesHaveStableMetadataAndAreCreatedInTheirFinalContainer() }
+        runIsolated { s -> s.arrangementRoundTripKeepsUnavailableRowsDuringReordering() }
+        runIsolated { s -> s.retainedPagesAndAsyncEditsHaveLifecycleCleanupAndRestoration() }
     }
 }

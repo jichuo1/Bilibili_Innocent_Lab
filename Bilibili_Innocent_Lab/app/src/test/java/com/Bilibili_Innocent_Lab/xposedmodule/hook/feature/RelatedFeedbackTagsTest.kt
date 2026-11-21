@@ -11,7 +11,7 @@ import org.junit.Test
 import wmx1
 
 class RelatedFeedbackTagsTest {
-    @Test fun tagIdIsCalibratedIndependentlyFromReasonIdAuthorAndRegion() {
+    fun tagIdIsCalibratedIndependentlyFromReasonIdAuthorAndRegion() {
         val access = checkNotNull(RelatedFeedbackTags.resolve(Card::class.java))
         val reasons = Reasons(listOf(Reason(10, 20, 30, 40, "tag"), Reason(30, 0, 0, 30, "region")))
         val card = Card(RelateCardType.AV, Menu(reasons, reasons))
@@ -24,14 +24,14 @@ class RelatedFeedbackTagsTest {
         assertEquals(emptyList<FeedbackTag>(), access.read(Any()))
     }
 
-    @Test fun unrelatedShapeAndMissingNamesAreRejected() {
+    fun unrelatedShapeAndMissingNamesAreRejected() {
         assertNull(RelatedFeedbackTags.resolve(Reasons::class.java))
         val access = checkNotNull(RelatedFeedbackTags.resolve(Card::class.java))
         val reasons = Reasons(listOf(Reason(1, 2, 0, 3, "x"), Reason(1, 2, 4, 3, " ")))
         assertTrue(access.read(Card(RelateCardType.AV, Menu(reasons, null))).isEmpty())
     }
 
-    @Test fun relocatedCardSharesTagSemanticsAcrossItsTwoMenus() {
+    fun relocatedCardSharesTagSemanticsAcrossItsTwoMenus() {
         val access = requireNotNull(RelatedFeedbackTags.resolve(bjx1::class.java))
         val first = wmx1(11, 12, 13, 14, "first")
         val second = wmx1(21, 22, 23, 24, "second")
@@ -40,5 +40,16 @@ class RelatedFeedbackTagsTest {
         assertTrue(access.matches(card, emptySet(), setOf(23)))
         assertFalse(access.matches(card, setOf(11, 12, 14, 21, 22, 24), emptySet()))
         assertNull(RelatedFeedbackTags.resolve(UnrelatedRootFeedbackCard::class.java))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (RelatedFeedbackTagsTest) -> Unit) {
+            val s = RelatedFeedbackTagsTest()
+            block(s)
+        }
+        runIsolated { s -> s.tagIdIsCalibratedIndependentlyFromReasonIdAuthorAndRegion() }
+        runIsolated { s -> s.unrelatedShapeAndMissingNamesAreRejected() }
+        runIsolated { s -> s.relocatedCardSharesTagSemanticsAcrossItsTwoMenus() }
     }
 }

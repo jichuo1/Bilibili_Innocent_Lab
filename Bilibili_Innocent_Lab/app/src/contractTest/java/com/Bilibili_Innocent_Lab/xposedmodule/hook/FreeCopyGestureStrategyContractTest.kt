@@ -31,7 +31,7 @@ class FreeCopyGestureStrategyContractTest {
 
     private fun dispatchWindow() = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
 
-    @Test fun noSurfaceOrUpSpecificDelayRemainsAnywhereInTheCode() {
+    fun noSurfaceOrUpSpecificDelayRemainsAnywhereInTheCode() {
         for (name in listOf("claimAtUp", "TITLE_THRESHOLD_EXTRA_MS", "UP_CLAIM_MARGIN_MS")) {
             assertFalse("HookEntry 不得再出现 $name", codeOnly(source()).contains(name))
             assertFalse("检测器不得再出现 $name", codeOnly(detector()).contains(name))
@@ -47,7 +47,7 @@ class FreeCopyGestureStrategyContractTest {
         assertEquals(2, Regex("""freeCopyLongPressThreshold\(\)""").findAll(codeOnly(source().after("private fun freeCopyDueDelayMs()"))).count())
     }
 
-    @Test fun dueDelayAndSlopComeFromThePolicyForEverySurface() {
+    fun dueDelayAndSlopComeFromThePolicyForEverySurface() {
         val due = source().after("private fun freeCopyDueDelayMs()").before("private fun revokePrematurePopupIfShortTap(")
         assertTrue(due.contains("FreeCopyPressPolicy.dueDelayMs("))
         val scheduleCalls = Regex("""freeCopyDueDelayMs\(\)""").findAll(codeOnly(source())).count()
@@ -58,7 +58,7 @@ class FreeCopyGestureStrategyContractTest {
         assertTrue(policy().contains("const val MAX_INPUT_LAG_CREDIT_MS"))
     }
 
-    @Test fun terminalEventsHaveASingleVerdictEntryUsedByTargetAndAncestorBranches() {
+    fun terminalEventsHaveASingleVerdictEntryUsedByTargetAndAncestorBranches() {
         val dispatch = dispatchWindow()
         assertEquals("目标分支 + 祖先分支各一处", 2, Regex("""finishDescLikeTouch\(ev, """).findAll(codeOnly(dispatch)).count())
         // 祖先分支排在评论终止分支之前，且命中后直接返回，评论会话不会被 desc 裁决截断。
@@ -80,7 +80,7 @@ class FreeCopyGestureStrategyContractTest {
         assertFalse("裁决函数不得碰宿主按压状态", codeOnly(finish).contains("cancelLongPress"))
     }
 
-    @Test fun detectorVerdictConsumesOnlyAnUpAndNeverACancel() {
+    fun detectorVerdictConsumesOnlyAnUpAndNeverACancel() {
         val verdict = detector().after("fun resolveTerminal(").before("fun reset()")
         assertTrue(verdict.contains("if (alreadyHandled) return if (isUp) Terminal.CONSUME else Terminal.HAND_TO_HOST"))
         assertTrue(verdict.contains("if (isUp && claim(downTime, eventTime)) return Terminal.CLAIM_AND_CONSUME"))
@@ -91,7 +91,7 @@ class FreeCopyGestureStrategyContractTest {
         assertEquals(1, Regex("""phase = Phase\.HANDLED""").findAll(detector()).count())
     }
 
-    @Test fun terminalCleanupNeverTouchesTheHostPressStateAndTitlesAreNeverCancelledThroughIt() {
+    fun terminalCleanupNeverTouchesTheHostPressStateAndTitlesAreNeverCancelledThroughIt() {
         val src = codeOnly(source())
         // 整个文件里 cancelLongPress() 的调用点：评论树的宿主交互不在此列，这里只数自由复制会话相关函数。
         val clear = codeOnly(source().after("private fun clearDescTouchSession(").before("* 让出给滑动时取消模块长按"))
@@ -106,7 +106,7 @@ class FreeCopyGestureStrategyContractTest {
         assertFalse(codeOnly(popup).contains("cancelLongPress"))
     }
 
-    @Test fun titleKeepsTheHostTouchSemanticsBecauseTheModuleOnlyRecognisesLongPressItself() {
+    fun titleKeepsTheHostTouchSemanticsBecauseTheModuleOnlyRecognisesLongPressItself() {
         // 标题登记不挂监听、不改可点击性：宿主容器点击展开（9.19：setEnableTouchToggle(false) + 容器 setOnClickListener）
         // 与标题自身点击监听（旧版本）都保持原样。
         val register = codeOnly(source().after("private fun onTitleCandidateTextSet(").before("private fun applyTitleFreeCopyListener("))
@@ -122,10 +122,25 @@ class FreeCopyGestureStrategyContractTest {
         assertTrue(runnable.contains("sharedFreeCopyListener.onLongClick(descTarget)"))
     }
 
-    @Test fun anchorsAreStrictSoARelocatedBlockFailsInsteadOfWideningTheWindow() {
+    fun anchorsAreStrictSoARelocatedBlockFailsInsteadOfWideningTheWindow() {
         val missing = runCatching { source().after("this anchor does not exist anywhere in HookEntry") }
         assertTrue("缺失锚点必须失败，不能回退成整份文件", missing.isFailure)
         val missingBefore = runCatching { source().before("this anchor does not exist anywhere in HookEntry") }
         assertTrue(missingBefore.isFailure)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FreeCopyGestureStrategyContractTest) -> Unit) {
+            val s = FreeCopyGestureStrategyContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.noSurfaceOrUpSpecificDelayRemainsAnywhereInTheCode() }
+        runIsolated { s -> s.dueDelayAndSlopComeFromThePolicyForEverySurface() }
+        runIsolated { s -> s.terminalEventsHaveASingleVerdictEntryUsedByTargetAndAncestorBranches() }
+        runIsolated { s -> s.detectorVerdictConsumesOnlyAnUpAndNeverACancel() }
+        runIsolated { s -> s.terminalCleanupNeverTouchesTheHostPressStateAndTitlesAreNeverCancelledThroughIt() }
+        runIsolated { s -> s.titleKeepsTheHostTouchSemanticsBecauseTheModuleOnlyRecognisesLongPressItself() }
+        runIsolated { s -> s.anchorsAreStrictSoARelocatedBlockFailsInsteadOfWideningTheWindow() }
     }
 }

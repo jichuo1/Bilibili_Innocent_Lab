@@ -29,7 +29,7 @@ class LiquidImageDecoderIsolationTest {
         }
     }
 
-    @Test fun theRestrictedLoaderActuallyRejectsALeakingMethodSignature() {
+    fun theRestrictedLoaderActuallyRejectsALeakingMethodSignature() {
         val name = UnguardedFixture::class.java.name
         val loader = Api27LinkageLoader(javaClass.classLoader, name)
         assertThrows(LinkageError::class.java) {
@@ -37,7 +37,7 @@ class LiquidImageDecoderIsolationTest {
         }
     }
 
-    @Test fun sharedStoreLinksWithoutAnyImageDecoderClasses() {
+    fun sharedStoreLinksWithoutAnyImageDecoderClasses() {
         val loader = Api27LinkageLoader(javaClass.classLoader, storeName)
         assertThrows(ClassNotFoundException::class.java) { loader.loadClass("android.graphics.ImageDecoder") }
         val store = Class.forName(storeName, false, loader)
@@ -49,7 +49,7 @@ class LiquidImageDecoderIsolationTest {
         assertFalse(references.any { it.name.startsWith("android.graphics.ImageDecoder") })
     }
 
-    @Test fun guardedDecoderKeepsApi27FallbackAndDoesNotSuppressNewApi() {
+    fun guardedDecoderKeepsApi27FallbackAndDoesNotSuppressNewApi() {
         val root = sequenceOf(File("src/main/java"), File("app/src/main/java")).first(File::isDirectory)
         val folder = File(root, "com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/background")
         val store = File(folder, "LiquidBackgroundStore.kt").readText()
@@ -62,5 +62,16 @@ class LiquidImageDecoderIsolationTest {
         assertTrue(decoder.contains("@RequiresApi(28)"))
         assertTrue(decoder.contains("@DoNotInline"))
         assertTrue(decoder.contains("ImageDecoder.decodeBitmap"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidImageDecoderIsolationTest) -> Unit) {
+            val s = LiquidImageDecoderIsolationTest()
+            block(s)
+        }
+        runIsolated { s -> s.theRestrictedLoaderActuallyRejectsALeakingMethodSignature() }
+        runIsolated { s -> s.sharedStoreLinksWithoutAnyImageDecoderClasses() }
+        runIsolated { s -> s.guardedDecoderKeepsApi27FallbackAndDoesNotSuppressNewApi() }
     }
 }

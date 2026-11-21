@@ -13,7 +13,7 @@ import tv.danmaku.bili.ui.main2.mineV2.HomeUserCenterFragmentV2
 class GuestMineOverlayHooksTest {
     private val statuses = linkedMapOf<String, String>()
 
-    @Before fun resetStatuses() {
+    fun resetStatuses() {
         statuses.clear()
     }
 
@@ -24,7 +24,7 @@ class GuestMineOverlayHooksTest {
     private fun PlayerPortTestRegistrar.toggle(fragment: HomeUserCenterFragmentV2, isLogin: Boolean) =
         invoke("guest.mine.overlay.v2", fragment, arrayOf(isLogin, true)) { fragment.Vf(isLogin, true); null }
 
-    @Test fun guestSkipsTheForceLoginOverlayAndLoggedInUsersKeepTheHostBehavior() {
+    fun guestSkipsTheForceLoginOverlayAndLoggedInUsersKeepTheHostBehavior() {
         var guest = true
         val registrar = PlayerPortTestRegistrar()
         assertEquals(1, GuestMineOverlayHooks({ guest }).install(environment(registrar)))
@@ -42,7 +42,7 @@ class GuestMineOverlayHooksTest {
         assertEquals(2, fragment.overlayCalls)
     }
 
-    @Test fun installingAloneDoesNotClaimTheOverlayWasSkipped() {
+    fun installingAloneDoesNotClaimTheOverlayWasSkipped() {
         val registrar = PlayerPortTestRegistrar()
         GuestMineOverlayHooks({ false }).install(environment(registrar))
         assertEquals("installed", statuses["guest_mine_overlay"])
@@ -50,14 +50,14 @@ class GuestMineOverlayHooksTest {
         assertNull(statuses["guest_mine_overlay_applied"])
     }
 
-    @Test fun onlyTheRealToggleIsHookedAmongShapeDecoys() {
+    fun onlyTheRealToggleIsHookedAmongShapeDecoys() {
         val registrar = PlayerPortTestRegistrar()
         GuestMineOverlayHooks({ true }).install(environment(registrar))
         // Decoys differ by return type (Xf), arity (Wf, onPageSelected) and static-ness (Yf).
         assertEquals(listOf("Vf"), registrar.hooks.values.map { it.member.name })
     }
 
-    @Test fun missingHostClassInstallsNothingAndReportsAbsent() {
+    fun missingHostClassInstallsNothingAndReportsAbsent() {
         val registrar = PlayerPortTestRegistrar()
         val hooks = GuestMineOverlayHooks({ true }, "tv.danmaku.bili.ui.main2.mineV2.NoSuchFragment")
         assertEquals(0, hooks.install(environment(registrar)))
@@ -65,11 +65,25 @@ class GuestMineOverlayHooksTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun ambiguousShapeFailsClosedInsteadOfGuessing() {
+    fun ambiguousShapeFailsClosedInsteadOfGuessing() {
         val registrar = PlayerPortTestRegistrar()
         val hooks = GuestMineOverlayHooks({ true }, "fixtures.privacy.mineoverlay.AmbiguousMineFragment")
         assertEquals(0, hooks.install(environment(registrar)))
         assertEquals("absent", statuses["guest_mine_overlay"])
         assertTrue(registrar.hooks.isEmpty())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestMineOverlayHooksTest) -> Unit) {
+            val s = GuestMineOverlayHooksTest()
+            s.resetStatuses()
+            block(s)
+        }
+        runIsolated { s -> s.guestSkipsTheForceLoginOverlayAndLoggedInUsersKeepTheHostBehavior() }
+        runIsolated { s -> s.installingAloneDoesNotClaimTheOverlayWasSkipped() }
+        runIsolated { s -> s.onlyTheRealToggleIsHookedAmongShapeDecoys() }
+        runIsolated { s -> s.missingHostClassInstallsNothingAndReportsAbsent() }
+        runIsolated { s -> s.ambiguousShapeFailsClosedInsteadOfGuessing() }
     }
 }

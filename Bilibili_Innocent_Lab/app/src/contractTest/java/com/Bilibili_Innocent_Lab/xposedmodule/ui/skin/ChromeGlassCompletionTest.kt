@@ -11,7 +11,7 @@ import org.junit.Test
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 
 class ChromeGlassCompletionTest {
-    @Test fun edgeMappingHasNoClampedPlateauOrReversal() {
+    fun edgeMappingHasNoClampedPlateauOrReversal() {
         for (size in listOf(48f, 96f, 382f, 1080f)) {
             for ((gain, push) in listOf(
                 LensRefractionPolicy.CENTER_GAIN_X to LensRefractionPolicy.RIM_PUSH_X,
@@ -32,7 +32,7 @@ class ChromeGlassCompletionTest {
         }
     }
 
-    @Test fun wideCapsulesReproduceOutOfNodeSamplesAtBothEnds() {
+    fun wideCapsulesReproduceOutOfNodeSamplesAtBothEnds() {
         val width = 382f
         val padding = LensRefractionPolicy.MARGIN_DP + 2f
         fun position(u: Float) = padding + (LensRefractionPolicy.lens(u,
@@ -44,7 +44,7 @@ class ChromeGlassCompletionTest {
             position(1f).coerceIn(padding + 0.5f, width + padding - 0.5f), 0f)
     }
 
-    @Test fun nodeSamplesStayInTheVisibleInputAndPreserveUnclampedInteriorCoordinates() {
+    fun nodeSamplesStayInTheVisibleInputAndPreserveUnclampedInteriorCoordinates() {
         for (width in listOf(96, 382, 1080)) for (pad in listOf(14, 16, 48)) {
             val extent = width + 2 * pad
             for (pixel in 0 until width) {
@@ -66,7 +66,7 @@ class ChromeGlassCompletionTest {
         }
     }
 
-    @Test fun softwareReferenceDoesNotIntroduceTransparentStripsAtCapsuleEnds() {
+    fun softwareReferenceDoesNotIntroduceTransparentStripsAtCapsuleEnds() {
         val width = 382; val height = 64; val pad = 16
         val source = IntArray((width + pad * 2) * (height + pad * 2)) { 0xff405060.toInt() }
         val output = IntArray(width * height)
@@ -74,7 +74,7 @@ class ChromeGlassCompletionTest {
         assertTrue(output.all { it == 0xff405060.toInt() })
     }
 
-    @Test fun clearNodeGlassCompensatesBusyContentEvenThoughItsCompositeIsOpaque() {
+    fun clearNodeGlassCompensatesBusyContentEvenThoughItsCompositeIsOpaque() {
         val optics = GlowSurfaceOptics(0xff202020.toInt(), 0.18f, 0.48f,
             LiquidChromeGlassPolicy.DETAIL_SEE_THROUGH)
         val text = 0xffd3d3d3.toInt()
@@ -84,7 +84,7 @@ class ChromeGlassCompletionTest {
         assertEquals(0f, GlowLegibilityPolicy.target(GlowContentSample(0.15f, 0f), text, optics).boost, 0f)
     }
 
-    @Test fun detailsIncreaseCompensationMonotonicallyInBothThemes() {
+    fun detailsIncreaseCompensationMonotonicallyInBothThemes() {
         for ((surface, text, luma) in listOf(
             Triple(0xff202020.toInt(), 0xffd3d3d3.toInt(), 0.15f),
             Triple(0xfff0f0f0.toInt(), 0xff323b42.toInt(), 0.9f)
@@ -100,7 +100,7 @@ class ChromeGlassCompletionTest {
         }
     }
 
-    @Test fun finalChromeProfileKeepsFullOpticsAndConnectsBothParameters() {
+    fun finalChromeProfileKeepsFullOpticsAndConnectsBothParameters() {
         fun source(name: String): String = SourceContract.read("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/$name.kt")
         assertEquals(3f, LiquidChromeGlassPolicy.BLUR_RADIUS_DP, 0f)
         val node = source("liquid/LiquidChromeBackdropApi31")
@@ -116,5 +116,20 @@ class ChromeGlassCompletionTest {
             .contains("CHROME_DETAIL_SEE_THROUGH = LiquidChromeGlassPolicy.DETAIL_SEE_THROUGH"))
         assertTrue(source("material/FrostedChromeGlassApi31")
             .contains("content.eval(clamp(source, origin + float2(0.5), origin + size - float2(0.5)))"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ChromeGlassCompletionTest) -> Unit) {
+            val s = ChromeGlassCompletionTest()
+            block(s)
+        }
+        runIsolated { s -> s.edgeMappingHasNoClampedPlateauOrReversal() }
+        runIsolated { s -> s.wideCapsulesReproduceOutOfNodeSamplesAtBothEnds() }
+        runIsolated { s -> s.nodeSamplesStayInTheVisibleInputAndPreserveUnclampedInteriorCoordinates() }
+        runIsolated { s -> s.softwareReferenceDoesNotIntroduceTransparentStripsAtCapsuleEnds() }
+        runIsolated { s -> s.clearNodeGlassCompensatesBusyContentEvenThoughItsCompositeIsOpaque() }
+        runIsolated { s -> s.detailsIncreaseCompensationMonotonicallyInBothThemes() }
+        runIsolated { s -> s.finalChromeProfileKeepsFullOpticsAndConnectsBothParameters() }
     }
 }

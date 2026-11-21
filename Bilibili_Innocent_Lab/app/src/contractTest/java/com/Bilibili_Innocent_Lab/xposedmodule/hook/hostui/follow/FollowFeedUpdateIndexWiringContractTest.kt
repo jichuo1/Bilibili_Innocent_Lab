@@ -13,7 +13,7 @@ class FollowFeedUpdateIndexWiringContractTest {
     private val update = SourceContract.read("hook/hostui/follow/FollowFeedController.kt")
         .after("fun update() {").before("private fun updateBottomPadding()")
 
-    @Test fun rowsAndReferenceKeysAreCollectedOnceThenReused() {
+    fun rowsAndReferenceKeysAreCollectedOnceThenReused() {
         assertEquals(1, Regex("""updateIndex\.rebuild\(""").findAll(update).count())
         assertEquals("the controller map is consulted once per child for the snapshot, plus the decoration pass's RowState",
             2, Regex("""rows\[""").findAll(update).count())
@@ -25,7 +25,7 @@ class FollowFeedUpdateIndexWiringContractTest {
         assertFalse(stale.contains("none {"))
     }
 
-    @Test fun scrollingStillPlacesEveryPanelAndKeepsTheSurfaceBudget() {
+    fun scrollingStillPlacesEveryPanelAndKeepsTheSurfaceBudget() {
         assertTrue(update.contains("panel.place(cardOptions, 0)"))
         assertTrue(update.contains("panel.place(referenceOptions, FollowFeedStyle.REFERENCE_INSET_DP)"))
         assertTrue(update.contains("FollowFeedStyle.MAX_CARD_SURFACES"))
@@ -33,7 +33,18 @@ class FollowFeedUpdateIndexWiringContractTest {
         assertTrue(update.contains("updateBottomPadding()"))
     }
 
-    @Test fun decorationPassFallsBackToTheCurrentRowWhenTheSnapshotIsStale() {
+    fun decorationPassFallsBackToTheCurrentRowWhenTheSnapshotIsStale() {
         assertTrue(update.contains("if (state.row === updateIndex.rowAt(i)) updateIndex.keyAt(i) else state.row?.referenceKey()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FollowFeedUpdateIndexWiringContractTest) -> Unit) {
+            val s = FollowFeedUpdateIndexWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.rowsAndReferenceKeysAreCollectedOnceThenReused() }
+        runIsolated { s -> s.scrollingStillPlacesEveryPanelAndKeepsTheSurfaceBudget() }
+        runIsolated { s -> s.decorationPassFallsBackToTheCurrentRowWhenTheSnapshotIsStale() }
     }
 }

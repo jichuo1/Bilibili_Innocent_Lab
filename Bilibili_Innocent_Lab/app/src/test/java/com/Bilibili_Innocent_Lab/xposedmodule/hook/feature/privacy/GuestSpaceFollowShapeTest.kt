@@ -34,7 +34,7 @@ class GuestSpaceFollowShapeTest {
         fun keys(): Set<Any> = emptySet()
     }
 
-    @Test fun viewModelStoresSupportStringAndObjectKeysWithoutGuessing() {
+    fun viewModelStoresSupportStringAndObjectKeysWithoutGuessing() {
         val model = Model()
         listOf(StringStore() to "key", ObjectStore() to Any()).forEach { (store, key) ->
             val access = requireNotNull(GuestSpaceFollowSync.storeAccess(store.javaClass, Model::class.java))
@@ -45,12 +45,12 @@ class GuestSpaceFollowShapeTest {
         assertNull(GuestSpaceFollowSync.storeAccess(MixedStore::class.java, Model::class.java))
         assertNull(GuestSpaceFollowSync.storeAccess(AmbiguousStore::class.java, Model::class.java))
     }
-    @Test fun wrapperMidIsItsSingleStringField() {
+    fun wrapperMidIsItsSingleStringField() {
         assertEquals("a", GuestSpaceFollowSync.stringField(Wrapper::class.java)?.name)
         assertNull(GuestSpaceFollowSync.stringField(TwoStrings::class.java))  // never guessed
     }
 
-    @Test fun guestSpaceResponseReadsAsFollowed() {
+    fun guestSpaceResponseReadsAsFollowed() {
         // Trimmed from a real guest response for vmid=2.
         val guest = """{"code":0,"data":{"relation":-999,"guest_relation":-999,"card":{"mid":"2","attention":430,"relation":{"status":1}}}}"""
         val data = JSONObject(GuestSpaceFollowSync.followedSpace(guest)).getJSONObject("data")
@@ -64,7 +64,7 @@ class GuestSpaceFollowShapeTest {
         assertEquals(error, GuestSpaceFollowSync.followedSpace(error))
     }
 
-    @Test fun ownerNameAndAvatarComeFromTheGeneratedModelText() {
+    fun ownerNameAndAvatarComeFromTheGeneratedModelText() {
         assertEquals("碧诗", GuestSpaceFollowSync.ownerName("SpaceOwnerInfo(name=碧诗, sign=We Are Star Dust)"))
         assertEquals("https://i0.hdslb.com/face.jpg",
             GuestSpaceFollowSync.ownerFace("SpaceAvatar(face=https://i0.hdslb.com/face.jpg, digits=null, pendant=null)"))
@@ -72,5 +72,17 @@ class GuestSpaceFollowShapeTest {
         assertNull(GuestSpaceFollowSync.ownerName("SpaceOwnerInfo(name=, sign=x)"))
         assertNull(GuestSpaceFollowSync.ownerFace("SpaceAvatar(face=null, digits=null, pendant=null)"))
         assertNull(GuestSpaceFollowSync.ownerFace("SpaceAvatar(face=truncated"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestSpaceFollowShapeTest) -> Unit) {
+            val s = GuestSpaceFollowShapeTest()
+            block(s)
+        }
+        runIsolated { s -> s.viewModelStoresSupportStringAndObjectKeysWithoutGuessing() }
+        runIsolated { s -> s.wrapperMidIsItsSingleStringField() }
+        runIsolated { s -> s.guestSpaceResponseReadsAsFollowed() }
+        runIsolated { s -> s.ownerNameAndAvatarComeFromTheGeneratedModelText() }
     }
 }

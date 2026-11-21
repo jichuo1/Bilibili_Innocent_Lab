@@ -33,7 +33,7 @@ class GuestBrowsingFeatureInstallerTest {
         @Suppress("UNUSED_PARAMETER") val flag: Boolean = first and second
     }
 
-    @Test fun onlyPassiveLoginGuideIsRejectedAndOtherDialogsKeepTheirOriginalResult() {
+    fun onlyPassiveLoginGuideIsRejectedAndOtherDialogsKeepTheirOriginalResult() {
         val h = Harness()
         var originalCalls = 0
         fun call(key: String?) = h.registrar.invoke("guest_browsing.login-dialog",
@@ -45,7 +45,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertTrue(FeatureRuntimeStage.APPLIED in h.stages)
     }
 
-    @Test fun loginStateIsReadAtInvocationAndReadFailuresDoNotDismissUnrelatedDialogs() {
+    fun loginStateIsReadAtInvocationAndReadFailuresDoNotDismissUnrelatedDialogs() {
         val h = Harness()
         h.guest = false
         assertEquals(true, h.registrar.invoke("guest_browsing.login-dialog",
@@ -59,7 +59,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertTrue(FeatureRuntimeStage.ERROR in h.stages)
     }
 
-    @Test fun onePassLoginGuideIsSuppressedForGuestsOnly() {
+    fun onePassLoginGuideIsSuppressedForGuestsOnly() {
         val h = Harness()
         assertTrue(h.registrar.registrationAttempts.any { it.first == "guest_browsing.one-pass-guide" })
         var ran = 0
@@ -71,7 +71,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals(1, ran)
     }
 
-    @Test fun commentGuestLimitIsClearedAtConstructionForGuestsOnly() {
+    fun commentGuestLimitIsClearedAtConstructionForGuestsOnly() {
         val h = Harness()
         var constructed: CommentSubjectDescription? = null
         fun build(guestLimit: Boolean) {
@@ -94,7 +94,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals(listOf("reply"), hostResult.data)
     }
 
-    @Test fun commentLimitDoesNotBindTheVersionSpecificGetter() {
+    fun commentLimitDoesNotBindTheVersionSpecificGetter() {
         val h = Harness()
         assertTrue(h.registrar.registrationAttempts.any { it.first == "guest_browsing.comment-guest-limit.java" })
         assertFalse(h.registrar.registrationAttempts.any {
@@ -103,13 +103,13 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals("java", h.statuses["guest_browsing_comment_guest_limit_models"])
     }
 
-    @Test fun commentLimitFailsClosedWhenTheConstructorShapeIsAmbiguous() {
+    fun commentLimitFailsClosedWhenTheConstructorShapeIsAmbiguous() {
         val h = Harness(MismatchedCommentDescription::class.java.name)
         assertFalse(h.registrar.registrationAttempts.any { it.first.startsWith("guest_browsing.comment-guest-limit") })
         assertEquals("absent", h.statuses["guest_browsing_comment_guest_limit_models"])
     }
 
-    @Test fun eachGuardedEntryReportsItsOwnAppliedEvidenceForGuestsOnly() {
+    fun eachGuardedEntryReportsItsOwnAppliedEvidenceForGuestsOnly() {
         val h = Harness()
         h.guest = false
         h.registrar.invoke("guest_browsing.login-dialog",
@@ -127,7 +127,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertFalse(comment.statuses.containsKey("guest_browsing_login_dialog_applied"))
     }
 
-    @Test fun playerLoginToastIsNotScheduledForGuestsAndOtherConfigReadsPassThrough() {
+    fun playerLoginToastIsNotScheduledForGuestsAndOtherConfigReadsPassThrough() {
         val h = Harness()
         val config = com.bilibili.lib.config.BLRemoteConfig()
         fun read(key: String) = h.registrar.invoke("guest_browsing.force-login-toast-config", config,
@@ -140,7 +140,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals(true, read("enable_player_force_login_toast"))
     }
 
-    @Test fun guestQualityCapIsLiftedOnlyForTheForcedLoginKey() {
+    fun guestQualityCapIsLiftedOnlyForTheForcedLoginKey() {
         val h = Harness()
         val config = com.bilibili.lib.config.BLRemoteConfig()
         fun read(key: String) = h.registrar.invoke("guest_browsing.guest-quality-cap-config", config,
@@ -151,7 +151,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals(32, read("enable_player_force_login_qn"))
     }
 
-    @Test fun unrelatedConfigReadsNeverTouchAccountState() {
+    fun unrelatedConfigReadsNeverTouchAccountState() {
         val h = Harness()
         h.stateFailure = true
         val config = com.bilibili.lib.config.BLRemoteConfig()
@@ -166,7 +166,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertTrue(FeatureRuntimeStage.ERROR in h.stages)
     }
 
-    @Test fun overseasForcedLoginIsLocatedByTheSingleStaticBooleanShape() {
+    fun overseasForcedLoginIsLocatedByTheSingleStaticBooleanShape() {
         val h = Harness()
         val attempt = h.registrar.registrationAttempts.single { it.first == "guest_browsing.overseas-forced-login" }
         assertEquals("d", attempt.second.name)
@@ -175,7 +175,7 @@ class GuestBrowsingFeatureInstallerTest {
         assertEquals(true, h.registrar.invoke("guest_browsing.overseas-forced-login") { true })
     }
 
-    @Test fun manualLoginAndPromptCleanupRemainCallable() {
+    fun manualLoginAndPromptCleanupRemainCallable() {
         val h = Harness()
         val prompt = lp3.a()
         prompt.a()
@@ -188,5 +188,25 @@ class GuestBrowsingFeatureInstallerTest {
         fixtures.privacy.manual.HomeUserCenterFragment.Tq(account, null)
         assertEquals(1, account.loginRequests)
         assertFalse(h.registrar.registrationAttempts.any { it.second.name == "Tq" })
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestBrowsingFeatureInstallerTest) -> Unit) {
+            val s = GuestBrowsingFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.onlyPassiveLoginGuideIsRejectedAndOtherDialogsKeepTheirOriginalResult() }
+        runIsolated { s -> s.loginStateIsReadAtInvocationAndReadFailuresDoNotDismissUnrelatedDialogs() }
+        runIsolated { s -> s.onePassLoginGuideIsSuppressedForGuestsOnly() }
+        runIsolated { s -> s.commentGuestLimitIsClearedAtConstructionForGuestsOnly() }
+        runIsolated { s -> s.commentLimitDoesNotBindTheVersionSpecificGetter() }
+        runIsolated { s -> s.commentLimitFailsClosedWhenTheConstructorShapeIsAmbiguous() }
+        runIsolated { s -> s.eachGuardedEntryReportsItsOwnAppliedEvidenceForGuestsOnly() }
+        runIsolated { s -> s.playerLoginToastIsNotScheduledForGuestsAndOtherConfigReadsPassThrough() }
+        runIsolated { s -> s.guestQualityCapIsLiftedOnlyForTheForcedLoginKey() }
+        runIsolated { s -> s.unrelatedConfigReadsNeverTouchAccountState() }
+        runIsolated { s -> s.overseasForcedLoginIsLocatedByTheSingleStaticBooleanShape() }
+        runIsolated { s -> s.manualLoginAndPromptCleanupRemainCallable() }
     }
 }

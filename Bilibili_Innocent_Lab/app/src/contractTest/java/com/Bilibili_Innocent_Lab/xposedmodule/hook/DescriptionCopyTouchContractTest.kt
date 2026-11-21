@@ -16,7 +16,7 @@ import org.junit.Test
 class DescriptionCopyTouchContractTest {
     private fun source() = SourceContract.read("hook/HookEntry.kt")
 
-    @Test fun cancellationStopsModuleTimersWithoutTouchingHostPressStateOnTerminalEvents() {
+    fun cancellationStopsModuleTimersWithoutTouchingHostPressStateOnTerminalEvents() {
         // 终止/清理路径不得调用 View.cancelLongPress()：它连带 removeTapCallback() 清掉 PFLAG_PREPRESSED，
         // 快点按（<tapTimeout）的宿主点击会被静默丢弃。
         val clear = source().after("private fun clearDescTouchSession(").before("* 让出给滑动时取消模块长按")
@@ -40,7 +40,7 @@ class DescriptionCopyTouchContractTest {
         assertFalse(observer.contains("dispatchTouchEvent"))
     }
 
-    @Test fun allEntriesRespectSameCandidateAndDeviceSlop() {
+    fun allEntriesRespectSameCandidateAndDeviceSlop() {
         val listener = source().after("private val sharedFreeCopyListener =").before("private fun hapticFeedback(")
         assertTrue(listener.contains("!view.isAttachedToWindow || !view.isShown"))
         assertTrue(listener.contains("view.windowVisibility != View.VISIBLE"))
@@ -63,7 +63,7 @@ class DescriptionCopyTouchContractTest {
         assertTrue(slop.contains("FreeCopyPressPolicy.holdSlop("))
     }
 
-    @Test fun externalClaimIsAcceptedByListenerAndCommentTerminalIsNotTruncatedByDescCleanup() {
+    fun externalClaimIsAcceptedByListenerAndCommentTerminalIsNotTruncatedByDescCleanup() {
         // P0-1 接线钉子：到期 Runnable/UP 先以事件时钟 claim（置 HANDLED）再进监听器；
         // 监听器守卫必须对已认领（HANDLED）的同一目标放行，不能被 PENDING-only 守卫二次拒绝。
         val listener = source().after("private val sharedFreeCopyListener =").before("private fun hapticFeedback(")
@@ -92,13 +92,13 @@ class DescriptionCopyTouchContractTest {
         assertTrue("仅撤销仍在显示的自家气泡", revoke.contains("isOurBubbleShowing()"))
     }
 
-    @Test fun bubbleDismissReleasesOnlyHandledGestureAfterIdentityCheck() {
+    fun bubbleDismissReleasesOnlyHandledGestureAfterIdentityCheck() {
         val finish = source().after("private fun finishBubbleSession(").before("private val sharedFreeCopyListener =")
         assertTrue(finish.indexOf("activeBubbleSessionId != sessionId") < finish.indexOf("freeCopyGesture.finishHandled()"))
         assertFalse(finish.contains("freeCopyGesture.reset()"))
     }
 
-    @Test fun longPressAuthorityIsEventClockAndShortTapUpReturnsToHost() {
+    fun longPressAuthorityIsEventClockAndShortTapUpReturnsToHost() {
         // 事件时钟为唯一长按判据：UP 经 resolveTerminal 用 ev.eventTime - ev.downTime 复核，短按不认领。
         val dispatch = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
         assertTrue("评论 UP 事件时钟复核", dispatch.contains("freeCopyGesture.resolveTerminal("))
@@ -114,5 +114,18 @@ class DescriptionCopyTouchContractTest {
         val claim = detector.after("fun claim(").before("/** 终止事件")
         assertTrue(claim.contains("eventTime - downTime < thresholdMs"))
         assertFalse(claim.contains("MARGIN"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DescriptionCopyTouchContractTest) -> Unit) {
+            val s = DescriptionCopyTouchContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.cancellationStopsModuleTimersWithoutTouchingHostPressStateOnTerminalEvents() }
+        runIsolated { s -> s.allEntriesRespectSameCandidateAndDeviceSlop() }
+        runIsolated { s -> s.externalClaimIsAcceptedByListenerAndCommentTerminalIsNotTruncatedByDescCleanup() }
+        runIsolated { s -> s.bubbleDismissReleasesOnlyHandledGestureAfterIdentityCheck() }
+        runIsolated { s -> s.longPressAuthorityIsEventClockAndShortTapUpReturnsToHost() }
     }
 }

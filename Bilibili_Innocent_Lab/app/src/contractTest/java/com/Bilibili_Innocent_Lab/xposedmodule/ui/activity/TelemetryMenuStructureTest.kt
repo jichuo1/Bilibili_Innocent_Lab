@@ -19,7 +19,6 @@ class TelemetryMenuStructureTest {
         LceMotionSource.read(path)
     }
 
-    @Test
     fun `github telemetry entry navigates before any switch is constructed`() {
         val row = SettingsUiSource.function("createTelemetryMenuRow")
         assertTrue(row.contains("showControl: Boolean = false"))
@@ -32,7 +31,6 @@ class TelemetryMenuStructureTest {
         assertFalse(entry.contains("telemetrySwitch"))
     }
 
-    @Test
     fun `new bubble shifts without moving GitHub and retains an outside hit target`() {
         val badge = source.after("// The badge stays outside the circular button and does not change its anchor geometry.")
             .before("activationCardView = this")
@@ -49,7 +47,6 @@ class TelemetryMenuStructureTest {
         assertTrue(badge.contains("badge.visibility == View.VISIBLE"))
     }
 
-    @Test
     fun `the info panel grows from the exclamation mark and covers the GitHub panel in place`() {
         val row = SettingsUiSource.function("createTelemetryMenuRow")
         val click = row.after("contentDescription = getString(R.string.telemetry_info_button)")
@@ -72,7 +69,6 @@ class TelemetryMenuStructureTest {
         assertTrue(detail.contains("cover: SettingsBackupMotionRect? = null"))
     }
 
-    @Test
     fun `rows that open a further dialog retire the covered parent themselves`() {
         val detail = SettingsUiSource.function("showTelemetryInfoDialog")
         // 新弹窗的 present 开头会硬关当前弹窗；不提前让父面板走自己的退场动画，
@@ -91,7 +87,6 @@ class TelemetryMenuStructureTest {
         assertTrue(SettingsUiSource.function("showGitHubMenuDialog").contains("createPanelCloseButton"))
     }
 
-    @Test
     fun `a covered child panel keeps the parent alive and does not stack a second blur`() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         // 父面板不能被硬关，否则"盖住"无从谈起。
@@ -119,7 +114,6 @@ class TelemetryMenuStructureTest {
         assertTrue(surface.contains("bounds.bottom - insets.bottom"))
     }
 
-    @Test
     fun `a captured rect never hijacks the bubble path or the live anchor`() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         // 气泡要拿来源 ImageView 做图案交接（见 09-10 的图案守恒铁律），静态矩形顶不了，
@@ -132,7 +126,6 @@ class TelemetryMenuStructureTest {
         assertTrue(present.contains("resolveAnchorOnScreen()?.let { currentAnchor ->"))
     }
 
-    @Test
     fun `detail owns the switch and retains disclosure and save failure checks`() {
         val detail = SettingsUiSource.function("showTelemetryInfoDialog")
         assertTrue(detail.contains("createTelemetryMenuRow(dialog, container, showControl = true)"))
@@ -142,5 +135,20 @@ class TelemetryMenuStructureTest {
         assertTrue(row.contains("telemetry_choice_save_failed"))
         assertTrue(row.contains("animateTelemetrySummary(summary, getString("))
         assertTrue(row.contains("android.text.StaticLayout.Builder.obtain"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TelemetryMenuStructureTest) -> Unit) {
+            val s = TelemetryMenuStructureTest()
+            block(s)
+        }
+        runIsolated { s -> s.`github telemetry entry navigates before any switch is constructed`() }
+        runIsolated { s -> s.`new bubble shifts without moving GitHub and retains an outside hit target`() }
+        runIsolated { s -> s.`the info panel grows from the exclamation mark and covers the GitHub panel in place`() }
+        runIsolated { s -> s.`rows that open a further dialog retire the covered parent themselves`() }
+        runIsolated { s -> s.`a covered child panel keeps the parent alive and does not stack a second blur`() }
+        runIsolated { s -> s.`a captured rect never hijacks the bubble path or the live anchor`() }
+        runIsolated { s -> s.`detail owns the switch and retains disclosure and save failure checks`() }
     }
 }

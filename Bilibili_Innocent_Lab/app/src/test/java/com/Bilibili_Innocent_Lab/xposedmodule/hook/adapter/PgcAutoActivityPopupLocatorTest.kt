@@ -13,7 +13,6 @@ class PgcAutoActivityPopupLocatorTest {
     private fun property(name: String, type: Class<*>, nonNull: Boolean = false) =
         PgcAutoActivityPopupLocator.Property(name, type, nonNull)
 
-    @Test
     fun `locates typed constructor and renamed descriptor field without a model getter`() {
         val point = requireNotNull(VersionAdapter.locatePgcAutoActivityPopup(loader))
         assertEquals(7, point.popupIndex)
@@ -24,7 +23,6 @@ class PgcAutoActivityPopupLocatorTest {
         assertEquals("half", runtime.popupField.name)
     }
 
-    @Test
     fun `a reordered nullable half slot follows the property and parameter contract`() {
         for (index in 0..8) {
             val parameters = MutableList<Class<*>>(9) { String::class.java }
@@ -37,7 +35,6 @@ class PgcAutoActivityPopupLocatorTest {
         }
     }
 
-    @Test
     fun `rejects missing duplicate renamed required or mismatched half fields`() {
         val parameters = listOf(String::class.java, popup)
         val valid = listOf(property("other", String::class.java), property("play_half_container", popup))
@@ -54,7 +51,6 @@ class PgcAutoActivityPopupLocatorTest {
         assertNull(PgcAutoActivityPopupLocator.uniquePopupIndex(listOf(String::class.java), popup))
     }
 
-    @Test
     fun `cached slot and nullable semantics are revalidated before registration`() {
         val point = requireNotNull(VersionAdapter.locatePgcAutoActivityPopup(loader))
         assertNull(PgcAutoActivityPopupLocator.resolveRuntime(loader, point.copy(popupIndex = 0)))
@@ -68,7 +64,6 @@ class PgcAutoActivityPopupLocatorTest {
         }
     }
 
-    @Test
     fun `missing descriptor does not fall back to an unverified model constructor`() {
         val hidden = object : ClassLoader(loader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -79,7 +74,6 @@ class PgcAutoActivityPopupLocatorTest {
         assertNull(VersionAdapter.locatePgcAutoActivityPopup(hidden))
     }
 
-    @Test
     fun `cache round trip preserves shape and rejects an invalid or duplicated index`() {
         val point = requireNotNull(VersionAdapter.locatePgcAutoActivityPopup(loader))
         val restored = VersionAdapter.PgcAutoActivityPopupPoints.fromJson(point.toJson())
@@ -89,5 +83,19 @@ class PgcAutoActivityPopupLocatorTest {
         assertFalse(point.copy(popupIndex = 0).isValid())
         assertFalse(point.copy(propertiesField = "").isValid())
         assertFalse(point.copy(constructorParameters = point.constructorParameters + popup.name).isValid())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PgcAutoActivityPopupLocatorTest) -> Unit) {
+            val s = PgcAutoActivityPopupLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`locates typed constructor and renamed descriptor field without a model getter`() }
+        runIsolated { s -> s.`a reordered nullable half slot follows the property and parameter contract`() }
+        runIsolated { s -> s.`rejects missing duplicate renamed required or mismatched half fields`() }
+        runIsolated { s -> s.`cached slot and nullable semantics are revalidated before registration`() }
+        runIsolated { s -> s.`missing descriptor does not fall back to an unverified model constructor`() }
+        runIsolated { s -> s.`cache round trip preserves shape and rejects an invalid or duplicated index`() }
     }
 }

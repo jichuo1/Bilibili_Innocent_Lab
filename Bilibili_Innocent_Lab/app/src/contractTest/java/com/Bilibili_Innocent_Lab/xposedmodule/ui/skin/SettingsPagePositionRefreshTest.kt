@@ -28,7 +28,7 @@ class SettingsPagePositionRefreshTest {
         return source.substring(body, end)
     }
 
-    @Test fun pagerNotifiesAfterApplyingBothTransformsAndVisibilityOnlyWhenSomethingChanged() {
+    fun pagerNotifiesAfterApplyingBothTransformsAndVisibilityOnlyWhenSomethingChanged() {
         val pager = source("activity/SettingsPagePager")
         val apply = function(pager, "private fun applyPosition()")
         assertTrue(apply.contains("if (child.translationX != translation)"))
@@ -41,7 +41,7 @@ class SettingsPagePositionRefreshTest {
         assertFalse(apply.contains("postInvalidateOnAnimation("))
     }
 
-    @Test fun activityAndSessionKeepMaterialAndClosedLifecyclesOutOfTheRenderer() {
+    fun activityAndSessionKeepMaterialAndClosedLifecyclesOutOfTheRenderer() {
         val activity = function(source("skin/activity/SkinnedActivity"),
             "protected fun notifyPreparedSkinPositionChanged()")
         assertTrue(activity.contains("if (!lifecycleEnded) skinSessionOrNull?.notifyPositionChanged()"))
@@ -53,7 +53,7 @@ class SettingsPagePositionRefreshTest {
             sessionSource.contains("liquidRenderer?.takeIf { effectiveSkin == SkinId.LIQUID } ?: materialRenderer"))
     }
 
-    @Test fun positionBridgeReusesOriginComparisonWithoutRequestingPixelCopyOrRebuildingBackgrounds() {
+    fun positionBridgeReusesOriginComparisonWithoutRequestingPixelCopyOrRebuildingBackgrounds() {
         val renderer = source("skin/liquid/LiquidActivityRenderer")
         val notify = function(renderer, "fun notifyPositionChanged()")
         assertTrue(notify.contains("queueSurfaceRefresh(contentChanged = false)"))
@@ -79,7 +79,7 @@ class SettingsPagePositionRefreshTest {
         assertTrue(renderer.contains("addOnScrollChangedListener(scrollListener)"))
     }
 
-    @Test fun contentRefreshTriggersTraversalThroughOneVisibleSurfaceNotTheWholeWindow() {
+    fun contentRefreshTriggersTraversalThroughOneVisibleSurfaceNotTheWholeWindow() {
         val renderer = source("skin/liquid/LiquidActivityRenderer")
         val queue = function(renderer, "private fun queueSurfaceRefresh(contentChanged: Boolean, captureOnly: Boolean = false)")
         // 整窗 root.invalidate() 会把每个 View 的 display list 标脏重录；
@@ -94,7 +94,7 @@ class SettingsPagePositionRefreshTest {
         assertTrue(flush.contains("view.invalidate()"))
     }
 
-    @Test fun originRefreshKeepsStationaryControlsIdleAndRefreshesHiddenPagesOnlyOnReentry() {
+    fun originRefreshKeepsStationaryControlsIdleAndRefreshesHiddenPagesOnlyOnReentry() {
         val movingPage = LiquidSurfaceRefreshState()
         val stationaryToolbar = LiquidSurfaceRefreshState()
         val hiddenPage = LiquidSurfaceRefreshState()
@@ -105,5 +105,18 @@ class SettingsPagePositionRefreshTest {
         }
         assertTrue(hiddenPage.shouldRefresh(visible = true, originChanged = false, contentChanged = false))
         assertFalse(hiddenPage.shouldRefresh(visible = true, originChanged = false, contentChanged = false))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsPagePositionRefreshTest) -> Unit) {
+            val s = SettingsPagePositionRefreshTest()
+            block(s)
+        }
+        runIsolated { s -> s.pagerNotifiesAfterApplyingBothTransformsAndVisibilityOnlyWhenSomethingChanged() }
+        runIsolated { s -> s.activityAndSessionKeepMaterialAndClosedLifecyclesOutOfTheRenderer() }
+        runIsolated { s -> s.positionBridgeReusesOriginComparisonWithoutRequestingPixelCopyOrRebuildingBackgrounds() }
+        runIsolated { s -> s.contentRefreshTriggersTraversalThroughOneVisibleSurfaceNotTheWholeWindow() }
+        runIsolated { s -> s.originRefreshKeepsStationaryControlsIdleAndRefreshesHiddenPagesOnlyOnReentry() }
     }
 }

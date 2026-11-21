@@ -9,7 +9,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class InsightStreamingRepositoryTest {
-    @get:Rule val temporary = TemporaryFolder()
+    val temporary = TemporaryFolder()
     private val source = AgentModelSource(1, "https://example.test/v1", "secret", "model")
     private val video = InsightVideo("BV1xx411c7mD", 1)
     private val context = InsightContext(video, 900, "title", "description", listOf(
@@ -25,7 +25,7 @@ class InsightStreamingRepositoryTest {
             return payload(emit(onDelta))
         }
     })
-    @Test fun `preview arrives before completion and only validated result becomes a reusable cache`() {
+    fun `preview arrives before completion and only validated result becomes a reusable cache`() {
         val root = temporary.newFolder(); val updates = mutableListOf<String>(); var networkFinished = false
         val json = """{"topics":[{"title":"方向","summary":"具体讨论"}]}"""
         val repo = InsightRepository(source, InsightCache(root), { context.copy(comments = listOf("评论")) }, client { emit ->
@@ -38,7 +38,7 @@ class InsightStreamingRepositoryTest {
         assertTrue(updates.any { it.contains("具体") }); assertEquals("方向\n具体讨论", result.output.text)
         assertEquals(result, repo.cached(video, InsightMode.COMMENTS)); assertEquals(1, root.listFiles()!!.size)
     }
-    @Test fun `interrupted partial answer cannot become a cache entry`() {
+    fun `interrupted partial answer cannot become a cache entry`() {
         val root = temporary.newFolder(); val updates = mutableListOf<String>()
         val repo = InsightRepository(source, InsightCache(root), { context }, client { emit ->
             emit("""{"overview":"已收到一部分""" )
@@ -48,7 +48,7 @@ class InsightStreamingRepositoryTest {
         assertEquals(listOf("已收到一部分"), updates)
         assertTrue(root.listFiles().orEmpty().isEmpty()); assertNull(repo.cached(video, InsightMode.SUMMARY))
     }
-    @Test fun `format repair keeps the first preview and stores only the corrected result`() {
+    fun `format repair keeps the first preview and stores only the corrected result`() {
         val root = temporary.newFolder(); val updates = mutableListOf<String>(); var calls = 0
         val repo = InsightRepository(source, InsightCache(root), { context.copy(comments = listOf("评论")) }, client { emit ->
             calls++
@@ -60,7 +60,7 @@ class InsightStreamingRepositoryTest {
         assertTrue(updates.isNotEmpty()); assertFalse(updates.contains("")); assertEquals(2, calls)
         assertFalse(root.listFiles()!!.single().readText().contains("坏片段"))
     }
-    @Test fun `cancellation discards late deltas without caching or completing the answer`() {
+    fun `cancellation discards late deltas without caching or completing the answer`() {
         val root = temporary.newFolder(); val updates = mutableListOf<String>(); var cancelled = false
         val repo = InsightRepository(source, InsightCache(root), { context }, client { emit ->
             emit("""{"answer":"早期正文""" ); cancelled = true; emit("迟到内容"); "{}"
@@ -68,10 +68,28 @@ class InsightStreamingRepositoryTest {
         assertTrue(runCatching { repo.generate(video, InsightMode.ASK, "问题", onProgress = updates::add) { cancelled } }.isFailure)
         assertTrue(updates.none { it.contains("迟到") }); assertTrue(root.listFiles().orEmpty().isEmpty())
     }
-    @Test fun `cached summaries bypass context network and preview animation callbacks`() {
+    fun `cached summaries bypass context network and preview animation callbacks`() {
         val cache = InsightCache(temporary.newFolder()); val entry = InsightCache.Entry(InsightOutput("已缓存"), 900, true)
         cache.write(InsightCache.key(video, source, InsightMode.SUMMARY), entry)
         val repo = InsightRepository(source, cache, { error("no context") }, client { error("no network") })
         assertEquals(entry, repo.generate(video, InsightMode.SUMMARY, onProgress = { error("no preview") }))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (InsightStreamingRepositoryTest) -> Unit) {
+            val s = InsightStreamingRepositoryTest()
+            s.temporary.create()
+            try {
+                block(s)
+            } finally {
+                s.temporary.delete()
+            }
+        }
+        runIsolated { s -> s.`preview arrives before completion and only validated result becomes a reusable cache`() }
+        runIsolated { s -> s.`interrupted partial answer cannot become a cache entry`() }
+        runIsolated { s -> s.`format repair keeps the first preview and stores only the corrected result`() }
+        runIsolated { s -> s.`cancellation discards late deltas without caching or completing the answer`() }
+        runIsolated { s -> s.`cached summaries bypass context network and preview animation callbacks`() }
     }
 }

@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SwitchConfirmationMotionTest {
-    @Test fun lightModeConfirmationUsesTheSwitchTitleAndKeepsTheWarning() {
+    fun lightModeConfirmationUsesTheSwitchTitleAndKeepsTheWarning() {
         val body = SettingsUiSource.function("showAutoLightConfirmDialog")
         assertTrue(body.contains("anchor: View? = null"))
         val title = body.indexOf("getString(R.string.free_copy_light_mode)")
@@ -15,7 +15,7 @@ class SwitchConfirmationMotionTest {
         assertTrue(body.contains("dismissWithAnimation(dialog, container) { onConfirm() }"))
     }
 
-    @Test fun theSwitchPassesItsOwnViewAsTheAnimationAnchor() {
+    fun theSwitchPassesItsOwnViewAsTheAnimationAnchor() {
         val main = SettingsUiSource.code(SettingsUiSource.settingsPage())
         assertTrue(Regex("applyModeledToggle\\(HookEntry\\.PREF_FREE_COPY_LIGHT_MODE,\\s*checked,\\s*button\\)")
             .containsMatchIn(main))
@@ -25,5 +25,15 @@ class SwitchConfirmationMotionTest {
             .contains("requestManualLightSetting(id, requested, anchor)"))
         assertTrue(Regex("showAutoLightConfirmDialog\\(\\s*anchor = anchor,")
             .containsMatchIn(SettingsUiSource.function("requestManualLightSetting")))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SwitchConfirmationMotionTest) -> Unit) {
+            val s = SwitchConfirmationMotionTest()
+            block(s)
+        }
+        runIsolated { s -> s.lightModeConfirmationUsesTheSwitchTitleAndKeepsTheWarning() }
+        runIsolated { s -> s.theSwitchPassesItsOwnViewAsTheAnimationAnchor() }
     }
 }

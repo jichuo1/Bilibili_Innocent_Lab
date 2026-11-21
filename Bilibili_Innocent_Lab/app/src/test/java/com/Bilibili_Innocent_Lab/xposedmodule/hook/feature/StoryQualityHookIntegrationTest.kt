@@ -42,13 +42,13 @@ class StoryQualityHookIntegrationTest {
         override fun resumeWith(result: Result<Any?>) = Unit
     }
 
-    @Before fun resetAdmission() {
+    fun resetAdmission() {
         BiliAccounts.instance.loggedIn = true
         BiliAccounts.fail = false
         TeenagersMode.getInstance().enabled = false
         RestrictedMode.enabled = false
     }
-    @After fun clearAdmission() = resetAdmission()
+    fun clearAdmission() = resetAdmission()
 
     private fun point(method: Method) = VersionAdapter.HookPoint(method.declaringClass.name, method.name,
         method.parameterTypes.map(Class<*>::getName))
@@ -208,7 +208,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `missing shared dependencies preserve base policy requests and manual choices`() {
+    fun `missing shared dependencies preserve base policy requests and manual choices`() {
         for (missing in listOf("tv.danmaku.biliplayerv2.IPlayerContainer",
             "tv.danmaku.biliplayerv2.PlayerSharingBundle", "com.bilibili.lib.media.resolver2.IResolveParams",
             "com.bilibili.app.gemini.base.player.GeminiCommonResolverParams")) {
@@ -224,7 +224,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `missing shared admission cannot authorize a numeric source`() {
+    fun `missing shared admission cannot authorize a numeric source`() {
         val h = Harness(hiddenClasses = setOf("com.bilibili.app.gemini.base.player.GeminiCommonResolverParams"))
         h.owner.source.values[0] = parameters(from = "6")
         h.start()
@@ -233,7 +233,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `shared registration failure leaves base Story hooks ready without trusting shared playback`() {
+    fun `shared registration failure leaves base Story hooks ready without trusting shared playback`() {
         val h = Harness(failId = "player.story.ready")
         h.start()
         assertFalse(h.port.hooks.containsKey("player.story.ready"))
@@ -244,7 +244,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `shared ready inside create establishes first item without a later cursor event`() {
+    fun `shared ready inside create establishes first item without a later cursor event`() {
         val h = Harness()
         assertNotNull(h.access.shared)
         h.owner.source.values[0] = parameters(from = "6")
@@ -255,7 +255,7 @@ class StoryQualityHookIntegrationTest {
         assertTrue(FeatureRuntimeStage.ERROR !in h.stages)
     }
 
-    @Test fun `shared provenance does not cross a different parameters instance with the same item`() {
+    fun `shared provenance does not cross a different parameters instance with the same item`() {
         val h = Harness()
         h.owner.source.values[0] = parameters(from = "6")
         h.install(); h.sharedCreate()
@@ -263,7 +263,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `repeated shared ready cannot undo either manual choice`() {
+    fun `repeated shared ready cannot undo either manual choice`() {
         for (choice in listOf(StoryPreferenceFixture.Auto, StoryPreferenceFixture.Fixed(64))) {
             val h = Harness()
             h.owner.source.values[0] = parameters(from = "6")
@@ -272,7 +272,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `null shared bundle and failed ready never establish a playback generation`() {
+    fun `null shared bundle and failed ready never establish a playback generation`() {
         val h = Harness()
         h.owner.source.values[0] = parameters(from = "6")
         h.install(); h.create(); h.ready(null)
@@ -282,7 +282,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `failed ready invalidates an active shared generation and repeated ready cannot revive it`() {
+    fun `failed ready invalidates an active shared generation and repeated ready cannot revive it`() {
         val h = Harness()
         h.owner.source.values[0] = parameters(from = "6")
         h.install(); h.sharedCreate()
@@ -292,7 +292,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `shared ready rejects unknown owners other threads and mismatched pointer indices`() {
+    fun `shared ready rejects unknown owners other threads and mismatched pointer indices`() {
         val h = Harness()
         h.owner.source.values[0] = parameters(from = "6")
         h.install(); h.ready()
@@ -306,7 +306,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `shared provenance cannot override an explicit non ugc source or an unknown resolver`() {
+    fun `shared provenance cannot override an explicit non ugc source or an unknown resolver`() {
         for (source in listOf("live", "music", "bangumi", "pugv")) {
             val h = Harness()
             h.owner.source.values[0] = parameters(from = source)
@@ -322,7 +322,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `shared resolver identifiers and current index must identify the same ordinary video`() {
+    fun `shared resolver identifiers and current index must identify the same ordinary video`() {
         val h = Harness()
         h.owner.source.values[0] = object : Video.PlayableParams("6") {
             override fun getDisplayParams() = Video.DisplayParams(123, 456)
@@ -333,7 +333,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `confirmed shared entry still rejects logged out restricted and non ugc playback`() {
+    fun `confirmed shared entry still rejects logged out restricted and non ugc playback`() {
         val changes = listOf<() -> Unit>({ BiliAccounts.instance.loggedIn = false },
             { TeenagersMode.getInstance().enabled = true }, { RestrictedMode.enabled = true })
         for (change in changes) {
@@ -350,7 +350,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `actual host graph requires display bridge and resolves account and resource contracts`() {
+    fun `actual host graph requires display bridge and resolves account and resource contracts`() {
         assertTrue(java.lang.reflect.Modifier.isAbstract(
             Video.PlayableParams::class.java.getDeclaredMethod("getDisplayParams").modifiers))
         val h = Harness()
@@ -371,7 +371,7 @@ class StoryQualityHookIntegrationTest {
         assertFalse(h.access.isPlaying(h.owner))
     }
 
-    @Test fun `lifecycle selection request capture and suspended resume share the same target`() {
+    fun `lifecycle selection request capture and suspended resume share the same target`() {
         val h = Harness(); h.start()
         val coroutine = h.pending()
         val result = h.resolve(coroutine) {
@@ -387,7 +387,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(32, h.wifi())
     }
 
-    @Test fun `manual fixed and auto revoke a captured request before asynchronous preference writes`() {
+    fun `manual fixed and auto revoke a captured request before asynchronous preference writes`() {
         for (choice in listOf(StoryPreferenceFixture.Fixed(16), StoryPreferenceFixture.Auto)) {
             val h = Harness(); h.start()
             val coroutine = h.pending()
@@ -407,7 +407,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `failed selection preserves binding so the next successful item can intervene`() {
+    fun `failed selection preserves binding so the next successful item can intervene`() {
         val h = Harness(); h.start()
         h.owner.controller.selectionResult = -1
         assertEquals(-1, h.select(1))
@@ -416,7 +416,7 @@ class StoryQualityHookIntegrationTest {
         h.request { assertEquals(80, it[0]); Unit }
     }
 
-    @Test fun `missing pointer or unknown admission never exposes a target`() {
+    fun `missing pointer or unknown admission never exposes a target`() {
         val h = Harness(); h.start()
         h.owner.controller.pointer = null
         assertEquals(-1, h.select(1))
@@ -428,7 +428,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `login teenager lesson and non ugc restrictions preserve host quality`() {
+    fun `login teenager lesson and non ugc restrictions preserve host quality`() {
         for (deny in listOf<(Harness) -> Unit>(
             { BiliAccounts.instance.loggedIn = false },
             { TeenagersMode.getInstance().enabled = true },
@@ -441,7 +441,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `registration failure can retry without duplicating already installed hooks`() {
+    fun `registration failure can retry without duplicating already installed hooks`() {
         val h = Harness("player.story.policy")
         val partial = h.install() as FeatureInstallResult.Installed
         assertFalse(partial.complete)
@@ -455,7 +455,7 @@ class StoryQualityHookIntegrationTest {
         h.request { assertEquals(80, it[0]); Unit }
     }
 
-    @Test fun `real claim releases failed manual registration and preserves successful hook registrations`() {
+    fun `real claim releases failed manual registration and preserves successful hook registrations`() {
         val h = Harness("player.story.manual", useClaims = true)
         val first = h.install() as FeatureInstallResult.Installed
         assertFalse(first.complete)
@@ -474,7 +474,7 @@ class StoryQualityHookIntegrationTest {
         h.request { assertEquals(32, it[0]); Unit }
     }
 
-    @Test fun `real claim retries a failed capture constructor without duplicating successful methods`() {
+    fun `real claim retries a failed capture constructor without duplicating successful methods`() {
         val h = Harness("player.story.resolve_capture", useClaims = true)
         assertFalse((h.install() as FeatureInstallResult.Installed).complete)
         assertTrue(h.installer.requiresAdaptationRetry)
@@ -489,14 +489,14 @@ class StoryQualityHookIntegrationTest {
         h.resolve(coroutine) { assertEquals(80, h.wifi()); COROUTINE_SUSPENDED }
     }
 
-    @Test fun `real installed claims cause no duplicate native registrations on repeated installation`() {
+    fun `real installed claims cause no duplicate native registrations on repeated installation`() {
         val h = Harness(useClaims = true); h.start()
         repeat(3) { assertTrue((h.install() as FeatureInstallResult.Installed).complete) }
         assertTrue(h.port.registrationAttempts.groupingBy { it.first }.eachCount().values.all { it == 1 })
         assertFalse(h.installer.requiresAdaptationRetry)
     }
 
-    @Test fun `inflight claim from the same registry cannot report Story ready before native installation`() {
+    fun `inflight claim from the same registry cannot report Story ready before native installation`() {
         val h = Harness(useClaims = true)
         assertTrue(h.registry.claim("player.story.manual", h.access.roles.manual))
         assertFalse((h.install() as FeatureInstallResult.Installed).complete)
@@ -507,7 +507,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(1, h.port.registrationAttempts.count { it.first == "player.story.manual" })
     }
 
-    @Test fun `release and recreate reject an old coroutine while allowing a new generation`() {
+    fun `release and recreate reject an old coroutine while allowing a new generation`() {
         val h = Harness(); h.start()
         val old = h.pending()
         h.port.invoke("player.story.release", h.owner) { h.owner.release(); Unit }
@@ -519,7 +519,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `request exception revokes a coroutine captured before the failure`() {
+    fun `request exception revokes a coroutine captured before the failure`() {
         val h = Harness(); h.start()
         val coroutine = h.coroutine()
         val failure = IllegalStateException("original request failure")
@@ -531,7 +531,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `resolve exception revokes the failed ticket and always leaves its frame`() {
+    fun `resolve exception revokes the failed ticket and always leaves its frame`() {
         val h = Harness(); h.start()
         val coroutine = h.pending()
         val failure = IllegalStateException("original resolver failure")
@@ -543,7 +543,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `manual invalidation does not depend on reading a potentially failing current getter`() {
+    fun `manual invalidation does not depend on reading a potentially failing current getter`() {
         val h = Harness(); h.start()
         val coroutine = h.pending()
         h.owner.currentFailure = IllegalStateException("current fixture failure")
@@ -553,7 +553,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `task reuse preserves one generation but cannot attach an old coroutine to a new item`() {
+    fun `task reuse preserves one generation but cannot attach an old coroutine to a new item`() {
         val h = Harness(); h.start()
         val task = AbsMediaResourceResolveTask()
         val first = h.pending(task)
@@ -566,7 +566,7 @@ class StoryQualityHookIntegrationTest {
         h.resolve(next) { assertEquals(80, h.wifi()); COROUTINE_SUSPENDED }
     }
 
-    @Test fun `null captured params in the modern resolver cannot impersonate a legacy coroutine`() {
+    fun `null captured params in the modern resolver cannot impersonate a legacy coroutine`() {
         val h = Harness(); h.start()
         val coroutine = h.pending()
         requireNotNull(h.access.resolveParams).set(coroutine, null)
@@ -574,7 +574,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `unselected current item mismatch permanently revokes old ticket after switching back`() {
+    fun `unselected current item mismatch permanently revokes old ticket after switching back`() {
         val h = Harness(); h.start()
         val old = h.pending()
         h.owner.source.currentIndex = 1
@@ -587,7 +587,7 @@ class StoryQualityHookIntegrationTest {
         h.resolve(fresh) { assertEquals(80, h.wifi()); COROUTINE_SUSPENDED }
     }
 
-    @Test fun `old resolver exception cannot revoke a fresh generation of the same media`() {
+    fun `old resolver exception cannot revoke a fresh generation of the same media`() {
         val h = Harness(); h.start()
         val old = h.pending()
         assertEquals(0, h.select(1))
@@ -602,7 +602,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `private flash resource selects only after original body and settles after accepted match`() {
+    fun `private flash resource selects only after original body and settles after accepted match`() {
         val h = Harness(); h.start()
         val value = MediaResource(16, 80, 120)
         h.core.resource = value
@@ -624,7 +624,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `shared resource outside private resolve remains unchanged`() {
+    fun `shared resource outside private resolve remains unchanged`() {
         val h = Harness(); h.start()
         val shared = MediaResource(16, 80)
         h.resource(shared) { assertEquals(32, h.global()); Unit }
@@ -633,7 +633,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `host normal request keeps the exact listener identity`() {
+    fun `host normal request keeps the exact listener identity`() {
         val h = Harness(); h.start()
         val replay = Replay(h)
         h.request(listener = replay.original) {
@@ -644,7 +644,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(0, h.owner.source.reloads)
     }
 
-    @Test fun `reparse preserves language production and latest position then accepts normal result`() {
+    fun `reparse preserves language production and latest position then accepts normal result`() {
         val h = Harness(); h.start()
         val replay = Replay(h); replay.begin()
         val call = h.owner.source.reloadCalls.single()
@@ -669,7 +669,7 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); Unit }
     }
 
-    @Test fun `pause before module replay response cannot resume playback`() {
+    fun `pause before module replay response cannot resume playback`() {
         val h = Harness(); h.start()
         val replay = Replay(h); replay.begin()
         val old = h.core.resource
@@ -681,7 +681,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `manual action or new selection before replay response drops only the module result`() {
+    fun `manual action or new selection before replay response drops only the module result`() {
         for (newItem in listOf(false, true)) {
             val h = Harness(); h.start()
             val replay = Replay(h); replay.begin()
@@ -695,7 +695,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `replay error delegates once revokes the module lease and clears synchronous scope`() {
+    fun `replay error delegates once revokes the module lease and clears synchronous scope`() {
         val h = Harness(); h.start()
         val replay = Replay(h); replay.begin()
         val listener = requireNotNull(replay.wrapped)
@@ -708,7 +708,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(80, h.global())
     }
 
-    @Test fun `stale replay error cannot alter manual choice or next generation`() {
+    fun `stale replay error cannot alter manual choice or next generation`() {
         for (newItem in listOf(false, true)) {
             val h = Harness(); h.start()
             val replay = Replay(h); replay.begin()
@@ -722,7 +722,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `consumer rechecks seek after delegate has entered instead of replay snapshot`() {
+    fun `consumer rechecks seek after delegate has entered instead of replay snapshot`() {
         val h = Harness(); h.start()
         val replay = Replay(h); replay.begin()
         h.core.position = 654
@@ -733,7 +733,7 @@ class StoryQualityHookIntegrationTest {
         assertEquals(987, h.core.position)
     }
 
-    @Test fun `consumer drops replay if pause manual or new generation happens inside delegate`() {
+    fun `consumer drops replay if pause manual or new generation happens inside delegate`() {
         for (change in listOf<(Harness) -> Unit>(
             { it.core.playState = 5 },
             { it.manual(StoryPreferenceFixture.Auto) },
@@ -752,7 +752,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `resource permission errors and special formats preserve host and never reparse`() {
+    fun `resource permission errors and special formats preserve host and never reparse`() {
         for (protect in listOf<(MediaResource) -> Unit>(
             { it.mVodIndex.mVodList[0].mNeedVip = true },
             { it.mVodIndex.mVodList[0].mPlayError = Any() },
@@ -771,7 +771,7 @@ class StoryQualityHookIntegrationTest {
         }
     }
 
-    @Test fun `normal resource retains legal fallback and settles without selecting vip entry`() {
+    fun `normal resource retains legal fallback and settles without selecting vip entry`() {
         val h = Harness(); h.start()
         val resource = MediaResource(16, 80).also {
             it.from = MediaResource.SOURCE_FROM_NORMAL
@@ -786,5 +786,61 @@ class StoryQualityHookIntegrationTest {
         h.match { assertEquals(32, h.wifi()); assertEquals(32, h.global()); Unit }
         assertEquals(0, h.owner.source.reloads)
         assertSame(resource, h.core.resource)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (StoryQualityHookIntegrationTest) -> Unit) {
+            val s = StoryQualityHookIntegrationTest()
+            s.resetAdmission()
+            try {
+                block(s)
+            } finally {
+                s.clearAdmission()
+            }
+        }
+        runIsolated { s -> s.`missing shared dependencies preserve base policy requests and manual choices`() }
+        runIsolated { s -> s.`missing shared admission cannot authorize a numeric source`() }
+        runIsolated { s -> s.`shared registration failure leaves base Story hooks ready without trusting shared playback`() }
+        runIsolated { s -> s.`shared ready inside create establishes first item without a later cursor event`() }
+        runIsolated { s -> s.`shared provenance does not cross a different parameters instance with the same item`() }
+        runIsolated { s -> s.`repeated shared ready cannot undo either manual choice`() }
+        runIsolated { s -> s.`null shared bundle and failed ready never establish a playback generation`() }
+        runIsolated { s -> s.`failed ready invalidates an active shared generation and repeated ready cannot revive it`() }
+        runIsolated { s -> s.`shared ready rejects unknown owners other threads and mismatched pointer indices`() }
+        runIsolated { s -> s.`shared provenance cannot override an explicit non ugc source or an unknown resolver`() }
+        runIsolated { s -> s.`shared resolver identifiers and current index must identify the same ordinary video`() }
+        runIsolated { s -> s.`confirmed shared entry still rejects logged out restricted and non ugc playback`() }
+        runIsolated { s -> s.`actual host graph requires display bridge and resolves account and resource contracts`() }
+        runIsolated { s -> s.`lifecycle selection request capture and suspended resume share the same target`() }
+        runIsolated { s -> s.`manual fixed and auto revoke a captured request before asynchronous preference writes`() }
+        runIsolated { s -> s.`failed selection preserves binding so the next successful item can intervene`() }
+        runIsolated { s -> s.`missing pointer or unknown admission never exposes a target`() }
+        runIsolated { s -> s.`login teenager lesson and non ugc restrictions preserve host quality`() }
+        runIsolated { s -> s.`registration failure can retry without duplicating already installed hooks`() }
+        runIsolated { s -> s.`real claim releases failed manual registration and preserves successful hook registrations`() }
+        runIsolated { s -> s.`real claim retries a failed capture constructor without duplicating successful methods`() }
+        runIsolated { s -> s.`real installed claims cause no duplicate native registrations on repeated installation`() }
+        runIsolated { s -> s.`inflight claim from the same registry cannot report Story ready before native installation`() }
+        runIsolated { s -> s.`release and recreate reject an old coroutine while allowing a new generation`() }
+        runIsolated { s -> s.`request exception revokes a coroutine captured before the failure`() }
+        runIsolated { s -> s.`resolve exception revokes the failed ticket and always leaves its frame`() }
+        runIsolated { s -> s.`manual invalidation does not depend on reading a potentially failing current getter`() }
+        runIsolated { s -> s.`task reuse preserves one generation but cannot attach an old coroutine to a new item`() }
+        runIsolated { s -> s.`null captured params in the modern resolver cannot impersonate a legacy coroutine`() }
+        runIsolated { s -> s.`unselected current item mismatch permanently revokes old ticket after switching back`() }
+        runIsolated { s -> s.`old resolver exception cannot revoke a fresh generation of the same media`() }
+        runIsolated { s -> s.`private flash resource selects only after original body and settles after accepted match`() }
+        runIsolated { s -> s.`shared resource outside private resolve remains unchanged`() }
+        runIsolated { s -> s.`host normal request keeps the exact listener identity`() }
+        runIsolated { s -> s.`reparse preserves language production and latest position then accepts normal result`() }
+        runIsolated { s -> s.`pause before module replay response cannot resume playback`() }
+        runIsolated { s -> s.`manual action or new selection before replay response drops only the module result`() }
+        runIsolated { s -> s.`replay error delegates once revokes the module lease and clears synchronous scope`() }
+        runIsolated { s -> s.`stale replay error cannot alter manual choice or next generation`() }
+        runIsolated { s -> s.`consumer rechecks seek after delegate has entered instead of replay snapshot`() }
+        runIsolated { s -> s.`consumer drops replay if pause manual or new generation happens inside delegate`() }
+        runIsolated { s -> s.`resource permission errors and special formats preserve host and never reparse`() }
+        runIsolated { s -> s.`normal resource retains legal fallback and settles without selecting vip entry`() }
     }
 }

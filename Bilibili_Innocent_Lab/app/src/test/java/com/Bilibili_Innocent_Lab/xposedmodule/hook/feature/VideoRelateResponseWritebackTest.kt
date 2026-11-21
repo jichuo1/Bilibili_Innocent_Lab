@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VideoRelateResponseWritebackTest {
-    @Test fun protobufWritebackPreservesTypedImmutableSourceAndInvalidatesMessageCaches() {
+    fun protobufWritebackPreservesTypedImmutableSourceAndInvalidatesMessageCaches() {
         val reply = Reply()
         val original = reply.items
         assertEquals(8, reply.serializedSize())
@@ -23,7 +23,7 @@ class VideoRelateResponseWritebackTest {
         assertTrue(runCatching { reply.items.clear() }.isFailure)
     }
 
-    @Test fun removingEveryItemStillWritesACompatibleImmutableEmptyList() {
+    fun removingEveryItemStillWritesACompatibleImmutableEmptyList() {
         val reply = Reply()
         val original = reply.items
         assertEquals(8, reply.serializedSize())
@@ -35,7 +35,7 @@ class VideoRelateResponseWritebackTest {
         assertEquals(listOf("drop", "kept"), original)
     }
 
-    @Test fun unknownMessageShapeAndAliasedCopyDoNotMutateTheOriginal() {
+    fun unknownMessageShapeAndAliasedCopyDoNotMutateTheOriginal() {
         val unknown = UnknownReply()
         val originalUnknown = unknown.items
         assertFalse(write(unknown, emptyList<String>()))
@@ -49,7 +49,7 @@ class VideoRelateResponseWritebackTest {
         assertEquals(8, aliased.serializedSize())
     }
 
-    @Test fun failedCacheResetRollsBackTheOriginalFieldAndCachedValues() {
+    fun failedCacheResetRollsBackTheOriginalFieldAndCachedValues() {
         val reply = FailingReply()
         val original = reply.items
         val originalSize = reply.serializedSize()
@@ -107,5 +107,17 @@ class VideoRelateResponseWritebackTest {
             require(capacity >= size)
             return if (aliasedCopy) this else ProtoItems(values, writable = true)
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VideoRelateResponseWritebackTest) -> Unit) {
+            val s = VideoRelateResponseWritebackTest()
+            block(s)
+        }
+        runIsolated { s -> s.protobufWritebackPreservesTypedImmutableSourceAndInvalidatesMessageCaches() }
+        runIsolated { s -> s.removingEveryItemStillWritesACompatibleImmutableEmptyList() }
+        runIsolated { s -> s.unknownMessageShapeAndAliasedCopyDoNotMutateTheOriginal() }
+        runIsolated { s -> s.failedCacheResetRollsBackTheOriginalFieldAndCachedValues() }
     }
 }

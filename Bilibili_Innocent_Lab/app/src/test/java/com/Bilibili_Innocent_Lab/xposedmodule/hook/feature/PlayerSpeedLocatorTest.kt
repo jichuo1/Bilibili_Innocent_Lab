@@ -39,7 +39,7 @@ class PlayerSpeedLocatorTest {
     }
     private fun locate(owner: Class<*>) = PlayerSpeedLocator.defaultSpeed(owner, Mutable::class.java, State::class.java)
 
-    @Test fun `actual locator handles both getter shapes and exact interface fields`() {
+    fun `actual locator handles both getter shapes and exact interface fields`() {
         listOf(OldManager::class.java to 2, NewManager::class.java to 1).forEach { (owner, count) ->
             val point = requireNotNull(locate(owner))
             assertEquals(count, point.speedGetters.size)
@@ -50,7 +50,7 @@ class PlayerSpeedLocatorTest {
             assertTrue(point.speedGetters.all { it.invoke(target) == 1.25f })
         }
     }
-    @Test fun `new flow or getter ambiguity refuses to guess`() {
+    fun `new flow or getter ambiguity refuses to guess`() {
         assertNull(locate(ExtraFlow::class.java))
         assertNull(locate(ExtraGetter::class.java))
         assertNull(PlayerSpeedLocator.defaultSpeed(NewManager::class.java, Flow::class.java, State::class.java))
@@ -107,7 +107,7 @@ class PlayerSpeedLocatorTest {
 
     class FakeKeelPlayer(@JvmField val b: NewManager = NewManager())
 
-    @Test fun `speed menu locator resolves modern factory and adapter and refines close speed selection`() {
+    fun `speed menu locator resolves modern factory and adapter and refines close speed selection`() {
         val candidates = listOf(SpeedOptionModel::class.java, SpeedOptionFactory::class.java)
         val factoryPoint = requireNotNull(
             PlayerSpeedLocator.speedMenuFactory(candidates, FakeMediaResource::class.java)
@@ -155,7 +155,7 @@ class PlayerSpeedLocatorTest {
         assertTrue(adapter.c.all { it.c })
     }
 
-    @Test fun `speed menu locator resolves legacy float array adapter`() {
+    fun `speed menu locator resolves legacy float array adapter`() {
         val legacyPoint = requireNotNull(
             PlayerSpeedLocator.speedMenuAdapter(adapterClass = LegacySpeedAdapter::class.java)
         )
@@ -189,7 +189,7 @@ class PlayerSpeedLocatorTest {
         }
     }
 
-    @Test fun `theseus2 calculator resolves per verified build and never leaks across builds`() {
+    fun `theseus2 calculator resolves per verified build and never leaks across builds`() {
         // 远端 dexq 逐构建验真：9.20 三构建计算器 owner/方法名/playable 接口各异，start port 结构同 9.19。
         val builds = listOf(
             Triple(9200100, CalcOwnerI::class.java, "i"),
@@ -215,14 +215,14 @@ class PlayerSpeedLocatorTest {
         assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9200400))
     }
 
-    @Test fun `theseus2 calculator refuses non-interface playable and non-static owner`() {
+    fun `theseus2 calculator refuses non-interface playable and non-static owner`() {
         assertNull("playable 必须是接口", PlayerSpeedLocator.theseus2LongPressCalculator(
             CalcLoader(CalcOwnerI::class.java, CalcPlayableClass::class.java), 9200100))
         assertNull("计算器必须是静态方法", PlayerSpeedLocator.theseus2LongPressCalculator(
             CalcLoader(CalcOwnerNonStatic::class.java, CalcPlayable::class.java), 9200100))
     }
 
-    @Test fun `dex calculator selection revalidates fully and cache round-trips`() {
+    fun `dex calculator selection revalidates fully and cache round-trips`() {
         val loader = javaClass.classLoader!!
         val methodI = CalcOwnerI::class.java.getMethod("i", CalcPlayable::class.java, Float::class.javaObjectType)
         val selected = requireNotNull(PlayerSpeedLocator.selectCalculator(loader,
@@ -240,7 +240,7 @@ class PlayerSpeedLocatorTest {
             com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Candidates(List(33) { methodI })))
     }
 
-    @Test fun `calculator gates never scan when disabled direct or already attempted`() {
+    fun `calculator gates never scan when disabled direct or already attempted`() {
         assertFalse(PlayerSpeedLocator.calculatorNeedsQuery(false, true, false))
         assertFalse(PlayerSpeedLocator.calculatorNeedsQuery(true, false, false))
         assertFalse(PlayerSpeedLocator.calculatorNeedsQuery(true, true, true))
@@ -250,7 +250,7 @@ class PlayerSpeedLocatorTest {
         assertFalse(PlayerSpeedLocator.calculatorRefreshCache(true, true, false, true, false))
     }
 
-    @Test fun `theseus2 calculator keeps legacy 918 and 919 builds resolving method a`() {
+    fun `theseus2 calculator keeps legacy 918 and 919 builds resolving method a`() {
         // 版本表 Pair→Triple 重构后，9.18/9.19 旧条目（方法名 a）行为须逐字不变。
         for (version in listOf(9180100, 9180200, 9180300, 9190200, 9190400)) {
             val method = PlayerSpeedLocator.theseus2LongPressCalculator(
@@ -258,5 +258,22 @@ class PlayerSpeedLocatorTest {
             assertNotNull("旧构建 $version 应解析出计算器", method)
             assertEquals("a", method!!.name)
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerSpeedLocatorTest) -> Unit) {
+            val s = PlayerSpeedLocatorTest()
+            block(s)
+        }
+        runIsolated { s -> s.`actual locator handles both getter shapes and exact interface fields`() }
+        runIsolated { s -> s.`new flow or getter ambiguity refuses to guess`() }
+        runIsolated { s -> s.`speed menu locator resolves modern factory and adapter and refines close speed selection`() }
+        runIsolated { s -> s.`speed menu locator resolves legacy float array adapter`() }
+        runIsolated { s -> s.`theseus2 calculator resolves per verified build and never leaks across builds`() }
+        runIsolated { s -> s.`theseus2 calculator refuses non-interface playable and non-static owner`() }
+        runIsolated { s -> s.`dex calculator selection revalidates fully and cache round-trips`() }
+        runIsolated { s -> s.`calculator gates never scan when disabled direct or already attempted`() }
+        runIsolated { s -> s.`theseus2 calculator keeps legacy 918 and 919 builds resolving method a`() }
     }
 }

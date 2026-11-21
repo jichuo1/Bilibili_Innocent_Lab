@@ -15,7 +15,6 @@ import java.util.zip.ZipOutputStream
 
 class DexSourceFingerprintTest {
 
-    @Test
     fun `same dex produces stable fingerprint and ignores resources`() {
         withTempDirectory { directory ->
             val first = File(directory, "first.apk")
@@ -32,7 +31,6 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test
     fun `changed secondary dex changes fingerprint`() {
         withTempDirectory { directory ->
             val first = File(directory, "first.apk")
@@ -53,7 +51,6 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test
     fun `archive without dex is rejected`() {
         withTempDirectory { directory ->
             val archive = File(directory, "resources.apk")
@@ -63,7 +60,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `npatch fingerprint and query path use the original instead of loader dex`() {
+    fun `npatch fingerprint and query path use the original instead of loader dex`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             writeArchive(original, mapOf("classes.dex" to byteArrayOf(1), "classes2.dex" to byteArrayOf(2)))
@@ -77,7 +74,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `repatching loader retains fingerprint but changing original dex invalidates it`() {
+    fun `repatching loader retains fingerprint but changing original dex invalidates it`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "patched.apk")
@@ -94,7 +91,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `lspatch original and code splits provide the query path with or without io redirection`() {
+    fun `lspatch original and code splits provide the query path with or without io redirection`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "lspatched.apk")
@@ -116,7 +113,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `lspatch repatching and cache repair preserve original identity`() {
+    fun `lspatch repatching and cache repair preserve original identity`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "lspatched.apk")
@@ -139,7 +136,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `lspatch missing corrupt or oversized original never selects loader dex`() {
+    fun `lspatch missing corrupt or oversized original never selects loader dex`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "lspatched.apk")
@@ -158,7 +155,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `mixed patch carriers cannot choose an arbitrary original`() {
+    fun `mixed patch carriers cannot choose an arbitrary original`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "mixed.apk")
@@ -173,7 +170,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `unavailable oversized or invalid original never falls back to loader fingerprint`() {
+    fun `unavailable oversized or invalid original never falls back to loader fingerprint`() {
         withTempDirectory { directory ->
             val outer = File(directory, "patched.apk")
             val original = File(directory, "original.apk")
@@ -189,7 +186,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `source cache is rebuilt after loss and same length corruption`() {
+    fun `source cache is rebuilt after loss and same length corruption`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "patched.apk")
@@ -207,7 +204,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `original and code splits share the same fingerprint boundary with bounded cache`() {
+    fun `original and code splits share the same fingerprint boundary with bounded cache`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "patched.apk")
@@ -230,7 +227,7 @@ class DexSourceFingerprintTest {
     }
 
     /** 发布时整文件校验一次；之后只比对长度、修改时间和只读属性，每次启动不再重读几百兆。 */
-    @Test fun `a published source is verified once and later runs skip the full pass`() {
+    fun `a published source is verified once and later runs skip the full pass`() {
         for (frozenView in listOf(false, true)) withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "patched.apk")
@@ -260,7 +257,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `any real modification of a published source is caught and repaired`() {
+    fun `any real modification of a published source is caught and repaired`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "patched.apk")
@@ -287,7 +284,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `a cache published before markers existed is verified once and then marked`() {
+    fun `a cache published before markers existed is verified once and then marked`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val outer = File(directory, "patched.apk")
@@ -313,7 +310,7 @@ class DexSourceFingerprintTest {
         mapOf("classes.dex" to byteArrayOf(loader), "assets/$carrier/config.json" to "{}".toByteArray(),
             "assets/$carrier/origin.apk" to original))
 
-    @Test fun `already redirected java view is frozen for native callers`() {
+    fun `already redirected java view is frozen for native callers`() {
         withTempDirectory { directory ->
             val original = File(directory, "visible.apk")
             val cache = File(directory, "cache")
@@ -328,7 +325,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `all active code splits remain readable during source cache eviction`() {
+    fun `all active code splits remain readable during source cache eviction`() {
         withTempDirectory { directory ->
             val archives = (1..4).map { index -> File(directory, "$index.apk").also {
                 writeArchive(it, mapOf("classes.dex" to byteArrayOf(index.toByte())))
@@ -340,7 +337,7 @@ class DexSourceFingerprintTest {
         }
     }
 
-    @Test fun `resource splits do not invalidate either patched source with frozen views`() {
+    fun `resource splits do not invalidate either patched source with frozen views`() {
         withTempDirectory { directory ->
             val original = File(directory, "original.apk")
             val split = File(directory, "code.apk")
@@ -386,5 +383,31 @@ class DexSourceFingerprintTest {
             directory.walkBottomUp().forEach { it.setWritable(true) }
             directory.deleteRecursively()
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DexSourceFingerprintTest) -> Unit) {
+            val s = DexSourceFingerprintTest()
+            block(s)
+        }
+        runIsolated { s -> s.`same dex produces stable fingerprint and ignores resources`() }
+        runIsolated { s -> s.`changed secondary dex changes fingerprint`() }
+        runIsolated { s -> s.`archive without dex is rejected`() }
+        runIsolated { s -> s.`npatch fingerprint and query path use the original instead of loader dex`() }
+        runIsolated { s -> s.`repatching loader retains fingerprint but changing original dex invalidates it`() }
+        runIsolated { s -> s.`lspatch original and code splits provide the query path with or without io redirection`() }
+        runIsolated { s -> s.`lspatch repatching and cache repair preserve original identity`() }
+        runIsolated { s -> s.`lspatch missing corrupt or oversized original never selects loader dex`() }
+        runIsolated { s -> s.`mixed patch carriers cannot choose an arbitrary original`() }
+        runIsolated { s -> s.`unavailable oversized or invalid original never falls back to loader fingerprint`() }
+        runIsolated { s -> s.`source cache is rebuilt after loss and same length corruption`() }
+        runIsolated { s -> s.`original and code splits share the same fingerprint boundary with bounded cache`() }
+        runIsolated { s -> s.`a published source is verified once and later runs skip the full pass`() }
+        runIsolated { s -> s.`any real modification of a published source is caught and repaired`() }
+        runIsolated { s -> s.`a cache published before markers existed is verified once and then marked`() }
+        runIsolated { s -> s.`already redirected java view is frozen for native callers`() }
+        runIsolated { s -> s.`all active code splits remain readable during source cache eviction`() }
+        runIsolated { s -> s.`resource splits do not invalidate either patched source with frozen views`() }
     }
 }

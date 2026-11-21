@@ -19,13 +19,13 @@ class CommentImageHookOptimizationTest {
         return unsafe.allocateInstance(CardExpandableTextView::class.java) as CardExpandableTextView
     }
 
-    @Test fun disabledCopyInstallsNoTextOrConstructorCallbacks() {
+    fun disabledCopyInstallsNoTextOrConstructorCallbacks() {
         val bridge = CommentNativeSupplementBridge({ false }, { _, _, _ -> }, { "raw" })
         assertTrue(bridge.install(environment).isEmpty())
         assertTrue(recorder.hooks.isEmpty())
     }
 
-    @Test fun imageUsesOneClosestHostSetterAndCurrentBinding() {
+    fun imageUsesOneClosestHostSetterAndCurrentBinding() {
         var binds = 0
         val bridge = CommentNativeSupplementBridge({ true }, { _, raw, _ -> assertEquals("raw", raw); binds++ }, { "raw" })
         val result = bridge.install(environment).getValue("image")
@@ -42,12 +42,23 @@ class CommentImageHookOptimizationTest {
         assertSame(item, bridge.imageContent(view)!!.second)
     }
 
-    @Test fun twoLiveOwnersOfOneBodyRemainAmbiguous() {
+    fun twoLiveOwnersOfOneBodyRemainAmbiguous() {
         val bridge = CommentNativeSupplementBridge({ true }, { _, _, _ -> }, { "raw" })
         bridge.install(environment)
         val view = body(); val first = a(a.Binding(view), CommentItem()); val second = a(a.Binding(view), CommentItem())
         val ctor = recorder.hooks.keys.single { it.startsWith("free.copy.image.owner") }
         recorder.invoke(ctor, first); recorder.invoke(ctor, second)
         assertNull(bridge.imageContent(view))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentImageHookOptimizationTest) -> Unit) {
+            val s = CommentImageHookOptimizationTest()
+            block(s)
+        }
+        runIsolated { s -> s.disabledCopyInstallsNoTextOrConstructorCallbacks() }
+        runIsolated { s -> s.imageUsesOneClosestHostSetterAndCurrentBinding() }
+        runIsolated { s -> s.twoLiveOwnersOfOneBodyRemainAmbiguous() }
     }
 }

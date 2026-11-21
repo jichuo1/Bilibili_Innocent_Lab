@@ -16,7 +16,7 @@ class SettingsFloatingToolbarTest {
     private fun source(relative: String): String =
         SourceContract.read(relative)
 
-    @Test fun toolbarIsLiftedIntoThePageLayerAboveTheScrollingPages() {
+    fun toolbarIsLiftedIntoThePageLayerAboveTheScrollingPages() {
         val home = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/SettingsHomePresenter.kt")
         assertTrue(home.contains("floatingToolbar?.let { toolbar ->"))
@@ -38,7 +38,7 @@ class SettingsFloatingToolbarTest {
      * 状态栏任何时刻都透出内容（2026-09-23 用户要求）：原来只有长按弹性临时放开祖先裁剪时
      * 才透，常态被根布局的状态栏 padding + clipToPadding 裁在状态栏下沿。
      */
-    @Test fun statusBarAlwaysShowsContentScrollingBehindIt() {
+    fun statusBarAlwaysShowsContentScrollingBehindIt() {
         val home = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/SettingsHomePresenter.kt")
         val install = home.after("private fun installTopInset()").before("private fun applyScrollInsets()")
@@ -52,7 +52,7 @@ class SettingsFloatingToolbarTest {
         assertTrue(home.contains("SettingsFavoritesRepository.read(activity.applicationContext, this)\n        installTopInset()"))
     }
 
-    @Test fun capsuleItselfIsAnElasticTargetWhileButtonsKeepTheirOwnGroups() {
+    fun capsuleItselfIsAnElasticTargetWhileButtonsKeepTheirOwnGroups() {
         val home = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/SettingsHomePresenter.kt")
         val header = home.after("val header = FrameLayout(activity).apply {")
@@ -69,7 +69,7 @@ class SettingsFloatingToolbarTest {
         assertFalse(rowInit.contains("skinTopBarBackground"))
     }
 
-    @Test fun searchRevealStopsBelowTheFloatingHeader() {
+    fun searchRevealStopsBelowTheFloatingHeader() {
         val reveal = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
             .after("internal fun revealSettingsSearchTarget(")
@@ -78,7 +78,7 @@ class SettingsFloatingToolbarTest {
         assertTrue(reveal.indexOf("val topOffset") < reveal.indexOf("val desiredY"))
     }
 
-    @Test fun toolbarRowStaysTransparentSoEachIconKeepsItsOwnElasticGroup() {
+    fun toolbarRowStaysTransparentSoEachIconKeepsItsOwnElasticGroup() {
         val main = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
         assertTrue(main.contains("floatingToolbar = settingsFloatingToolbar"))
@@ -88,5 +88,18 @@ class SettingsFloatingToolbarTest {
         val rowInit = main.after("settingsFloatingToolbar = this").before("}")
         assertFalse(rowInit.contains("background ="))
         assertFalse(rowInit.contains("skinTopBarBackground"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsFloatingToolbarTest) -> Unit) {
+            val s = SettingsFloatingToolbarTest()
+            block(s)
+        }
+        runIsolated { s -> s.toolbarIsLiftedIntoThePageLayerAboveTheScrollingPages() }
+        runIsolated { s -> s.statusBarAlwaysShowsContentScrollingBehindIt() }
+        runIsolated { s -> s.capsuleItselfIsAnElasticTargetWhileButtonsKeepTheirOwnGroups() }
+        runIsolated { s -> s.searchRevealStopsBelowTheFloatingHeader() }
+        runIsolated { s -> s.toolbarRowStaysTransparentSoEachIconKeepsItsOwnElasticGroup() }
     }
 }

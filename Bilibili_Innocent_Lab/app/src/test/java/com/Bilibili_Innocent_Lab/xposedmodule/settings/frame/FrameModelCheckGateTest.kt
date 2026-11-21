@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameModelCheckGateTest {
-    @Test fun serviceEventsDuringAReadCoalesceAndDiscardItsStaleResult() {
+    fun serviceEventsDuringAReadCoalesceAndDiscardItsStaleResult() {
         val gate = FrameModelCheckGate()
         gate.attach(true)
         val old = gate.begin()!!
@@ -16,7 +16,7 @@ class FrameModelCheckGateTest {
         assertFalse(gate.finish(latest))
     }
 
-    @Test fun detachedRowsRejectLateResultsAndReattachmentSchedulesAFreshRead() {
+    fun detachedRowsRejectLateResultsAndReattachmentSchedulesAFreshRead() {
         val gate = FrameModelCheckGate()
         assertNull(gate.begin())
         gate.attach(true)
@@ -27,5 +27,15 @@ class FrameModelCheckGateTest {
         assertNull(gate.begin())
         assertTrue(gate.finish(old))
         assertTrue(gate.current(gate.begin()!!))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameModelCheckGateTest) -> Unit) {
+            val s = FrameModelCheckGateTest()
+            block(s)
+        }
+        runIsolated { s -> s.serviceEventsDuringAReadCoalesceAndDiscardItsStaleResult() }
+        runIsolated { s -> s.detachedRowsRejectLateResultsAndReattachmentSchedulesAFreshRead() }
     }
 }

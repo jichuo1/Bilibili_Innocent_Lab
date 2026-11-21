@@ -41,14 +41,14 @@ class ModalTitleMotionConventionTest {
         }
     }
 
-    @Test fun theScanActuallySeesTheDialogSources() {
+    fun theScanActuallySeesTheDialogSources() {
         assertTrue("没扫到任何 *Dialogs.kt，护栏会静默通过", dialogSources.size >= 4)
         val names = dialogSources.flatMap { functions(it) }.map { it.first }
         assertTrue("没解析出弹窗函数：${dialogSources.map(File::getName)}", names.size >= 10)
         assertTrue("showPlayerQualityDialog 应当在扫描范围内", "showPlayerQualityDialog" in names)
     }
 
-    @Test fun anchoredPanelsReuseTheSourceRowTitleInsteadOfADialogOnlyString() {
+    fun anchoredPanelsReuseTheSourceRowTitleInsteadOfADialogOnlyString() {
         val offenders = dialogSources.flatMap { file ->
             functions(file).filter { (_, body) ->
                 // 只管带锚点的面板：没有 anchor 就没有形变，也就无从谈文字平移。
@@ -72,7 +72,7 @@ class ModalTitleMotionConventionTest {
      * 拦不到它——违规发生在调用方。2026-09-12 实测 `showRuleEditorDialog` 的 7 个调用点
      * 全都传了独立的 `*_dialog_title`（其中 6 个文案是"编辑 X"、与来源行不同）。
      */
-    @Test fun ruleEditorCallersPassTheRowTitleNotADialogOnlyString() {
+    fun ruleEditorCallersPassTheRowTitleNotADialogOnlyString() {
         // 调用点随分区一起外移到 *Sections.kt，所以扫整个设置页而不只是 MainActivity。
         val callSites = SettingsUiSource.settingsPageFiles().flatMap { (fileName, text) ->
             val lines = text.lines()
@@ -94,7 +94,7 @@ class ModalTitleMotionConventionTest {
         )
     }
 
-    @Test fun theFivePanelsFixedInThisChangeStayFixed() {
+    fun theFivePanelsFixedInThisChangeStayFixed() {
         // 逐个钉死，避免将来有人"顺手"又给它们写一条独立标题。
         val expected = mapOf(
             "showPlayerQualityDialog" to "R.string.player_default_quality",
@@ -112,5 +112,17 @@ class ModalTitleMotionConventionTest {
                 body.contains("$titleRef)")
             )
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalTitleMotionConventionTest) -> Unit) {
+            val s = ModalTitleMotionConventionTest()
+            block(s)
+        }
+        runIsolated { s -> s.theScanActuallySeesTheDialogSources() }
+        runIsolated { s -> s.anchoredPanelsReuseTheSourceRowTitleInsteadOfADialogOnlyString() }
+        runIsolated { s -> s.ruleEditorCallersPassTheRowTitleNotADialogOnlyString() }
+        runIsolated { s -> s.theFivePanelsFixedInThisChangeStayFixed() }
     }
 }

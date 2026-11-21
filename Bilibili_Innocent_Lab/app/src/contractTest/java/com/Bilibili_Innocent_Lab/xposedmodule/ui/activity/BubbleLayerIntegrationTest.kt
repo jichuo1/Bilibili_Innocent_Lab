@@ -18,7 +18,7 @@ class BubbleLayerIntegrationTest {
         return LceMotionSource.read(path)
     }
 
-    @Test fun bubbleContentIsNotScaledWithItsSkinSurface() {
+    fun bubbleContentIsNotScaledWithItsSkinSurface() {
         val controller = source("BubbleMotionController")
         assertFalse(controller.contains(".scaleX ="))
         assertFalse(controller.contains(".scaleY ="))
@@ -29,7 +29,7 @@ class BubbleLayerIntegrationTest {
         assertTrue(layer.contains("viewport.blocked = false"))
     }
 
-    @Test fun bubbleBorrowsTheModalSkinInsteadOfReplacingItWithAnOpaquePath() {
+    fun bubbleBorrowsTheModalSkinInsteadOfReplacingItWithAnOpaquePath() {
         val main = source("MainActivity")
         val bubble = main.after("fun applyBubbleSurface(").before("val morphLayer =")
         assertFalse(bubble.contains("BubbleSurfaceDrawable("))
@@ -44,7 +44,7 @@ class BubbleLayerIntegrationTest {
         assertFalse(surface.contains("LiquidActivityRenderer("))
     }
 
-    @Test fun fadingAndContourMasksAreBoundedInsteadOfUsingWholeWindowAlpha() {
+    fun fadingAndContourMasksAreBoundedInsteadOfUsingWholeWindowAlpha() {
         val surface = source("BubbleSkinSurfaceView")
         assertTrue(surface.contains("frameOpacity == 255"))
         assertTrue(surface.contains("fadeBounds.intersect(0f, 0f, width.toFloat(), height.toFloat())"))
@@ -56,7 +56,7 @@ class BubbleLayerIntegrationTest {
         assertTrue(layer.contains("boundedLayer.intersect(0f, 0f, width.toFloat(), height.toFloat())"))
     }
 
-    @Test fun iconSnapshotOnlyDrawsTheRealDrawableAndDoesNotIncludeRippleOrBadge() {
+    fun iconSnapshotOnlyDrawsTheRealDrawableAndDoesNotIncludeRippleOrBadge() {
         val icon = source("BubbleIconProxy")
         assertTrue(icon.contains("MAX_CAPTURE_SIDE = 192"))
         assertTrue(icon.contains("if (prepared) return"))
@@ -70,7 +70,7 @@ class BubbleLayerIntegrationTest {
         assertFalse(frame.contains("Bitmap.createBitmap"))
     }
 
-    @Test fun closingAndWindowFallbackRestoreRowsAndOriginalIconAlpha() {
+    fun closingAndWindowFallbackRestoreRowsAndOriginalIconAlpha() {
         val controller = source("BubbleMotionController")
         assertTrue(controller.contains("layer.settleExpanded()"))
         assertTrue(controller.contains("layer.dispose()"))
@@ -98,7 +98,7 @@ class BubbleLayerIntegrationTest {
      * 于是注册被丢弃、`Dialog.show()` 自己那个 system 级默认回调（直接 dismiss、无动画）
      * 赢下手势派发；而三键返回走 `Dialog.dispatchKeyEvent` → `mOnKeyListener`，仍有动画。
      */
-    @Test fun systemBackGestureIsRegisteredAfterTheWindowIsAttached() {
+    fun systemBackGestureIsRegisteredAfterTheWindowIsAttached() {
         // 按花括号配对精确取这一个函数：原来的"到 createModalContainer 为止"会随着
         // 邻居搬迁或可见性放宽而失配，而 substringBefore 失配后返回原串，窗口会悄悄
         // 扩大到整份文件——断言照样通过，护栏静默失效。
@@ -122,7 +122,7 @@ class BubbleLayerIntegrationTest {
         assertTrue(present.contains("keyCode == KeyEvent.KEYCODE_BACK"))
     }
 
-    @Test fun keyboardWaitsForFirstSettledEntryWithoutADelayedCloseRace() {
+    fun keyboardWaitsForFirstSettledEntryWithoutADelayedCloseRace() {
         val search = SettingsUiSource.function("showSettingsSearchDialog")
         assertTrue(search.contains("AnchorStyle.BUBBLE, onExpanded ="))
         assertFalse(search.contains("editor.postDelayed"))
@@ -135,7 +135,7 @@ class BubbleLayerIntegrationTest {
         }
     }
 
-    @Test fun independentGeometryRefreshWaitsForActualLayoutAndKeepsPendingChanges() {
+    fun independentGeometryRefreshWaitsForActualLayoutAndKeepsPendingChanges() {
         val code = source("MainActivity").after("fun updateBubbleGeometry(): Boolean")
             .before("val bubbleLayoutListener")
         assertTrue(code.contains("bubbleGeometryPending || geometryChanged || actualBoundsChanged"))
@@ -143,5 +143,21 @@ class BubbleLayerIntegrationTest {
         assertTrue(code.indexOf("bubbleLayer?.setAnchor(localAnchor)") < code.indexOf("handleWindowSizeChange()"))
         assertTrue(code.indexOf("container.layoutParams = params") < code.indexOf("handleWindowSizeChange()"))
         assertTrue(code.contains("previousBubbleBottom = container.bottom"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BubbleLayerIntegrationTest) -> Unit) {
+            val s = BubbleLayerIntegrationTest()
+            block(s)
+        }
+        runIsolated { s -> s.bubbleContentIsNotScaledWithItsSkinSurface() }
+        runIsolated { s -> s.bubbleBorrowsTheModalSkinInsteadOfReplacingItWithAnOpaquePath() }
+        runIsolated { s -> s.fadingAndContourMasksAreBoundedInsteadOfUsingWholeWindowAlpha() }
+        runIsolated { s -> s.iconSnapshotOnlyDrawsTheRealDrawableAndDoesNotIncludeRippleOrBadge() }
+        runIsolated { s -> s.closingAndWindowFallbackRestoreRowsAndOriginalIconAlpha() }
+        runIsolated { s -> s.systemBackGestureIsRegisteredAfterTheWindowIsAttached() }
+        runIsolated { s -> s.keyboardWaitsForFirstSettledEntryWithoutADelayedCloseRace() }
+        runIsolated { s -> s.independentGeometryRefreshWaitsForActualLayoutAndKeepsPendingChanges() }
     }
 }

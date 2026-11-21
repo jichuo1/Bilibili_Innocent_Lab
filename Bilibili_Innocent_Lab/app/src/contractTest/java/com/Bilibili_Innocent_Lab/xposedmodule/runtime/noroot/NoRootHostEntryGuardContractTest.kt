@@ -22,18 +22,29 @@ class NoRootHostEntryGuardContractTest {
             body.lines().dropWhile { it.trimStart().startsWith("//") }.joinToString("\n").trimStart().startsWith(guard))
     }
 
-    @Test fun theLivenessProbeReceiverRunsUnderTheHostGuard() {
+    fun theLivenessProbeReceiverRunsUnderTheHostGuard() {
         assertGuardedFromTheFirstStatement(read("HostRuntimeProbeResponder.kt"),
             "override fun onReceive(context: Context, intent: Intent) {", "host.runtime_probe.receive")
     }
 
-    @Test fun theProcessDiagnosticsReceiverRunsUnderTheHostGuardIncludingIntentParsing() {
+    fun theProcessDiagnosticsReceiverRunsUnderTheHostGuardIncludingIntentParsing() {
         assertGuardedFromTheFirstStatement(read("NPatchProcessDiagnostics.kt"),
             "override fun onReceive(context: Context, intent: Intent) {", "npatch.process_diagnostics.receive")
     }
 
-    @Test fun theLiveConfigReceiverStillRunsUnderTheHostGuard() {
+    fun theLiveConfigReceiverStillRunsUnderTheHostGuard() {
         val source = read("NPatchLiveConfig.kt")
         assertTrue(source.contains("HostThreadGuard.run(\"live_config.receive\")"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (NoRootHostEntryGuardContractTest) -> Unit) {
+            val s = NoRootHostEntryGuardContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.theLivenessProbeReceiverRunsUnderTheHostGuard() }
+        runIsolated { s -> s.theProcessDiagnosticsReceiverRunsUnderTheHostGuardIncludingIntentParsing() }
+        runIsolated { s -> s.theLiveConfigReceiverStillRunsUnderTheHostGuard() }
     }
 }

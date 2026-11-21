@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VersionAdapterTest {
-    @Test fun `startup omission survives cached found points without becoming cacheable`() {
+    fun `startup omission survives cached found points without becoming cacheable`() {
         val stored = result().copy(diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic("number.full", VersionAdapter.AdaptState.FOUND, "cached"),
             VersionAdapter.AdaptDiagnostic("protocol.structure", VersionAdapter.AdaptState.FOUND, "cached")))
@@ -31,7 +31,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.AdaptResult.fromJson(poisoned))
     }
 
-    @Test fun `requested live point still wins when another startup family is omitted`() {
+    fun `requested live point still wins when another startup family is omitted`() {
         val stored = result()
         val liveNumbers = VersionAdapter.FullNumberPoints(listOf(VersionAdapter.HookPoint("runtime.Numbers", "format")))
         val live = with(VersionAdapter) {
@@ -43,7 +43,7 @@ class VersionAdapterTest {
         assertEquals(stored.commentHigh, merged.commentHigh)
     }
 
-    @Test fun `child projection cannot restore main only relate points from a complete cache`() {
+    fun `child projection cannot restore main only relate points from a complete cache`() {
         val stored = result().copy(diagnostics = listOf(
             VersionAdapter.AdaptDiagnostic("video.relate", VersionAdapter.AdaptState.FOUND, "cached")))
         assertNotNull(stored.videoRelate)
@@ -59,7 +59,7 @@ class VersionAdapterTest {
         assertNotNull(VersionAdapter.AdaptResult.fromJson(stored.toJson()))
     }
 
-    @Test fun `planned locator omits only selected families and full offline lookup remains available`() {
+    fun `planned locator omits only selected families and full offline lookup remains available`() {
         val loader = requireNotNull(javaClass.classLoader)
         val full = requireNotNull(VersionAdapter.quickLocate(loader))
         assertNotNull(full.commentPurify)
@@ -71,7 +71,7 @@ class VersionAdapterTest {
         assertEquals(full.commentPurify, VersionAdapter.quickLocateForStartup(loader, setOf("future-unknown-family"))?.commentPurify)
     }
 
-    @Test fun `main process never prunes a family required by its accepted plan`() {
+    fun `main process never prunes a family required by its accepted plan`() {
         val loader = requireNotNull(javaClass.classLoader)
         val plan = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan.full()
         val result = requireNotNull(VersionAdapter.quickLocateForStartup(
@@ -85,7 +85,7 @@ class VersionAdapterTest {
     private val repackOld = "tv.danmaku.bili|9090300|9.9.3|1000|100|${VersionAdapterContract.RULE_VERSION}"
     private val repackNew = "tv.danmaku.bili|9090300|9.9.3|2000|200|${VersionAdapterContract.RULE_VERSION}"
 
-    @Test fun `repack preserves verified member results and original timestamp after content agreement`() {
+    fun `repack preserves verified member results and original timestamp after content agreement`() {
         val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
         val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
         assertNull(VersionAdapter.StartupCacheSnapshot(identity, previous.ts, previous).usableCache(false))
@@ -95,7 +95,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.StartupCacheSnapshot(identity, previous.ts + 1, rebound).usableCache(false))
     }
 
-    @Test fun `repack rejects changed unknown or unavailable original dex`() {
+    fun `repack rejects changed unknown or unavailable original dex`() {
         val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
         val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
         for (dex in listOf(null, "unavailable", repackDex.replace('a', 'b'), "dex-v1:0:" + "a".repeat(64)))
@@ -103,7 +103,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.rebindRepackedCache(previous.copy(dexSourceFingerprint = "unavailable"), identity, 0, repackDex))
     }
 
-    @Test fun `repack cannot bypass version rule reset or structural validity`() {
+    fun `repack cannot bypass version rule reset or structural validity`() {
         val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
         val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
         for (fingerprint in listOf(repackNew.replace("9.9.3", "9.9.4"),
@@ -116,7 +116,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.rebindRepackedCache(previous.copy(commentLow = VersionAdapter.HookPoint("", "")), identity, 0, repackDex))
     }
 
-    @Test fun `speed menu optional cache and failure history are bound to host and reset`() {
+    fun `speed menu optional cache and failure history are bound to host and reset`() {
         val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints(
             adapter = VersionAdapter.HookPoint("com.bilibili.playerbizcommonv2.widget.speed.RenamedAdapter", "populate", listOf("float")))
         val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter.DIAGNOSTIC
@@ -136,7 +136,7 @@ class VersionAdapterTest {
         assertNull(snapshot.copy(resetTimestamp = stored.ts + 1).usableCache(false))
     }
 
-    @Test fun `follow optional descriptor and failure history remain within the same host snapshot`() {
+    fun `follow optional descriptor and failure history remain within the same host snapshot`() {
         val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints("iU.d", "f", "tS.G", "tS.H",
             "com.bilibili.bplus.followinglist.home.Q", "current")
         val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter.DIAGNOSTIC
@@ -155,7 +155,7 @@ class VersionAdapterTest {
         assertNull(snapshot.copy(resetTimestamp = stored.ts + 1).usableCache(false))
     }
 
-    @Test fun `brand decoder optional cache preserves validated snapshot and completed failure independently`() {
+    fun `brand decoder optional cache preserves validated snapshot and completed failure independently`() {
         val point = VersionAdapter.HookPoint("Nr1.a", "a", listOf(com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter.INFO))
         val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter.DIAGNOSTIC
         val failed = VersionAdapter.AdaptDiagnostic(id, VersionAdapter.AdaptState.MISSING, "no_match")
@@ -173,7 +173,7 @@ class VersionAdapterTest {
         assertNull(snapshot.copy(resetTimestamp = stored.ts + 1).usableCache(false))
     }
 
-    @Test fun `popup failed diagnostics survive quick merge independently without retaining other missing families`() {
+    fun `popup failed diagnostics survive quick merge independently without retaining other missing families`() {
         val families = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter.Family.entries
         val preserved = families.map { VersionAdapter.AdaptDiagnostic(it.diagnostic, VersionAdapter.AdaptState.MISSING, "no_match") }
         val other = VersionAdapter.AdaptDiagnostic("dex.assist.other", VersionAdapter.AdaptState.MISSING, "unrelated")
@@ -186,7 +186,7 @@ class VersionAdapterTest {
         assertTrue(VersionAdapter.mergeRuntimeWithCached(found, stored)!!.diagnostics.all { it.state == VersionAdapter.AdaptState.FOUND })
     }
 
-    @Test fun `popup inheritance uses only the same fingerprint version and reset snapshot`() {
+    fun `popup inheritance uses only the same fingerprint version and reset snapshot`() {
         val point = VersionAdapter.HookPoint("com.bilibili.adcommon.data.model.DmAdvert", "getFloatLayers", emptyList())
         val stored = result().copy(commentHigh = null, playerPopupPromotion = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints(advertFloat = point))
         val snapshot = VersionAdapter.StartupCacheSnapshot(VersionAdapter.HostIdentity(stored.biliVersionCode, stored.hostFingerprint), stored.ts, stored)
@@ -198,7 +198,7 @@ class VersionAdapterTest {
         assertNull(snapshot.copy(cached = null).usableCache(false))
     }
 
-    @Test fun `popup promotion cache is optional rejects malformed members and merges missing families`() {
+    fun `popup promotion cache is optional rejects malformed members and merges missing families`() {
         val points = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints(
             VersionAdapter.HookPoint("com.bilibili.ship.theseus.united.player.mediaplay.network.Guide", "f", listOf("kotlin.coroutines.jvm.internal.ContinuationImpl")),
             VersionAdapter.HookPoint("com.bilibili.adcommon.data.model.DmAdvert", "getFloatLayers", emptyList()))
@@ -210,7 +210,7 @@ class VersionAdapterTest {
         assertEquals(points, VersionAdapter.mergeRuntimeWithCached(live, sample)?.playerPopupPromotion)
     }
 
-    @Test fun `classic comment cache is optional verified and merged per family`() {
+    fun `classic comment cache is optional verified and merged per family`() {
         val native = VersionAdapter.HookPoint("com.bilibili.lib.dd.DeviceDecision", "getBoolean", listOf("java.lang.String", "boolean"))
         val kotlin = VersionAdapter.HookPoint("kntr.base.dd.IDeviceDecisionKt", "getBool", listOf("kntr.base.dd.IDeviceDecision", "java.lang.String", "boolean", "kntr.base.dd.IDeviceDecision\$Context"))
         val points = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints(listOf(native), listOf(kotlin))
@@ -221,7 +221,7 @@ class VersionAdapterTest {
         val live = sample.copy(commentClassicStyle = points.copy(kotlinReaders = emptyList()))
         assertEquals(points, VersionAdapter.mergeRuntimeWithCached(live, sample)?.commentClassicStyle)
     }
-    @Test fun `sponsor optional classes round trip and live results retain priority`() {
+    fun `sponsor optional classes round trip and live results retain priority`() {
         val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses(
             "com.bilibili.ship.theseus.Run", "com.bilibili.ship.theseus.Wrapper", null, "com.bilibili.ship.theseus.Seek")
         val cached = result().copy(sponsorPlayer = point)
@@ -232,7 +232,7 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.AdaptResult.fromJson(cached.toJson().apply { remove("sponsor_player") })?.sponsorPlayer)
     }
 
-    @Test fun `K default words optional point survives full cache validation and runtime merge`() {
+    fun `K default words optional point survives full cache validation and runtime merge`() {
         val method = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinDefaultWordsTest.RenamedSearch::class.java
             .declaredMethods.single { it.name == "x" }
         val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator.point(method)
@@ -246,7 +246,7 @@ class VersionAdapterTest {
         }))
     }
 
-    @Test fun `cached K default words query failure remains observable in quick merge`() {
+    fun `cached K default words query failure remains observable in quick merge`() {
         val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator.DIAGNOSTIC
         val cached = result().copy(diagnostics = listOf(VersionAdapter.AdaptDiagnostic(id,
             VersionAdapter.AdaptState.MISSING, "no-match")))
@@ -256,7 +256,6 @@ class VersionAdapterTest {
             VersionAdapter.mergeRuntimeWithCached(live, cached)?.diagnostics?.single { it.id == id }?.state)
     }
 
-    @Test
     fun `startup snapshot preserves reset version fingerprint and structural cache rejection`() {
         val cached = result()
         val identity = VersionAdapter.HostIdentity(cached.biliVersionCode, cached.hostFingerprint)
@@ -272,7 +271,6 @@ class VersionAdapterTest {
         assertNull(snapshot.copy(cached = null).usableCache(true))
     }
 
-    @Test
     fun `startup snapshot cannot turn a low only cache into a high capable hit`() {
         val cached = result().copy(commentHigh = null)
         val snapshot = VersionAdapter.StartupCacheSnapshot(
@@ -286,7 +284,6 @@ class VersionAdapterTest {
         assertNull(snapshot.usableCache(highCandidateExists = true))
     }
 
-    @Test
     fun `PGC construction point participates in full cache validation and merge`() {
         val points = requireNotNull(VersionAdapter.locatePgcAutoActivityPopup(javaClass.classLoader!!))
         val current = result().copy(pgcAutoActivityPopup = points)
@@ -309,7 +306,6 @@ class VersionAdapterTest {
      * 评论过滤的四条判据共用一份缓存结构；@ 与发布者读取路径必须能原样往返，
      * 否则升级后这两条判据会静默退化成"开了但读不到"。
      */
-    @Test
     fun `comment filter judgement points survive the cache round trip`() {
         val current = result()
         val restored = requireNotNull(VersionAdapter.AdaptResult.fromJson(current.toJson()))
@@ -336,7 +332,6 @@ class VersionAdapterTest {
         assertEquals(current.commentFilter?.messageGetter, downgraded?.messageGetter)
     }
 
-    @Test
     fun `runtime result keeps live points and fills missing dex assisted point from cache`() {
         val cached = result()
         val runtimePoint = VersionAdapter.HookPoint("runtime.Comment", "bind", emptyList())
@@ -367,7 +362,6 @@ class VersionAdapterTest {
         assertEquals(cached.hostFingerprint, merged?.hostFingerprint)
     }
 
-    @Test
     fun `dex assisted quality implementation wins over the live legacy wrapper`() {
         val helper = VersionAdapter.PlayerQualityPoints(
             VersionAdapter.HookPoint("com.bilibili.playerbizcommon.utils.PlayerSettingHelper", "getDefaultQuality")
@@ -394,7 +388,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `dex assisted quality method skips the candidate table`() {
         val assisted = Class.forName("gh6.h").getDeclaredMethod("c")
         val point = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader), assisted)
@@ -1065,7 +1058,6 @@ class VersionAdapterTest {
         )
     )
 
-    @Test
     fun `round trips schema fingerprint and diagnostics`() {
         val source = result()
         val restored = VersionAdapter.AdaptResult.fromJson(
@@ -1078,7 +1070,6 @@ class VersionAdapterTest {
         assertEquals("found=1,missing=0,not_applicable=1", restored.diagnosticSummary())
     }
 
-    @Test
     fun `locates player interactive overlays from stable protobuf stubs`() {
         val points = requireNotNull(
             VersionAdapter.locatePlayerInteractiveOverlays(
@@ -1109,7 +1100,6 @@ class VersionAdapterTest {
         assertTrue(points.mossExecutes.any { it.methodName == "executeDmView" })
     }
 
-    @Test
     fun `player interactive families carry their own whitelist and default instance`() {
         val points = requireNotNull(
             VersionAdapter.locatePlayerInteractiveOverlays(
@@ -1144,7 +1134,6 @@ class VersionAdapterTest {
         assertTrue(viewV1.dmClears.isEmpty())
     }
 
-    @Test
     fun `player interactive points survive a cache round trip`() {
         val points = requireNotNull(
             VersionAdapter.locatePlayerInteractiveOverlays(
@@ -1155,7 +1144,6 @@ class VersionAdapterTest {
         assertEquals(points, restored)
     }
 
-    @Test
     fun `quick adaptation emits a versioned protocol structure fingerprint`() {
         val located = requireNotNull(
             VersionAdapter.quickLocate(requireNotNull(javaClass.classLoader))
@@ -1172,7 +1160,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `rejects stale schema and structurally invalid hook point`() {
         val stale = JSONObject(result().toJson().toString()).put("sv", 9)
         val invalid = JSONObject(result().toJson().toString()).apply {
@@ -1241,7 +1228,6 @@ class VersionAdapterTest {
         assertNull(VersionAdapter.AdaptResult.fromJson(invalidRelateService))
     }
 
-    @Test
     fun `locates home top bar by signatures instead of obfuscated method names`() {
         val points = VersionAdapter.locateHomeTopBar(requireNotNull(javaClass.classLoader))
 
@@ -1255,7 +1241,6 @@ class VersionAdapterTest {
         })
     }
 
-    @Test
     fun `locates mine vip through manager and view binding structure`() {
         val point = VersionAdapter.locateMineVip(requireNotNull(javaClass.classLoader))
 
@@ -1266,7 +1251,6 @@ class VersionAdapterTest {
         assertEquals(emptyList<String>(), point?.rootGetter?.paramClassNames)
     }
 
-    @Test
     fun `locates only the dedicated teenagers mode prompt activity onCreate`() {
         val points = VersionAdapter.locateTeenagersMode(requireNotNull(javaClass.classLoader))
 
@@ -1282,7 +1266,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `prefers latest verified update implementation`() {
         val point = VersionAdapter.locateBlockUpdate(requireNotNull(javaClass.classLoader))
 
@@ -1293,7 +1276,6 @@ class VersionAdapterTest {
         assertEquals(listOf("android.content.Context"), point?.paramClassNames)
     }
 
-    @Test
     fun `914 owners missing still select 913 network and quality implementations`() {
         val loader = object : ClassLoader(requireNotNull(javaClass.classLoader)) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -1305,7 +1287,6 @@ class VersionAdapterTest {
         assertEquals("Rs1.j", VersionAdapter.locateDefaultVideoQuality(loader)?.defaultQualityMethod?.className)
     }
 
-    @Test
     fun `new owners missing still select 912 network and quality implementations`() {
         val loader = object : ClassLoader(requireNotNull(javaClass.classLoader)) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -1319,7 +1300,6 @@ class VersionAdapterTest {
         assertEquals("Xs1.j", VersionAdapter.locateDefaultVideoQuality(loader)?.defaultQualityMethod?.className)
     }
 
-    @Test
     fun `falls back to previous verified update implementation`() {
         val parent = requireNotNull(javaClass.classLoader)
         val previousLoader = object : ClassLoader(parent) {
@@ -1347,7 +1327,6 @@ class VersionAdapterTest {
      *
      * 所以哪怕两代网络边界都不在，也必须继续往下找旧候选，而不是退到同包的 `*.a`。
      */
-    @Test
     fun `the cache aggregator is never selected even when both network owners are gone`() {
         val parent = requireNotNull(javaClass.classLoader)
         val loader = object : ClassLoader(parent) {
@@ -1369,7 +1348,6 @@ class VersionAdapterTest {
         assertEquals("Ip1.c", point?.className)
     }
 
-    @Test
     fun `falls back to older update leaf implementation`() {
         val parent = requireNotNull(javaClass.classLoader)
         val legacyLoader = object : ClassLoader(parent) {
@@ -1390,7 +1368,6 @@ class VersionAdapterTest {
         assertEquals(listOf("android.content.Context"), point?.paramClassNames)
     }
 
-    @Test
     fun `locates full number overloads and rejects unrelated signatures`() {
         val points = VersionAdapter.locateFullNumbers(requireNotNull(javaClass.classLoader))
             ?.formatterMethods.orEmpty()
@@ -1409,7 +1386,6 @@ class VersionAdapterTest {
         assertTrue(points.any { it.methodName == "format\$default" })
     }
 
-    @Test
     fun `locates player portrait control by its exact visibility override`() {
         val points = VersionAdapter.locatePlayerPortrait(requireNotNull(javaClass.classLoader))
             ?.visibilityMethods.orEmpty()
@@ -1423,7 +1399,6 @@ class VersionAdapterTest {
         assertEquals(listOf("int"), points.single().paramClassNames)
     }
 
-    @Test
     fun `locates only the exact video detail activity lifecycle`() {
         val points = VersionAdapter.locatePlayerStatusBar(requireNotNull(javaClass.classLoader))
             ?.onCreateMethods.orEmpty()
@@ -1437,7 +1412,6 @@ class VersionAdapterTest {
         assertEquals(listOf("android.os.Bundle"), points.single().paramClassNames)
     }
 
-    @Test
     fun `locates home feed public response and card getters`() {
         val points = VersionAdapter.locateHomeRecommendFeed(requireNotNull(javaClass.classLoader))
 
@@ -1461,7 +1435,6 @@ class VersionAdapterTest {
         assertEquals("getDuration", points?.playerArgsDurationGetter?.methodName)
     }
 
-    @Test
     fun `locates related video direct and nested duration getters`() {
         val points = VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
 
@@ -1578,7 +1551,6 @@ class VersionAdapterTest {
         })
     }
 
-    @Test
     fun `locates home tab builder and stable resource fields by generic signature`() {
         val points = VersionAdapter.locateHomeTabs(requireNotNull(javaClass.classLoader))
 
@@ -1590,7 +1562,6 @@ class VersionAdapterTest {
         assertEquals("reporterId", points?.reporterIdField)
     }
 
-    @Test
     fun `locates host fragment lifecycle for home component filtering`() {
         val points = VersionAdapter.locateHomeComponents(requireNotNull(javaClass.classLoader))
 
@@ -1602,7 +1573,6 @@ class VersionAdapterTest {
         assertEquals("getParentFragment", points?.parentFragmentGetter?.methodName)
     }
 
-    @Test
     fun `locates mine menu list and item title public getters`() {
         val points = VersionAdapter.locateMineComponents(requireNotNull(javaClass.classLoader))
 
@@ -1610,7 +1580,6 @@ class VersionAdapterTest {
         assertEquals(setOf("getTitle"), points?.itemTitleGetters?.map { it.methodName }?.toSet())
     }
 
-    @Test
     fun `mine account model selects sectionListV2 when both section lists exist`() {
         val points = VersionAdapter.locateMineAccountMinePoints(
             requireNotNull(javaClass.classLoader)
@@ -1625,7 +1594,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `locates and serializes legacy mine public field boundary`() {
         val mineEntry = VersionAdapter.MineEntryPoint(
             buildMethods = listOf(VersionAdapter.HookPoint("legacy.MineFragment", "build")),
@@ -1651,7 +1619,6 @@ class VersionAdapterTest {
         assertEquals("build", restored?.legacyBuildMethods?.single()?.methodName)
     }
 
-    @Test
     fun `locates story list boundaries and exact public type getters`() {
         val points = VersionAdapter.locateStoryFeed(requireNotNull(javaClass.classLoader))
 
@@ -1669,7 +1636,6 @@ class VersionAdapterTest {
         assertEquals("getSeasonType", points?.seasonTypeGetter?.methodName)
     }
 
-    @Test
     fun `locates comment tab configuration by generic item tag`() {
         val points = VersionAdapter.locateCommentSection(requireNotNull(javaClass.classLoader))
 
@@ -1682,7 +1648,6 @@ class VersionAdapterTest {
         assertEquals("getLocatableTag", points?.locatableTagGetter?.methodName)
     }
 
-    @Test
     fun `locates only whitelisted splash response list getters`() {
         val points = VersionAdapter.locateSplashAds(requireNotNull(javaClass.classLoader))
 
@@ -1698,7 +1663,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `locates bottom tab public list and structural bind method`() {
         val points = VersionAdapter.locateBottomBar(requireNotNull(javaClass.classLoader))
 
@@ -1708,7 +1672,6 @@ class VersionAdapterTest {
         assertEquals(listOf("name", "uri"), points?.itemStringFields)
     }
 
-    @Test
     fun `prefers newest verified quality owner over older residual candidate`() {
         val points = VersionAdapter.locateDefaultVideoQuality(requireNotNull(javaClass.classLoader))
         val point = points?.defaultQualityMethod
@@ -1723,7 +1686,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `falls back to previous verified quality owner`() {
         val parent = requireNotNull(javaClass.classLoader)
         val previousLoader = object : ClassLoader(parent) {
@@ -1741,7 +1703,6 @@ class VersionAdapterTest {
         assertEquals(emptyList<String>(), point?.paramClassNames)
     }
 
-    @Test
     fun `falls back to older verified quality owner`() {
         val parent = requireNotNull(javaClass.classLoader)
         val previousLoader = object : ClassLoader(parent) {
@@ -1761,7 +1722,6 @@ class VersionAdapterTest {
         assertEquals(emptyList<String>(), point?.paramClassNames)
     }
 
-    @Test
     fun `uses legacy default quality helper without selecting settings getter`() {
         val parent = requireNotNull(javaClass.classLoader)
         val legacyOnlyLoader = object : ClassLoader(parent) {
@@ -1781,7 +1741,6 @@ class VersionAdapterTest {
         assertEquals(emptyList<String>(), point?.paramClassNames)
     }
 
-    @Test
     fun `locates public comment url map getters without touching message getter`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.urlMapGetters.orEmpty()
@@ -1799,7 +1758,6 @@ class VersionAdapterTest {
      * 替身上同时放了 `getTitle` / `getPcUrl` 和一个带参重载，用来证明定位器
      * 只按"无参 + 返回 String + 方法名"选中唯一那一个，没有顺手捞别的读取方法。
      */
-    @Test
     fun `locates the comment search jump target getter and nothing else on Url`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.urlSchemaGetters.orEmpty()
@@ -1816,7 +1774,6 @@ class VersionAdapterTest {
      * 这正是只抬 `RULE_VERSION`、不抬 `SCHEMA_VERSION` 的前提：形状兼容 ⇒ 老缓存能读，
      * 抬 rule ⇒ 指纹变化 ⇒ 下次启动重定位补上第二道防线。
      */
-    @Test
     fun `a cached comment purify payload without the schema key degrades instead of failing`() {
         val full = VersionAdapter.CommentPurifyPoints(
             urlMapGetters = listOf(VersionAdapter.HookPoint("A", "getUrlsMap", emptyList())),
@@ -1836,7 +1793,6 @@ class VersionAdapterTest {
         assertEquals(full.urlMapGetters, degraded.urlMapGetters)
     }
 
-    @Test
     fun `a cached video relate payload without play count chains degrades instead of failing`() {
         val located = requireNotNull(
             VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
@@ -1855,7 +1811,6 @@ class VersionAdapterTest {
         assertEquals(located.responseItemGetters, degraded.responseItemGetters)
     }
 
-    @Test
     fun `locates comment filter through exact public protobuf list and signal getters`() {
         val points = VersionAdapter.locateCommentFilter(requireNotNull(javaClass.classLoader))
 
@@ -1881,7 +1836,6 @@ class VersionAdapterTest {
         })
     }
 
-    @Test
     fun `locates reply topology mapper facade after obfuscated class name drifts`() {
         val points = VersionAdapter.locateCommentTopology(requireNotNull(javaClass.classLoader))
 
@@ -1900,7 +1854,6 @@ class VersionAdapterTest {
         assertTrue(points.hasRequiredMethods())
     }
 
-    @Test
     fun `falls back to older reply topology mapper facade when latest name is absent`() {
         val parent = requireNotNull(javaClass.classLoader)
         val legacyLoader = object : ClassLoader(parent) {
@@ -1920,7 +1873,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `locates empty comment guides with matching protobuf default getters`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.emptyPageGetters.orEmpty()
@@ -1938,7 +1890,6 @@ class VersionAdapterTest {
         })
     }
 
-    @Test
     fun `locates vote widget binders by component structure across naming drift`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.voteWidgetMethods.orEmpty()
@@ -1951,7 +1902,6 @@ class VersionAdapterTest {
         assertTrue(points.all { it.paramClassNames?.isNotEmpty() == true })
     }
 
-    @Test
     fun `locates follow visibility state machine and decorative header binder`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.follow
@@ -1965,7 +1915,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `locates qoe public presence content and default instance boundaries`() {
         val point = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.qoe
@@ -1983,7 +1932,6 @@ class VersionAdapterTest {
         )
     }
 
-    @Test
     fun `locates both operation payloads at public read boundaries`() {
         val points = VersionAdapter.locateCommentPurify(requireNotNull(javaClass.classLoader))
             ?.operations.orEmpty()
@@ -2001,5 +1949,83 @@ class VersionAdapterTest {
             setOf("Operation", "OperationV2"),
             points.map { it.defaultInstanceGetter.className.substringAfterLast('.') }.toSet()
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VersionAdapterTest) -> Unit) {
+            val s = VersionAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.`startup omission survives cached found points without becoming cacheable`() }
+        runIsolated { s -> s.`requested live point still wins when another startup family is omitted`() }
+        runIsolated { s -> s.`child projection cannot restore main only relate points from a complete cache`() }
+        runIsolated { s -> s.`planned locator omits only selected families and full offline lookup remains available`() }
+        runIsolated { s -> s.`main process never prunes a family required by its accepted plan`() }
+        runIsolated { s -> s.`repack preserves verified member results and original timestamp after content agreement`() }
+        runIsolated { s -> s.`repack rejects changed unknown or unavailable original dex`() }
+        runIsolated { s -> s.`repack cannot bypass version rule reset or structural validity`() }
+        runIsolated { s -> s.`speed menu optional cache and failure history are bound to host and reset`() }
+        runIsolated { s -> s.`follow optional descriptor and failure history remain within the same host snapshot`() }
+        runIsolated { s -> s.`brand decoder optional cache preserves validated snapshot and completed failure independently`() }
+        runIsolated { s -> s.`popup failed diagnostics survive quick merge independently without retaining other missing families`() }
+        runIsolated { s -> s.`popup inheritance uses only the same fingerprint version and reset snapshot`() }
+        runIsolated { s -> s.`popup promotion cache is optional rejects malformed members and merges missing families`() }
+        runIsolated { s -> s.`classic comment cache is optional verified and merged per family`() }
+        runIsolated { s -> s.`sponsor optional classes round trip and live results retain priority`() }
+        runIsolated { s -> s.`K default words optional point survives full cache validation and runtime merge`() }
+        runIsolated { s -> s.`cached K default words query failure remains observable in quick merge`() }
+        runIsolated { s -> s.`startup snapshot preserves reset version fingerprint and structural cache rejection`() }
+        runIsolated { s -> s.`startup snapshot cannot turn a low only cache into a high capable hit`() }
+        runIsolated { s -> s.`PGC construction point participates in full cache validation and merge`() }
+        runIsolated { s -> s.`comment filter judgement points survive the cache round trip`() }
+        runIsolated { s -> s.`runtime result keeps live points and fills missing dex assisted point from cache`() }
+        runIsolated { s -> s.`dex assisted quality implementation wins over the live legacy wrapper`() }
+        runIsolated { s -> s.`dex assisted quality method skips the candidate table`() }
+        runIsolated { s -> s.`round trips schema fingerprint and diagnostics`() }
+        runIsolated { s -> s.`locates player interactive overlays from stable protobuf stubs`() }
+        runIsolated { s -> s.`player interactive families carry their own whitelist and default instance`() }
+        runIsolated { s -> s.`player interactive points survive a cache round trip`() }
+        runIsolated { s -> s.`quick adaptation emits a versioned protocol structure fingerprint`() }
+        runIsolated { s -> s.`rejects stale schema and structurally invalid hook point`() }
+        runIsolated { s -> s.`locates home top bar by signatures instead of obfuscated method names`() }
+        runIsolated { s -> s.`locates mine vip through manager and view binding structure`() }
+        runIsolated { s -> s.`locates only the dedicated teenagers mode prompt activity onCreate`() }
+        runIsolated { s -> s.`prefers latest verified update implementation`() }
+        runIsolated { s -> s.`914 owners missing still select 913 network and quality implementations`() }
+        runIsolated { s -> s.`new owners missing still select 912 network and quality implementations`() }
+        runIsolated { s -> s.`falls back to previous verified update implementation`() }
+        runIsolated { s -> s.`the cache aggregator is never selected even when both network owners are gone`() }
+        runIsolated { s -> s.`falls back to older update leaf implementation`() }
+        runIsolated { s -> s.`locates full number overloads and rejects unrelated signatures`() }
+        runIsolated { s -> s.`locates player portrait control by its exact visibility override`() }
+        runIsolated { s -> s.`locates only the exact video detail activity lifecycle`() }
+        runIsolated { s -> s.`locates home feed public response and card getters`() }
+        runIsolated { s -> s.`locates related video direct and nested duration getters`() }
+        runIsolated { s -> s.`locates home tab builder and stable resource fields by generic signature`() }
+        runIsolated { s -> s.`locates host fragment lifecycle for home component filtering`() }
+        runIsolated { s -> s.`locates mine menu list and item title public getters`() }
+        runIsolated { s -> s.`mine account model selects sectionListV2 when both section lists exist`() }
+        runIsolated { s -> s.`locates and serializes legacy mine public field boundary`() }
+        runIsolated { s -> s.`locates story list boundaries and exact public type getters`() }
+        runIsolated { s -> s.`locates comment tab configuration by generic item tag`() }
+        runIsolated { s -> s.`locates only whitelisted splash response list getters`() }
+        runIsolated { s -> s.`locates bottom tab public list and structural bind method`() }
+        runIsolated { s -> s.`prefers newest verified quality owner over older residual candidate`() }
+        runIsolated { s -> s.`falls back to previous verified quality owner`() }
+        runIsolated { s -> s.`falls back to older verified quality owner`() }
+        runIsolated { s -> s.`uses legacy default quality helper without selecting settings getter`() }
+        runIsolated { s -> s.`locates public comment url map getters without touching message getter`() }
+        runIsolated { s -> s.`locates the comment search jump target getter and nothing else on Url`() }
+        runIsolated { s -> s.`a cached comment purify payload without the schema key degrades instead of failing`() }
+        runIsolated { s -> s.`a cached video relate payload without play count chains degrades instead of failing`() }
+        runIsolated { s -> s.`locates comment filter through exact public protobuf list and signal getters`() }
+        runIsolated { s -> s.`locates reply topology mapper facade after obfuscated class name drifts`() }
+        runIsolated { s -> s.`falls back to older reply topology mapper facade when latest name is absent`() }
+        runIsolated { s -> s.`locates empty comment guides with matching protobuf default getters`() }
+        runIsolated { s -> s.`locates vote widget binders by component structure across naming drift`() }
+        runIsolated { s -> s.`locates follow visibility state machine and decorative header binder`() }
+        runIsolated { s -> s.`locates qoe public presence content and default instance boundaries`() }
+        runIsolated { s -> s.`locates both operation payloads at public read boundaries`() }
     }
 }

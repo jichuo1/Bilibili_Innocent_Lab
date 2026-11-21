@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameBufferLedgerTest {
-    @org.junit.Test fun `frame identity is unique across player sessions sharing a GPU cache`() {
+    fun `frame identity is unique across player sessions sharing a GPU cache`() {
         val first = FrameBufferLedger(1)
         val second = FrameBufferLedger(1)
         assertTrue(first.configure(4, 2))
@@ -17,7 +17,7 @@ class FrameBufferLedgerTest {
     private fun ledger(max: Int = 3) = FrameBufferLedger(max) { allocations++; ByteBuffer.allocate(it) }
         .also { assertTrue(it.configure(4, 2)) }
 
-    @Test fun `allocation is bounded and exhausted pool applies backpressure`() {
+    fun `allocation is bounded and exhausted pool applies backpressure`() {
         val ledger = ledger(2)
         val first = ledger.acquire()!!
         val second = ledger.acquire()!!
@@ -29,7 +29,7 @@ class FrameBufferLedgerTest {
         assertNotEquals(first.frameId, second.frameId)
     }
 
-    @Test fun `last holder recycles buffer under a fresh frame id that is never reused`() {
+    fun `last holder recycles buffer under a fresh frame id that is never reused`() {
         val ledger = ledger(1)
         val slot = ledger.acquire()!!
         assertTrue(ledger.retain(slot.frameId, Holder.TIMELINE))
@@ -42,7 +42,7 @@ class FrameBufferLedgerTest {
         assertEquals(1L, ledger.stats().recycled)
     }
 
-    @Test fun `released id cannot be accessed, retained or released again`() {
+    fun `released id cannot be accessed, retained or released again`() {
         val ledger = ledger()
         val slot = ledger.acquire()!!
         assertTrue(ledger.release(slot.frameId, Holder.CAPTURE))
@@ -51,7 +51,7 @@ class FrameBufferLedgerTest {
         assertFalse(ledger.release(slot.frameId, Holder.CAPTURE))
     }
 
-    @Test fun `only current holders get a view and exclusive holders cannot double retain`() {
+    fun `only current holders get a view and exclusive holders cannot double retain`() {
         val ledger = ledger()
         val slot = ledger.acquire()!!
         assertNull(ledger.buffer(slot.frameId, Holder.WORKER))
@@ -61,7 +61,7 @@ class FrameBufferLedgerTest {
         assertNotNull(ledger.buffer(slot.frameId, Holder.WORKER))
     }
 
-    @Test fun `presenter holds stack and each release counts once`() {
+    fun `presenter holds stack and each release counts once`() {
         val ledger = ledger()
         val slot = ledger.acquire()!!
         assertTrue(ledger.retain(slot.frameId, Holder.PRESENTER))
@@ -74,7 +74,7 @@ class FrameBufferLedgerTest {
         assertEquals(0, ledger.stats().live)
     }
 
-    @Test fun `format change drops idle buffers now and held buffers on last release`() {
+    fun `format change drops idle buffers now and held buffers on last release`() {
         val ledger = ledger(2)
         val held = ledger.acquire()!!
         val idle = ledger.acquire()!!
@@ -88,7 +88,7 @@ class FrameBufferLedgerTest {
         assertEquals(8 * 2 * 3, ledger.buffer(ledger.acquire()!!.frameId, Holder.CAPTURE)!!.capacity())
     }
 
-    @Test fun `close stops allocation and drains only after outstanding holders return`() {
+    fun `close stops allocation and drains only after outstanding holders return`() {
         val ledger = ledger()
         val presented = ledger.acquire()!!
         ledger.retain(presented.frameId, Holder.PRESENTER)
@@ -103,7 +103,7 @@ class FrameBufferLedgerTest {
         assertFalse(ledger.configure(4, 2))
     }
 
-    @Test fun `invalid formats and failed allocation are rejected without accounting drift`() {
+    fun `invalid formats and failed allocation are rejected without accounting drift`() {
         val ledger = FrameBufferLedger(2) { throw OutOfMemoryError() }
         assertFalse(ledger.configure(0, 1))
         assertFalse(ledger.configure(4, 2, stride = 11))
@@ -113,5 +113,22 @@ class FrameBufferLedgerTest {
         assertNull(ledger.acquire())
         assertEquals(0, ledger.stats().allocated)
         assertEquals("allocation failure is not pool exhaustion", 0L, ledger.stats().exhausted)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrameBufferLedgerTest) -> Unit) {
+            val s = FrameBufferLedgerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`frame identity is unique across player sessions sharing a GPU cache`() }
+        runIsolated { s -> s.`allocation is bounded and exhausted pool applies backpressure`() }
+        runIsolated { s -> s.`last holder recycles buffer under a fresh frame id that is never reused`() }
+        runIsolated { s -> s.`released id cannot be accessed, retained or released again`() }
+        runIsolated { s -> s.`only current holders get a view and exclusive holders cannot double retain`() }
+        runIsolated { s -> s.`presenter holds stack and each release counts once`() }
+        runIsolated { s -> s.`format change drops idle buffers now and held buffers on last release`() }
+        runIsolated { s -> s.`close stops allocation and drains only after outstanding holders return`() }
+        runIsolated { s -> s.`invalid formats and failed allocation are rejected without accounting drift`() }
     }
 }

@@ -8,7 +8,7 @@ class CommentReplyPreviewHostTest {
     private fun host() = checkNotNull(CommentReplyPreviewHost.resolve(javaClass.classLoader!!,
         "previewhostfixture", "previewhostfixture.FeedPagination", onFailure = { throw it }))
 
-    @Test fun requestUsesTheOriginalThreadAndParsesTheNativeMossCallbackOnce() {
+    fun requestUsesTheOriginalThreadAndParsesTheNativeMossCallbackOnce() {
         val host = host()
         val child = ReplyInfo(id = 2, root = 1)
         var calls = 0
@@ -38,7 +38,7 @@ class CommentReplyPreviewHostTest {
         assertTrue(source.getRepliesList().isEmpty())
     }
 
-    @Test fun wrongThreadResponsesFailWithoutSupplyingPreviewContent() {
+    fun wrongThreadResponsesFailWithoutSupplyingPreviewContent() {
         val host = host()
         val key = checkNotNull(host.missingPreviewKey(ReplyInfo()))
         for (wrong in listOf(ReplyInfo(id = 99), ReplyInfo(oid = 99), ReplyInfo(type = 99), ReplyInfo(root = 99))) {
@@ -49,7 +49,7 @@ class CommentReplyPreviewHostTest {
         }
     }
 
-    @Test fun invisibleBlockedAndFoldedContentIsNotUsedAsMissingPreview() {
+    fun invisibleBlockedAndFoldedContentIsNotUsedAsMissingPreview() {
         val host = host()
         for (flags in listOf(ReplyControl(invisible = true), ReplyControl(blocked = true), ReplyControl(isFoldedReply = true))) {
             assertNull(host.missingPreviewKey(ReplyInfo(replyControl = flags)))
@@ -59,7 +59,7 @@ class CommentReplyPreviewHostTest {
         assertNull(host.missingPreviewKey(ReplyInfo(replies = listOf(ReplyInfo(id = 2, root = 1)))))
     }
 
-    @Test fun previewSelectionKeepsOnlyVisibleRepliesFromTheRequestedThread() {
+    fun previewSelectionKeepsOnlyVisibleRepliesFromTheRequestedThread() {
         val host = host()
         val good = ReplyInfo(id = 2, root = 1)
         val second = ReplyInfo(id = 3, root = 1)
@@ -75,7 +75,7 @@ class CommentReplyPreviewHostTest {
         assertEquals(listOf(good, second), checkNotNull(received).getOrThrow())
     }
 
-    @Test fun emptyAndFailedMossCallsReturnFailure() {
+    fun emptyAndFailedMossCallsReturnFailure() {
         val host = host()
         val key = checkNotNull(host.missingPreviewKey(ReplyInfo()))
         for (serve in listOf<(DetailListReq, Handler) -> Unit>(
@@ -86,5 +86,18 @@ class CommentReplyPreviewHostTest {
             host.request(key) { failed = it.isFailure }
             assertTrue(failed)
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentReplyPreviewHostTest) -> Unit) {
+            val s = CommentReplyPreviewHostTest()
+            block(s)
+        }
+        runIsolated { s -> s.requestUsesTheOriginalThreadAndParsesTheNativeMossCallbackOnce() }
+        runIsolated { s -> s.wrongThreadResponsesFailWithoutSupplyingPreviewContent() }
+        runIsolated { s -> s.invisibleBlockedAndFoldedContentIsNotUsedAsMissingPreview() }
+        runIsolated { s -> s.previewSelectionKeepsOnlyVisibleRepliesFromTheRequestedThread() }
+        runIsolated { s -> s.emptyAndFailedMossCallsReturnFailure() }
     }
 }

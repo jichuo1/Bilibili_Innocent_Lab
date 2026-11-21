@@ -20,7 +20,7 @@ class GuestPageFavoriteTest {
     private val registrar = PlayerPortTestRegistrar()
     private val queued = mutableListOf<Runnable>()
 
-    @Before fun reset() {
+    fun reset() {
         Repo5.calls.clear()
         Repo8.calls.clear()
         Repo5.fail = false
@@ -40,7 +40,7 @@ class GuestPageFavoriteTest {
         registrar.invoke("guest.video.favorite.page.repository.0", repository, arrayOf(null, null, null, Provider(aid), null, null))
     }
 
-    @Test fun onBuildsWithFiveToggleMethodsTheFavoriteToggleIsTheFirstByName() {
+    fun onBuildsWithFiveToggleMethodsTheFavoriteToggleIsTheFirstByName() {
         val page = source(Repo5::class.java)
         assertTrue(page.install(environment(), javaClass.classLoader!!))
         construct(Repo5(null, null, null, Provider(100L), null, null), 100L)
@@ -50,7 +50,7 @@ class GuestPageFavoriteTest {
         assertEquals(listOf("n:100:true"), Repo5.calls)
     }
 
-    @Test fun onBuildsWithEightToggleMethodsTheFavoriteToggleIsTheSecondByName() {
+    fun onBuildsWithEightToggleMethodsTheFavoriteToggleIsTheSecondByName() {
         val page = source(Repo8::class.java)
         assertTrue(page.install(environment(), javaClass.classLoader!!))
         construct(Repo8(null, null, null, Provider(100L), null, null), 100L)
@@ -60,7 +60,7 @@ class GuestPageFavoriteTest {
         assertEquals(listOf("H:100:false"), Repo8.calls)
     }
 
-    @Test fun onlyTheRepositoryOfTheTappedVideoIsTouched() {
+    fun onlyTheRepositoryOfTheTappedVideoIsTouched() {
         val page = source(Repo5::class.java)
         page.install(environment(), javaClass.classLoader!!)
         construct(Repo5(null, null, null, Provider(100L), null, null), 100L)
@@ -71,7 +71,7 @@ class GuestPageFavoriteTest {
         assertEquals(listOf("n:200:true"), Repo5.calls)
     }
 
-    @Test fun aVideoWithoutAKnownRepositoryIsLeftToTheCaller() {
+    fun aVideoWithoutAKnownRepositoryIsLeftToTheCaller() {
         val page = source(Repo5::class.java)
         page.install(environment(), javaClass.classLoader!!)
         construct(Repo5(null, null, null, Provider(100L), null, null), 100L)
@@ -81,7 +81,7 @@ class GuestPageFavoriteTest {
         assertTrue(Repo5.calls.isEmpty())
     }
 
-    @Test fun nothingIsCalledBeforeTheMainThreadRunsTheScheduledTask() {
+    fun nothingIsCalledBeforeTheMainThreadRunsTheScheduledTask() {
         val page = source(Repo5::class.java, immediate = false)
         page.install(environment(), javaClass.classLoader!!)
         construct(Repo5(null, null, null, Provider(100L), null, null), 100L)
@@ -93,7 +93,7 @@ class GuestPageFavoriteTest {
         assertEquals(listOf("n:100:true"), Repo5.calls)
     }
 
-    @Test fun aToggleThatThrowsHandsTheCallerItsFallbackExactlyOnce() {
+    fun aToggleThatThrowsHandsTheCallerItsFallbackExactlyOnce() {
         val page = source(Repo5::class.java)
         page.install(environment(), javaClass.classLoader!!)
         construct(Repo5(null, null, null, Provider(100L), null, null), 100L)
@@ -105,18 +105,18 @@ class GuestPageFavoriteTest {
         assertEquals(1, failures)
     }
 
-    @Test fun aShapeWithAnUnknownNumberOfToggleMethodsIsNotRecognisedSoNoMethodIsGuessed() {
+    fun aShapeWithAnUnknownNumberOfToggleMethodsIsNotRecognisedSoNoMethodIsGuessed() {
         assertNull(GuestPageFavorite.resolveShape(Repo6::class.java))
         val page = source(Repo6::class.java)
         assertFalse(page.install(environment(), javaClass.classLoader!!))
         assertFalse(page.apply(100L, true) {})
     }
 
-    @Test fun twoFieldsOfTheProviderTypeMakeTheShapeAmbiguousSoItIsNotRecognised() {
+    fun twoFieldsOfTheProviderTypeMakeTheShapeAmbiguousSoItIsNotRecognised() {
         assertNull(GuestPageFavorite.resolveShape(RepoTwoProviders::class.java))
     }
 
-    @Test fun theRecognisedShapeNamesTheMembersForBothBuildFamilies() {
+    fun theRecognisedShapeNamesTheMembersForBothBuildFamilies() {
         val five = GuestPageFavorite.resolveShape(Repo5::class.java)
         val eight = GuestPageFavorite.resolveShape(Repo8::class.java)
         assertNotNull(five)
@@ -127,9 +127,28 @@ class GuestPageFavoriteTest {
         assertEquals("c", five.provider.name)
     }
 
-    @Test fun aMissingRepositoryClassInstallsNothing() {
+    fun aMissingRepositoryClassInstallsNothing() {
         val page = GuestPageFavorite("no.such.Repository") { it.run() }
         assertFalse(page.install(environment(), javaClass.classLoader!!))
         assertFalse(page.apply(100L, true) {})
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestPageFavoriteTest) -> Unit) {
+            val s = GuestPageFavoriteTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.onBuildsWithFiveToggleMethodsTheFavoriteToggleIsTheFirstByName() }
+        runIsolated { s -> s.onBuildsWithEightToggleMethodsTheFavoriteToggleIsTheSecondByName() }
+        runIsolated { s -> s.onlyTheRepositoryOfTheTappedVideoIsTouched() }
+        runIsolated { s -> s.aVideoWithoutAKnownRepositoryIsLeftToTheCaller() }
+        runIsolated { s -> s.nothingIsCalledBeforeTheMainThreadRunsTheScheduledTask() }
+        runIsolated { s -> s.aToggleThatThrowsHandsTheCallerItsFallbackExactlyOnce() }
+        runIsolated { s -> s.aShapeWithAnUnknownNumberOfToggleMethodsIsNotRecognisedSoNoMethodIsGuessed() }
+        runIsolated { s -> s.twoFieldsOfTheProviderTypeMakeTheShapeAmbiguousSoItIsNotRecognised() }
+        runIsolated { s -> s.theRecognisedShapeNamesTheMembersForBothBuildFamilies() }
+        runIsolated { s -> s.aMissingRepositoryClassInstallsNothing() }
     }
 }

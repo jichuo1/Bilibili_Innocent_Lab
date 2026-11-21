@@ -18,7 +18,6 @@ class TeenagersModeFeatureInstallerTest {
         reportStatus = { channel, status -> statuses += channel to status }
     )
 
-    @Test
     fun `installs only adapted prompt activity entry`() {
         val result = TeenagersModeFeatureInstaller(
             enabled = true,
@@ -37,7 +36,6 @@ class TeenagersModeFeatureInstallerTest {
         assertEquals(listOf("teenagers_mode_status" to "success"), statuses)
     }
 
-    @Test
     fun `rejects missing adapter point instead of broad activity hook`() {
         val result = TeenagersModeFeatureInstaller(enabled = true, points = null)
             .install(environment)
@@ -47,5 +45,15 @@ class TeenagersModeFeatureInstallerTest {
             listOf("teenagers_mode_status" to "missing-adapter-point"),
             statuses
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TeenagersModeFeatureInstallerTest) -> Unit) {
+            val s = TeenagersModeFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`installs only adapted prompt activity entry`() }
+        runIsolated { s -> s.`rejects missing adapter point instead of broad activity hook`() }
     }
 }

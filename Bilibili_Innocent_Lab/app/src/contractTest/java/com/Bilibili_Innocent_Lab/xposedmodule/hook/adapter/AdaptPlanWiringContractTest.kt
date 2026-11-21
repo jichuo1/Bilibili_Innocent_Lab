@@ -70,7 +70,7 @@ class AdaptPlanWiringContractTest {
         return call.findAll(text).map { Triple(PointFamily.valueOf(it.groupValues[1]), it.groupValues[3], it.groupValues[2].ifEmpty { null }) }.toList()
     }
 
-    @Test fun `quickLocate runs every family through the plan executor with the right locator`() {
+    fun `quickLocate runs every family through the plan executor with the right locator`() {
         val quick = adapter.after("internal fun quickLocate(")
             .before("private val EMPTY_PAUSE_POINTS")
         val calls = locatorCalls(quick)
@@ -87,7 +87,7 @@ class AdaptPlanWiringContractTest {
         assertTrue(quick.contains("commentTopologyOutcome?.failureDetail.orEmpty(), hostVersionCode"))
     }
 
-    @Test fun `adapt applies the same plan and carries only covered families`() {
+    fun `adapt applies the same plan and carries only covered families`() {
         val adapt = adapter.after("private fun adapt(context: Context").before("private data class ProtocolFingerprint")
         val calls = locatorCalls(adapt)
         assertEquals(PointFamily.entries.toSet(), calls.map { it.first }.toSet())
@@ -111,7 +111,7 @@ class AdaptPlanWiringContractTest {
             assertTrue(flag, ensure.after("plan.including(buildSet {").before("})").contains("if ($flag)"))
     }
 
-    @Test fun `ensureAdapted judges completeness by coverage and keeps supplement scans silent`() {
+    fun `ensureAdapted judges completeness by coverage and keeps supplement scans silent`() {
         val ensure = adapter.after("internal fun ensureAdapted(").before("fun quickLocate(loader: ClassLoader)")
         assertTrue(ensure.contains("AdaptPlanner.missing(usable.coverage, adaptPlan)"))
         assertTrue(ensure.contains("refreshRequested || coverageMissing.isNotEmpty()"))
@@ -127,7 +127,7 @@ class AdaptPlanWiringContractTest {
         assertTrue(usable.contains("AdaptPlanner.missing(it.coverage, plan).isEmpty()"))
     }
 
-    @Test fun `plan is generated from the accepted configuration snapshot and passed on unchanged`() {
+    fun `plan is generated from the accepted configuration snapshot and passed on unchanged`() {
         val install = entry.after("fun installAuthorizedHooks(authorizationContext: Context) {")
         assertEquals(1, Regex("""AdaptPlanner\.build\(""").findAll(entry).count())
         assertTrue(install.contains("val adaptPlan = AdaptPlanner.build(hookConfig)"))
@@ -149,7 +149,7 @@ class AdaptPlanWiringContractTest {
         assertTrue(entry.contains("SnapshotHookConfigSource(config.values, config.generation)"))
     }
 
-    @Test fun `every adapt result field read by the install chain is catalogued`() {
+    fun `every adapt result field read by the install chain is catalogued`() {
         val install = entry.after("fun installAuthorizedHooks(authorizationContext: Context) {")
         val referenced = Regex("""(?:hostAdaptResult|adaptResult|adapted)\??\.(\w+)""").findAll(install)
             .map { it.groupValues[1] }.toSet() - setOf("diagnosticSummary", "orEmpty")
@@ -186,12 +186,12 @@ class AdaptPlanWiringContractTest {
         "commentTopologyEnabled" to listOf("REPLY_TOPOLOGY_ENABLED")
     )
 
-    @Test fun `aliases still mean what the catalog assumes`() {
+    fun `aliases still mean what the catalog assumes`() {
         assertTrue(entry.contains("val videoSemanticJudge = semanticJudge(\n                FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED,\n                FeaturePreferences.VIDEO_SEMANTIC_FILTER_RULES,"))
         assertTrue(entry.contains("val commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)"))
     }
 
-    @Test fun `gated readers match the configuration keys and defaults HookEntry hands to each installer`() {
+    fun `gated readers match the configuration keys and defaults HookEntry hands to each installer`() {
         val gatedReaders = AdaptPlanCatalog.specs.flatMap { spec ->
             spec.readers.filter { it.gate is AdaptPlanCatalog.Gate.AnyOf }.map { spec.family to it }
         }
@@ -237,7 +237,7 @@ class AdaptPlanWiringContractTest {
         assertTrue("至少核对了大部分开关默认值: ${checked.size}", checked.size > 80)
     }
 
-    @Test fun `scan surface installers still have no enable switch`() {
+    fun `scan surface installers still have no enable switch`() {
         // 这些安装器是常开读取者的依据：一旦出现启用开关，家族常开的结论需要重新核对。
         for ((name, anchor) in listOf(
             "HomeTabFilterFeatureInstaller" to "// 即使一项都没勾也要装",
@@ -256,19 +256,37 @@ class AdaptPlanWiringContractTest {
         assertTrue(entry.contains("homeTopTabCenteringEnabled = true"))
     }
 
-    @Test fun `plan layer is independent of the dex backend`() {
+    fun `plan layer is independent of the dex backend`() {
         for (file in listOf("hook/adapter/AdaptPlan.kt", "hook/adapter/AdaptPlanCatalog.kt")) {
             val source = SourceContract.read(file)
             assertFalse(file, source.contains("DexKit") || source.contains("adapter.dex") || source.contains("DexAssist"))
         }
     }
 
-    @Test fun `diagnostics are built lazily per planned family`() {
+    fun `diagnostics are built lazily per planned family`() {
         val diagnostics = adapter.after("internal fun buildDiagnostics(").before("private fun Method.toHookPoint()")
         // 候选类探测必须是惰性的：计划外的家族不能被探测。
         assertFalse(Regex("""\n        val \w+CandidateExists = """).containsMatchIn(diagnostics))
         assertTrue(Regex("""\n        val \w+CandidateExists by lazy""").findAll(diagnostics).count() >= 30)
         assertTrue(diagnostics.contains("if (plan.needs(family)) {"))
         assertTrue(diagnostics.contains("AdaptDiagnostic(id, AdaptState.NOT_APPLICABLE, PLAN_NOT_REQUESTED)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AdaptPlanWiringContractTest) -> Unit) {
+            val s = AdaptPlanWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.`quickLocate runs every family through the plan executor with the right locator`() }
+        runIsolated { s -> s.`adapt applies the same plan and carries only covered families`() }
+        runIsolated { s -> s.`ensureAdapted judges completeness by coverage and keeps supplement scans silent`() }
+        runIsolated { s -> s.`plan is generated from the accepted configuration snapshot and passed on unchanged`() }
+        runIsolated { s -> s.`every adapt result field read by the install chain is catalogued`() }
+        runIsolated { s -> s.`aliases still mean what the catalog assumes`() }
+        runIsolated { s -> s.`gated readers match the configuration keys and defaults HookEntry hands to each installer`() }
+        runIsolated { s -> s.`scan surface installers still have no enable switch`() }
+        runIsolated { s -> s.`plan layer is independent of the dex backend`() }
+        runIsolated { s -> s.`diagnostics are built lazily per planned family`() }
     }
 }

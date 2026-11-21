@@ -9,7 +9,6 @@ import java.nio.file.Files
 
 class AtomicJsonCacheTest {
 
-    @Test
     fun `valid payload replaces cache`() {
         withTempDirectory { directory ->
             val target = File(directory, "adapter.json").apply { writeText("old") }
@@ -20,7 +19,6 @@ class AtomicJsonCacheTest {
         }
     }
 
-    @Test
     fun `rejected payload preserves previous cache`() {
         withTempDirectory { directory ->
             val target = File(directory, "adapter.json").apply { writeText("old") }
@@ -38,5 +36,15 @@ class AtomicJsonCacheTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (AtomicJsonCacheTest) -> Unit) {
+            val s = AtomicJsonCacheTest()
+            block(s)
+        }
+        runIsolated { s -> s.`valid payload replaces cache`() }
+        runIsolated { s -> s.`rejected payload preserves previous cache`() }
     }
 }

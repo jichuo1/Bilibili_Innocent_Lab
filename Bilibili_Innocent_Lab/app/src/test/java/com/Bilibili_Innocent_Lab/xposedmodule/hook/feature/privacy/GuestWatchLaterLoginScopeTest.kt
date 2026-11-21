@@ -24,13 +24,13 @@ class GuestWatchLaterLoginScopeTest {
         }
     }
 
-    @Before fun reset() {
+    fun reset() {
         LoginScopeKt.loggedIn = false
         LoginScopeKt.loginRoutes = 0
         statuses.clear()
     }
 
-    @Test fun guestRunsTheHostsOwnWatchLaterActionInsteadOfTheLoginPage() {
+    fun guestRunsTheHostsOwnWatchLaterActionInsteadOfTheLoginPage() {
         var guest = true
         GuestWatchLaterLoginScope { guest }.install(environment())
         val action = tv.danmaku.bili.ui.watchlater.widget.b()
@@ -48,7 +48,7 @@ class GuestWatchLaterLoginScopeTest {
         assertEquals(0, LoginScopeKt.loginRoutes)
     }
 
-    @Test fun otherActionsKeepTheLoginGateForGuests() {
+    fun otherActionsKeepTheLoginGateForGuests() {
         GuestWatchLaterLoginScope { true }.install(environment())
         var ran = false
         val report: () -> Any? = { ran = true }  // a report/appeal action declared outside the watch-later widget package
@@ -58,13 +58,13 @@ class GuestWatchLaterLoginScopeTest {
         assertNull(statuses["guest_watch_later_login_scope_applied"])
     }
 
-    @Test fun onlyClassesDeclaredDirectlyInTheWidgetPackageAreWatchLaterActions() {
+    fun onlyClassesDeclaredDirectlyInTheWidgetPackageAreWatchLaterActions() {
         assertTrue(GuestWatchLaterLoginScope.isWatchLaterAction(tv.danmaku.bili.ui.watchlater.widget.b::class.java))
         assertFalse(GuestWatchLaterLoginScope.isWatchLaterAction(Runnable::class.java))
         assertFalse(GuestWatchLaterLoginScope.isWatchLaterAction(Nested.Inner::class.java))
     }
 
-    @Test fun gateIsTheStaticHelperNotItsDefaultBridge() {
+    fun gateIsTheStaticHelperNotItsDefaultBridge() {
         val gate = GuestWatchLaterLoginScope.locateGate(LoginScopeKt::class.java, kotlin.jvm.functions.Function0::class.java)
         assertEquals("loginRequire", gate?.name)
         assertEquals(5, gate?.parameterCount)
@@ -72,4 +72,17 @@ class GuestWatchLaterLoginScopeTest {
     }
 
     class Nested { class Inner }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GuestWatchLaterLoginScopeTest) -> Unit) {
+            val s = GuestWatchLaterLoginScopeTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.guestRunsTheHostsOwnWatchLaterActionInsteadOfTheLoginPage() }
+        runIsolated { s -> s.otherActionsKeepTheLoginGateForGuests() }
+        runIsolated { s -> s.onlyClassesDeclaredDirectlyInTheWidgetPackageAreWatchLaterActions() }
+        runIsolated { s -> s.gateIsTheStaticHelperNotItsDefaultBridge() }
+    }
 }

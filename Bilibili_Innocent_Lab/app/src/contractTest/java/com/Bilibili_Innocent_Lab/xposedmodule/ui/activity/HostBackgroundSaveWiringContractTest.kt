@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostBackgroundSaveWiringContractTest {
-    @Test fun editorOnlyKeepsTheImportedAssetAfterTheRollbackAwareSaveSucceeds() {
+    fun editorOnlyKeepsTheImportedAssetAfterTheRollbackAwareSaveSucceeds() {
         val editor = SourceContract.read("ui/activity/HostBackgroundPresenter.kt")
         val save = editor.after("private fun save()").before("fun close(")
         assertTrue(save.contains("check(HostBackgroundSettingsStore.save(activity.prefs(), config))"))
@@ -19,7 +19,7 @@ class HostBackgroundSaveWiringContractTest {
         assertTrue(dispose.contains("if (!saved) importedAsset?.let"))
     }
 
-    @Test fun queuedPreviewBlocksSaveUntilTheLatestGenerationHasReturned() {
+    fun queuedPreviewBlocksSaveUntilTheLatestGenerationHasReturned() {
         val editor = SourceContract.read("ui/activity/HostBackgroundPresenter.kt")
         val render = editor.after("private fun renderImage()").before("private fun save()")
         assertTrue(render.before("activity.liquidBackgroundWorker.execute").contains("rendering = true"))
@@ -29,7 +29,7 @@ class HostBackgroundSaveWiringContractTest {
         assertTrue(save.before("val config = draft.normalized()").contains("if (importing || rendering || !active || closing) return"))
     }
 
-    @Test fun committedAssetOwnershipIsTransferredBeforeCallbacksAndClosingIsUnconditional() {
+    fun committedAssetOwnershipIsTransferredBeforeCallbacksAndClosingIsUnconditional() {
         val editor = SourceContract.read("ui/activity/HostBackgroundPresenter.kt")
         val success = editor.after("private fun save()").after("}.onSuccess {").before("}.onFailure { Toast")
         assertTrue(success.before("HostBackgroundImages.cleanup").contains("importedAsset = null"))
@@ -41,5 +41,16 @@ class HostBackgroundSaveWiringContractTest {
         val close = editor.after("fun close(").before("private fun dispose()")
         assertTrue(close.contains("activity.dismissWithAnimation(dialog, container)"))
         assertFalse(close.before("} else {").contains("dispose()"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostBackgroundSaveWiringContractTest) -> Unit) {
+            val s = HostBackgroundSaveWiringContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.editorOnlyKeepsTheImportedAssetAfterTheRollbackAwareSaveSucceeds() }
+        runIsolated { s -> s.queuedPreviewBlocksSaveUntilTheLatestGenerationHasReturned() }
+        runIsolated { s -> s.committedAssetOwnershipIsTransferredBeforeCallbacksAndClosingIsUnconditional() }
     }
 }

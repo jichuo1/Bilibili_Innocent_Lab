@@ -43,7 +43,7 @@ class VideoRelateServiceReasonCoverageTest {
         }
     }
 
-    @Test fun exactDtoReasonGetterSurvivesSerializationAndRejectsLegacyGuessing() {
+    fun exactDtoReasonGetterSurvivesSerializationAndRejectsLegacyGuessing() {
         assertEquals("H", getter.name)
         val legacy = requireNotNull(VersionAdapter.selectDetailRelateComponentFactory(DetailRelateService::class.java))
         assertNull(VersionAdapter.selectDetailRelateServiceReasonGetter(legacy))
@@ -52,14 +52,14 @@ class VideoRelateServiceReasonCoverageTest {
             it.steps.single().methodName == "H" })
     }
 
-    @Test fun strongServiceKeepsReadableCoinReasonsInsteadOfTreatingThemAsUnknown() {
+    fun strongServiceKeepsReadableCoinReasonsInsteadOfTreatingThemAsUnknown() {
         val h = Harness()
         assertSame(h.component, h.run(r2("10万投币")))
         assertTrue(h.called)
         assertFalse(h.runtime.any { it.second == FeatureRuntimeStage.APPLIED || it.second == FeatureRuntimeStage.ERROR })
     }
 
-    @Test fun strongServiceStillRemovesLikeCountsAndUnknownReasonsBeforeOriginal() {
+    fun strongServiceStillRemovesLikeCountsAndUnknownReasonsBeforeOriginal() {
         for (reason in listOf("5万点赞", "百万点赞", "")) {
             val h = Harness()
             assertNull(h.run(r2(reason)))
@@ -69,7 +69,7 @@ class VideoRelateServiceReasonCoverageTest {
         }
     }
 
-    @Test fun customServiceRulesUseRealReasonsAndPreserveUnmatchedCards() {
+    fun customServiceRulesUseRealReasonsAndPreserveUnmatchedCards() {
         val matching = Harness(strong = false, keywords = "10")
         assertNull(matching.run(r2("10万投币")))
         assertFalse(matching.called)
@@ -79,19 +79,33 @@ class VideoRelateServiceReasonCoverageTest {
         assertTrue(unmatched.called)
     }
 
-    @Test fun promotionMatchingUsesDtoReasonsWithoutAttributingThemToCommercialType() {
+    fun promotionMatchingUsesDtoReasonsWithoutAttributingThemToCommercialType() {
         val h = Harness(strong = false, hidden = setOf("CM"))
         assertNull(h.run(r2("创作推广")))
         assertTrue(h.runtime.contains(Triple("video_related_matching_enhancement_enabled", FeatureRuntimeStage.APPLIED, 1)))
         assertFalse(h.runtime.any { it.first == "video_related_commercial_removed" })
     }
 
-    @Test fun unreadableReasonsStaySafeInNormalModeAndRemainUnknownInStrongMode() {
+    fun unreadableReasonsStaySafeInNormalModeAndRemainUnknownInStrongMode() {
         val item = object : r2() { override fun H(): String = error("unreadable reason") }
         val normal = Harness(strong = false, keywords = "10")
         assertSame(normal.component, normal.run(item))
         val strong = Harness()
         assertNull(strong.run(item))
         assertFalse(strong.called)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (VideoRelateServiceReasonCoverageTest) -> Unit) {
+            val s = VideoRelateServiceReasonCoverageTest()
+            block(s)
+        }
+        runIsolated { s -> s.exactDtoReasonGetterSurvivesSerializationAndRejectsLegacyGuessing() }
+        runIsolated { s -> s.strongServiceKeepsReadableCoinReasonsInsteadOfTreatingThemAsUnknown() }
+        runIsolated { s -> s.strongServiceStillRemovesLikeCountsAndUnknownReasonsBeforeOriginal() }
+        runIsolated { s -> s.customServiceRulesUseRealReasonsAndPreserveUnmatchedCards() }
+        runIsolated { s -> s.promotionMatchingUsesDtoReasonsWithoutAttributingThemToCommercialType() }
+        runIsolated { s -> s.unreadableReasonsStaySafeInNormalModeAndRemainUnknownInStrongMode() }
     }
 }

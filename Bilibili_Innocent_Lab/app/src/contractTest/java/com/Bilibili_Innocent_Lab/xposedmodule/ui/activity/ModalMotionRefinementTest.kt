@@ -12,7 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class ModalMotionRefinementTest {
-    @Test fun bubbleAxesHaveIndependentProfilesAndExactEndpoints() {
+    fun bubbleAxesHaveIndependentProfilesAndExactEndpoints() {
         for (entry in listOf(true, false)) {
             assertEquals(0f, BubbleMotionSpec.scaleX(0f, entry), 0f)
             assertEquals(0f, BubbleMotionSpec.scaleY(0f, entry), 0f)
@@ -22,7 +22,7 @@ class ModalMotionRefinementTest {
         }
     }
 
-    @Test fun entryHasNoOvershootAndSettlesPrecisely() {
+    fun entryHasNoOvershootAndSettlesPrecisely() {
         var maxX = 0f
         var maxY = 0f
         for (step in 0..1000) {
@@ -38,7 +38,7 @@ class ModalMotionRefinementTest {
         assertTrue(BubbleMotionSpec.ENTER_DURATION_MS in 240L..250L)
     }
 
-    @Test fun settledCloseShrinksBothAxesWithoutRebound() {
+    fun settledCloseShrinksBothAxesWithoutRebound() {
         var lastX = 1f
         var lastY = 1f
         for (step in 1000 downTo 0) {
@@ -51,7 +51,7 @@ class ModalMotionRefinementTest {
         }
     }
 
-    @Test fun axisProfilesRemainContinuousAcrossGrowthAndReboundBoundaries() {
+    fun axisProfilesRemainContinuousAcrossGrowthAndReboundBoundaries() {
         for (entry in listOf(true, false)) {
             for (boundary in listOf(.60f, .70f, .78f, .86f, 1f)) {
                 assertTrue(kotlin.math.abs(BubbleMotionSpec.scaleX(boundary - .00001f, entry) -
@@ -62,7 +62,7 @@ class ModalMotionRefinementTest {
         }
     }
 
-    @Test fun matchingTitlesCanMoveButRelatedDifferentTitlesCannot() {
+    fun matchingTitlesCanMoveButRelatedDifferentTitlesCannot() {
         assertTrue(ModalTitleMotionSpec.matches("首页推荐过滤", "首页推荐过滤"))
         assertFalse(ModalTitleMotionSpec.matches(" Portrait content filters ", "Portrait content filters"))
         assertFalse(ModalTitleMotionSpec.matches("自定义首页组件", "隐藏首页组件规则"))
@@ -71,7 +71,7 @@ class ModalMotionRefinementTest {
         assertFalse(ModalTitleMotionSpec.matches("", ""))
     }
 
-    @Test fun titleBaselineAndSizeInterpolationHasExactClampedEndpoints() {
+    fun titleBaselineAndSizeInterpolationHasExactClampedEndpoints() {
         assertEquals(24f, ModalTitleMotionSpec.interpolate(24f, 160f, 0f), 0f)
         assertEquals(160f, ModalTitleMotionSpec.interpolate(24f, 160f, 1f), 0f)
         assertEquals(92f, ModalTitleMotionSpec.interpolate(24f, 160f, .5f), 0f)
@@ -79,7 +79,7 @@ class ModalMotionRefinementTest {
         assertEquals(160f, ModalTitleMotionSpec.interpolate(24f, 160f, 2f), 0f)
     }
 
-    @Test fun carrierSurfaceFollowsTheAnimatedCardRectInsteadOfTheWindow() {
+    fun carrierSurfaceFollowsTheAnimatedCardRectInsteadOfTheWindow() {
         // 形变期间可见表面是承载层的 background（全屏 View bounds）。若 drawable 按
         // 全屏矩形绘制，模态描边与顶沿高光会绕窗口计算再被 outline 裁掉——"通透
         // 光泽"要等动画播完、交还卡片自身 drawable 才出现（真机实测 pf 帧对比）。
@@ -104,7 +104,7 @@ class ModalMotionRefinementTest {
         assertTrue(provider.contains("setEmpty()"))
     }
 
-    @Test fun carrierActiveKeepsCardOwnBackgroundOutOfTheFrame() {
+    fun carrierActiveKeepsCardOwnBackgroundOutOfTheFrame() {
         // 模态表面是半透明玻璃后，承载层 drawable 与卡片自身背景两张同色同矩形
         // 叠画会让填充越叠越实、描边越叠越亮，落定摘层时通透度跳回来。承载层
         // 在场期间 contentBackground 必须归 0，只在承载层缺席的兜底路径上才按
@@ -124,7 +124,7 @@ class ModalMotionRefinementTest {
         assertTrue(settle.contains("contentBackground?.alpha = if (layer.usesPersistentSurface) 0 else 255"))
     }
 
-    @Test fun expansionTargetTracksTheLiveCardRectEveryFrame() {
+    fun expansionTargetTracksTheLiveCardRectEveryFrame() {
         // 几何在形变开始前解析一次，之后卡片仍可能被重排版（insets 落定/标题交接），
         // 陈旧的 expandedBounds 会让承载层最后一帧与卡片错位 ~1px——交接瞬间整圈
         // 描边与光学采样区平移一档（"落定瞬间边缘光跳变"）。apply() 必须用卡片
@@ -144,7 +144,7 @@ class ModalMotionRefinementTest {
      * "父面板那层还在"的前提**故意不加自己的 scrim**，两条假设一撞，开子面板时整屏变亮
      * （实测面板外背景 BGR 25.7/29.3/26.1 → 42.0/48.0/42.7，底页文字透出）。
      */
-    @Test fun coveringASubPanelKeepsTheParentScrimAlive() {
+    fun coveringASubPanelKeepsTheParentScrimAlive() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         assertTrue("必须从 dialogScrims 认出父面板的压暗层", present.contains("dialogScrims[parent]"))
         assertTrue("淡出目标必须是非 scrim 的那个卡片层",
@@ -159,7 +159,7 @@ class ModalMotionRefinementTest {
         return LceMotionSource.read(path)
     }
 
-    @Test fun missingSnapshotUsesSameAnchoredRuleEditorWithoutChangingSelectionRules() {
+    fun missingSnapshotUsesSameAnchoredRuleEditorWithoutChangingSelectionRules() {
         // 这两个窗口原来靠"到下一个函数为止"划界，已经被搬迁悄悄撑破过一次：
         // showRecommendVideoDurationRangeDialog 外移后分隔符失配，substringBefore
         // 返回整段剩余源码，断言变成在半份文件里找字符串——照样通过，护栏没了。
@@ -172,7 +172,7 @@ class ModalMotionRefinementTest {
         assertFalse(fallback.contains("clear("))
     }
 
-    @Test fun titleOverlayIsOptionalRestoredAndNeverReflowsPerFrame() {
+    fun titleOverlayIsOptionalRestoredAndNeverReflowsPerFrame() {
         val title = source("ModalTitleMotion")
         // 目标标题必须独占一行；来源允许是"标题 \n 摘要"的合成 TextView，
         // 由渲染后的首行复核（见 ModalTitleHandoffTest 的首行配对用例）。
@@ -201,7 +201,7 @@ class ModalMotionRefinementTest {
         assertEquals(1, Regex("InterruptibleMotionPolicy.remainingDuration\\(").findAll(controller).count())
     }
 
-    @Test fun theMotionLayerOwnsTheShadowAcrossMorphAndRest() {
+    fun theMotionLayerOwnsTheShadowAcrossMorphAndRest() {
         // 2026-09-22 逐帧实测：落定瞬间卡片外 12px 环带暗 ~2 档——12dp elevation
         // 阴影在形变期被裁掉、落定一帧弹出。最终方案：阴影归承载层（构造期
         // elevation 常量），outline 形变期=形变矩形、落定后=卡片矩形，阴影全程
@@ -231,7 +231,7 @@ class ModalMotionRefinementTest {
         assertFalse(controller.contains("layer.elevation ="))
     }
 
-    @Test fun theCoveredParentFadesOutLateSoTwoStrokesNeverStackAtTheEnd() {
+    fun theCoveredParentFadesOutLateSoTwoStrokesNeverStackAtTheEnd() {
         // 两张卡片矩形完全重合时各画一条半透明描边，叠加后比单独任何一张都亮：
         // 真机实测同一条左边缘，父面板独自稳定 87，子面板落位后 103，且这一跳在最后一帧。
         assertEquals(0f, IconAnchoredMotionSpec.coveredParentAlpha(1f), 0f)
@@ -265,7 +265,7 @@ class ModalMotionRefinementTest {
         assertTrue(present.contains("coveredContent?.alpha = 1f"))
     }
 
-    @Test fun reversalKeepsEntryShapeUntilStableEndpoint() {
+    fun reversalKeepsEntryShapeUntilStableEndpoint() {
         val controller = source("BubbleMotionController")
         val close = controller.after("fun requestClose(").before("fun handleWindowSizeChange")
         assertFalse(close.contains("entryShape ="))
@@ -280,7 +280,7 @@ class ModalMotionRefinementTest {
      * 真机实证三层原因缺一不可：窗口按系统栏缩框；平台弹窗布局的 fitsSystemWindows 容器
      * 把内容区下推；窗口不带 DRAWS_SYSTEM_BAR_BACKGROUNDS 时系统在状态栏上画不透明黑底。
      */
-    @Test fun modalScrimCoversTheSystemBars() {
+    fun modalScrimCoversTheSystemBars() {
         val main = source("MainActivity")
         val present = main.after("internal fun presentSizedModalDialog(")
         // 压暗层挂在最外层窗口层上，卡片层 root 按系统栏内缩，几何仍以 root 为原点。
@@ -308,7 +308,7 @@ class ModalMotionRefinementTest {
      * 覆盖式子面板：父面板只在子面板当前覆盖的区域里挖空（2026-09-24 两轮真机：整体淡出放在
      * 尾段会叠亮后跳暗，前移又让外轮廓先回缩再展开）。透明度只在完全盖满时收共边描边。
      */
-    @Test fun coveredParentIsClippedByTheGrowingChildInsteadOfFadingEarly() {
+    fun coveredParentIsClippedByTheGrowingChildInsteadOfFadingEarly() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         assertTrue(present.contains("val root = ModalCardRoot(this).apply {"))
         assertTrue(present.contains("(coveredContent as? ModalCardRoot)?.excludeMotionSurface(morphLayer, morphLayer.alpha)"))
@@ -326,7 +326,7 @@ class ModalMotionRefinementTest {
      * 收起动画末帧先上屏、下一帧再移窗（2026-09-24 atrace：原来 dismiss 挤在动画结束回调里，
      * 关闭末帧 notifyAnimEnd 7–11ms）。气泡与图标锚点两条路径都要走。
      */
-    @Test fun closingDefersWindowRemovalPastTheFinalFrame() {
+    fun closingDefersWindowRemovalPastTheFinalFrame() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         assertEquals(2, Regex(Regex.escape("dismissAfterFinalFrame(dialog) {")).findAll(present).count())
         val helper = SettingsUiSource.function("dismissAfterFinalFrame")
@@ -335,7 +335,7 @@ class ModalMotionRefinementTest {
     }
 
     /** 更新渠道子面板的关闭按钮与 GitHub 面板那颗重合：弹性占位把空档收到关闭行上方。 */
-    @Test fun updateChannelCloseButtonSitsOnTheCardBottom() {
+    fun updateChannelCloseButtonSitsOnTheCardBottom() {
         val channel = SettingsUiSource.function("showUpdateChannelDialog")
         assertTrue(channel.contains("NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)"))
         assertTrue(channel.contains("createPanelCloseButton { dismissWithAnimation(dialog, container) {} }"))
@@ -349,7 +349,7 @@ class ModalMotionRefinementTest {
      *    （试过用投影体 + clipOutPath 裁阴影：系统阴影在 Z 重排阶段绘制，不受 drawChild 裁剪，失败）；
      * ③ 气泡面板飞行图标副本是深灰 → 浅色下离开原位后降到 35%。
      */
-    @Test fun lightThemeMorphsNeverFlashDark() {
+    fun lightThemeMorphsNeverFlashDark() {
         val main = source("MainActivity")
         val scrim = main.after("private fun modalScrimColor(): Int =").before("/** 正文起始位移上限")
         assertTrue(scrim.contains("SettingsModalScrim.color(monetColors.surface, monetColors.background)"))
@@ -379,7 +379,7 @@ class ModalMotionRefinementTest {
      * 面板从按钮处长出时玻璃表面会盖住按钮原位，飞行副本已飞走 → 浅色下按钮深浅跳动
      * （2026-09-24 真机：图标区 190 → 243 → 209）。在面板里按钮原位、面板形状内补画静止图标。
      */
-    @Test fun bubbleKeepsTheSourceIconVisibleWhileItsSurfaceCoversTheButton() {
+    fun bubbleKeepsTheSourceIconVisibleWhileItsSurfaceCoversTheButton() {
         val proxy = source("BubbleIconProxy")
         assertTrue(proxy.contains("BubbleLayerMotionSpec.sourceIconWeight(p, true) * BubbleLayerMotionSpec.surfaceOpacity(p)"))
         val slot = proxy.after("fun drawSlotIcon(").before("fun drawMask(")
@@ -397,7 +397,7 @@ class ModalMotionRefinementTest {
      * API 31+ 已开始的涟漪不读新颜色，必须 setVisible(false) 清热点；settle 保持压住，
      * dispose 才放开。
      */
-    @Test fun bubbleRetiresTheButtonRippleOnceItCoversTheButton() {
+    fun bubbleRetiresTheButtonRippleOnceItCoversTheButton() {
         val ripple = source("CoverableRippleDrawable")
         assertTrue(ripple.contains(") : RippleDrawable(ColorStateList.valueOf(baseColor), content, mask)"))
         assertTrue(ripple.contains("val shouldShow = clamped < COVERED_THRESHOLD"))
@@ -409,5 +409,35 @@ class ModalMotionRefinementTest {
         assertTrue(proxy.after("fun settleExpanded()").before("fun dispose()").contains("if (tookOver) coverRipple(1f)"))
         assertTrue(proxy.after("fun dispose()").before("private fun restoreSource()").contains("releaseRipple()"))
         assertTrue(proxy.after("private fun releaseRipple()").contains("if (tookOver) coverRipple(0f)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalMotionRefinementTest) -> Unit) {
+            val s = ModalMotionRefinementTest()
+            block(s)
+        }
+        runIsolated { s -> s.bubbleAxesHaveIndependentProfilesAndExactEndpoints() }
+        runIsolated { s -> s.entryHasNoOvershootAndSettlesPrecisely() }
+        runIsolated { s -> s.settledCloseShrinksBothAxesWithoutRebound() }
+        runIsolated { s -> s.axisProfilesRemainContinuousAcrossGrowthAndReboundBoundaries() }
+        runIsolated { s -> s.matchingTitlesCanMoveButRelatedDifferentTitlesCannot() }
+        runIsolated { s -> s.titleBaselineAndSizeInterpolationHasExactClampedEndpoints() }
+        runIsolated { s -> s.carrierSurfaceFollowsTheAnimatedCardRectInsteadOfTheWindow() }
+        runIsolated { s -> s.carrierActiveKeepsCardOwnBackgroundOutOfTheFrame() }
+        runIsolated { s -> s.expansionTargetTracksTheLiveCardRectEveryFrame() }
+        runIsolated { s -> s.coveringASubPanelKeepsTheParentScrimAlive() }
+        runIsolated { s -> s.missingSnapshotUsesSameAnchoredRuleEditorWithoutChangingSelectionRules() }
+        runIsolated { s -> s.titleOverlayIsOptionalRestoredAndNeverReflowsPerFrame() }
+        runIsolated { s -> s.theMotionLayerOwnsTheShadowAcrossMorphAndRest() }
+        runIsolated { s -> s.theCoveredParentFadesOutLateSoTwoStrokesNeverStackAtTheEnd() }
+        runIsolated { s -> s.reversalKeepsEntryShapeUntilStableEndpoint() }
+        runIsolated { s -> s.modalScrimCoversTheSystemBars() }
+        runIsolated { s -> s.coveredParentIsClippedByTheGrowingChildInsteadOfFadingEarly() }
+        runIsolated { s -> s.closingDefersWindowRemovalPastTheFinalFrame() }
+        runIsolated { s -> s.updateChannelCloseButtonSitsOnTheCardBottom() }
+        runIsolated { s -> s.lightThemeMorphsNeverFlashDark() }
+        runIsolated { s -> s.bubbleKeepsTheSourceIconVisibleWhileItsSurfaceCoversTheButton() }
+        runIsolated { s -> s.bubbleRetiresTheButtonRippleOnceItCoversTheButton() }
     }
 }

@@ -10,7 +10,7 @@ import tv.danmaku.bili.ui.main2.mineV2.ui.VipFixtureManager
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostComposeHiddenLayout
 
 class MineVipComposeHooksTest {
-    @Test fun `native measure failures retain their original throwable and never claim applied`() {
+    fun `native measure failures retain their original throwable and never claim applied`() {
         var applied = 0
         val access = requireNotNull(HostComposeHiddenLayout.resolve(javaClass.classLoader!!) { applied++ })
         val hidden = access.wrap(Modifier) as HiddenModifier
@@ -34,7 +34,7 @@ class MineVipComposeHooksTest {
         fun args(modifier: Modifier = Modifier) = arrayOf<Any?>(0, null, modifier, VipFixtureManager())
     }
 
-    @Test fun `hide removes the shared V2 V3 card before native content can execute`() {
+    fun `hide removes the shared V2 V3 card before native content can execute`() {
         val h = Harness()
         assertTrue(MineVipComposeHooks.install(h.environment, false))
         assertTrue(h.evidence.isEmpty())
@@ -44,7 +44,7 @@ class MineVipComposeHooksTest {
         assertEquals(listOf(FeatureRuntimeStage.OBSERVED, FeatureRuntimeStage.APPLIED), h.evidence)
     }
 
-    @Test fun `keep space measures real size but never places the card or duplicates its layout modifier`() {
+    fun `keep space measures real size but never places the card or duplicates its layout modifier`() {
         val h = Harness()
         assertTrue(MineVipComposeHooks.install(h.environment, true))
         var captured: Modifier? = null
@@ -72,7 +72,7 @@ class MineVipComposeHooksTest {
         assertEquals(2, h.evidence.size)
     }
 
-    @Test fun `card facade recognizes old default masks and R8 argument reordering`() {
+    fun `card facade recognizes old default masks and R8 argument reordering`() {
         val modifier = "androidx.compose.ui.Modifier"
         val composer = "androidx.compose.runtime.Composer"
         val manager = "tv.danmaku.bili.ui.main2.mineV2.ui.MineVipComposeManager"
@@ -85,5 +85,17 @@ class MineVipComposeHooksTest {
         assertFalse(MineVipComposeHooks.accepts(listOf(modifier,
             "tv.danmaku.bili.ui.main2.mine.modularvip.l", composer, "int"), true, "void"))
         assertFalse(MineVipComposeHooks.accepts(listOf(modifier, manager, composer, "int"), false, "void"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (MineVipComposeHooksTest) -> Unit) {
+            val s = MineVipComposeHooksTest()
+            block(s)
+        }
+        runIsolated { s -> s.`native measure failures retain their original throwable and never claim applied`() }
+        runIsolated { s -> s.`hide removes the shared V2 V3 card before native content can execute`() }
+        runIsolated { s -> s.`keep space measures real size but never places the card or duplicates its layout modifier`() }
+        runIsolated { s -> s.`card facade recognizes old default masks and R8 argument reordering`() }
     }
 }

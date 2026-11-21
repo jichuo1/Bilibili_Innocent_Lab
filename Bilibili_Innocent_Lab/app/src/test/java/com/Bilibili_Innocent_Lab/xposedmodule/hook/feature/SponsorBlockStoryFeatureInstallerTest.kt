@@ -14,7 +14,7 @@ class SponsorBlockStoryFeatureInstallerTest {
 
     private val repository: () -> SponsorSegmentRepository = { throw AssertionError("repository must stay lazy") }
 
-    @Test fun disabledAndSecondaryProcessesNeverReachHostLookupOrCreateTheRepository() {
+    fun disabledAndSecondaryProcessesNeverReachHostLookupOrCreateTheRepository() {
         val unusable = object : ClassLoader() {
             override fun loadClass(name: String): Class<*> = throw AssertionError("Unexpected lookup: $name")
         }
@@ -24,12 +24,12 @@ class SponsorBlockStoryFeatureInstallerTest {
             SponsorBlockStoryFeatureInstaller(true, true, repository).install(environment("tv.danmaku.bili:push", unusable)))
     }
 
-    @Test fun missingLoaderKeepsTheHostUnchanged() {
+    fun missingLoaderKeepsTheHostUnchanged() {
         assertEquals(FeatureInstallResult.Skipped("missing-class-loader"),
             SponsorBlockStoryFeatureInstaller(true, false, repository).install(environment()))
     }
 
-    @Test fun missingStoryStructureIsReportedOnItsOwnChannelWithoutTouchingTheDetailFeature() {
+    fun missingStoryStructureIsReportedOnItsOwnChannelWithoutTouchingTheDetailFeature() {
         val withoutPager = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
                 if (name == "com.bilibili.video.story.player.StoryPagerPlayer") throw ClassNotFoundException(name)
@@ -45,7 +45,7 @@ class SponsorBlockStoryFeatureInstallerTest {
         assertNotEquals("sponsorblock", SponsorBlockStoryFeatureInstaller.ID)
     }
 
-    @Test fun theRepositoryIsSharedByReferenceNotCreatedPerInstaller() {
+    fun theRepositoryIsSharedByReferenceNotCreatedPerInstaller() {
         var created = 0
         val shared = lazy { created++; SponsorSegmentRepository(SponsorBlockClient("test")) }
         val detail = SponsorBlockFeatureInstaller(false, false, repository = { shared.value })
@@ -55,5 +55,17 @@ class SponsorBlockStoryFeatureInstallerTest {
         assertSame(shared.value, shared.value)
         assertEquals(1, created)
         shared.value.close()
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorBlockStoryFeatureInstallerTest) -> Unit) {
+            val s = SponsorBlockStoryFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.disabledAndSecondaryProcessesNeverReachHostLookupOrCreateTheRepository() }
+        runIsolated { s -> s.missingLoaderKeepsTheHostUnchanged() }
+        runIsolated { s -> s.missingStoryStructureIsReportedOnItsOwnChannelWithoutTouchingTheDetailFeature() }
+        runIsolated { s -> s.theRepositoryIsSharedByReferenceNotCreatedPerInstaller() }
     }
 }

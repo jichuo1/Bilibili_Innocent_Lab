@@ -19,7 +19,7 @@ class SponsorPlayerAccessTest {
         override fun values() = GeminiCommonPlayableParams(bvid, cid, avid, business)
     }
 
-    @Test fun inheritedBusinessGetterAndExactTwoArgumentSeekAreResolved() {
+    fun inheritedBusinessGetterAndExactTwoArgumentSeekAreResolved() {
         val access = requireNotNull(SponsorPlayerAccess.resolve(loader))
         assertEquals(7, requireNotNull(access.scope).parameterCount)
         val container = requireNotNull(access.containerScope)
@@ -31,7 +31,7 @@ class SponsorPlayerAccessTest {
         assertEquals(1, access.wrapperOwnerIndex); assertEquals(0, access.wrapperCoreIndex)
     }
 
-    @Test fun identityAlwaysReadsTheActivePartAndRejectsNonUgcOrInvalidMedia() {
+    fun identityAlwaysReadsTheActivePartAndRejectsNonUgcOrInvalidMedia() {
         val access = requireNotNull(SponsorPlayerAccess.resolve(loader))
         val owner = TheseusKeelPlayer(playable())
         owner.current = playable(cid = 3)
@@ -45,7 +45,7 @@ class SponsorPlayerAccessTest {
         }
     }
 
-    @Test fun missingAnyRequiredHostBoundaryDisablesTheFeature() {
+    fun missingAnyRequiredHostBoundaryDisablesTheFeature() {
         for (missing in listOf(SponsorPlayerAccess.RUN_CLASS, SponsorPlayerAccess.PARAMS_CLASS,
             SponsorPlayerAccess.CORE_CLASS, SponsorPlayerAccess.WRAPPER_CLASS,
             "tv.danmaku.biliplayerv2.service.PlayerSeekObserver")) {
@@ -59,7 +59,7 @@ class SponsorPlayerAccessTest {
         }
     }
 
-    @Test fun emptyUgcBvidUsesTheCurrentAidWithoutCachingThePartOrAcceptingMalformedIdentity() {
+    fun emptyUgcBvidUsesTheCurrentAidWithoutCachingThePartOrAcceptingMalformedIdentity() {
         val access = requireNotNull(SponsorPlayerAccess.resolve(loader))
         val owner = TheseusKeelPlayer(playable(avid = 117_312_082_479_704L,
             cid = 42_072_543_108L, bvid = ""))
@@ -79,7 +79,7 @@ class SponsorPlayerAccessTest {
         }
     }
 
-    @Test fun seekGuardRequiresTheConcreteCoroutineCloneAndHostUnit() {
+    fun seekGuardRequiresTheConcreteCoroutineCloneAndHostUnit() {
         val player = requireNotNull(SponsorPlayerAccess.resolve(loader))
         val seek = requireNotNull(SponsorSeekAccess.resolve(loader, player))
         assertSame(Unit, seek.unit)
@@ -88,7 +88,7 @@ class SponsorPlayerAccessTest {
         assertEquals(4, seek.constructor.parameterCount)
     }
 
-    @Test fun activePlaybackCanBeBoundWhileRunPlayableIsSuspendedButNotWhileWaitingForItsMutex() {
+    fun activePlaybackCanBeBoundWhileRunPlayableIsSuspendedButNotWhileWaitingForItsMutex() {
         val access = requireNotNull(SponsorPlayerAccess.resolve(loader))
         val first = playable(); val next = playable(cid = 2)
         val owner = TheseusKeelPlayer(first)
@@ -104,7 +104,7 @@ class SponsorPlayerAccessTest {
         assertFalse(access.bound(owner, null, resume))
     }
 
-    @Test fun eitherExplicitActivityBindingRouteCanSupportAHostButNeitherCannot() {
+    fun eitherExplicitActivityBindingRouteCanSupportAHostButNeitherCannot() {
         fun hiding(vararg classes: String) = object : ClassLoader(loader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
                 if (name in classes) throw ClassNotFoundException(name)
@@ -127,7 +127,7 @@ class SponsorPlayerAccessTest {
     private class ExtraArgumentWrapper(core: IPlayerCoreService, owner: TheseusKeelPlayer,
         scope: CoroutineScope, extra: Any) : IPlayerCoreService by core
 
-    @Test fun reordered912ConstructorCapturesTheActualOwnerAndCoreAndRejectsAmbiguousShapes() {
+    fun reordered912ConstructorCapturesTheActualOwnerAndCoreAndRejectsAmbiguousShapes() {
         val core = object : IPlayerCoreService {}
         val owner = TheseusKeelPlayer(playable())
         val scope = CoroutineScope(EmptyCoroutineContext)
@@ -140,5 +140,21 @@ class SponsorPlayerAccessTest {
         for (type in listOf(AmbiguousWrapper::class.java, ExtraArgumentWrapper::class.java, String::class.java)) {
             assertNull(SponsorPlayerAccess.resolveWrapper(type, IPlayerCoreService::class.java, TheseusKeelPlayer::class.java))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorPlayerAccessTest) -> Unit) {
+            val s = SponsorPlayerAccessTest()
+            block(s)
+        }
+        runIsolated { s -> s.inheritedBusinessGetterAndExactTwoArgumentSeekAreResolved() }
+        runIsolated { s -> s.identityAlwaysReadsTheActivePartAndRejectsNonUgcOrInvalidMedia() }
+        runIsolated { s -> s.missingAnyRequiredHostBoundaryDisablesTheFeature() }
+        runIsolated { s -> s.emptyUgcBvidUsesTheCurrentAidWithoutCachingThePartOrAcceptingMalformedIdentity() }
+        runIsolated { s -> s.seekGuardRequiresTheConcreteCoroutineCloneAndHostUnit() }
+        runIsolated { s -> s.activePlaybackCanBeBoundWhileRunPlayableIsSuspendedButNotWhileWaitingForItsMutex() }
+        runIsolated { s -> s.eitherExplicitActivityBindingRouteCanSupportAHostButNeitherCannot() }
+        runIsolated { s -> s.reordered912ConstructorCapturesTheActualOwnerAndCoreAndRejectsAmbiguousShapes() }
     }
 }

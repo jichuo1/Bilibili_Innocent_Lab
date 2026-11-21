@@ -17,7 +17,6 @@ class FeatureStatusInstallerTest {
         reportStatus = { channel, status -> statuses += channel to status }
     )
 
-    @Test
     fun `paused ad reports disabled without resolving hook points`() {
         val result = PausedAdFeatureInstaller(enabled = false, points = null).install(environment)
 
@@ -25,7 +24,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("adskip_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `home banner reports disabled without resolving hook points`() {
         val result = HomeBannerFeatureInstaller(
             enabled = false,
@@ -37,7 +35,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("banner_ad_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `game promotion reports disabled without resolving hook points`() {
         val result = GamePromotionFeatureInstaller(enabled = false).install(environment)
 
@@ -45,7 +42,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("gamecard_ad_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `video detail app promotion reports disabled without resolving host classes`() {
         val result = DetailAppPromotionFeatureInstaller(enabled = false).install(environment)
 
@@ -53,7 +49,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("detail_app_promotion_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `home top bar reports disabled without resolving hook points`() {
         val result = HomeTopBarFeatureInstaller(
             hideGameMenu = false,
@@ -65,7 +60,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("home_top_bar_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `dynamic tabs reports disabled without resolving hook points`() {
         val result = DynamicTabsFeatureInstaller(
             hideCity = false,
@@ -78,7 +72,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("dynamic_tabs_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `full numbers reports disabled without resolving hook points`() {
         val result = FullNumberFeatureInstaller(enabled = false, points = null)
             .install(environment)
@@ -87,7 +80,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("full_number_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `player portrait control reports disabled without resolving hook points`() {
         val result = PlayerPortraitFeatureInstaller(enabled = false, points = null)
             .install(environment)
@@ -96,7 +88,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("player_portrait_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `teenagers mode prompt reports disabled without resolving hook points`() {
         val result = TeenagersModeFeatureInstaller(enabled = false, points = null)
             .install(environment)
@@ -105,7 +96,6 @@ class FeatureStatusInstallerTest {
         assertEquals(listOf("teenagers_mode_status" to "disabled"), statuses)
     }
 
-    @Test
     fun `comment purify reports disabled without resolving hook points`() {
         val result = CommentPurifyFeatureInstaller(
             removeSearchLinks = false,
@@ -120,5 +110,23 @@ class FeatureStatusInstallerTest {
 
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("comment_purify_status" to "disabled"), statuses)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FeatureStatusInstallerTest) -> Unit) {
+            val s = FeatureStatusInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`paused ad reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`home banner reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`game promotion reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`video detail app promotion reports disabled without resolving host classes`() }
+        runIsolated { s -> s.`home top bar reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`dynamic tabs reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`full numbers reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`player portrait control reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`teenagers mode prompt reports disabled without resolving hook points`() }
+        runIsolated { s -> s.`comment purify reports disabled without resolving hook points`() }
     }
 }

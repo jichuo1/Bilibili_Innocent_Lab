@@ -17,7 +17,7 @@ class PlayerPortInstallerTest {
         runtimeEvidence = { _, stage, _ -> stages += stage }
     )
 
-    @Test fun `all off and non main processes register nothing`() {
+    fun `all off and non main processes register nothing`() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(FeatureInstallResult.Skipped("disabled"),
             PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(false, false, false)).install(environment(registrar)))
@@ -28,7 +28,7 @@ class PlayerPortInstallerTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
-    @Test fun `capability coverage includes both response families and mini constructors`() {
+    fun `capability coverage includes both response families and mini constructors`() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(FeatureInstallResult.Installed(6),
             PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(true, true, true)).install(environment(registrar)))
@@ -40,7 +40,7 @@ class PlayerPortInstallerTest {
         assertTrue(FeatureRuntimeStage.APPLIED in stages)
     }
 
-    @Test fun `missing and failed registrations stay in the coverage denominator`() {
+    fun `missing and failed registrations stay in the coverage denominator`() {
         val registrar = PlayerPortTestRegistrar("player.capability.unite.async")
         PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(true, true, true)).install(environment(registrar))
         assertEquals("partial:11/14", statuses.single())
@@ -56,7 +56,7 @@ class PlayerPortInstallerTest {
         assertEquals("partial:2/4", statuses.single())
     }
 
-    @Test fun `async adapter keeps reply identity and error completion callbacks`() {
+    fun `async adapter keeps reply identity and error completion callbacks`() {
         val registrar = PlayerPortTestRegistrar()
         PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(true, false, false)).install(environment(registrar))
         val replies = mutableListOf<Any?>()
@@ -83,7 +83,7 @@ class PlayerPortInstallerTest {
         }
     }
 
-    @Test fun `mini menu changes only its own permission and does not fabricate applied evidence`() {
+    fun `mini menu changes only its own permission and does not fabricate applied evidence`() {
         val registrar = PlayerPortTestRegistrar()
         PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(false, true, false)).install(environment(registrar))
         stages.clear()
@@ -98,7 +98,7 @@ class PlayerPortInstallerTest {
         assertFalse(FeatureRuntimeStage.APPLIED in stages)
     }
 
-    @Test fun `disable acceleration installs only its start callback and wins over custom speed`() {
+    fun `disable acceleration installs only its start callback and wins over custom speed`() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(FeatureInstallResult.Installed(1),
             PlayerSpeedFeatureInstaller(true, 300, 0).install(environment(registrar)))
@@ -110,7 +110,7 @@ class PlayerPortInstallerTest {
         assertEquals(1, calls)
     }
 
-    @Test fun `custom speed edits only captured float and applied requires successful readback`() {
+    fun `custom speed edits only captured float and applied requires successful readback`() {
         val registrar = PlayerPortTestRegistrar()
         assertEquals(FeatureInstallResult.Installed(1),
             PlayerSpeedFeatureInstaller(false, 275, 0).install(environment(registrar)))
@@ -126,5 +126,20 @@ class PlayerPortInstallerTest {
             registrar.invoke("player.speed.long_press_value", instance, arrayOf(service, 3f, null)) { error("host constructor failed") }
         }
         assertFalse(FeatureRuntimeStage.APPLIED in stages)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerPortInstallerTest) -> Unit) {
+            val s = PlayerPortInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`all off and non main processes register nothing`() }
+        runIsolated { s -> s.`capability coverage includes both response families and mini constructors`() }
+        runIsolated { s -> s.`missing and failed registrations stay in the coverage denominator`() }
+        runIsolated { s -> s.`async adapter keeps reply identity and error completion callbacks`() }
+        runIsolated { s -> s.`mini menu changes only its own permission and does not fabricate applied evidence`() }
+        runIsolated { s -> s.`disable acceleration installs only its start callback and wins over custom speed`() }
+        runIsolated { s -> s.`custom speed edits only captured float and applied requires successful readback`() }
     }
 }

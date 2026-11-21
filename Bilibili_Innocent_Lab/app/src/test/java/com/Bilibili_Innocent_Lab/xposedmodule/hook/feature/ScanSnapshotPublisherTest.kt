@@ -10,7 +10,7 @@ class ScanSnapshotPublisherTest {
         TestHookRegistrar, { _, _ -> }, { _, _ -> }, { _, _ -> }, writeScanSnapshot = sink
     )
 
-    @Test fun `sink failure does not suppress identical resubmission`() {
+    fun `sink failure does not suppress identical resubmission`() {
         var calls = 0
         val publisher = ScanSnapshotPublisher(environment { _, _ -> ++calls > 1 }, "home_tabs", setOf("item_filter"))
         val entry = MineComponentScanEntry("k", "item", "title", "1", null, true)
@@ -18,7 +18,7 @@ class ScanSnapshotPublisherTest {
         assertEquals(2, calls)
     }
 
-    @Test fun `queued content does not share mutable accumulator or caller collections`() {
+    fun `queued content does not share mutable accumulator or caller collections`() {
         val captured = mutableListOf<ScanSnapshotContent>()
         val capabilities = mutableSetOf("item_filter")
         val publisher = ScanSnapshotPublisher(environment { _, value -> captured += value; true }, "home_tabs", capabilities)
@@ -28,5 +28,15 @@ class ScanSnapshotPublisherTest {
         assertEquals(listOf(first), captured[0].entries)
         assertEquals(setOf("item_filter"), captured[0].capabilities)
         assertEquals(2, captured[1].entries.size)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ScanSnapshotPublisherTest) -> Unit) {
+            val s = ScanSnapshotPublisherTest()
+            block(s)
+        }
+        runIsolated { s -> s.`sink failure does not suppress identical resubmission`() }
+        runIsolated { s -> s.`queued content does not share mutable accumulator or caller collections`() }
     }
 }

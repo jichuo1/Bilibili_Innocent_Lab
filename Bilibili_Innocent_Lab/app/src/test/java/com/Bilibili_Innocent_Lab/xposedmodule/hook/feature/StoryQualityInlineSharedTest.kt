@@ -33,7 +33,7 @@ class StoryQualityInlineSharedTest {
         fun onDestroy(owner: LifecycleOwner?) = Unit
     }
 
-    @Before fun reset() {
+    fun reset() {
         BiliAccounts.instance.loggedIn = true
         BiliAccounts.fail = false
         TeenagersMode.getInstance().enabled = false
@@ -83,7 +83,7 @@ class StoryQualityInlineSharedTest {
         fun manual(choice: StoryPreferenceFixture) = port.invoke("player.story.manual", owner.quality, arrayOf(choice, null)) { Unit }
     }
 
-    @Test fun `inline build confirms first shared item without a later select`() {
+    fun `inline build confirms first shared item without a later select`() {
         val h = Harness()
         h.create()
         assertEquals(80, h.wifi())
@@ -91,7 +91,7 @@ class StoryQualityInlineSharedTest {
         assertFalse(h.runtime.inStory())
     }
 
-    @Test fun `unshared foreign and ambiguous builds do not prove shared entry`() {
+    fun `unshared foreign and ambiguous builds do not prove shared entry`() {
         for (kind in 0..2) {
             val h = Harness()
             h.create {
@@ -105,14 +105,14 @@ class StoryQualityInlineSharedTest {
         }
     }
 
-    @Test fun `out of lifecycle and other thread builds cannot authorize an owner`() {
+    fun `out of lifecycle and other thread builds cannot authorize an owner`() {
         val h = Harness()
         h.build()
         h.create { val thread = Thread { h.owner.container = h.build() }; thread.start(); thread.join() }
         assertEquals(32, h.wifi())
     }
 
-    @Test fun `failed creation clears build proof before later callbacks`() {
+    fun `failed creation clears build proof before later callbacks`() {
         val h = Harness()
         try { h.create { h.owner.container = h.build(); error("fixture creation failed") }; fail() }
         catch (_: IllegalStateException) { }
@@ -122,7 +122,7 @@ class StoryQualityInlineSharedTest {
         assertEquals(32, h.wifi())
     }
 
-    @Test fun `inline proof preserves manual fixed and automatic choices`() {
+    fun `inline proof preserves manual fixed and automatic choices`() {
         for (choice in listOf(StoryPreferenceFixture.Auto, StoryPreferenceFixture.Fixed(64))) {
             val h = Harness()
             h.create(); h.manual(choice); h.build()
@@ -130,7 +130,7 @@ class StoryQualityInlineSharedTest {
         }
     }
 
-    @Test fun `inline proof retains strict item identity and admission checks`() {
+    fun `inline proof retains strict item identity and admission checks`() {
         for (kind in 0..2) {
             reset()
             val h = Harness()
@@ -142,11 +142,27 @@ class StoryQualityInlineSharedTest {
         }
     }
 
-    @Test fun `optional builder hook failure keeps base Story hooks available`() {
+    fun `optional builder hook failure keeps base Story hooks available`() {
         val h = Harness("player.story.ready")
         assertTrue(h.hooks.complete)
         h.create()
         assertEquals(32, h.wifi())
         assertTrue(FeatureRuntimeStage.ERROR in h.stages)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (StoryQualityInlineSharedTest) -> Unit) {
+            val s = StoryQualityInlineSharedTest()
+            s.reset()
+            block(s)
+        }
+        runIsolated { s -> s.`inline build confirms first shared item without a later select`() }
+        runIsolated { s -> s.`unshared foreign and ambiguous builds do not prove shared entry`() }
+        runIsolated { s -> s.`out of lifecycle and other thread builds cannot authorize an owner`() }
+        runIsolated { s -> s.`failed creation clears build proof before later callbacks`() }
+        runIsolated { s -> s.`inline proof preserves manual fixed and automatic choices`() }
+        runIsolated { s -> s.`inline proof retains strict item identity and admission checks`() }
+        runIsolated { s -> s.`optional builder hook failure keeps base Story hooks available`() }
     }
 }

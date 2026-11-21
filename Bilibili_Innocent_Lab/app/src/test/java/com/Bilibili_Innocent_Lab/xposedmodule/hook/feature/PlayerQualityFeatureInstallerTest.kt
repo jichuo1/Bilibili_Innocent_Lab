@@ -18,14 +18,12 @@ class PlayerQualityFeatureInstallerTest {
         reportStatus = { channel, status -> statuses += channel to status }
     )
 
-    @Test
     fun `normalizes unknown qn to disabled`() {
         assertEquals(0, PlayerQualityConfig.normalize(-1))
         assertEquals(0, PlayerQualityConfig.normalize(999))
         assertEquals(80, PlayerQualityConfig.normalize(80))
     }
 
-    @Test
     fun `installs verified normal policy without claiming missing Story coverage`() {
         val result = PlayerQualityFeatureInstaller(
             qualityQn = 80,
@@ -38,7 +36,6 @@ class PlayerQualityFeatureInstallerTest {
         assertEquals(listOf("player_quality_status" to "partial:2/3"), statuses)
     }
 
-    @Test
     fun `host without Story does not add a missing family to coverage`() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -52,7 +49,6 @@ class PlayerQualityFeatureInstallerTest {
         assertEquals(listOf("player_quality_status" to "success"), statuses)
     }
 
-    @Test
     fun `keeps follow host configuration hook free`() {
         val result = PlayerQualityFeatureInstaller(
             qualityQn = 0,
@@ -63,5 +59,17 @@ class PlayerQualityFeatureInstallerTest {
 
         assertEquals(FeatureInstallResult.Skipped("disabled"), result)
         assertEquals(listOf("player_quality_status" to "disabled"), statuses)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerQualityFeatureInstallerTest) -> Unit) {
+            val s = PlayerQualityFeatureInstallerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`normalizes unknown qn to disabled`() }
+        runIsolated { s -> s.`installs verified normal policy without claiming missing Story coverage`() }
+        runIsolated { s -> s.`host without Story does not add a missing family to coverage`() }
+        runIsolated { s -> s.`keeps follow host configuration hook free`() }
     }
 }

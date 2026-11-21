@@ -51,7 +51,7 @@ class HomeRecommendFilterMemoTest {
         }.sumOf { it.third }
     }
 
-    @Test fun repeatedReadsOfOneResponseFilterOnceAndReturnTheSameList() {
+    fun repeatedReadsOfOneResponseFilterOnceAndReturnTheSameList() {
         val h = Harness()
         val kept = Card("ordinary")
         val blocked = Card("blocked title")
@@ -66,7 +66,7 @@ class HomeRecommendFilterMemoTest {
         assertEquals(1, h.appliedRemovals)
     }
 
-    @Test fun hostWritesIntoTheReturnedListSurviveLaterReads() {
+    fun hostWritesIntoTheReturnedListSurviveLaterReads() {
         val h = Harness()
         val source = listOf(Card("ordinary"), Card("blocked"))
         val response = PegasusResponse()
@@ -77,7 +77,7 @@ class HomeRecommendFilterMemoTest {
         assertSame(injected, h.read(response, source).first())
     }
 
-    @Test fun aGrownSourceListIsFilteredAgain() {
+    fun aGrownSourceListIsFilteredAgain() {
         val h = Harness()
         val source = mutableListOf<Any?>(Card("ordinary"), Card("blocked"))
         val response = PegasusResponse()
@@ -90,7 +90,7 @@ class HomeRecommendFilterMemoTest {
         assertEquals(1, later.titleReads)
     }
 
-    @Test fun replacedLiveRulesAreAppliedToALaterReadOfTheSameResponse() {
+    fun replacedLiveRulesAreAppliedToALaterReadOfTheSameResponse() {
         var rules = LiveHomeRules(setOf("alpha"), VideoDurationRange(0, 0), VideoPlayCountRange(0, 0))
         val h = Harness(liveRules = { rules })
         val beta = Card("beta")
@@ -102,11 +102,24 @@ class HomeRecommendFilterMemoTest {
         assertTrue(h.read(response, source).none { it === beta })
     }
 
-    @Test fun anUnfilteredListIsStillTheHostsOwnInstance() {
+    fun anUnfilteredListIsStillTheHostsOwnInstance() {
         val h = Harness()
         val source = listOf(Card("ordinary"))
         val response = PegasusResponse()
         assertSame(source, h.read(response, source))
         assertSame(source, h.read(response, source))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HomeRecommendFilterMemoTest) -> Unit) {
+            val s = HomeRecommendFilterMemoTest()
+            block(s)
+        }
+        runIsolated { s -> s.repeatedReadsOfOneResponseFilterOnceAndReturnTheSameList() }
+        runIsolated { s -> s.hostWritesIntoTheReturnedListSurviveLaterReads() }
+        runIsolated { s -> s.aGrownSourceListIsFilteredAgain() }
+        runIsolated { s -> s.replacedLiveRulesAreAppliedToALaterReadOfTheSameResponse() }
+        runIsolated { s -> s.anUnfilteredListIsStillTheHostsOwnInstance() }
     }
 }

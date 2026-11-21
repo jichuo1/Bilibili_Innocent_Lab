@@ -17,7 +17,7 @@ import org.junit.Test
 class ModalSkinPositionContractTest {
     private val main = LceMotionSource.read("ui/activity/MainActivity.kt")
 
-    @Test fun defaultModalEntryNotifiesSkinEveryFrameAndAtTheEnd() {
+    fun defaultModalEntryNotifiesSkinEveryFrameAndAtTheEnd() {
         val entry = main.after("container.post {\n            LumenAnimator.property(container)\n                .scaleX(1f).scaleY(1f).alpha(1f)")
             .before("/**\n     * 勾选式屏蔽面板的")
         val update = entry.after(".setUpdateListener {").before(".withEndAction {")
@@ -25,12 +25,12 @@ class ModalSkinPositionContractTest {
         assertTrue(entry.after(".withEndAction {").contains("notifyPreparedSkinPositionChanged()"))
     }
 
-    @Test fun sharedExitAnimationNotifiesSkinEveryFrame() {
+    fun sharedExitAnimationNotifiesSkinEveryFrame() {
         val exit = main.after("internal fun dismissWithAnimation(").before(".setListener(")
         assertTrue(exit.contains("notifyPreparedSkinPositionChanged()"))
     }
 
-    @Test fun predictiveBackScaleAndBounceNotifySkin() {
+    fun predictiveBackScaleAndBounceNotifySkin() {
         val progress = main.after("container.scaleX = 1f - 0.05f * progress").before("onCancelled = {")
         assertTrue(progress.contains("notifyPreparedSkinPositionChanged()"))
         val bounce = main.after("container.scaleX = 1f - 0.05f * progress")
@@ -42,7 +42,7 @@ class ModalSkinPositionContractTest {
 
 
     /** 锚点形变每帧平移卡片内容：平移写入之后必须通知皮肤（真机实证的跳变来源）。 */
-    @Test fun anchoredMorphNotifiesSkinAfterMovingContent() {
+    fun anchoredMorphNotifiesSkinAfterMovingContent() {
         val motion = LceMotionSource.read("ui/activity/IconAnchoredMotionController.kt")
         val frame = motion.after("content.translationX = frame.contentTranslationXPx").before("titleMotion?.apply(clamped)")
         assertTrue(frame.contains("onContentMoved()"))
@@ -56,11 +56,24 @@ class ModalSkinPositionContractTest {
      * 主窗口截图里。抑制会让每次开关弹窗整组失效两次，解除那次真机实测主页面一帧 37ms、弹窗被拖到 40ms。
      * 主窗口自己的滚动与二级页形变仍按原规则抑制。
      */
-    @Test fun dialogWindowMotionDoesNotSuppressMainWindowSampling() {
+    fun dialogWindowMotionDoesNotSuppressMainWindowSampling() {
         val liquid = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
         val flush = liquid.after("private fun flushSurfaceRefresh(").before("private fun isSurfacePotentiallyVisible(")
         assertTrue(flush.contains("if (originChanged && windowRoot === mainWindowRoot) surfaceMoved = true"))
         val register = liquid.after("internal fun registerSurfaceView(").before("footprint.update(bounds, radiusPx, originX, originY)")
         assertTrue(register.contains("view is LiquidMotionSurfaceFrameProvider && view.rootView === boundRoot?.rootView"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalSkinPositionContractTest) -> Unit) {
+            val s = ModalSkinPositionContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.defaultModalEntryNotifiesSkinEveryFrameAndAtTheEnd() }
+        runIsolated { s -> s.sharedExitAnimationNotifiesSkinEveryFrame() }
+        runIsolated { s -> s.predictiveBackScaleAndBounceNotifySkin() }
+        runIsolated { s -> s.anchoredMorphNotifiesSkinAfterMovingContent() }
+        runIsolated { s -> s.dialogWindowMotionDoesNotSuppressMainWindowSampling() }
     }
 }

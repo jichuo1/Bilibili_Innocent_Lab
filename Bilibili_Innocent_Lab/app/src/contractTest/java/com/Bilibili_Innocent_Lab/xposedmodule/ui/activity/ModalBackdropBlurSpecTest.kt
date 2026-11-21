@@ -13,7 +13,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 
 class ModalBackdropBlurSpecTest {
 
-    @Test fun rampEndpointsAreExactSoTheBackgroundNeverStaysBlurred() {
+    fun rampEndpointsAreExactSoTheBackgroundNeverStaysBlurred() {
         assertEquals(0f, ModalBackdropBlurSpec.fraction(0f), 0f)
         assertEquals(1f, ModalBackdropBlurSpec.fraction(0.65f), 0f)
         assertEquals(1f, ModalBackdropBlurSpec.fraction(1f), 0f)
@@ -23,7 +23,7 @@ class ModalBackdropBlurSpecTest {
         assertEquals(33, ModalBackdropBlurSpec.radiusPx(0.65f, 33))
     }
 
-    @Test fun theRampIsMonotonicBoundedAndSettlesBeforeThePanelLands() {
+    fun theRampIsMonotonicBoundedAndSettlesBeforeThePanelLands() {
         var previous = -1f
         for (step in -10..1010) {
             val value = ModalBackdropBlurSpec.fraction(step / 1000f)
@@ -36,7 +36,7 @@ class ModalBackdropBlurSpecTest {
         assertTrue(ModalBackdropBlurSpec.fraction(0.2f) < 0.4f)
     }
 
-    @Test fun invalidProgressIsClampedAndNanFallsBackToNoBlur() {
+    fun invalidProgressIsClampedAndNanFallsBackToNoBlur() {
         for (input in listOf(Float.NaN, Float.NEGATIVE_INFINITY, -100f)) {
             assertEquals(0f, ModalBackdropBlurSpec.fraction(input), 0f)
             assertEquals(0, ModalBackdropBlurSpec.radiusPx(input, 33))
@@ -57,7 +57,7 @@ class ModalBackdropBlurSpecTest {
      * 半径必须按台阶量化：改它要写 `WindowManager.LayoutParams`，
      * 那是一次 binder 往返 + 一次 relayout，逐帧写会抖。
      */
-    @Test fun radiusIsQuantizedSoTheWindowIsNotRelaidOutEveryFrame() {
+    fun radiusIsQuantizedSoTheWindowIsNotRelaidOutEveryFrame() {
         val max = 33
         val distinct = (0..1000).map { ModalBackdropBlurSpec.radiusPx(it / 1000f, max) }.distinct()
         assertTrue("too many window updates: $distinct", distinct.size <= 12)
@@ -86,7 +86,7 @@ class ModalBackdropBlurSpecTest {
      * **3.62% → 10.41%**、UI 线程 90 分位 9ms → 16ms（GPU 分位几乎不变，
      * 代价出在写 `LayoutParams` 触发的 `relayoutWindow`）。
      */
-    @Test fun theUserToggleDefaultsToOffAndIsTheFirstGate() {
+    fun theUserToggleDefaultsToOffAndIsTheFirstGate() {
         val store = File("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/settings/appearance/ModalBackdropBlurStore.kt")
             .takeIf(File::isFile)
             ?: File("app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/settings/appearance/ModalBackdropBlurStore.kt")
@@ -122,7 +122,7 @@ class ModalBackdropBlurSpecTest {
     }
 
     /** 四道门缺一不可，且只借平台的跨窗口模糊，不自绘也不截屏。 */
-    @Test fun blurIsGatedOnMaterialYouPlatformSupportAndSystemPermission() {
+    fun blurIsGatedOnMaterialYouPlatformSupportAndSystemPermission() {
         val code = source("ModalBackdropBlur")
         assertTrue(code.contains("!materialYouSkin) return null"))
         // 版本守卫必须写成 Build.VERSION.SDK_INT：lint 的 NewApi 只认得它，
@@ -152,7 +152,7 @@ class ModalBackdropBlurSpecTest {
     }
 
     /** Liquid 皮肤自己在做实时玻璃，不许再叠一层跨窗口模糊。 */
-    @Test fun theSkinGateIsWiredToMaterialYouOnly() {
+    fun theSkinGateIsWiredToMaterialYouOnly() {
         val skinned = source("../skin/activity/SkinnedActivity")
         assertTrue(skinned.contains("isMaterialYouSkinEffective"))
         assertTrue(skinned.contains("effectiveSkin != SkinId.LIQUID"))
@@ -177,5 +177,20 @@ class ModalBackdropBlurSpecTest {
     private fun source(name: String): String {
         val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/$name.kt"
         return LceMotionSource.read(path)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ModalBackdropBlurSpecTest) -> Unit) {
+            val s = ModalBackdropBlurSpecTest()
+            block(s)
+        }
+        runIsolated { s -> s.rampEndpointsAreExactSoTheBackgroundNeverStaysBlurred() }
+        runIsolated { s -> s.theRampIsMonotonicBoundedAndSettlesBeforeThePanelLands() }
+        runIsolated { s -> s.invalidProgressIsClampedAndNanFallsBackToNoBlur() }
+        runIsolated { s -> s.radiusIsQuantizedSoTheWindowIsNotRelaidOutEveryFrame() }
+        runIsolated { s -> s.theUserToggleDefaultsToOffAndIsTheFirstGate() }
+        runIsolated { s -> s.blurIsGatedOnMaterialYouPlatformSupportAndSystemPermission() }
+        runIsolated { s -> s.theSkinGateIsWiredToMaterialYouOnly() }
     }
 }

@@ -9,14 +9,12 @@ import java.nio.charset.StandardCharsets
 
 class SettingsBackupCodecTest {
 
-    @Test
     fun `round trip preserves the typed document`() {
         val document = sampleDocument()
         val decoded = SettingsBackupCodec.decode(SettingsBackupCodec.encodeToBytes(document))
         assertEquals(document.copy(settings = document.settings.sortedBy { it.id }), decoded)
     }
 
-    @Test
     fun `encoding is stable regardless of input setting order`() {
         val document = sampleDocument()
         val reversed = document.copy(settings = document.settings.reversed())
@@ -26,7 +24,6 @@ class SettingsBackupCodecTest {
         )
     }
 
-    @Test
     fun `tampering with a value fails integrity validation`() {
         val root = JSONObject(SettingsBackupCodec.encode(sampleDocument()))
         root.getJSONArray("settings").getJSONObject(0).put("value", false)
@@ -35,7 +32,6 @@ class SettingsBackupCodecTest {
         }
     }
 
-    @Test
     fun `wrong product and future format are rejected before import planning`() {
         val wrongProduct = JSONObject(SettingsBackupCodec.encode(sampleDocument()))
             .put("productId", "another-product")
@@ -50,7 +46,6 @@ class SettingsBackupCodecTest {
         }
     }
 
-    @Test
     fun `published v1 stays in the supported decoder dispatch`() {
         assertTrue(1 in SettingsBackupCodec.SUPPORTED_FORMAT_VERSIONS)
         assertEquals(1, SettingsBackupCodec.decode(
@@ -58,7 +53,6 @@ class SettingsBackupCodecTest {
         ).formatVersion)
     }
 
-    @Test
     fun `trailing data after a valid root is rejected`() {
         val withTrailingData = SettingsBackupCodec.encodeToBytes(sampleDocument()) +
             "\ntrailing-data".toByteArray(StandardCharsets.UTF_8)
@@ -67,7 +61,6 @@ class SettingsBackupCodecTest {
         }
     }
 
-    @Test
     fun `strict structure rejects unknown fields and record count mismatch`() {
         val unknown = JSONObject(SettingsBackupCodec.encode(sampleDocument())).put("extra", true)
         assertFormatError(BackupFormatError.INVALID_STRUCTURE) {
@@ -81,7 +74,6 @@ class SettingsBackupCodecTest {
         }
     }
 
-    @Test
     fun `strict value types reject strings floats and duplicates`() {
         val booleanAsString = JSONObject(SettingsBackupCodec.encode(sampleDocument()))
         booleanAsString.getJSONArray("settings").getJSONObject(0).put("value", "false")
@@ -103,7 +95,6 @@ class SettingsBackupCodecTest {
         }
     }
 
-    @Test
     fun `invalid utf8 oversized input and unpaired surrogate are rejected`() {
         assertFormatError(BackupFormatError.INVALID_UTF8) {
             SettingsBackupCodec.decode(byteArrayOf(0xC3.toByte(), 0x28))
@@ -119,7 +110,6 @@ class SettingsBackupCodecTest {
         }
     }
 
-    @Test
     fun `encoding refuses a document whose final utf8 file exceeds one mibibyte`() {
         val longText = "界".repeat(SettingSpec.DEFAULT_MAX_STRING_LENGTH)
         val records = (0 until 17).map { index ->
@@ -160,5 +150,23 @@ class SettingsBackupCodecTest {
         } catch (exception: SettingsBackupFormatException) {
             assertEquals(expected, exception.error)
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsBackupCodecTest) -> Unit) {
+            val s = SettingsBackupCodecTest()
+            block(s)
+        }
+        runIsolated { s -> s.`round trip preserves the typed document`() }
+        runIsolated { s -> s.`encoding is stable regardless of input setting order`() }
+        runIsolated { s -> s.`tampering with a value fails integrity validation`() }
+        runIsolated { s -> s.`wrong product and future format are rejected before import planning`() }
+        runIsolated { s -> s.`published v1 stays in the supported decoder dispatch`() }
+        runIsolated { s -> s.`trailing data after a valid root is rejected`() }
+        runIsolated { s -> s.`strict structure rejects unknown fields and record count mismatch`() }
+        runIsolated { s -> s.`strict value types reject strings floats and duplicates`() }
+        runIsolated { s -> s.`invalid utf8 oversized input and unpaired surrogate are rejected`() }
+        runIsolated { s -> s.`encoding refuses a document whose final utf8 file exceeds one mibibyte`() }
     }
 }

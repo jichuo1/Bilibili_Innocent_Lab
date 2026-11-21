@@ -42,7 +42,7 @@ class CommentPerformanceOptimizationTest {
         failed: (Throwable) -> Unit = {}, codec: KotlinMossReplyBridge = bridge(counts), transform: (Any) -> Any): Handler =
         KotlinMossResponseHandlerProxy.wrap(Handler::class.java, delegate, key, codec, failed, transform) as Handler
 
-    @Test fun unchangedLayersShareOneMirrorInOriginalWrappingOrder() {
+    fun unchangedLayersShareOneMirrorInOriginalWrappingOrder() {
         val counts = Counts(); val sink = Sink(); val order = mutableListOf<Int>(); val mirrors = mutableListOf<Any>()
         var handler: Handler = sink
         for (i in 1..3) handler = wrap(handler, counts) { order += i; mirrors += it; it }
@@ -54,7 +54,7 @@ class CommentPerformanceOptimizationTest {
         assertTrue(mirrors.all { it === mirrors.first() })
     }
 
-    @Test fun changedStageIsWrittenAndNormalizedBeforeTheNextStage() {
+    fun changedStageIsWrittenAndNormalizedBeforeTheNextStage() {
         val counts = Counts(); val sink = Sink(); var seen = ""
         val inner = wrap(sink, counts) { seen = (it as J).text; it }
         val outer = wrap(inner, counts) { J("NORMALIZED") }
@@ -64,7 +64,7 @@ class CommentPerformanceOptimizationTest {
         assertEquals(2, counts.reads); assertEquals(1, counts.writes)
     }
 
-    @Test fun aFailingTransformOrWriteDoesNotDisableTheOtherStages() {
+    fun aFailingTransformOrWriteDoesNotDisableTheOtherStages() {
         for (failWrite in listOf(false, true)) {
             val counts = Counts(); val sink = Sink(); var errors = 0
             val inner = wrap(sink, counts) { J((it as J).text + "|kept") }
@@ -78,7 +78,7 @@ class CommentPerformanceOptimizationTest {
         }
     }
 
-    @Test fun failedReadCanBeRetriedByTheNextIndependentStage() {
+    fun failedReadCanBeRetriedByTheNextIndependentStage() {
         val counts = Counts(); val sink = Sink(); var errors = 0
         val inner = wrap(sink, counts) { J((it as J).text + "|ok") }
         val outer = wrap(inner, counts, failed = { errors++ }, codec = bridge(counts, failRead = true)) { it }
@@ -87,7 +87,7 @@ class CommentPerformanceOptimizationTest {
         assertEquals(1, errors); assertEquals(2, counts.reads)
     }
 
-    @Test fun differentCodecIdentityAndDifferentCallbacksCannotShareMirrors() {
+    fun differentCodecIdentityAndDifferentCallbacksCannotShareMirrors() {
         val counts = Counts(); val sink = Sink()
         val inner = wrap(sink, counts) { it }
         val outer = wrap(inner, counts, key = key(Any())) { it }
@@ -99,7 +99,7 @@ class CommentPerformanceOptimizationTest {
         assertEquals(2, counts.reads - before)
     }
 
-    @Test fun anOpaqueProxyBetweenFeaturesKeepsItsOriginalPosition() {
+    fun anOpaqueProxyBetweenFeaturesKeepsItsOriginalPosition() {
         val counts = Counts(); val sink = Sink(); val order = mutableListOf<String>()
         val inner = wrap(sink, counts) { order += "inner"; it }
         val opaque = MossResponseHandlerProxy.wrapTransform(Handler::class.java, inner) { order += "opaque"; it } as Handler
@@ -109,7 +109,7 @@ class CommentPerformanceOptimizationTest {
         assertEquals(2, counts.reads)
     }
 
-    @Test fun otherCallbacksAndHostExceptionsRemainTransparent() {
+    fun otherCallbacksAndHostExceptionsRemainTransparent() {
         val counts = Counts(); val sink = Sink(); val handler = wrap(wrap(sink, counts) { it }, counts) { it }
         val failure = IllegalStateException("host")
         handler.onError(failure); handler.onCompleted(); handler.onNext(null)
@@ -120,7 +120,7 @@ class CommentPerformanceOptimizationTest {
         assertSame(failure, assertThrows(IllegalStateException::class.java) { proxy.onNext(K("body")) })
     }
 
-    @Test fun reentrantHostDeliveryStartsItsOwnMirrorAndKeepsTheInFlightPlan() {
+    fun reentrantHostDeliveryStartsItsOwnMirrorAndKeepsTheInFlightPlan() {
         val counts = Counts(); var once = false; lateinit var handler: Handler
         val delivered = mutableListOf<String>()
         val sink = object : Handler by Sink() {
@@ -137,7 +137,7 @@ class CommentPerformanceOptimizationTest {
 
     private class Serializer : SerializationStrategy<Any>, DeserializationStrategy<Any>
 
-    @Test fun actualChannelHooksShareTheSameResponseMirrorAndKeepRequestProcessing() {
+    fun actualChannelHooksShareTheSameResponseMirrorAndKeepRequestProcessing() {
         val loader = javaClass.classLoader!!
         val registrar = PlayerPortTestRegistrar()
         val environment = HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), registrar,
@@ -165,7 +165,7 @@ class CommentPerformanceOptimizationTest {
         assertEquals(3, requestSeen.size) // Request stages retain independent conversions and failure boundaries.
     }
 
-    @Test fun visitorMatchesPostorderForListsAndBothSingleSlotsWithoutMutation() {
+    fun visitorMatchesPostorderForListsAndBothSingleSlotsWithoutMutation() {
         val root = ReplyInfo.of("root", ReplyInfo.of("child", ReplyInfo.of("grandchild")))
         val page = MainListReply(listOf(root), ReplyInfo.of("top"), ReplyInfo.of("detail"))
         val expected = mutableListOf<String>(); val actual = mutableListOf<String>()
@@ -178,7 +178,7 @@ class CommentPerformanceOptimizationTest {
         assertEquals(1, page.repliesList.size); assertTrue(page.hasRoot()); assertTrue(page.hasUpTop())
     }
 
-    @Test fun visitorPreservesTheDepthBoundaryAndAlwaysReleasesRawScope() {
+    fun visitorPreservesTheDepthBoundaryAndAlwaysReleasesRawScope() {
         val page = MainListReply(listOf(ReplyInfo.of("a", ReplyInfo.of("b", ReplyInfo.of("c", ReplyInfo.of("d"))))), null, null)
         val seen = mutableListOf<String>()
         ProtobufReplyTreeVisitor(ReplyInfo::class.java) { seen += (it as ReplyInfo).text }.visit(page)
@@ -196,11 +196,31 @@ class CommentPerformanceOptimizationTest {
         fun getOtherList() = listOf("unrelated")
     }
 
-    @Test fun visitorReadsRawListsAndSinglesWithoutRequiringBuilders() {
+    fun visitorReadsRawListsAndSinglesWithoutRequiringBuilders() {
         val seen = mutableListOf<String>()
         val envelope = ReadOnlyEnvelope(listOf(ReplyInfo.of("a")), ReplyInfo.of("root"))
         ProtobufReplyTreeVisitor(ReplyInfo::class.java) { seen += (it as ReplyInfo).text }.visit(envelope)
         assertEquals(listOf("a", "root").sorted(), seen.sorted())
         assertFalse(KotlinMossChannel.isRaw())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentPerformanceOptimizationTest) -> Unit) {
+            val s = CommentPerformanceOptimizationTest()
+            block(s)
+        }
+        runIsolated { s -> s.unchangedLayersShareOneMirrorInOriginalWrappingOrder() }
+        runIsolated { s -> s.changedStageIsWrittenAndNormalizedBeforeTheNextStage() }
+        runIsolated { s -> s.aFailingTransformOrWriteDoesNotDisableTheOtherStages() }
+        runIsolated { s -> s.failedReadCanBeRetriedByTheNextIndependentStage() }
+        runIsolated { s -> s.differentCodecIdentityAndDifferentCallbacksCannotShareMirrors() }
+        runIsolated { s -> s.anOpaqueProxyBetweenFeaturesKeepsItsOriginalPosition() }
+        runIsolated { s -> s.otherCallbacksAndHostExceptionsRemainTransparent() }
+        runIsolated { s -> s.reentrantHostDeliveryStartsItsOwnMirrorAndKeepsTheInFlightPlan() }
+        runIsolated { s -> s.actualChannelHooksShareTheSameResponseMirrorAndKeepRequestProcessing() }
+        runIsolated { s -> s.visitorMatchesPostorderForListsAndBothSingleSlotsWithoutMutation() }
+        runIsolated { s -> s.visitorPreservesTheDepthBoundaryAndAlwaysReleasesRawScope() }
+        runIsolated { s -> s.visitorReadsRawListsAndSinglesWithoutRequiringBuilders() }
     }
 }

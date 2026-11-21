@@ -9,7 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
 class LiquidCaptureRequestStateTest {
-    @Test fun oldSuccessAndFailureAfterStopResumeCannotPublishOrTouchFailureCounters() {
+    fun oldSuccessAndFailureAfterStopResumeCannotPublishOrTouchFailureCounters() {
         for (success in listOf(true, false)) {
             val state = LiquidCaptureRequestState()
             val old = state.begin()!!
@@ -26,7 +26,7 @@ class LiquidCaptureRequestStateTest {
         }
     }
 
-    @Test fun resizeReleaseAndCloseInvalidateButDoNotUnlockTheNativeWriteEarly() {
+    fun resizeReleaseAndCloseInvalidateButDoNotUnlockTheNativeWriteEarly() {
         val state = LiquidCaptureRequestState()
         val pending = state.begin()!!
         repeat(3) { state.invalidate(); assertNull(state.begin()) }
@@ -34,7 +34,7 @@ class LiquidCaptureRequestStateTest {
         assertNotNull(state.begin())
     }
 
-    @Test fun duplicateOldCallbackCannotClearANewerNativeRequest() {
+    fun duplicateOldCallbackCannotClearANewerNativeRequest() {
         val state = LiquidCaptureRequestState()
         val first = state.begin()!!
         assertEquals(LiquidCaptureRequestState.Completion.CURRENT, state.complete(first))
@@ -46,7 +46,7 @@ class LiquidCaptureRequestStateTest {
 
     // 2026-09-20：回弹边界环移除后，请求不再携带边界 retirement 列表，
     // 断言从 MaskAndRetirements 收窄为 Mask。
-    @Test fun productionCallbackOwnsItsSourceRootSizeAndMask() {
+    fun productionCallbackOwnsItsSourceRootSizeAndMask() {
         val relative = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/liquid/LiquidActivityRenderer.kt"
         val source = SourceContract.read(relative)
         val callback = source.after("private fun handleRealtimeCaptureResult(").before("private fun applyCaptureThroughputSample")
@@ -66,5 +66,17 @@ class LiquidCaptureRequestStateTest {
         val close = source.after("override fun close()")
         assertTrue(close.contains("captureRequests.invalidate()"))
         assertFalse(close.contains("realtimeCaptureInFlight = null"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidCaptureRequestStateTest) -> Unit) {
+            val s = LiquidCaptureRequestStateTest()
+            block(s)
+        }
+        runIsolated { s -> s.oldSuccessAndFailureAfterStopResumeCannotPublishOrTouchFailureCounters() }
+        runIsolated { s -> s.resizeReleaseAndCloseInvalidateButDoNotUnlockTheNativeWriteEarly() }
+        runIsolated { s -> s.duplicateOldCallbackCannotClearANewerNativeRequest() }
+        runIsolated { s -> s.productionCallbackOwnsItsSourceRootSizeAndMask() }
     }
 }

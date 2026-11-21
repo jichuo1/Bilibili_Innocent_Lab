@@ -14,14 +14,12 @@ class BiliAccessKeyProbeTest {
         BiliAccessKeyProbe.resolve(javaClass.classLoader!!, "aistub.accounts.BiliAccounts", "aistub.accounts.AccessToken")
     )
 
-    @After
     fun tearDown() {
         BiliAccounts.current = null
         com.bilibili.lib.accounts.BiliAccounts.current = null
         com.bilibili.lib.accounts.BiliAccounts.fail = false
     }
 
-    @Test
     fun `production locators use the public service return contract instead of its model`() {
         com.bilibili.lib.accounts.BiliAccounts.fail = false
         val hostProbe = checkNotNull(BiliAccessKeyProbe.resolve(javaClass.classLoader!!))
@@ -35,7 +33,6 @@ class BiliAccessKeyProbeTest {
         assertEquals(BiliAccessKeyState.EXPIRED, hostProbe.state(null))
     }
 
-    @Test
     fun `classification follows the host token checks`() {
         assertEquals(BiliAccessKeyState.READY, BiliAccessKeyProbe.classify(hasKey = true, valid = true, expired = false))
         assertEquals(BiliAccessKeyState.EXPIRED, BiliAccessKeyProbe.classify(hasKey = true, valid = true, expired = true))
@@ -43,7 +40,6 @@ class BiliAccessKeyProbeTest {
         assertEquals(BiliAccessKeyState.NOT_LOGGED_IN, BiliAccessKeyProbe.classify(hasKey = false, valid = true, expired = false))
     }
 
-    @Test
     fun `state is read through the host account objects`() {
         assertEquals(BiliAccessKeyState.NOT_LOGGED_IN, probe.state(null))
         BiliAccounts.current = AccessToken("token", true, false)
@@ -55,7 +51,6 @@ class BiliAccessKeyProbeTest {
     }
 
     /** 只有状态码能离开探测层：状态码里不含令牌原文。 */
-    @Test
     fun `state codes never carry the token`() {
         BiliAccounts.current = AccessToken("secret-token-value", true, false)
         val code = probe.state(null).code
@@ -63,15 +58,31 @@ class BiliAccessKeyProbeTest {
         assertTrue(BiliAccessKeyState.entries.all { it.code.matches(Regex("[a-z_]+")) })
     }
 
-    @Test
     fun `missing host classes disable the probe`() {
         assertNull(BiliAccessKeyProbe.resolve(javaClass.classLoader!!, "aistub.accounts.Missing", "aistub.accounts.AccessToken"))
     }
 
-    @Test
     fun `recommendation precheck requires the access key authorization`() {
         assertTrue(AiDeclaredVideoPolicy.effectivePrecheck(precheck = true, accessKeyAuthorized = true))
         assertFalse(AiDeclaredVideoPolicy.effectivePrecheck(precheck = true, accessKeyAuthorized = false))
         assertFalse(AiDeclaredVideoPolicy.effectivePrecheck(precheck = false, accessKeyAuthorized = true))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (BiliAccessKeyProbeTest) -> Unit) {
+            val s = BiliAccessKeyProbeTest()
+            try {
+                block(s)
+            } finally {
+                s.tearDown()
+            }
+        }
+        runIsolated { s -> s.`production locators use the public service return contract instead of its model`() }
+        runIsolated { s -> s.`classification follows the host token checks`() }
+        runIsolated { s -> s.`state is read through the host account objects`() }
+        runIsolated { s -> s.`state codes never carry the token`() }
+        runIsolated { s -> s.`missing host classes disable the probe`() }
+        runIsolated { s -> s.`recommendation precheck requires the access key authorization`() }
     }
 }

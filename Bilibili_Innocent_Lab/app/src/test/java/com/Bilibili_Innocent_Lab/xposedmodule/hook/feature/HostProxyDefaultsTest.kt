@@ -14,7 +14,6 @@ class HostProxyDefaultsTest {
         fun label(): String?
     }
 
-    @Test
     fun `primitive return types get zero values and references get null`() {
         assertEquals(false, hostProxyDefaultValue(java.lang.Boolean.TYPE))
         assertEquals(0.toByte(), hostProxyDefaultValue(java.lang.Byte.TYPE))
@@ -29,7 +28,6 @@ class HostProxyDefaultsTest {
     }
 
     /** 代理对未处理的方法返回 null 时，基本类型返回值会在调用方抛 NPE；用零值就不会。 */
-    @Test
     fun `proxy answering unknown methods with defaults never throws at the call site`() {
         val listener = Proxy.newProxyInstance(javaClass.classLoader, arrayOf(Listener::class.java)) { _, method, _ ->
             hostProxyDefaultValue(method.returnType)
@@ -39,5 +37,15 @@ class HostProxyDefaultsTest {
         assertEquals(0, listener.priority())
         assertEquals(0L, listener.id())
         assertNull(listener.label())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostProxyDefaultsTest) -> Unit) {
+            val s = HostProxyDefaultsTest()
+            block(s)
+        }
+        runIsolated { s -> s.`primitive return types get zero values and references get null`() }
+        runIsolated { s -> s.`proxy answering unknown methods with defaults never throws at the call site`() }
     }
 }

@@ -25,7 +25,7 @@ class SponsorStoryAccessTest {
     private fun detail(aid: Long, cid: Long, bvid: String = "", ugc: Boolean = true, playable: Boolean = true,
         ad: Boolean = false, adInfo: Any? = null) = StoryDetail().also { it.setIdentity(aid, cid, bvid, ugc, playable, ad, adInfo) }
 
-    @Test fun everyStoryRoleResolvesDirectlyFromStableNamesAndTypes() {
+    fun everyStoryRoleResolvesDirectlyFromStableNamesAndTypes() {
         val access = requireNotNull(SponsorStoryAccess.resolve(loader))
         assertEquals(SponsorStoryAccess.PLAYER, access.onCreate.declaringClass.name)
         assertEquals("onCreate", access.onCreate.name)
@@ -36,7 +36,7 @@ class SponsorStoryAccessTest {
         assertEquals(SponsorCoreApi.CORE_CLASS, access.core.core.name)
     }
 
-    @Test fun cursorPlayableIsReadWithItsIdentityAndAdmissionFlags() {
+    fun cursorPlayableIsReadWithItsIdentityAndAdmissionFlags() {
         val access = requireNotNull(SponsorStoryAccess.resolve(loader))
         val owner = StoryPlayer()
         assertNull(access.playable(owner))
@@ -48,7 +48,7 @@ class SponsorStoryAccessTest {
         assertNull(access.playable(owner))
     }
 
-    @Test fun loadedMediaIdAndNumbersComeFromTheRawCore() {
+    fun loadedMediaIdAndNumbersComeFromTheRawCore() {
         val access = requireNotNull(SponsorStoryAccess.resolve(loader))
         val core = object : IPlayerCoreService {
             override fun getCurrentMediaItem() = MediaItem("p1")
@@ -64,7 +64,7 @@ class SponsorStoryAccessTest {
         assertNull(access.core.loadedId(empty))
     }
 
-    @Test fun pagerItemSnapshotCarriesEveryAdmissionFieldAndOnlyPagersOfThePlayerCount() {
+    fun pagerItemSnapshotCarriesEveryAdmissionFieldAndOnlyPagersOfThePlayerCount() {
         val access = requireNotNull(SponsorStoryAccess.resolve(loader))
         val owner = StoryPlayer()
         val pager = StoryPagerPlayer("video").also { it.bind(owner, detail(7, 9, "BV1xx", adInfo = Any())) }
@@ -77,19 +77,19 @@ class SponsorStoryAccessTest {
             access.detail(pager))
     }
 
-    @Test fun placeholderOrUnreadablePagerPagesProduceNoSnapshot() {
+    fun placeholderOrUnreadablePagerPagesProduceNoSnapshot() {
         val access = requireNotNull(SponsorStoryAccess.resolve(loader))
         assertNull(access.detail(StoryPagerPlayer("video").also { it.bind(StoryPlayer(), null) }))
         assertNull(access.detail(Any()))
     }
 
-    @Test fun withoutAnyPageOrLifecycleSourceNoActivityIsInvented() {
+    fun withoutAnyPageOrLifecycleSourceNoActivityIsInvented() {
         val access = requireNotNull(SponsorStoryAccess.resolve(loader))
         assertNull(access.activityOf(StoryPlayer(), null))
         assertNull(access.activityOf(StoryPlayer(), Any()))
     }
 
-    @Test fun missingAnyRequiredHostBoundaryDisablesTheFeature() {
+    fun missingAnyRequiredHostBoundaryDisablesTheFeature() {
         val required = listOf(SponsorStoryAccess.PLAYER, SponsorStoryAccess.PAGER, SponsorStoryAccess.DETAIL,
             SponsorStoryAccess.ACTIVITY, SponsorStoryAccess.PLAYABLE, SponsorStoryAccess.DISPLAY,
             SponsorStoryAccess.BIZ_TYPE, SponsorCoreApi.CORE_CLASS, SponsorCoreApi.MEDIA_ITEM_CLASS,
@@ -106,5 +106,20 @@ class SponsorStoryAccessTest {
             }
             assertNull(missing, SponsorStoryAccess.resolve(incomplete))
         }
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorStoryAccessTest) -> Unit) {
+            val s = SponsorStoryAccessTest()
+            block(s)
+        }
+        runIsolated { s -> s.everyStoryRoleResolvesDirectlyFromStableNamesAndTypes() }
+        runIsolated { s -> s.cursorPlayableIsReadWithItsIdentityAndAdmissionFlags() }
+        runIsolated { s -> s.loadedMediaIdAndNumbersComeFromTheRawCore() }
+        runIsolated { s -> s.pagerItemSnapshotCarriesEveryAdmissionFieldAndOnlyPagersOfThePlayerCount() }
+        runIsolated { s -> s.placeholderOrUnreadablePagerPagesProduceNoSnapshot() }
+        runIsolated { s -> s.withoutAnyPageOrLifecycleSourceNoActivityIsInvented() }
+        runIsolated { s -> s.missingAnyRequiredHostBoundaryDisablesTheFeature() }
     }
 }

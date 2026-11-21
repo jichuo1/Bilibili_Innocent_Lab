@@ -17,7 +17,7 @@ class CommentFishFilterContractTest {
     private val policy = SourceContract.read("hook/feature/FishScorePolicy.kt")
     private val echo = SourceContract.read("hook/feature/FishRootEcho.kt")
 
-    @Test fun fishJudgementReusesTheSharedCommentHooks() {
+    fun fishJudgementReusesTheSharedCommentHooks() {
         // 视频资料来自独立的详情观察点，评论仍由同一批列表、置顶 getter 和 Kotlin 通道处理。
         assertFalse(installer.contains("comment.fish"))
         assertFalse(installer.contains("fish.list"))
@@ -26,7 +26,7 @@ class CommentFishFilterContractTest {
         assertTrue(installer.contains("installKotlinChannel(environment, accessors, plan, videoIdentity, peerSource)"))
     }
 
-    @Test fun javaAndKotlinChannelsShareOneDecisionThatKeepsTheDearestCriterionLast() {
+    fun javaAndKotlinChannelsShareOneDecisionThatKeepsTheDearestCriterionLast() {
         // 单一判定入口：AI 打分只在 shouldRemove 里调用一次，Java 与 Kotlin 两条通道都经过它。
         assertEquals(1, Regex("FishScorePolicy\\.shouldRemove\\(").findAll(installer).count())
         val decision = installer.after("internal fun shouldRemove(\n            signals: Signals,\n            plan: JudgementPlan")
@@ -43,7 +43,7 @@ class CommentFishFilterContractTest {
         assertTrue(list.contains("if (plan.fish != null) {"))
     }
 
-    @Test fun signalsAreReadOnlyForTheCriteriaThatNeedThem() {
+    fun signalsAreReadOnlyForTheCriteriaThatNeedThem() {
         val read = installer.after("private fun readSignals(").before("先读计数")
         assertTrue(read.contains("val needAuthor = !plan.userRules.isEmpty() || fish != null"))
         // UID 用于作者规则、白名单和已有的账号资料。
@@ -52,13 +52,13 @@ class CommentFishFilterContractTest {
         assertTrue(installer.contains("fish.whitelist.available(accessors.hasAuthorNamePath, accessors.hasAuthorMidPath) == fish.whitelist"))
     }
 
-    @Test fun capabilityCoverageCountsTheCriterionWhenEnabledButUnreadable() {
+    fun capabilityCoverageCountsTheCriterionWhenEnabledButUnreadable() {
         assertTrue(installer.contains("if (fishPlan != null) add(\"comments_fish_filter_enabled\")"))
         assertTrue(installer.contains("\"comments_fish_filter_enabled\" -> plan.fish != null && accessors.hasMessagePath &&"))
         assertTrue(installer.contains("else degraded += \"fish\""))
     }
 
-    @Test fun scorerHotPathCompilesNoRegexAndTouchesNoConfigDiskOrNetwork() {
+    fun scorerHotPathCompilesNoRegexAndTouchesNoConfigDiskOrNetwork() {
         // 规则在类加载时预编译一次；打分函数里不许再出现 Regex(。
         val hot = policy.after("fun shouldRemove(")
         assertFalse(hot.contains("Regex("))
@@ -78,7 +78,7 @@ class CommentFishFilterContractTest {
         assertFalse(thread.containsMatchIn(echo))
     }
 
-    @Test fun rootEchoReusesTheOwnerOfTheListAndAddsNoHookPoint() {
+    fun rootEchoReusesTheOwnerOfTheListAndAddsNoHookPoint() {
         // 主评论 = 装着这批回复的那条消息：Java 钩子取接收者，Kotlin 通道由重写器交出 owner。
         val list = installer.after("environment.registrar.adapted(\"comment.filter.list.\$index\", point)")
             .before("environment.registrar.adapted(\"comment.filter.top.\$index\"")
@@ -94,7 +94,7 @@ class CommentFishFilterContractTest {
         assertTrue(list.contains("if (plan.fish != null) {"))
     }
 
-    @Test fun echoIsComputedLastWithinReachOfTheThresholdAndSharesOneCap() {
+    fun echoIsComputedLastWithinReachOfTheThresholdAndSharesOneCap() {
         // 复述是最贵也最弱的一项：只在其余分数差一点时才读主评论、建索引，且最多 24 分。
         assertEquals(1, Regex("FishRootEcho\\.points\\(").findAll(policy).count())
         assertTrue(policy.contains("total < plan.threshold && total + FishRootEcho.MAX_POINTS >= plan.threshold"))
@@ -107,7 +107,7 @@ class CommentFishFilterContractTest {
         assertTrue(24 + 14 < strictThreshold)
     }
 
-    @Test fun matchingBoundariesDoNotDependOnTheRegexEnginesUnicodeWordClass() {
+    fun matchingBoundariesDoNotDependOnTheRegexEnginesUnicodeWordClass() {
         // JS 的 \b 只认 ASCII；Android 的 ICU 引擎会把汉字算单词字符。统一用显式断言，不写裸 \b。
         assertFalse(policy.contains("\\\\b"))
         assertTrue(policy.contains("(?<![a-z0-9_])"))
@@ -115,7 +115,7 @@ class CommentFishFilterContractTest {
         assertFalse(Regex("\\([^)]*[*+]\\)[*+]").containsMatchIn(policy))
     }
 
-    @Test fun settingsReachTheInstallerThroughThePrefsKeysOnly() {
+    fun settingsReachTheInstallerThroughThePrefsKeysOnly() {
         val entry = SourceContract.read("hook/HookEntry.kt")
         val wiring = entry.after("fishFilter = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FishScorePolicy.Config(")
             .before("featureInstallCoordinator.installAll")
@@ -129,7 +129,7 @@ class CommentFishFilterContractTest {
         assertTrue(wiring.contains("FeaturePreferences.COMMENT_FISH_STRONG_MODE, false"))
     }
 
-    @Test fun settingsPageDoesNotWriteTheModeledSwitchesDirectly() {
+    fun settingsPageDoesNotWriteTheModeledSwitchesDirectly() {
         val ui = SourceContract.read("ui/activity/CommentFishFilterPresenter.kt")
         assertTrue(ui.contains("applyModeledToggle(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, checked, button)"))
         assertTrue(ui.contains("applyModeledToggle(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, checked, button)"))
@@ -137,7 +137,7 @@ class CommentFishFilterContractTest {
         assertFalse(ui.contains("putBoolean("))
     }
 
-    @Test fun modalSettingsSaveBeforeCheckingTheOriginalViewBinding() {
+    fun modalSettingsSaveBeforeCheckingTheOriginalViewBinding() {
         val action = SourceContract.read("ui/meguviz/SettingsScope.kt")
             .after("fun textViewAction(")
             .before("fun imageView(")
@@ -152,5 +152,24 @@ class CommentFishFilterContractTest {
         assertTrue(save.contains("mirror(value)"))
         assertTrue(save.contains("writeFishText(preferenceKey, value)"))
         assertTrue(row.contains("if (token.isCurrent()) ref.get().text = summary(value)"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentFishFilterContractTest) -> Unit) {
+            val s = CommentFishFilterContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.fishJudgementReusesTheSharedCommentHooks() }
+        runIsolated { s -> s.javaAndKotlinChannelsShareOneDecisionThatKeepsTheDearestCriterionLast() }
+        runIsolated { s -> s.signalsAreReadOnlyForTheCriteriaThatNeedThem() }
+        runIsolated { s -> s.capabilityCoverageCountsTheCriterionWhenEnabledButUnreadable() }
+        runIsolated { s -> s.scorerHotPathCompilesNoRegexAndTouchesNoConfigDiskOrNetwork() }
+        runIsolated { s -> s.rootEchoReusesTheOwnerOfTheListAndAddsNoHookPoint() }
+        runIsolated { s -> s.echoIsComputedLastWithinReachOfTheThresholdAndSharesOneCap() }
+        runIsolated { s -> s.matchingBoundariesDoNotDependOnTheRegexEnginesUnicodeWordClass() }
+        runIsolated { s -> s.settingsReachTheInstallerThroughThePrefsKeysOnly() }
+        runIsolated { s -> s.settingsPageDoesNotWriteTheModeledSwitchesDirectly() }
+        runIsolated { s -> s.modalSettingsSaveBeforeCheckingTheOriginalViewBinding() }
     }
 }

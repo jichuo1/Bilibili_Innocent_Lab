@@ -12,7 +12,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TelemetryPayloadCodecTest {
-    @Test
     fun parentStatusIsDerivedConservativelyWithoutCountingUnknownAsSuccess() {
         assertEquals("partial", TelemetryPayloadCodec.groupState("installed", listOf("installed", "missing")))
         assertEquals("unknown", TelemetryPayloadCodec.groupState("installed", listOf("installed", "unknown")))
@@ -22,7 +21,6 @@ class TelemetryPayloadCodecTest {
         assertEquals("unknown", TelemetryPayloadCodec.groupState("installed", emptyList()))
     }
 
-    @Test
     fun deviceAndServiceVersionAreExplicitAndStaleServiceMetadataIsNotReused() {
         val input = inputs(hostRuntimeReceiptAvailable = true).copy(
             frameworkConnected = true, frameworkApiVersion = 102,
@@ -51,7 +49,6 @@ class TelemetryPayloadCodecTest {
         assertEquals(0, disconnected.getInt("framework_version_code"))
     }
 
-    @Test
     fun `payload is a bounded whitelist and omits disabled preference evidence`() {
         val snapshot = ModuleHealthEvaluator.evaluate(
             inputs(
@@ -158,7 +155,6 @@ class TelemetryPayloadCodecTest {
         assertFalse(serialized.contains("DISABLED"))
     }
 
-    @Test
     fun `framework names are reduced to a bounded server enum`() {
         assertEquals("lsposed", TelemetryPayloadCodec.frameworkCode("LSPosed"))
         assertEquals("vector", TelemetryPayloadCodec.frameworkCode("Vector"))
@@ -167,7 +163,6 @@ class TelemetryPayloadCodecTest {
         assertEquals("unknown", TelemetryPayloadCodec.frameworkCode("private build 123"))
     }
 
-    @Test
     fun `debug and production endpoints are compile-time fixed HTTPS hosts`() {
         assertEquals(
             "https://telemetry-staging.bilibili.date",
@@ -177,5 +172,18 @@ class TelemetryPayloadCodecTest {
             "https://telemetry.bilibili.date",
             TelemetryEndpoint.baseUrl(debug = false)
         )
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TelemetryPayloadCodecTest) -> Unit) {
+            val s = TelemetryPayloadCodecTest()
+            block(s)
+        }
+        runIsolated { s -> s.parentStatusIsDerivedConservativelyWithoutCountingUnknownAsSuccess() }
+        runIsolated { s -> s.deviceAndServiceVersionAreExplicitAndStaleServiceMetadataIsNotReused() }
+        runIsolated { s -> s.`payload is a bounded whitelist and omits disabled preference evidence`() }
+        runIsolated { s -> s.`framework names are reduced to a bounded server enum`() }
+        runIsolated { s -> s.`debug and production endpoints are compile-time fixed HTTPS hosts`() }
     }
 }

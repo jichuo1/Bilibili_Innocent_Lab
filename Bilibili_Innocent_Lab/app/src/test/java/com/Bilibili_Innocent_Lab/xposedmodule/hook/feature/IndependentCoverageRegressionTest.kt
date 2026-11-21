@@ -12,7 +12,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class IndependentCoverageRegressionTest {
-    @Test fun `Banner parent and leaf remain partial if one lifecycle hook fails`() {
+    fun `Banner parent and leaf remain partial if one lifecycle hook fails`() {
         val point = VersionAdapter.BannerPoint("android.view.View", listOf(
             VersionAdapter.HookPoint("android.view.View", "onAttachedToWindow", emptyList()),
             VersionAdapter.HookPoint("android.view.View", "onVisibilityChanged", emptyList())))
@@ -46,7 +46,7 @@ class IndependentCoverageRegressionTest {
     private val env = HookEnvironment("tv.danmaku.bili", javaClass.classLoader, HookPointRegistry(javaClass.classLoader),
         registrar, { _, _ -> }, { _, _ -> }, { _, s -> status = s })
 
-    @Test fun `default words sync and async both clear text without touching routes`() {
+    fun `default words sync and async both clear text without touching routes`() {
         HomeTopBarFeatureInstaller(false, true, null).install(env)
         assertTrue(recorded.hooks.keys.any { it.endsWith("search_default_words.false") })
         assertTrue(recorded.hooks.keys.any { it.endsWith("search_default_words.true") })
@@ -66,7 +66,7 @@ class IndependentCoverageRegressionTest {
         assertEquals("", (delivered as DefaultWordsReply).getWord())
     }
 
-    @Test fun `default word copy failure and empty text preserve original identity`() {
+    fun `default word copy failure and empty text preserve original identity`() {
         val cleaner = requireNotNull(SearchDefaultWordsCleaner.resolve(DefaultWordsReply::class.java))
         val original = DefaultWordsReply("show", "word", "value", failAt = "word")
         assertSame(original, cleaner.clean(original, env)); assertEquals("show", original.getShow())
@@ -74,7 +74,7 @@ class IndependentCoverageRegressionTest {
         assertSame(empty, cleaner.clean(empty, env))
     }
 
-    @Test fun `comment author filter survives missing content and message paths`() {
+    fun `comment author filter survives missing content and message paths`() {
         val base = requireNotNull(VersionAdapter.locateCommentFilter(javaClass.classLoader!!))
         val points = base.copy(contentGetter = null, messageGetter = null)
         val installer = CommentFilterFeatureInstaller(true, "word", false, 3, userFilterEnabled = true, rawUserRules = "member", points = points)
@@ -86,14 +86,14 @@ class IndependentCoverageRegressionTest {
         assertEquals(points, VersionAdapter.CommentFilterPoints.fromJson(points.toJson()))
     }
 
-    @Test fun `comment keywords survive missing both level paths`() {
+    fun `comment keywords survive missing both level paths`() {
         val points = requireNotNull(VersionAdapter.locateCommentFilter(javaClass.classLoader!!)).copy(levelGetter = null, memberV2LevelGetter = null)
         CommentFilterFeatureInstaller(true, "unchanged", true, 3, points = points).install(env)
         assertTrue(status.startsWith("partial:"))
         assertTrue((recorded.invoke("comment.filter.list.0") { listOf(ReplyInfo()) } as List<*>).isEmpty())
     }
 
-    @Test fun `search title and ordinary ad remain active without author and special getters`() {
+    fun `search title and ordinary ad remain active without author and special getters`() {
         SearchPurifyFeatureInstaller(true, true, "blocked", true, "author").install(env)
         assertTrue(status.startsWith("partial:"))
         val keep = Item(false, SearchAv("normal"))
@@ -102,7 +102,7 @@ class IndependentCoverageRegressionTest {
         assertEquals(listOf(keep), result); assertEquals(3, source.size)
     }
 
-    @Test fun `category search reuses judgments without mutating its original list`() {
+    fun `category search reuses judgments without mutating its original list`() {
         SearchPurifyFeatureInstaller(true, true, "blocked", false, "").install(env)
         val keep = Item(false, SearchAv("normal"))
         val source = listOf(Item(false, SearchAv("blocked")), Item(true, SearchAv("ad")), keep)
@@ -115,7 +115,7 @@ class IndependentCoverageRegressionTest {
 
     class StoryItem(val ad: Boolean) { fun isAd() = ad }
     class StoryResponse { fun getItems(): List<StoryItem> = emptyList() }
-    @Test fun `missing Story music reader does not disable working advertisement filter`() {
+    fun `missing Story music reader does not disable working advertisement filter`() {
         val points = VersionAdapter.StoryFeedPoints(
             listOf(VersionAdapter.HookPoint(StoryResponse::class.java.name, "getItems", emptyList())), emptyList(),
             VersionAdapter.HookPoint(StoryItem::class.java.name, "isAd", emptyList()), null, null)
@@ -126,11 +126,28 @@ class IndependentCoverageRegressionTest {
         assertEquals(listOf(keep), recorded.invoke("story.response.0") { listOf(StoryItem(true), keep) })
     }
 
-    @Test fun `author paths are independently restricted without changing rule semantics`() {
+    fun `author paths are independently restricted without changing rule semantics`() {
         val rules = AuthorRuleSet.parse("123\nAlice")
         assertEquals(setOf("alice"), rules.available(true, false).names)
         assertTrue(rules.available(true, false).mids.isEmpty())
         assertEquals(setOf(123L), rules.available(false, true).mids)
         assertSame(rules, rules.available(true, true))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (IndependentCoverageRegressionTest) -> Unit) {
+            val s = IndependentCoverageRegressionTest()
+            block(s)
+        }
+        runIsolated { s -> s.`Banner parent and leaf remain partial if one lifecycle hook fails`() }
+        runIsolated { s -> s.`default words sync and async both clear text without touching routes`() }
+        runIsolated { s -> s.`default word copy failure and empty text preserve original identity`() }
+        runIsolated { s -> s.`comment author filter survives missing content and message paths`() }
+        runIsolated { s -> s.`comment keywords survive missing both level paths`() }
+        runIsolated { s -> s.`search title and ordinary ad remain active without author and special getters`() }
+        runIsolated { s -> s.`category search reuses judgments without mutating its original list`() }
+        runIsolated { s -> s.`missing Story music reader does not disable working advertisement filter`() }
+        runIsolated { s -> s.`author paths are independently restricted without changing rule semantics`() }
     }
 }

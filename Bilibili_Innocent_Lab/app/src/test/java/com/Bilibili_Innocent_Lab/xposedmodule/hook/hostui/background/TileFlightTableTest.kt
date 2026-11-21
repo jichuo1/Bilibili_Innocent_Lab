@@ -17,7 +17,7 @@ class TileFlightTableTest {
     private class Sub(val name: String)
     private fun table(capacity: Int = 32) = TileFlightTable<String, Sub>(capacity)
 
-    @Test fun secondColdMissOnTheSameKeyJoinsInsteadOfStartingAnotherGeneration() {
+    fun secondColdMissOnTheSameKeyJoinsInsteadOfStartingAnotherGeneration() {
         val table = table()
         val a = Sub("a"); val b = Sub("b")
         assertEquals(Outcome.CREATED, table.request("t0", a))
@@ -31,7 +31,7 @@ class TileFlightTableTest {
         assertEquals(1L, table.created); assertEquals(1L, table.joined); assertEquals(1L, table.completed)
     }
 
-    @Test fun concurrentColdMissesProduceOneProducerAndEverySubscriberIsNotifiedOnce() {
+    fun concurrentColdMissesProduceOneProducerAndEverySubscriberIsNotifiedOnce() {
         val subscribers = 8
         val keys = (0 until 6).map { "tile-$it" }
         val table = table()
@@ -67,7 +67,7 @@ class TileFlightTableTest {
         assertEquals(0, table.pendingCount())
     }
 
-    @Test fun cancellingOneSubscriberDoesNotRemoveTheFlightTheOtherStillNeeds() {
+    fun cancellingOneSubscriberDoesNotRemoveTheFlightTheOtherStillNeeds() {
         val table = table()
         val a = Sub("a"); val b = Sub("b")
         table.request("t", a); table.request("t", b)
@@ -78,7 +78,7 @@ class TileFlightTableTest {
         assertEquals(listOf(b), table.finish("t"))
     }
 
-    @Test fun unstartedFlightsNobodyWantsAnymoreAreDroppedButStartedOnesFinish() {
+    fun unstartedFlightsNobodyWantsAnymoreAreDroppedButStartedOnesFinish() {
         val table = table()
         val s = Sub("scene")
         listOf("a", "b", "c").forEach { table.request(it, s) }
@@ -93,7 +93,7 @@ class TileFlightTableTest {
         assertEquals(listOf("d", "e"), listOf(table.take(), table.take()))
     }
 
-    @Test fun anOrphanedStartedFlightIsReusedWhenTheViewportReturns() {
+    fun anOrphanedStartedFlightIsReusedWhenTheViewportReturns() {
         val table = table()
         val s = Sub("scene")
         table.request("a", s)
@@ -104,7 +104,7 @@ class TileFlightTableTest {
         assertEquals(listOf(s), table.finish("a"))
     }
 
-    @Test fun failedGenerationEndsEveryValidSubscriberAndLeavesNoFlightBehind() {
+    fun failedGenerationEndsEveryValidSubscriberAndLeavesNoFlightBehind() {
         val table = table()
         val a = Sub("a"); val b = Sub("b")
         table.request("t", a); table.request("t", b)
@@ -117,7 +117,7 @@ class TileFlightTableTest {
         assertTrue(table.finish("missing").isEmpty())
     }
 
-    @Test fun pendingCountIsBoundedAndJoiningStillWorksAtCapacity() {
+    fun pendingCountIsBoundedAndJoiningStillWorksAtCapacity() {
         val table = table(capacity = 3)
         val s = Sub("s")
         assertEquals(Outcome.CREATED, table.request("1", s)); assertEquals(Outcome.CREATED, table.request("2", s))
@@ -130,7 +130,7 @@ class TileFlightTableTest {
         assertEquals(3, table.pendingCount())
     }
 
-    @Test fun flightsWhoseSubscribersAreAllGoneAreSkippedAtTakeTime() {
+    fun flightsWhoseSubscribersAreAllGoneAreSkippedAtTakeTime() {
         val table = table()
         val dead = Sub("dead"); val alive = Sub("alive")
         table.request("x", dead)
@@ -140,7 +140,7 @@ class TileFlightTableTest {
         assertFalse(table.isPending("x"))
     }
 
-    @Test fun randomOperationsKeepTheInvariants() {
+    fun randomOperationsKeepTheInvariants() {
         val random = Random(20261029L)
         val table = table(capacity = 8)
         val subs = List(4) { Sub("s$it") }
@@ -163,7 +163,7 @@ class TileFlightTableTest {
         }
     }
 
-    @Test fun createdEqualsCompletedPlusCancelledPlusPending() {
+    fun createdEqualsCompletedPlusCancelledPlusPending() {
         val table = table()
         val s = Sub("s")
         repeat(10) { table.request("k$it", s) }
@@ -173,5 +173,23 @@ class TileFlightTableTest {
         assertEquals(3L, table.completed)
         assertEquals(6L, table.cancelled)
         assertEquals(table.created, table.completed + table.cancelled + table.pendingCount())
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (TileFlightTableTest) -> Unit) {
+            val s = TileFlightTableTest()
+            block(s)
+        }
+        runIsolated { s -> s.secondColdMissOnTheSameKeyJoinsInsteadOfStartingAnotherGeneration() }
+        runIsolated { s -> s.concurrentColdMissesProduceOneProducerAndEverySubscriberIsNotifiedOnce() }
+        runIsolated { s -> s.cancellingOneSubscriberDoesNotRemoveTheFlightTheOtherStillNeeds() }
+        runIsolated { s -> s.unstartedFlightsNobodyWantsAnymoreAreDroppedButStartedOnesFinish() }
+        runIsolated { s -> s.anOrphanedStartedFlightIsReusedWhenTheViewportReturns() }
+        runIsolated { s -> s.failedGenerationEndsEveryValidSubscriberAndLeavesNoFlightBehind() }
+        runIsolated { s -> s.pendingCountIsBoundedAndJoiningStillWorksAtCapacity() }
+        runIsolated { s -> s.flightsWhoseSubscribersAreAllGoneAreSkippedAtTakeTime() }
+        runIsolated { s -> s.randomOperationsKeepTheInvariants() }
+        runIsolated { s -> s.createdEqualsCompletedPlusCancelledPlusPending() }
     }
 }

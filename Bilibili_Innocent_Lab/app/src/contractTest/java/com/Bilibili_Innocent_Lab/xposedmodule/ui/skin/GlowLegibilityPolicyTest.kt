@@ -31,7 +31,7 @@ class GlowLegibilityPolicyTest {
         return GlowLegibilityPolicy.contrast(GlowLegibilityPolicy.relativeLuminance(foreground), background)
     }
 
-    @Test fun readableContentNeedsNoCompensation() {
+    fun readableContentNeedsNoCompensation() {
         // 浅色主题、浅色底图、没有细节：原样即可，不能无端把栏糊厚。
         val light = GlowLegibilityPolicy.target(GlowContentSample(0.88f, 0.001f), lightText, lightOptics)
         assertEquals(GlowLegibility.NEUTRAL.boost, light.boost, 0f)
@@ -40,7 +40,7 @@ class GlowLegibilityPolicyTest {
         assertEquals(0f, dark.edgeDefinition, 0f)
     }
 
-    @Test fun contrastBoostIsTheSmallestThatRestoresBodyTextContrast() {
+    fun contrastBoostIsTheSmallestThatRestoresBodyTextContrast() {
         // 浅色主题压在深色壁纸上：常态对比度不足，补偿后必须达到 4.5:1。
         val sample = GlowContentSample(0.25f, 0f)
         assertTrue(contrastAt(lightOptics, lightText, 0.25f, 0f) < GlowLegibilityPolicy.TARGET_CONTRAST)
@@ -52,14 +52,14 @@ class GlowLegibilityPolicyTest {
             GlowLegibilityPolicy.TARGET_CONTRAST)
     }
 
-    @Test fun unreachableContrastSaturatesInsteadOfOvershooting() {
+    fun unreachableContrastSaturatesInsteadOfOvershooting() {
         val result = GlowLegibilityPolicy.target(GlowContentSample(0.95f, 0f), darkText, darkOptics)
         assertEquals(1f, result.boost, 0f)
         // 深色表面本身就能从亮背景里分出来，边缘加深只给一小份。
         assertTrue(result.edgeDefinition in 0.0001f..GlowLegibilityPolicy.DARK_SURFACE_EDGE_SHARE + 0.05f)
     }
 
-    @Test fun denseTextUnderTheBarRaisesBoostEvenWhenAverageContrastIsFine() {
+    fun denseTextUnderTheBarRaisesBoostEvenWhenAverageContrastIsFine() {
         val calm = GlowLegibilityPolicy.target(GlowContentSample(0.85f, 0.002f), lightText, lightOptics)
         val busy = GlowLegibilityPolicy.target(GlowContentSample(0.85f, 0.2f), lightText, lightOptics)
         assertEquals(0f, calm.boost, 0f)
@@ -70,14 +70,14 @@ class GlowLegibilityPolicyTest {
         assertEquals(0f, sealed.boost, 0f)
     }
 
-    @Test fun brightContentDefinesTheEdgeOfALightCapsule() {
+    fun brightContentDefinesTheEdgeOfALightCapsule() {
         val result = GlowLegibilityPolicy.target(GlowContentSample(0.97f, 0f), lightText, lightOptics)
         assertEquals(1f, result.edgeDefinition, 0f)
         val midtone = GlowLegibilityPolicy.target(GlowContentSample(0.5f, 0f), lightText, lightOptics)
         assertEquals(0f, midtone.edgeDefinition, 0f)
     }
 
-    @Test fun outputsAreQuantized() {
+    fun outputsAreQuantized() {
         for (luma in 0..20) for (busy in 0..10) {
             val result = GlowLegibilityPolicy.target(GlowContentSample(luma / 20f, busy / 50f), lightText, lightOptics)
             val steps = result.boost / GlowLegibilityPolicy.QUANTUM
@@ -85,7 +85,7 @@ class GlowLegibilityPolicyTest {
         }
     }
 
-    @Test fun hysteresisIgnoresJitterButAlwaysReachesTheEndpoints() {
+    fun hysteresisIgnoresJitterButAlwaysReachesTheEndpoints() {
         val current = GlowLegibility(0.5f, 0f)
         assertNull(GlowLegibilityPolicy.settle(current, GlowLegibility(0.5625f, 0f)))
         assertNotNull(GlowLegibilityPolicy.settle(current, GlowLegibility(0.75f, 0f)))
@@ -95,7 +95,7 @@ class GlowLegibilityPolicyTest {
         assertNull(GlowLegibilityPolicy.settle(current, current))
     }
 
-    @Test fun foregroundPushesAwayFromTheSurfaceAndKeepsAlpha() {
+    fun foregroundPushesAwayFromTheSurfaceAndKeepsAlpha() {
         val darker = GlowLegibilityPolicy.foreground(lightText, 1f)
         assertTrue(GlowLegibilityPolicy.relativeLuminance(darker) < GlowLegibilityPolicy.relativeLuminance(lightText))
         val lighter = GlowLegibilityPolicy.foreground(darkText, 1f)
@@ -105,7 +105,7 @@ class GlowLegibilityPolicyTest {
         assertEquals(0x80, GlowLegibilityPolicy.foreground(translucent, 1f) ushr 24)
     }
 
-    @Test fun coverageStartsAtZeroAtRestAndSaturatesAfterOneBarHeight() {
+    fun coverageStartsAtZeroAtRestAndSaturatesAfterOneBarHeight() {
         assertEquals(0f, GlowScrollEdgePolicy.topCoverage(0, 200f), 0f)
         assertEquals(0.5f, GlowScrollEdgePolicy.topCoverage(100, 200f), 1e-6f)
         assertEquals(1f, GlowScrollEdgePolicy.topCoverage(900, 200f), 0f)
@@ -117,7 +117,7 @@ class GlowLegibilityPolicyTest {
         assertEquals(0f, GlowScrollEdgePolicy.bottomCoverage(0, 0, 250f), 0f)
     }
 
-    @Test fun pagerCoverageInterpolatesBetweenNeighbouringPages() {
+    fun pagerCoverageInterpolatesBetweenNeighbouringPages() {
         val pages = floatArrayOf(0f, 1f, 0.5f, 0f)
         assertEquals(0f, GlowScrollEdgePolicy.pagerCoverage(0f, 4) { pages[it] }, 0f)
         assertEquals(0.25f, GlowScrollEdgePolicy.pagerCoverage(0.25f, 4) { pages[it] }, 1e-6f)
@@ -126,7 +126,7 @@ class GlowLegibilityPolicyTest {
         assertEquals(0f, GlowScrollEdgePolicy.pagerCoverage(0f, 0) { error("no pages") }, 0f)
     }
 
-    @Test fun dissolveProfileFadesOutwardToInwardWithStrictlyIncreasingStops() {
+    fun dissolveProfileFadesOutwardToInwardWithStrictlyIncreasingStops() {
         val (positions, alphas) = GlowScrollEdgePolicy.profile(12f, 186f, 258f)
         assertEquals(positions.size, alphas.size)
         assertEquals(0f, positions.first(), 0f)
@@ -140,7 +140,7 @@ class GlowLegibilityPolicyTest {
         assertEquals(1f, degenerate.last(), 0f)
     }
 
-    @Test fun statisticsMeasureLumaAndDetailAndIgnoreTransparentCorners() {
+    fun statisticsMeasureLumaAndDetailAndIgnoreTransparentCorners() {
         val grey = 0xFF808080.toInt()
         val flat = GlowContentStatistics.measure(IntArray(16) { grey }, 4, 4, FloatArray(4))!!
         assertEquals(128f / 255f, flat.luma, 1e-4f)
@@ -157,7 +157,7 @@ class GlowLegibilityPolicyTest {
         assertNull(GlowContentStatistics.measure(IntArray(4), 2, 2, FloatArray(2)))
     }
 
-    @Test fun liquidTintMappingMatchesTheOpticsItReports() {
+    fun liquidTintMappingMatchesTheOpticsItReports() {
         for (base in listOf(0.25f, 0.3f, 0.75f, 0.81f, 0.95f)) {
             val ceiling = LiquidLegibilityTuning.ceiling(base)
             assertTrue(ceiling >= base && ceiling <= maxOf(base, LiquidLegibilityTuning.MAX_TINT_ALPHA))
@@ -168,7 +168,7 @@ class GlowLegibilityPolicyTest {
     }
 
     /** 2026-09-24 浅色模式：暗带由等宽匀色改为贴边最深、向内单调缓出归零，内沿不能有台阶。 */
-    @Test fun edgeBandFadesInwardWithoutAStep() {
+    fun edgeBandFadesInwardWithoutAStep() {
         val steps = LiquidLegibilityTuning.EDGE_BAND_STEPS
         assertTrue(steps >= 12)
         val depth = (1..steps).map(LiquidLegibilityTuning::edgeBandDepthAlpha)
@@ -188,7 +188,7 @@ class GlowLegibilityPolicyTest {
     }
 
     /** 2026-09-24：边缘颜色随主题，浅色画亮边而不是和深色一样的暗边（用户反馈浅色下边缘发脏）。 */
-    @Test fun edgeDefinitionFollowsTheTheme() {
+    fun edgeDefinitionFollowsTheTheme() {
         val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/liquid/LiquidActivityRenderer.kt"
         val renderer = SourceContract.read(path)
         assertTrue(renderer.contains("private val legibilityEdgeColor = if (darkPalette) Color.BLACK else Color.WHITE"))
@@ -204,5 +204,28 @@ class GlowLegibilityPolicyTest {
         assertTrue(LiquidLegibilityTuning.EDGE_BAND_PEAK_ALPHA_LIGHT > LiquidLegibilityTuning.EDGE_BAND_PEAK_ALPHA)
         assertEquals(LiquidLegibilityTuning.edgeBandDepthAlpha(1) * 3f,
             LiquidLegibilityTuning.edgeBandDepthAlpha(1, LiquidLegibilityTuning.EDGE_BAND_PEAK_ALPHA * 3f), 1e-6f)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (GlowLegibilityPolicyTest) -> Unit) {
+            val s = GlowLegibilityPolicyTest()
+            block(s)
+        }
+        runIsolated { s -> s.readableContentNeedsNoCompensation() }
+        runIsolated { s -> s.contrastBoostIsTheSmallestThatRestoresBodyTextContrast() }
+        runIsolated { s -> s.unreachableContrastSaturatesInsteadOfOvershooting() }
+        runIsolated { s -> s.denseTextUnderTheBarRaisesBoostEvenWhenAverageContrastIsFine() }
+        runIsolated { s -> s.brightContentDefinesTheEdgeOfALightCapsule() }
+        runIsolated { s -> s.outputsAreQuantized() }
+        runIsolated { s -> s.hysteresisIgnoresJitterButAlwaysReachesTheEndpoints() }
+        runIsolated { s -> s.foregroundPushesAwayFromTheSurfaceAndKeepsAlpha() }
+        runIsolated { s -> s.coverageStartsAtZeroAtRestAndSaturatesAfterOneBarHeight() }
+        runIsolated { s -> s.pagerCoverageInterpolatesBetweenNeighbouringPages() }
+        runIsolated { s -> s.dissolveProfileFadesOutwardToInwardWithStrictlyIncreasingStops() }
+        runIsolated { s -> s.statisticsMeasureLumaAndDetailAndIgnoreTransparentCorners() }
+        runIsolated { s -> s.liquidTintMappingMatchesTheOpticsItReports() }
+        runIsolated { s -> s.edgeBandFadesInwardWithoutAStep() }
+        runIsolated { s -> s.edgeDefinitionFollowsTheTheme() }
     }
 }

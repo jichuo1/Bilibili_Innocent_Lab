@@ -26,7 +26,7 @@ class FollowFeedAdapterTest {
     private fun offsets(type: Class<*>) = type.getDeclaredMethod("getItemOffsets", Rect::class.java,
         View::class.java, RecyclerView::class.java, RecyclerView.State::class.java)
 
-    @Test fun disabledNeedsQueryAndLocatePerformNoClassLoadsOrDexCalls() {
+    fun disabledNeedsQueryAndLocatePerformNoClassLoadsOrDexCalls() {
         val loader = loader(true)
         var dexCalls = 0
         val session = DexAssistSession(DexAssistEngine { dexCalls++; DexAssistResult.Unavailable(DexAssistResult.Reason.NO_MATCH) },
@@ -36,7 +36,7 @@ class FollowFeedAdapterTest {
         assertEquals(0, loader.calls); assertEquals(0, dexCalls)
     }
 
-    @Test fun failedHistoryAndUnplannedLocateNeverRequestAnExtraBridge() {
+    fun failedHistoryAndUnplannedLocateNeverRequestAnExtraBridge() {
         val loader = loader(true)
         var dexCalls = 0
         val session = DexAssistSession(DexAssistEngine { dexCalls++; DexAssistResult.Unavailable(DexAssistResult.Reason.NO_MATCH) },
@@ -46,14 +46,14 @@ class FollowFeedAdapterTest {
         assertEquals(0, dexCalls)
     }
 
-    @Test fun validDriftedCachedMembersRemainUsableWithoutAPlannedQuery() {
+    fun validDriftedCachedMembersRemainUsableWithoutAPlannedQuery() {
         val loader = loader(true)
         assertNotNull(FollowFeedAdapter.resolve(loader, cached))
         assertFalse(FollowFeedAdapter.needsQuery(loader, cached, enabled = true, attempted = false))
         assertEquals(cached, FollowFeedAdapter.locate(loader, null, enabled = true, cached, planned = false))
     }
 
-    @Test fun directMembersAndSingleAssistedOwnerAreRevalidatedThroughFullModelAndHomeAbi() {
+    fun directMembersAndSingleAssistedOwnerAreRevalidatedThroughFullModelAndHomeAbi() {
         val loader = loader()
         val direct = requireNotNull(FollowFeedAdapter.direct(loader))
         assertEquals("iU.d", direct.painterOwnerClass)
@@ -63,7 +63,7 @@ class FollowFeedAdapterTest {
         assertEquals(cached, assisted)
     }
 
-    @Test fun discoveredDecorationsResolveDriftedSubclassesByShapeAndStayFailClosedOnAmbiguity() {
+    fun discoveredDecorationsResolveDriftedSubclassesByShapeAndStayFailClosedOnAmbiguity() {
         // 隐藏名表命中的 z0，模拟逐构建改名后名表整体失效、只能靠构造边发现的宿主。
         val loader = object : ClassLoader(javaClass.classLoader!!) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -87,7 +87,7 @@ class FollowFeedAdapterTest {
         assertNull(ambiguous?.personalDecorationClass)
     }
 
-    @Test fun multipleOwnersWrongQueryAbiAndForeignHomeAreRejected() {
+    fun multipleOwnersWrongQueryAbiAndForeignHomeAreRejected() {
         val loader = loader()
         assertNull(FollowFeedAdapter.assisted(loader,
             listOf(offsets(iU.d::class.java), offsets(renamed.follow.DriftPainter::class.java))))
@@ -97,5 +97,19 @@ class FollowFeedAdapterTest {
         assertNull(FollowFeedAdapter.resolve(loader, cached.copy(homeDecorationClass = "java.lang.Object")))
         assertNull(FollowFeedAdapter.resolve(loader, cached.copy(painterMethod = "missing")))
         assertNull(FollowFeedAdapter.resolve(loader, cached.copy(modelFamily = "legacy")))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FollowFeedAdapterTest) -> Unit) {
+            val s = FollowFeedAdapterTest()
+            block(s)
+        }
+        runIsolated { s -> s.disabledNeedsQueryAndLocatePerformNoClassLoadsOrDexCalls() }
+        runIsolated { s -> s.failedHistoryAndUnplannedLocateNeverRequestAnExtraBridge() }
+        runIsolated { s -> s.validDriftedCachedMembersRemainUsableWithoutAPlannedQuery() }
+        runIsolated { s -> s.directMembersAndSingleAssistedOwnerAreRevalidatedThroughFullModelAndHomeAbi() }
+        runIsolated { s -> s.discoveredDecorationsResolveDriftedSubclassesByShapeAndStayFailClosedOnAmbiguity() }
+        runIsolated { s -> s.multipleOwnersWrongQueryAbiAndForeignHomeAreRejected() }
     }
 }

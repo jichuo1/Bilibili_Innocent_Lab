@@ -65,7 +65,7 @@ class PlayerCodecKotlinRequestTest {
             args[0]
         }
     }
-    @Test fun opaqueRequestUsesItsSerializerAndPreservesOtherFieldsAndOriginal() {
+    fun opaqueRequestUsesItsSerializerAndPreservesOtherFieldsAndOriginal() {
         val (registrar, events) = harness()
         val original = Opaque(CodeType.CODE_UNKNOWN.ordinal, 16, "preserve routing and account fields")
         val updated = call(registrar, original) as Opaque
@@ -74,7 +74,7 @@ class PlayerCodecKotlinRequestTest {
         assertEquals(16, original.b); assertEquals(CodeType.CODE_UNKNOWN.ordinal, original.a)
         assertTrue(FeatureRuntimeStage.APPLIED in events)
     }
-    @Test fun oldFourArgumentRequestUsesTheHostDefaultFormatAndPreservesPayload() {
+    fun oldFourArgumentRequestUsesTheHostDefaultFormatAndPreservesPayload() {
         val old = ProtoBuf.Default
         try {
             ProtoBuf.Default = Wire()
@@ -85,7 +85,7 @@ class PlayerCodecKotlinRequestTest {
             assertEquals(2064, updated.b); assertEquals(original.c, updated.c); assertEquals(16, original.b)
         } finally { ProtoBuf.Default = old }
     }
-    @Test fun callbackClassShapeDoesNotBlockRequestOnlyRewriting() {
+    fun callbackClassShapeDoesNotBlockRequestOnlyRewriting() {
         val loader = object : ClassLoader(javaClass.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> =
                 if (name == "com.bapis.bilibili.app.playerunite.v1.KPlayerMoss") ClassHandlerKMoss::class.java else super.loadClass(name, resolve)
@@ -104,22 +104,36 @@ class PlayerCodecKotlinRequestTest {
         assertEquals(CodeType.CODEAV1.ordinal, updated.a); assertEquals(original.c, updated.c)
     }
 
-    @Test fun unchangedPreferenceKeepsTheSameKotlinRequest() {
+    fun unchangedPreferenceKeepsTheSameKotlinRequest() {
         val (registrar, _) = harness()
         val original = Opaque(CodeType.CODEAV1.ordinal, 2064, "keep")
         assertSame(original, call(registrar, original))
     }
-    @Test fun softwareDecodeOnlyClearsAv1AndPreservesCodecPreference() {
+    fun softwareDecodeOnlyClearsAv1AndPreservesCodecPreference() {
         val (registrar, _) = harness(PlayerCodecPreference.FOLLOW_HOST, PlayerDecodeMode.FORCE_SOFTWARE)
         val original = Opaque(CodeType.CODE265.ordinal, 2064, "keep")
         val updated = call(registrar, original) as Opaque
         assertEquals(original.a, updated.a); assertEquals(16, updated.b); assertEquals(original.c, updated.c)
     }
-    @Test fun missingRoundtripOrBrokenCodecLeavesAllOriginalArgumentsInPlace() {
+    fun missingRoundtripOrBrokenCodecLeavesAllOriginalArgumentsInPlace() {
         val (registrar, events) = harness()
         val original = Opaque(CodeType.CODE_UNKNOWN.ordinal, 16, "keep")
         assertSame(original, call(registrar, original, EncodeOnly))
         assertSame(original, call(registrar, original, wire = Wire(broken = true)))
         assertTrue(FeatureRuntimeStage.ERROR in events); assertFalse(FeatureRuntimeStage.APPLIED in events)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (PlayerCodecKotlinRequestTest) -> Unit) {
+            val s = PlayerCodecKotlinRequestTest()
+            block(s)
+        }
+        runIsolated { s -> s.opaqueRequestUsesItsSerializerAndPreservesOtherFieldsAndOriginal() }
+        runIsolated { s -> s.oldFourArgumentRequestUsesTheHostDefaultFormatAndPreservesPayload() }
+        runIsolated { s -> s.callbackClassShapeDoesNotBlockRequestOnlyRewriting() }
+        runIsolated { s -> s.unchangedPreferenceKeepsTheSameKotlinRequest() }
+        runIsolated { s -> s.softwareDecodeOnlyClearsAv1AndPreservesCodecPreference() }
+        runIsolated { s -> s.missingRoundtripOrBrokenCodecLeavesAllOriginalArgumentsInPlace() }
     }
 }

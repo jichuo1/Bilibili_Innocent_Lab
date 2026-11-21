@@ -11,14 +11,14 @@ class ContentRefreshCoalescerTest {
     private val interval = 28L
     private val coalescer = ContentRefreshCoalescer(interval)
 
-    @Test fun `the first change and any change after a quiet interval flush immediately`() {
+    fun `the first change and any change after a quiet interval flush immediately`() {
         assertEquals(NOW, coalescer.onChange(1_000, coalesce = true))
         assertFalse(coalescer.armed)
         assertEquals(NOW, coalescer.onChange(1_000 + interval, coalesce = true))
         assertFalse(coalescer.armed)
     }
 
-    @Test fun `a burst arms exactly one trailing timer`() {
+    fun `a burst arms exactly one trailing timer`() {
         assertEquals(NOW, coalescer.onChange(1_000, coalesce = true))
         assertEquals(interval, coalescer.onChange(1_011, coalesce = true))
         assertTrue(coalescer.armed)
@@ -26,7 +26,7 @@ class ContentRefreshCoalescerTest {
         assertEquals(ARMED, coalescer.onChange(1_033, coalesce = true))
     }
 
-    @Test fun `the timer waits for the burst to go quiet and then flushes once`() {
+    fun `the timer waits for the burst to go quiet and then flushes once`() {
         coalescer.onChange(1_000, coalesce = true)
         coalescer.onChange(1_011, coalesce = true)
         coalescer.onChange(1_033, coalesce = true)
@@ -37,7 +37,7 @@ class ContentRefreshCoalescerTest {
         assertFalse(coalescer.armed)
     }
 
-    @Test fun `without coalescing every change flushes and a stale timer is disarmed`() {
+    fun `without coalescing every change flushes and a stale timer is disarmed`() {
         coalescer.onChange(1_000, coalesce = true)
         coalescer.onChange(1_011, coalesce = true)
         assertTrue(coalescer.armed)
@@ -47,14 +47,14 @@ class ContentRefreshCoalescerTest {
         assertEquals(NOW, coalescer.onChange(1_013, coalesce = false))
     }
 
-    @Test fun `a late timer does not double flush after an isolated change already did`() {
+    fun `a late timer does not double flush after an isolated change already did`() {
         coalescer.onChange(1_000, coalesce = true)
         coalescer.onChange(1_011, coalesce = true)
         assertEquals(NOW, coalescer.onChange(1_011 + interval, coalesce = true))
         assertFalse(coalescer.armed)
     }
 
-    @Test fun `cancel drops the pending trailing flush`() {
+    fun `cancel drops the pending trailing flush`() {
         coalescer.onChange(1_000, coalesce = true)
         coalescer.onChange(1_011, coalesce = true)
         coalescer.cancel()
@@ -63,7 +63,22 @@ class ContentRefreshCoalescerTest {
         assertEquals(interval, coalescer.onChange(1_012, coalesce = true))
     }
 
-    @Test(expected = IllegalArgumentException::class) fun `the interval must be positive`() {
+    fun `the interval must be positive`() {
         ContentRefreshCoalescer(0L)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (ContentRefreshCoalescerTest) -> Unit) {
+            val s = ContentRefreshCoalescerTest()
+            block(s)
+        }
+        runIsolated { s -> s.`the first change and any change after a quiet interval flush immediately`() }
+        runIsolated { s -> s.`a burst arms exactly one trailing timer`() }
+        runIsolated { s -> s.`the timer waits for the burst to go quiet and then flushes once`() }
+        runIsolated { s -> s.`without coalescing every change flushes and a stale timer is disarmed`() }
+        runIsolated { s -> s.`a late timer does not double flush after an isolated change already did`() }
+        runIsolated { s -> s.`cancel drops the pending trailing flush`() }
+        runIsolated { s -> try { s.`the interval must be positive`(); org.junit.Assert.fail("Expected IllegalArgumentException") } catch (_: IllegalArgumentException) {} }
     }
 }

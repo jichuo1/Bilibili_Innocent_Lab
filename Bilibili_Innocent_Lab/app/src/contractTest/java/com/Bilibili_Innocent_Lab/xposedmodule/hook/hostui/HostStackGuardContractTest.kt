@@ -20,7 +20,7 @@ class HostStackGuardContractTest {
         for (key in keys) assertTrue("Unguarded host entry: $key", source.contains("\"$key\""))
     }
 
-    @Test fun preDrawEntriesFailOpenSoTheHostKeepsDrawing() {
+    fun preDrawEntriesFailOpenSoTheHostKeepsDrawing() {
         val entries = mapOf(
             "bottom/HostBottomBarDockLayer.kt" to "host.bottom.dock.predraw",
             "top/HostTopBarFxController.kt" to "host.top.material.predraw",
@@ -39,11 +39,11 @@ class HostStackGuardContractTest {
     }
 
     /** 融合带的 false 是“修复 padding 时不画错位帧”，不能被守卫改写成恒 true。 */
-    @Test fun fusionPreDrawKeepsItsRealResult() {
+    fun fusionPreDrawKeepsItsRealResult() {
         assertTrue(read("top/HostTopFusionBinding.kt").contains("""HostThreadGuard.call("host.top.fusion.predraw", true) { sync() }"""))
     }
 
-    @Test fun barEntriesAreGuardedAndKeepTheirRemovableIdentity() {
+    fun barEntriesAreGuardedAndKeepTheirRemovableIdentity() {
         val bottom = read("bottom/HostBottomBarFxController.kt")
         assertGuarded(bottom, "host.bottom.sanitize", "host.bottom.hierarchy")
         assertTrue(bottom.contains("val sanitizeRunnable = Runnable {"))
@@ -56,13 +56,13 @@ class HostStackGuardContractTest {
     }
 
     /** 失败的一帧不再续约；不清 animating 的话岛会卡在半途，之后的 animateTo 也不再续帧。 */
-    @Test fun islandFramesAreGuardedAndAFailedSpringFrameReleasesTheAnimation() {
+    fun islandFramesAreGuardedAndAFailedSpringFrameReleasesTheAnimation() {
         val island = read("top/HostTopIslandBinding.kt")
         assertGuarded(island, "host.top.island.feedback", "host.top.island.frame")
         assertTrue(island.contains("if (!continued) animating = false"))
     }
 
-    @Test fun backgroundWorkerAndPageListenersAreGuarded() {
+    fun backgroundWorkerAndPageListenersAreGuarded() {
         val controller = read("background/HostBackgroundController.kt")
         assertTrue(controller.contains("worker.execute(HostThreadGuard.runnable("))
         assertTrue(controller.contains("main.post(HostThreadGuard.runnable("))
@@ -74,14 +74,14 @@ class HostStackGuardContractTest {
         assertGuarded(read("common/HostSurfaceScope.kt"), "host.surface.focus")
     }
 
-    @Test fun replyPanelMessagesGoThroughAStructuralGuard() {
+    fun replyPanelMessagesGoThroughAStructuralGuard() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelController.kt")
         assertTrue(panel.contains("""HostThreadGuard.run("reply_topology.panel_message") { super.dispatchMessage(msg) }"""))
         assertFalse(panel.contains("private val mainHandler = Handler("))
     }
 
     /** 底栏松手时替宿主点击 tab：那段是宿主业务，守卫只能兜手势状态，见 HostThreadGuard 的纪律。 */
-    @Test fun hostClickFailuresPassThroughTheBottomBarGuard() {
+    fun hostClickFailuresPassThroughTheBottomBarGuard() {
         val controller = read("bottom/HostBottomBarFxController.kt")
         assertFalse("Listeners must not bypass the guard", controller.contains("handleTouch("))
         assertEquals(3, Regex("""dockLayer\.dispatchTouch\(""").findAll(controller).count())
@@ -103,7 +103,7 @@ class HostStackGuardContractTest {
     }
 
     /** 守卫里再套 runCatching，守卫就永远看不到失败，计数和日志全部失效。 */
-    @Test fun chromePainterGuardsSeeFailuresAndKeepTheDegradePath() {
+    fun chromePainterGuardsSeeFailuresAndKeepTheDegradePath() {
         val painter = read("chrome/HostComposeChromePainter.kt")
         assertTrue(painter.contains("try { block() } catch (error: Throwable) { failure(error); throw error }"))
         assertGuarded(painter, "host.chrome.wake", "host.chrome.backdrop", "host.chrome.layout",
@@ -112,7 +112,7 @@ class HostStackGuardContractTest {
         assertFalse(Regex("""guarded\("[^"]+"\) \{\s*runCatching""").containsMatchIn(painter))
     }
 
-    @Test fun remainingHostViewAndAnimationEntriesAreGuarded() {
+    fun remainingHostViewAndAnimationEntriesAreGuarded() {
         val entries = mapOf(
             "bottom/HostBottomBarDockLayer.kt" to listOf(
                 "host.bottom.hero.layout", "host.bottom.dock.measure", "host.bottom.dock.layout",
@@ -146,7 +146,7 @@ class HostStackGuardContractTest {
             measure.indexOf("setMeasuredDimension(") in 0 until measure.indexOf("HostThreadGuard.run("))
     }
 
-    @Test fun remainingBackgroundTasksAreGuardedOnBothThreads() {
+    fun remainingBackgroundTasksAreGuardedOnBothThreads() {
         val entries = mapOf(
             "background/HostBackgroundPageHooks.kt" to listOf(
                 "host.background.page.post", "host.background.list.post",
@@ -165,7 +165,7 @@ class HostStackGuardContractTest {
         assertFalse(read("background/HostBackgroundRasterCache.kt").contains("worker.execute {"))
     }
 
-    @Test fun islandHostTouchFailuresPassThroughItsGuard() {
+    fun islandHostTouchFailuresPassThroughItsGuard() {
         val island = read("top/HostTopIslandBinding.kt")
         val touch = island.after("override fun onTouchEvent(").before("override fun onInitializeAccessibilityNodeInfo(")
         val guard = touch.indexOf("""HostThreadGuard.call("host.top.island.touch", false)""")
@@ -175,7 +175,7 @@ class HostStackGuardContractTest {
         assertTrue(forward.contains("hostCalls.host { dock.dispatchTouchEvent(copy) }"))
     }
 
-    @Test fun chromePreDrawAndRestoreKeepTheirControlFlow() {
+    fun chromePreDrawAndRestoreKeepTheirControlFlow() {
         val painter = read("chrome/HostComposeChromePainter.kt")
         val preDraw = painter.after("private val preDraw =").before("private val attach =")
         assertTrue(preDraw.contains("proceed"))
@@ -184,5 +184,25 @@ class HostStackGuardContractTest {
         assertTrue(restore.contains("owned.forEach"))
         assertTrue(restore.contains("previous.addSuppressed(error)"))
         assertTrue(restore.contains("first?.let { throw it }"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostStackGuardContractTest) -> Unit) {
+            val s = HostStackGuardContractTest()
+            block(s)
+        }
+        runIsolated { s -> s.preDrawEntriesFailOpenSoTheHostKeepsDrawing() }
+        runIsolated { s -> s.fusionPreDrawKeepsItsRealResult() }
+        runIsolated { s -> s.barEntriesAreGuardedAndKeepTheirRemovableIdentity() }
+        runIsolated { s -> s.islandFramesAreGuardedAndAFailedSpringFrameReleasesTheAnimation() }
+        runIsolated { s -> s.backgroundWorkerAndPageListenersAreGuarded() }
+        runIsolated { s -> s.replyPanelMessagesGoThroughAStructuralGuard() }
+        runIsolated { s -> s.hostClickFailuresPassThroughTheBottomBarGuard() }
+        runIsolated { s -> s.chromePainterGuardsSeeFailuresAndKeepTheDegradePath() }
+        runIsolated { s -> s.remainingHostViewAndAnimationEntriesAreGuarded() }
+        runIsolated { s -> s.remainingBackgroundTasksAreGuardedOnBothThreads() }
+        runIsolated { s -> s.islandHostTouchFailuresPassThroughItsGuard() }
+        runIsolated { s -> s.chromePreDrawAndRestoreKeepTheirControlFlow() }
     }
 }

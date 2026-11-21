@@ -7,23 +7,24 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class SponsorSegmentStoreTest {
-    @get:Rule val folder = TemporaryFolder()
+    val folder = TemporaryFolder()
     private var time = 1_000_000L
     private val video = SponsorVideoId("BV1pVWu6ZEzn", 43486676261)
     private val segments = listOf(SponsorSegment("a6447b58b813db92", 74_636, 103_813, 566_000),
         SponsorSegment("b-2_x", 200_000, 210_000, 0))
-    private fun store(root: File = folder.root) = SponsorSegmentStore(root) { time }
+    private fun store(root: File = folder.root, maxEntries: Int = SponsorSegmentStore.MAX_ENTRIES) =
+        SponsorSegmentStore(root, maxEntries = maxEntries) { time }
     private fun directory() = File(folder.root, SponsorSegmentStore.DIRECTORY)
     private fun entries() = directory().listFiles().orEmpty().filter { it.name.endsWith(".json") }
 
-    @Test fun aWrittenEntryReadsBackWithItsSavedTime() {
+    fun aWrittenEntryReadsBackWithItsSavedTime() {
         store().write(video, segments)
         val entry = store().read(video)!!
         assertEquals(segments.sortedBy { it.startMs }, entry.segments)
         assertEquals(1_000_000L, entry.savedAtMs)
     }
 
-    @Test fun theDiskNeverShowsTheVideoIdentityAndEachPartHasItsOwnFile() {
+    fun theDiskNeverShowsTheVideoIdentityAndEachPartHasItsOwnFile() {
         store().write(video, segments); store().write(video.copy(cid = 2), segments)
         val files = entries()
         assertEquals(2, files.size)
@@ -34,14 +35,14 @@ class SponsorSegmentStoreTest {
         assertNull(store().read(video.copy(cid = 3)))
     }
 
-    @Test fun emptyOrOversizedSegmentListsAreNeverStored() {
+    fun emptyOrOversizedSegmentListsAreNeverStored() {
         store().write(video, emptyList())
         assertFalse(directory().exists())
         store().write(video, (0..SponsorSegmentStore.MAX_SEGMENTS).map { SponsorSegment("s$it", it * 10L, it * 10L + 5, 0) })
         assertTrue(entries().isEmpty())
     }
 
-    @Test fun corruptWrongKeyOversizedAndInvalidFilesAreRejectedAndRemoved() {
+    fun corruptWrongKeyOversizedAndInvalidFilesAreRejectedAndRemoved() {
         val key = SponsorSegmentStore.keyOf(video)
         val file = File(directory(), "$key.json")
         val good = SponsorSegmentStore.encode(key, 1_000_000L, segments)
@@ -60,26 +61,29 @@ class SponsorSegmentStoreTest {
         }
     }
 
-    @Test fun theEntryLimitEvictsTheOldestWrites() {
-        val total = SponsorSegmentStore.MAX_ENTRIES + 5
+    fun theEntryLimitEvictsTheOldestWrites() {
+        assertEquals(256, SponsorSegmentStore.MAX_ENTRIES)
+        val limit = 8
+        val total = limit + 5
+        val limitedStore = store(maxEntries = limit)
         repeat(total) { index ->
             time = 1_000_000L + index * 1_000L
-            store().write(SponsorVideoId("BV" + "%010d".format(index), 1), segments)
+            limitedStore.write(SponsorVideoId("BV" + "%010d".format(index), 1), segments)
         }
-        assertEquals(SponsorSegmentStore.MAX_ENTRIES, entries().size)
-        assertNull(store().read(SponsorVideoId("BV" + "%010d".format(0), 1)))
-        assertNotNull(store().read(SponsorVideoId("BV" + "%010d".format(total - 1), 1)))
+        assertEquals(limit, entries().size)
+        assertNull(limitedStore.read(SponsorVideoId("BV" + "%010d".format(0), 1)))
+        assertNotNull(limitedStore.read(SponsorVideoId("BV" + "%010d".format(total - 1), 1)))
         assertTrue(directory().listFiles().orEmpty().none { it.name.endsWith(".tmp") })
     }
 
-    @Test fun staleTemporaryFilesFromACrashedWriteAreCleanedUp() {
+    fun staleTemporaryFilesFromACrashedWriteAreCleanedUp() {
         directory().mkdirs()
         val stale = File(directory(), "dead.1.tmp").apply { writeText("x"); setLastModified(1) }
         store().write(video, segments)
         assertFalse(stale.exists())
     }
 
-    @Test fun purgeRemovesOnlyTheCacheDirectoryContent() {
+    fun purgeRemovesOnlyTheCacheDirectoryContent() {
         store().write(video, segments)
         val sibling = File(folder.root, "keep.txt").apply { writeText("keep") }
         store().purge()
@@ -87,11 +91,32 @@ class SponsorSegmentStoreTest {
         store().purge() // 目录不存在时也不抛
     }
 
-    @Test fun anUnwritableRootIsASilentNoOp() {
+    fun anUnwritableRootIsASilentNoOp() {
         val notADirectory = folder.newFile("occupied")
         val broken = store(notADirectory)
         broken.write(video, segments)
         assertNull(broken.read(video))
         broken.delete(video); broken.purge()
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SponsorSegmentStoreTest) -> Unit) {
+            val s = SponsorSegmentStoreTest()
+            s.folder.create()
+            try {
+                block(s)
+            } finally {
+                s.folder.delete()
+            }
+        }
+        runIsolated { s -> s.aWrittenEntryReadsBackWithItsSavedTime() }
+        runIsolated { s -> s.theDiskNeverShowsTheVideoIdentityAndEachPartHasItsOwnFile() }
+        runIsolated { s -> s.emptyOrOversizedSegmentListsAreNeverStored() }
+        runIsolated { s -> s.corruptWrongKeyOversizedAndInvalidFilesAreRejectedAndRemoved() }
+        runIsolated { s -> s.theEntryLimitEvictsTheOldestWrites() }
+        runIsolated { s -> s.staleTemporaryFilesFromACrashedWriteAreCleanedUp() }
+        runIsolated { s -> s.purgeRemovesOnlyTheCacheDirectoryContent() }
+        runIsolated { s -> s.anUnwritableRootIsASilentNoOp() }
     }
 }

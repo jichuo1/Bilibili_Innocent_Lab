@@ -98,7 +98,7 @@ class CommentFishRootEchoHookTest {
     private fun judge(owner: Any?, replies: List<EchoReply>, id: String = "comment.filter.list.0"): List<*> =
         recorded.invoke(id, receiver = owner) { replies } as List<*>
 
-    @Test fun `replies under a root are compared with that root through the getter receiver`() {
+    fun `replies under a root are compared with that root through the getter receiver`() {
         install()
         val echoing = EchoReply(echoText, "深海大鱼君", 2)
         val unrelated = EchoReply(ownText, "深海大鱼君", 2)
@@ -110,7 +110,7 @@ class CommentFishRootEchoHookTest {
         assertEquals(3, replies.size)
     }
 
-    @Test fun `without a root nothing is compared and the same replies stay`() {
+    fun `without a root nothing is compared and the same replies stay`() {
         install()
         val echoing = EchoReply(echoText, "深海大鱼君", 2)
         val replies = listOf(echoing)
@@ -119,14 +119,14 @@ class CommentFishRootEchoHookTest {
         assertSame(replies, judge(null, replies))
     }
 
-    @Test fun `the thread owner answering in their own thread is kept`() {
+    fun `the thread owner answering in their own thread is kept`() {
         install()
         val own = EchoReply(echoText, "深海大鱼君", 2)
         val replies = listOf(own)
         assertSame(replies, judge(EchoReply(rootText, "深海大鱼君", 4, replies), replies))
     }
 
-    @Test fun `the verdict is reused for the same list instance`() {
+    fun `the verdict is reused for the same list instance`() {
         install()
         val replies = listOf(EchoReply(echoText, "深海大鱼君", 2), EchoReply(ownText, "深海大鱼君", 2))
         val root = EchoReply(rootText, "画家本人", 4, replies)
@@ -136,7 +136,7 @@ class CommentFishRootEchoHookTest {
         assertEquals(first, second)
     }
 
-    @Test fun `the same list is reconsidered after matching video metadata arrives`() {
+    fun `the same list is reconsidered after matching video metadata arrives`() {
         val metadata = FishVideoMetadata()
         install(metadata = metadata)
         val video = EchoReply(echoText, "深海大鱼君", 2, oid = 42L)
@@ -150,7 +150,7 @@ class CommentFishRootEchoHookTest {
         assertEquals(listOf(otherVideo, nonVideo), judge(main, replies, "comment.filter.list.1"))
     }
 
-    @Test fun `a peer snapshot changes only the matching video reply verdict`() {
+    fun `a peer snapshot changes only the matching video reply verdict`() {
         install(sensitivity = "strict")
         val message = "三道题都没提帧率，三次全给24帧"
         val video = EchoReply(message, "大鱼君", 2, oid = 42L, id = 1L, mid = 10L)
@@ -167,6 +167,20 @@ class CommentFishRootEchoHookTest {
         ))
         assertSame(raw, recorded.invoke("comment.semantic.sync.mainList", ReplyMoss(), arrayOf(raw)) { raw })
         assertEquals(listOf(other, nonVideo), judge(main, replies, "comment.filter.list.1"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentFishRootEchoHookTest) -> Unit) {
+            val s = CommentFishRootEchoHookTest()
+            block(s)
+        }
+        runIsolated { s -> s.`replies under a root are compared with that root through the getter receiver`() }
+        runIsolated { s -> s.`without a root nothing is compared and the same replies stay`() }
+        runIsolated { s -> s.`the thread owner answering in their own thread is kept`() }
+        runIsolated { s -> s.`the verdict is reused for the same list instance`() }
+        runIsolated { s -> s.`the same list is reconsidered after matching video metadata arrives`() }
+        runIsolated { s -> s.`a peer snapshot changes only the matching video reply verdict`() }
     }
 }
 

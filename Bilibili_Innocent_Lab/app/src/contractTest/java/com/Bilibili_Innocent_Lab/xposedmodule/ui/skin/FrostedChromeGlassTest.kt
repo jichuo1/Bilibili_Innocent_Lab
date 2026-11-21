@@ -15,7 +15,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
  * 2026-09-23 悬浮栏可读性改造 C 期：柔光悬浮栏的内容节点玻璃必须与软件透镜同一套光学。
  */
 class FrostedChromeGlassTest {
-    @Test fun lensIlluminationPreservesPremultipliedAlphaAtTransparentEdges() {
+    fun lensIlluminationPreservesPremultipliedAlphaAtTransparentEdges() {
         val gain = LensRefractionPolicy.LUMINANCE_GAIN
         val bias = LensRefractionPolicy.LUMINANCE_BIAS / 255f
         for (alphaByte in 0..255) {
@@ -40,7 +40,7 @@ class FrostedChromeGlassTest {
      * 软件管线在预乘空间做 `c·gain + bias·a`；GPU 端用 ColorMatrixColorFilter（作用于非预乘色）
      * 做 `c·gain + bias`。两者展开后相同，这里逐像素核对（容差只来自整数舍入）。
      */
-    @Test fun colorMatrixIlluminationMatchesThePremultipliedSoftwareStep() {
+    fun colorMatrixIlluminationMatchesThePremultipliedSoftwareStep() {
         val gain = LensRefractionPolicy.LUMINANCE_GAIN
         val bias = LensRefractionPolicy.LUMINANCE_BIAS
         for (alpha in intArrayOf(255, 200, 128, 64)) for (value in intArrayOf(0, 17, 90, 180, 230, 255)) {
@@ -61,7 +61,7 @@ class FrostedChromeGlassTest {
         }
     }
 
-    @Test fun gpuLensUsesTheSoftwareLensFunctionAndConstants() {
+    fun gpuLensUsesTheSoftwareLensFunctionAndConstants() {
         val glass = source("$base/material/FrostedChromeGlassApi31.kt")
         // 同一条 C¹ 透镜：中心放大 + 边沿平方外推。
         assertTrue(glass.contains("float magnified = c * (1.0 - centerGain * (1.0 - c * c));"))
@@ -82,7 +82,7 @@ class FrostedChromeGlassTest {
         assertTrue(software.contains("val push = rimPush * rim * rim"))
     }
 
-    @Test fun nodeGlassReplacesSoftwareSamplingOnlyWhenItActuallyDrew() {
+    fun nodeGlassReplacesSoftwareSamplingOnlyWhenItActuallyDrew() {
         val renderer = source("$base/material/FrostedMaterialRenderer.kt")
         val live = renderer.after("internal fun drawLiveSample(").before("\n    }\n")
         assertTrue(live.contains("canvas.isHardwareAccelerated && drawChromeGlass("))
@@ -98,5 +98,17 @@ class FrostedChromeGlassTest {
         // 不 recycle：宿主上一份 display list 可能还引用着纹理。
         assertTrue(unregister.contains("entry.generation++"))
         assertTrue(!unregister.contains("recycle"))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (FrostedChromeGlassTest) -> Unit) {
+            val s = FrostedChromeGlassTest()
+            block(s)
+        }
+        runIsolated { s -> s.lensIlluminationPreservesPremultipliedAlphaAtTransparentEdges() }
+        runIsolated { s -> s.colorMatrixIlluminationMatchesThePremultipliedSoftwareStep() }
+        runIsolated { s -> s.gpuLensUsesTheSoftwareLensFunctionAndConstants() }
+        runIsolated { s -> s.nodeGlassReplacesSoftwareSamplingOnlyWhenItActuallyDrew() }
     }
 }
