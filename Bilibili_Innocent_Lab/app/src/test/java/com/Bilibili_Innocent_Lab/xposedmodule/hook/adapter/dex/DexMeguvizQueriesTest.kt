@@ -1,7 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,7 +29,7 @@ class DexMeguvizQueriesTest {
                 assertTrue("$query#$index where must not be empty", where.length() > 0)
             }
         }
-        assertEquals("catalog size is pinned so additions update this guard deliberately", 36, DexAssistQuery.entries.size)
+        assertEquals("catalog size is pinned so additions update this guard deliberately", 38, DexAssistQuery.entries.size)
     }
 
     fun `multi-rule queries keep their fan-out rules`() {
@@ -36,6 +38,30 @@ class DexMeguvizQueriesTest {
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.COMMENT_REPLY_MAPPER).size > 1)
         assertEquals(3, DexMeguvizQueries.rules(DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY).size)
         assertEquals(2, DexMeguvizQueries.rules(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS).size)
+    }
+
+    fun `system environment queries match static descriptors and semantic constants without method names`() {
+        val rootRules = DexMeguvizQueries.rules(DexAssistQuery.SYSTEM_ENV_ROOT_RESULT)
+        val hookRules = DexMeguvizQueries.rules(DexAssistQuery.SYSTEM_ENV_HOOK_RESULT)
+        assertEquals(1, rootRules.size)
+        assertEquals(1, hookRules.size)
+
+        val rootText = rootRules.single().toString(Charsets.UTF_8)
+        val hookText = hookRules.single().toString(Charsets.UTF_8)
+        val rootWhere = JSONObject(rootText).getJSONObject("where")
+        val hookWhere = JSONObject(hookText).getJSONObject("where")
+
+        assertFalse("SYSTEM_ENV_ROOT_RESULT must not pin obfuscated method name", rootWhere.has("name"))
+        assertFalse("SYSTEM_ENV_HOOK_RESULT must not pin obfuscated method name", hookWhere.has("name"))
+        assertFalse("SYSTEM_ENV_ROOT_RESULT must not match shared /system/bin/su helper", rootText.contains("/system/bin/su"))
+        assertFalse("SYSTEM_ENV_HOOK_RESULT must not match shared /system/bin/su helper", hookText.contains("/system/bin/su"))
+        assertTrue(rootText.contains("Ljava/util/Set;"))
+        SystemEnvironmentAdapter.ENV_STRINGS.forEach { token ->
+            assertTrue("Missing ENV_STRINGS token $token", rootText.contains(token))
+        }
+        SystemEnvironmentAdapter.HOOK_STRINGS.forEach { token ->
+            assertTrue("Missing HOOK_STRINGS token $token", hookText.contains(token))
+        }
     }
 
     fun `owner member and declaration rules address exact descriptors`() {
@@ -57,6 +83,7 @@ class DexMeguvizQueriesTest {
         }
         runIsolated { s -> s.`every query produces bounded rules with a non-empty where condition`() }
         runIsolated { s -> s.`multi-rule queries keep their fan-out rules`() }
+        runIsolated { s -> s.`system environment queries match static descriptors and semantic constants without method names`() }
         runIsolated { s -> s.`owner member and declaration rules address exact descriptors`() }
     }
 }

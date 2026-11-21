@@ -413,6 +413,10 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("player-frame-mode", HighlightKind.NEW, R.string.highlights_player_frame_mode,
             HighlightDestination("player.frame_interpolation.force_mode",
                 alsoCovers = setOf("player.frame_interpolation.mode")))
+    ), automatic = false), ReleaseHighlightsBatch(48, listOf(
+        // 实验能力，默认关闭；只在列表提示，不承诺未适配的检测路径。
+        ReleaseHighlight("system-environment-detection", HighlightKind.NEW, R.string.highlights_system_environment_detection,
+            HighlightDestination("system.env_detection.blocked"))
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

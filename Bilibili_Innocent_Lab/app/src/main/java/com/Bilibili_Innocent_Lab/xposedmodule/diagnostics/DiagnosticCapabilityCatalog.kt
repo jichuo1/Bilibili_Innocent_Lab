@@ -20,8 +20,12 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 42
+    const val VERSION = 43
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("system_environment_root", "system_environment_detection",
+            R.string.diag_cap_system_environment_root, setOf("system.env_detection.blocked"), introducedCatalogVersion = 43),
+        DiagnosticCapabilityDefinition("system_environment_hook", "system_environment_detection",
+            R.string.diag_cap_system_environment_hook, setOf("system.env_detection.blocked"), introducedCatalogVersion = 43),
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
                 // v74：独立服务配置（协议/地址/模型）；API Key 是运行时凭据不进目录。
@@ -333,7 +337,7 @@ internal object DiagnosticCapabilityCatalog {
         "comments_reply_button_removed",
         "share_content_purified",
         "share_mini_program_direct_link",
-        "wechat_share_compat",
+        "system_environment_root", "system_environment_hook", "wechat_share_compat",
         "live_room_switch_blocked",
         "live_double_tap_pause",
         "player_long_press_disabled",

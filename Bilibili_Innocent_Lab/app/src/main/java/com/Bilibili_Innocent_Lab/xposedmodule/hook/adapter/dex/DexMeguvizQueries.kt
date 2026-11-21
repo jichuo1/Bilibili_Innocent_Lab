@@ -12,6 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapte
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SearchHomeRecommendLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendLocator
 import org.json.JSONArray
 import org.json.JSONObject
@@ -200,6 +201,18 @@ internal object DexMeguvizQueries {
                 addInvoke("kotlin.coroutines.jvm.internal.SuspendLambda", "<init>") {
                     params("int", "kotlin.coroutines.Continuation")
                 }
+            }
+            DexAssistQuery.SYSTEM_ENV_ROOT_RESULT -> {
+                modifiers(Modifier.STATIC)
+                returnType = "java.util.Map"
+                params(SystemEnvironmentAdapter.ENV_PARAM_SET)
+                strings(*SystemEnvironmentAdapter.ENV_STRINGS.toTypedArray())
+            }
+            DexAssistQuery.SYSTEM_ENV_HOOK_RESULT -> {
+                modifiers(Modifier.STATIC)
+                returnType = "java.util.Map"
+                paramCount(0)
+                strings(*SystemEnvironmentAdapter.HOOK_STRINGS.toTypedArray())
             }
             DexAssistQuery.BLOCK_UPDATE -> {
                 returnType = "tv.danmaku.bili.update.model.BiliUpgradeInfo"

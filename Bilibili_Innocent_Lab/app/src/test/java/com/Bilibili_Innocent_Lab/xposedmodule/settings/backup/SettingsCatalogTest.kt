@@ -36,13 +36,13 @@ class SettingsCatalogTest {
 
     @Test
     fun `current catalog satisfies global schema security and normalization invariants`() {
-        assertEquals(84, SettingsCatalog.CATALOG_VERSION)
-        assertEquals(279, SettingsCatalog.specs.size)
-        assertEquals(279, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(279, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(273, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertEquals(85, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(280, SettingsCatalog.specs.size)
+        assertEquals(280, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(280, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(274, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
-        assertEquals(172, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(173, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(25, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(82, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
@@ -114,7 +114,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog v84 adds forced frame interpolation switch and backend mode with safe defaults`() {
-        assertEquals(84, SettingsCatalog.CATALOG_VERSION)
+        assertTrue(SettingsCatalog.CATALOG_VERSION >= 84)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 84 }.associateBy { it.id }
         assertEquals(setOf("player.frame_interpolation.force_mode", "player.frame_interpolation.mode"), added.keys)
 
@@ -137,5 +137,20 @@ class SettingsCatalogTest {
         assertFalse(mode.accepts(SettingValue.Text("invalid")))
         assertEquals(SettingValue.Text(""), mode.normalizeForBackup(SettingValue.Text("invalid")))
         assertEquals(mode, SettingsCatalog.byStorageKey[FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE])
+    }
+
+    @Test
+    fun `catalog v85 adds system environment detection block switch with safe default`() {
+        assertEquals(85, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 85 }.associateBy { it.id }
+        assertEquals(setOf("system.env_detection.blocked"), added.keys)
+
+        val spec = added.getValue("system.env_detection.blocked")
+        assertEquals(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, spec.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, spec.type)
+        assertEquals(SettingValue.Bool(false), spec.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, spec.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
+        assertEquals(spec, SettingsCatalog.byStorageKey[FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION])
     }
 }

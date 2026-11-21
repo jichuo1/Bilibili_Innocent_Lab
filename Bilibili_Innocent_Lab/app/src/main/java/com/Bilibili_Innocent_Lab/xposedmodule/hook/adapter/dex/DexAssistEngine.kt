@@ -11,6 +11,9 @@ internal data class DexAssistRequest(
 
 /** 只有结构特征足够强、且能在运行时二次验真的点才能加入该目录。 */
 internal enum class DexAssistQuery {
+    /** 局部设备环境与 Hook 特征结果边界：不依赖混淆方法名，仅匹配精确静态签名与多组语义常量；严禁落入共享 DRM Root 函数。 */
+    SYSTEM_ENV_ROOT_RESULT,
+    SYSTEM_ENV_HOOK_RESULT,
     /** 检查更新的网络边界：签名 `(Context) -> BiliUpgradeInfo` + 方法体日志常量。 */
     BLOCK_UPDATE,
 

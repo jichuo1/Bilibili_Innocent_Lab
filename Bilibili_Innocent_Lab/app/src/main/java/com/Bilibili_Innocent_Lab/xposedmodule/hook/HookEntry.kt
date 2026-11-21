@@ -20,6 +20,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedModule
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemEnvironmentFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindQueue
@@ -2975,6 +2976,11 @@ class HookEntry : XposedModule() {
                 enabled = hookConfig.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
                 cachedPoints = { classicPointsRef.get() }
             )
+            val systemEnvPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.systemEnvironment)
+            val systemEnvInstaller = SystemEnvironmentFeatureInstaller(
+                enabled = hookConfig.getBoolean(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, false),
+                cachedPoints = { systemEnvPointsRef.get() }
+            )
             // 商单区间的本地缓存：宿主私有 files/bil_sponsor/，只存有区间的视频（文件名为单向摘要），联网失败时回退。
             // 这里只构造路径对象，磁盘读写都在仓库的抓取线程上；取不到目录就不缓存，行为与没有这层时一致。
             val sponsorStore = runCatching { (authorizationContext.applicationContext ?: authorizationContext).filesDir }
@@ -4114,6 +4120,7 @@ class HookEntry : XposedModule() {
                             ""
                         ).orEmpty()
                     ),
+                    systemEnvInstaller,
                     classicInstaller,
                     SplashAutoNightFeatureInstaller(
                         enabled = prefs.getBoolean(
@@ -5294,6 +5301,14 @@ class HookEntry : XposedModule() {
                                             }
                                         }
                                     }
+                                    if (systemEnvInstaller.requiresAdaptationRetry) {
+                                        systemEnvPointsRef.set(adapted?.systemEnvironment)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (systemEnvInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(systemEnvInstaller))
+                                            }
+                                        }
+                                    }
                                     if (sponsorInstaller.requiresAdaptationRetry || insightInstaller.requiresAdaptationRetry) {
                                         sponsorClassesRef.set(adapted?.sponsorPlayer)
                                         hookEnvironment.postToMain?.invoke {
@@ -5352,6 +5367,7 @@ class HookEntry : XposedModule() {
                         followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         homeChromeEnabled = homeChromeEnabled,
                         homeTopTabCenteringEnabled = true,
+                        systemEnvironmentEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, false),
                         homeChromeIconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false) &&
                             prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false),
                         playerQualityEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig.normalize(

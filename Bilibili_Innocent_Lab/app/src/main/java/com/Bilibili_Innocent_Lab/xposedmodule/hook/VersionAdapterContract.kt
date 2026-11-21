@@ -89,7 +89,8 @@ internal object VersionAdapterContract {
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
     /** 89 → 90：关注流装饰新增构造边发现查询，缓存恢复改按父类/形状复验而非类名名单；
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
-    const val RULE_VERSION = 90
+    /** 90 → 91：局部 Root/Hook 结果新增后台语义定位与可选缓存键，快路径必须重新验真后才能注册。 */
+    const val RULE_VERSION = 91
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

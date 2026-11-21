@@ -15,6 +15,23 @@ import org.junit.Test
 import java.io.File
 
 class DiagnosticCapabilityCatalogTest {
+    fun `system environment leaves are independent v43 compatibility capabilities under system_environment_detection`() {
+        assertTrue(DiagnosticCapabilityCatalog.VERSION >= 43)
+        val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 43 }
+        assertEquals(setOf("system_environment_root", "system_environment_hook"), added.map { it.id }.toSet())
+        assertTrue("system_environment_detection" in DiagnosticCapabilityCatalog.splitParents)
+        assertFalse("system_environment_detection" in DiagnosticCapabilityCatalog.leafIds)
+        assertEquals(2, added.map { it.labelRes }.distinct().size)
+        added.forEach { leaf ->
+            assertEquals("system_environment_detection", leaf.parentId)
+            assertEquals(setOf("system.env_detection.blocked"), leaf.settingIds)
+            assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(leaf.id))
+        }
+        val descriptor = requireNotNull(DiagnosticFeatureRegistry.descriptorOrNull("system_environment_detection"))
+        assertEquals(DiagnosticFeatureCategory.COMPATIBILITY, descriptor.category)
+        assertTrue(descriptor.runtimeEvidenceExpected)
+    }
+
     fun `frame forced mode option has an independent catalog leaf covering both settings`() {
         val leaf = DiagnosticCapabilityCatalog.byId.getValue("player_frame_interpolation_mode")
         assertEquals("player_capabilities", leaf.parentId)
@@ -240,6 +257,7 @@ class DiagnosticCapabilityCatalogTest {
             val s = DiagnosticCapabilityCatalogTest()
             block(s)
         }
+        runIsolated { s -> s.`system environment leaves are independent v43 compatibility capabilities under system_environment_detection`() }
         runIsolated { s -> s.`frame forced mode option has an independent catalog leaf covering both settings`() }
         runIsolated { s -> s.`frame temperature choice has an independent catalog leaf without invented runtime evidence`() }
         runIsolated { s -> s.playerSpeedMenuHasItsOwnRuntimeCapabilityUnderPlayerSpeed() }

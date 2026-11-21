@@ -1592,6 +1592,28 @@ internal fun MainActivity.experimentalFeaturesCard(
                     }
                     // 步骤：兼容 · 预见式返回与手动重新适配
                     deferStep {
+                        // 只作用于已适配的宿主本地 Root / Hook 检测点，不改变设备真实状态或全局环境。
+                        val blockSystemEnvKey = FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION
+                        materialSwitch(key = "SettingsCardSections:SystemEnvDetection",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                            bindFavoriteSwitch(this, blockSystemEnvKey)
+                            text = stringResource(R.string.block_system_env_detection)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isAllCaps = false
+                            isChecked = prefs().getBoolean(blockSystemEnvKey, false)
+                            setOnCheckedChangeListener { button, checked ->
+                                applyModeledToggle(blockSystemEnvKey, checked, button)
+                            }
+                        }
+                        textView(key = "SettingsCardSections:SystemEnvDetectionTip",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.block_system_env_detection_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
                         // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
                         // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
                         // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用

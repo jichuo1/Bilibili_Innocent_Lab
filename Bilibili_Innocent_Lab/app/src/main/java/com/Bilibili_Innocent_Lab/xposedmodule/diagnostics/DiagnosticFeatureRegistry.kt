@@ -26,6 +26,7 @@ internal data class DiagnosticFeatureDescriptor(
 /** 宿主协议、诊断页面和报告共同使用的唯一功能 ID 白名单。 */
 internal object DiagnosticFeatureRegistry {
     private val groups: List<DiagnosticFeatureDescriptor> = listOf(
+        DiagnosticFeatureDescriptor("system_environment_detection", DiagnosticFeatureCategory.COMPATIBILITY, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("ai_insight", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
         DiagnosticFeatureDescriptor("guest_browsing", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("incognito_privacy", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),

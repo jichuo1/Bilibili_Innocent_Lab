@@ -37,7 +37,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 84
+    const val CATALOG_VERSION = 85
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -1179,7 +1179,15 @@ internal object SettingsCatalog {
             R.string.host_bottom_bar_badge_accent, default = false, introducedCatalogVersion = 79),
         // v80：视频详情页标题长按自由复制。默认关闭，现有行为不变；改动需重启宿主。
         bool(ID_FREE_COPY_TITLE, FeaturePreferences.FREE_COPY_TITLE_ENABLED,
-            R.string.free_copy_video_title_enable, default = false, introducedCatalogVersion = 80)
+            R.string.free_copy_video_title_enable, default = false, introducedCatalogVersion = 80),
+        // v85：阻止检测系统环境（仅作用于已适配的宿主本地 Root / Hook 检测点）。默认关闭；改动需重启宿主。
+        bool(
+            "system.env_detection.blocked",
+            FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION,
+            R.string.block_system_env_detection,
+            default = false,
+            introducedCatalogVersion = 85
+        )
     )
 
     val byId: Map<String, SettingSpec> = specs.associateBy(SettingSpec::id)
@@ -1194,7 +1202,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 279) { "Expected 279 catalog settings, found ${specs.size}" }
+        check(specs.size == 280) { "Expected 280 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

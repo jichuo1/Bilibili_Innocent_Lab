@@ -44,6 +44,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionP
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.AtomicJsonCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistAttemptGuard
@@ -1894,6 +1896,7 @@ object VersionAdapter {
         val pageBoundaries: PageBoundaryPoints? = null,
         val homeChrome: Map<String, HookPoint> = emptyMap(),
         val homeChromeSemantics: HomeChromeSemanticsPoint? = null,
+        val systemEnvironment: SystemEnvironmentPoints? = null,
         /**
          * 同步定位家族的覆盖范围与尝试状态；`null` = 旧缓存（没有 `cov` 键），覆盖范围未知，**不等于**覆盖完整。
          * 只描述「这一轮尝试过什么」，不描述数据是否有效：被计划裁剪的家族即使带着此前缓存的点，也要看这里。
@@ -1981,6 +1984,7 @@ object VersionAdapter {
             pageBoundaries?.let { put("page_boundaries", it.toJson()) }
             if (homeChrome.isNotEmpty()) put("home_chrome", HomeChromeAdapter.toJson(homeChrome))
             homeChromeSemantics?.let { put("home_chrome_semantics", it.toJson()) }
+            systemEnvironment?.let { put("system_environment", it.toJson()) }
             coverage?.let { put("cov", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
@@ -2306,7 +2310,7 @@ object VersionAdapter {
                     it.paramClassNames == listOf(BrandSplashDecoderAdapter.INFO) } != false &&
                 playerSpeedMenu?.isStructurallyValid() != false &&
                 pageBoundaries?.isValid() != false &&
-                HomeChromeAdapter.validCache(homeChrome) &&
+                HomeChromeAdapter.validCache(homeChrome) && systemEnvironment?.isStructurallyValid() != false &&
                 homeChromeSemantics?.isStructurallyValid() != false &&
                 // 声称「找到」的家族必须真的带着点；否则这份覆盖范围不可信，整份缓存按无效处理（重新适配）。
                 coverage?.let { cov ->
@@ -2398,6 +2402,8 @@ object VersionAdapter {
                         HomeChromeAdapter.fromJson(o.getJSONObject("home_chrome")) ?: return null else emptyMap(),
                     homeChromeSemantics = if (o.has("home_chrome_semantics"))
                         HomeChromeSemanticsPoint.fromJson(o.getJSONObject("home_chrome_semantics")) ?: return null else null,
+                    systemEnvironment = if (o.has("system_environment"))
+                        SystemEnvironmentPoints.fromJson(o.getJSONObject("system_environment")) ?: return null else null,
                     // 旧缓存没有 cov：覆盖范围未知（null），不会被当成覆盖完整。
                     coverage = o.optJSONObject("cov")?.let(AdaptCoverage::fromJson)
                 ).takeIf { it.isStructurallyValid() }
@@ -3147,7 +3153,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic)) &&
+                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic) || id in SystemEnvironmentAdapter.Family.entries.map { it.diagnostic }) &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live
@@ -3210,6 +3216,7 @@ object VersionAdapter {
             pageBoundaries = runtime.pageBoundaries ?: cached.pageBoundaries,
             homeChrome = cached.homeChrome + runtime.homeChrome,
             homeChromeSemantics = runtime.homeChromeSemantics ?: cached.homeChromeSemantics,
+            systemEnvironment = SystemEnvironmentAdapter.merge(runtime.systemEnvironment, cached.systemEnvironment),
             coverage = AdaptCoverage.merge(runtime.coverage, cached.coverage),
         ).applyStartupExclusions()
     }
@@ -3363,10 +3370,11 @@ object VersionAdapter {
         homeChromeEnabled: Boolean = false,
         homeChromeIconOnly: Boolean = false,
         homeTopTabCenteringEnabled: Boolean = false,
+        systemEnvironmentEnabled: Boolean = false,
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, blockUpdateEnabled, commentTopologyEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled
     )
 
     internal fun ensureAdapted(
@@ -3391,6 +3399,7 @@ object VersionAdapter {
         homeChromeEnabled: Boolean = false,
         homeChromeIconOnly: Boolean = false,
         homeTopTabCenteringEnabled: Boolean = false,
+        systemEnvironmentEnabled: Boolean = false,
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false,
         /** 安装链从已接受的配置快照生成的定位计划；缺省 = 全量（原始行为）。 */
@@ -3464,9 +3473,14 @@ object VersionAdapter {
             it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
         }
         val previousPopup = popupHistory?.playerPopupPromotion
+        // 专项 Root/Hook 返回边界属于后台适配，不进入任何同步启动计划。
         // 更新检查、默认画质、评论脉络三类兜底：按功能需求与历史结论门控（见 AdaptAssistGate）。
         val assistHistory = AssistHistory.of(popupHistory)
         val previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
+            popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
+        }
+        val previousSystemEnv = popupHistory?.systemEnvironment
+        val previouslyMissingSystemEnv = SystemEnvironmentAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
             popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
         }
         // 有效缓存里计划要求、却从未尝试过的家族（旧缓存没有覆盖范围 = 全部待补）。
@@ -3500,6 +3514,10 @@ object VersionAdapter {
                 WeChatShareCompatAccess.locate(classLoader, vc) != null,
                 value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) } != null,
                 value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && it.state == AdaptState.MISSING })
+            val systemEnvRefresh = systemEnvironmentEnabled &&
+                SystemEnvironmentAdapter.missing(classLoader, value.systemEnvironment).any { family ->
+                    value.diagnostics.none { it.id == family.diagnostic && it.state == AdaptState.MISSING }
+                }
             return PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
                 value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
             StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
@@ -3510,6 +3528,7 @@ object VersionAdapter {
                 value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
                 HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
                 HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
+                systemEnvRefresh ||
                 assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled) ||
                 pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || speedSessionRefresh || speedCalculatorRefresh || weChatShareRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
@@ -3578,6 +3597,7 @@ object VersionAdapter {
                         searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
+                        systemEnvironmentEnabled, previousSystemEnv, previouslyMissingSystemEnv,
                         blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory, dexSource, vc) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
@@ -3841,7 +3861,9 @@ object VersionAdapter {
                       homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
                       chromeAttempted: Set<DexAssistQuery>, homeChromeIconOnly: Boolean,
                       previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean,
-                      homeTopTabCenteringEnabled: Boolean,
+                      homeTopTabCenteringEnabled: Boolean, systemEnvironmentEnabled: Boolean,
+                      previousSystemEnv: SystemEnvironmentPoints? = null,
+                      previouslyMissingSystemEnv: Set<SystemEnvironmentAdapter.Family> = emptySet(),
                       blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
                       plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
@@ -3908,6 +3930,7 @@ object VersionAdapter {
             assistHistory.attempt(AdaptAssistGate.Family.PLAYER_QUALITY)) { !playerQualityNeedsAssist }
         val topologyPlanned = AdaptAssistGate.needsQuery(commentTopologyEnabled, assistHistory.commentTopology != null,
             assistHistory.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { directTopologyOutcome.points != null }
+        val systemEnvPlanned = SystemEnvironmentAdapter.planned(loader, previousSystemEnv, previouslyMissingSystemEnv, systemEnvironmentEnabled)
         // 本轮兜底共享适配会话，每个代码归档只打开一次 DEX 快照。
         val dexAssist = dexSource?.let { source ->
             DexAssistSession(
@@ -3939,6 +3962,7 @@ object VersionAdapter {
                         add(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
                     }
                     if (speedMenuPlanned) add(PlayerSpeedMenuAdapter.query)
+                    systemEnvPlanned.forEach { add(it.query) }
                 }
             )
         }
@@ -3949,6 +3973,34 @@ object VersionAdapter {
         val semanticsReady = homeChromeEnabled && homeChromeIconOnly && HomeChromeAdapter.applicable(loader) &&
             HostComposeSemanticsAccess.resolve(loader, chromeSemantics) != null
         val semanticsConclusive = semanticsAttempted || HomeChromeAdapter.conclusive(semanticsOutcome)
+        val systemEnvironment = if (systemEnvironmentEnabled) {
+            SystemEnvironmentAdapter.locate(loader, dexAssist, true, previousSystemEnv, systemEnvPlanned)
+        } else {
+            previousSystemEnv
+        }
+        val systemEnvironmentDiagnostics = SystemEnvironmentAdapter.Family.entries.map { family ->
+            val found = systemEnvironmentEnabled && SystemEnvironmentAdapter.resolve(loader, family, systemEnvironment) != null
+            val outcome = if (family in systemEnvPlanned) dexAssist?.result(family.query) else null
+            val conclusiveMissing = family in previouslyMissingSystemEnv ||
+                (family in systemEnvPlanned && SystemEnvironmentAdapter.conclusive(outcome))
+            val state = when {
+                found -> AdaptState.FOUND
+                !systemEnvironmentEnabled && family in previouslyMissingSystemEnv -> AdaptState.MISSING
+                !systemEnvironmentEnabled -> AdaptState.NOT_APPLICABLE
+                conclusiveMissing -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            }
+            val detail = when {
+                found -> "verified-local-result-boundary"
+                !systemEnvironmentEnabled && family in previouslyMissingSystemEnv -> "feature-disabled:cached-attempt-preserved"
+                !systemEnvironmentEnabled -> "feature-disabled"
+                family in previouslyMissingSystemEnv && family !in systemEnvPlanned -> "cached-attempt-preserved"
+                outcome is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                conclusiveMissing -> "no-safe-result-boundary"
+                else -> "no-dex-source"
+            }
+            AdaptDiagnostic(family.diagnostic, state, detail)
+        }
         val semanticsDiagnostic = AdaptDiagnostic(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC, when {
             !homeChromeEnabled || !homeChromeIconOnly || !HomeChromeAdapter.applicable(loader) -> AdaptState.NOT_APPLICABLE
             semanticsReady -> AdaptState.FOUND
@@ -4368,11 +4420,12 @@ object VersionAdapter {
             playerSpeedMenu = speedMenu,
             pageBoundaries = pages,
             homeChrome = chrome,
-            homeChromeSemantics = chromeSemantics
+            homeChromeSemantics = chromeSemantics,
+            systemEnvironment = systemEnvironment
         )
         val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
-            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic
+            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic + systemEnvironmentDiagnostics
         located.copy(
             diagnostics = diagnostics,
             coverage = coverageOf(located, locators, plan, previous?.coverage)
