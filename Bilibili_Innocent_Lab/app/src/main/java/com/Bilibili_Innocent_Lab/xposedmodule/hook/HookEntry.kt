@@ -20,6 +20,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedModule
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostPredictiveBackFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemEnvironmentFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
@@ -4121,6 +4122,12 @@ class HookEntry : XposedModule() {
                         ).orEmpty()
                     ),
                     systemEnvInstaller,
+                    HostPredictiveBackFeatureInstaller(
+                        enabled = prefs.getBoolean(
+                            FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED,
+                            false
+                        )
+                    ),
                     classicInstaller,
                     SplashAutoNightFeatureInstaller(
                         enabled = prefs.getBoolean(

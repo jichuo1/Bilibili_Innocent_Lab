@@ -27,6 +27,7 @@ internal data class DiagnosticFeatureDescriptor(
 internal object DiagnosticFeatureRegistry {
     private val groups: List<DiagnosticFeatureDescriptor> = listOf(
         DiagnosticFeatureDescriptor("system_environment_detection", DiagnosticFeatureCategory.COMPATIBILITY, runtimeEvidenceExpected = true),
+        DiagnosticFeatureDescriptor("host_predictive_back", DiagnosticFeatureCategory.COMPATIBILITY, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("ai_insight", DiagnosticFeatureCategory.PLAYER_AND_DETAIL),
         DiagnosticFeatureDescriptor("guest_browsing", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("incognito_privacy", DiagnosticFeatureCategory.GENERAL, runtimeEvidenceExpected = true),

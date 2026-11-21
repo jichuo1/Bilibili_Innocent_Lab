@@ -37,7 +37,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 85
+    const val CATALOG_VERSION = 86
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -93,6 +93,7 @@ internal object SettingsCatalog {
     const val ID_AI_INSIGHT_AUTO_V1 = "ai_insight.auto_v1"
     const val ID_HOST_BOTTOM_BAR_BADGE_ACCENT = "host.bottom_bar.badge_accent.enabled"
     const val ID_AI_INSIGHT_MODEL = "ai_insight.model"
+    const val ID_HOST_PREDICTIVE_BACK = "compat.host_predictive_back.enabled"
 
     /** 各过滤面的"判定来源 / 自定义类型"目录 id。 */
     fun semanticRouteId(surface: SemanticSurface): String = when (surface) {
@@ -1187,6 +1188,14 @@ internal object SettingsCatalog {
             R.string.block_system_env_detection,
             default = false,
             introducedCatalogVersion = 85
+        ),
+        // v86：强制启用宿主预见式返回（仅作用于符合条件的宿主标准页面）。默认关闭；改动需重启宿主。
+        bool(
+            ID_HOST_PREDICTIVE_BACK,
+            FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED,
+            R.string.host_predictive_back_enable,
+            default = false,
+            introducedCatalogVersion = 86
         )
     )
 
@@ -1202,7 +1211,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 280) { "Expected 280 catalog settings, found ${specs.size}" }
+        check(specs.size == 281) { "Expected 281 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

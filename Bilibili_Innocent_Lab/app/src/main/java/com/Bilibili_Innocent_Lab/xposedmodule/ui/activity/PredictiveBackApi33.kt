@@ -1,7 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.app.Dialog
+import android.content.Context
 import androidx.annotation.RequiresApi
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import java.lang.reflect.Modifier
 
 /**
  * 预测性返回的 API 33/34 隔离层：**`android.window.*` 只允许出现在这个文件里**。
@@ -81,5 +84,68 @@ internal object PredictiveBackApi33 {
             callback as android.window.OnBackInvokedCallback
         )
         return dispatcher
+    }
+
+    @Volatile
+    private var dispatcherClass: Class<*>? = null
+
+    @Volatile
+    private var dispatcherClassResolved = false
+
+    @Volatile
+    private var checkerClass: Class<*>? = null
+
+    @Volatile
+    private var checkerClassResolved = false
+
+    @Volatile
+    private var predictiveBackFlagField: java.lang.reflect.Field? = null
+
+    @Volatile
+    private var predictiveBackFlagResolved = false
+
+    private fun systemClassOrNull(name: String): Class<*>? {
+        val loader = Context::class.java.classLoader
+            ?: PredictiveBackApi33::class.java.classLoader
+            ?: ClassLoader.getSystemClassLoader()
+        return KavaMemberLookup.classOrNull(loader, name)
+            ?: runCatching { Class.forName(name, false, null) }.getOrNull()
+    }
+
+    /** 查找系统窗口返回分发器类；外部只接收 [Class]，不泄露平台类型引用。 */
+    fun windowDispatcherClassOrNull(): Class<*>? {
+        if (!dispatcherClassResolved) {
+            dispatcherClass = systemClassOrNull("android.window.WindowOnBackInvokedDispatcher")
+            dispatcherClassResolved = true
+        }
+        return dispatcherClass
+    }
+
+    /** 查找系统窗口返回分发器门禁内部类。 */
+    fun windowDispatcherCheckerClassOrNull(): Class<*>? {
+        if (!checkerClassResolved) {
+            checkerClass = systemClassOrNull("android.window.WindowOnBackInvokedDispatcher\$Checker")
+            checkerClassResolved = true
+        }
+        return checkerClass
+    }
+
+    /**
+     * 读取系统级 `ENABLE_PREDICTIVE_BACK` 总开关；Android 15+ 若字段移除或不可读，
+     * 默认视作开启，仅当明确读到 `false`（如 Android 13 未开开发者选项）时抑制。
+     */
+    fun isSystemPredictiveBackEnabled(): Boolean {
+        val field = predictiveBackFlagField ?: if (!predictiveBackFlagResolved) {
+            val resolved = windowDispatcherClassOrNull()?.let { cls ->
+                KavaMemberLookup.fieldOrNull(cls, "ENABLE_PREDICTIVE_BACK")
+                    ?.takeIf { Modifier.isStatic(it.modifiers) }
+            }
+            predictiveBackFlagField = resolved
+            predictiveBackFlagResolved = true
+            resolved
+        } else {
+            null
+        } ?: return true
+        return runCatching { (field.get(null) as? Boolean) ?: true }.getOrDefault(true)
     }
 }

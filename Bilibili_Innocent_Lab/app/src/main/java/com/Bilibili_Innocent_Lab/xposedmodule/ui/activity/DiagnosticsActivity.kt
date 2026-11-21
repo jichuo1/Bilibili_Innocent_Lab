@@ -1104,6 +1104,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "splash_auto_night" -> R.string.splash_auto_night
             "bv_to_av" -> R.string.show_bv_as_av
             "system_environment_detection" -> R.string.block_system_env_detection
+            "host_predictive_back" -> R.string.host_predictive_back_enable
             "guest_browsing" -> R.string.no_login_enabled
             "incognito_privacy" -> R.string.incognito_enabled
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter

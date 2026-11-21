@@ -986,6 +986,8 @@
     <string name="home_recommend_early_load_tip">首頁推薦離末尾約四列時就請求下一頁，滑到底時很少再停在「載入中」。列數按目前欄數計算，手機與平板都適用。會略微多用一些流量。重新啟動嗶哩嗶哩後生效。</string>
     <string name="block_system_env_detection">阻止偵測系統環境</string>
     <string name="block_system_env_detection_tip">對已適配的嗶哩嗶哩 Root / Hook 本地偵測返回未偵測到。不會改變裝置真實狀態或其他環境欄位，不全域屏蔽檔案、套件查詢、簽章或網路風控；未適配版本保持原行為，覆蓋不完整。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="host_predictive_back_enable">強制啟用宿主預測式返回</string>
+    <string name="host_predictive_back_tip">在 Android 13+（建議 14+）上強制為符合條件的嗶哩嗶哩標準頁面開啟系統預測式返回手勢動畫。覆寫了自訂返回或按鍵攔截的頁面（如全螢幕播放、網頁、首頁及第三方中轉頁）保持原行為不受影響；實際手勢動效仍受系統與 ROM 支援限制。重新啟動嗶哩嗶哩後生效。</string>
     <string name="cloud_key_freeze">凍結指定雲控鍵</string>
     <string name="cloud_key_freeze_tip">頁面和按鈕常由雲控決定，一變就可能突然出現或消失。開啟後，勾選的和手寫規則裡的雲控鍵會被固定成指定值，其它不受影響；網路、登入、風控與初始化類鍵不可凍結。重新啟動嗶哩嗶哩後生效。</string>
     <string name="cloud_key_freeze_rules">雲控鍵規則</string>
@@ -1818,4 +1820,5 @@
     <string name="player_frame_mode_short_none">無</string>
     <string name="highlights_player_frame_mode">新增「強制指定插幀方式」開關與 GPU 能力感知選擇面板：僅顯示目前裝置支援的插幀路徑，並在開啟強制模式後禁止依影格率門檻自動回退。</string>
     <string name="highlights_system_environment_detection">相容實驗區新增「阻止偵測系統環境」開關：僅對已適配的宿主本地 Root / Hook 偵測結果返回乾淨副本，不改變裝置真實狀態或其他環境欄位。</string>
+    <string name="highlights_host_predictive_back">相容實驗區新增「強制啟用宿主預測式返回」開關：在 Android 13+（建議 14+）上為符合條件的嗶哩嗶哩標準頁面開啟系統預測式返回手勢動畫，自訂返回頁面保持原行為。</string>
 </resources>

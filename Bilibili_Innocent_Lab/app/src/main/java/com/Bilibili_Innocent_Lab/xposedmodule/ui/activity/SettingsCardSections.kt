@@ -1614,6 +1614,33 @@ internal fun MainActivity.experimentalFeaturesCard(
                             textColor = colorResource(R.color.colorTextDark)
                             textSize = 12f
                         }
+                        // 宿主预见式返回（Android 13+，推荐 14+）：B 站清单当前显式关闭了该属性，
+                        // 因此即便在 Android 16/17+ 也需单独保留开关；自定义返回页面会自动跳过。
+                        val hostPredictiveBackKey = FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED
+                        materialSwitch(key = "SettingsCardSections:HostPredictiveBack",
+                            lparams = params(widthMatchParent = true) {
+                                topMargin = 5.dp
+                                bottomMargin = 5.dp
+                            }
+                        ) {
+                            bindFavoriteSwitch(this, hostPredictiveBackKey)
+                            text = stringResource(R.string.host_predictive_back_enable)
+                            textColor = colorResource(R.color.colorTextGray)
+                            textSize = 15f
+                            isAllCaps = false
+                            isChecked = prefs().getBoolean(hostPredictiveBackKey, false)
+                            setOnCheckedChangeListener { button, checked ->
+                                applyModeledToggle(hostPredictiveBackKey, checked, button)
+                            }
+                        }
+                        textView(key = "SettingsCardSections:HostPredictiveBackTip",
+                            lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                            alpha = 0.6f
+                            setLineSpacing(6f, 1f)
+                            text = stringResource(R.string.host_predictive_back_tip)
+                            textColor = colorResource(R.color.colorTextDark)
+                            textSize = 12f
+                        }
                         // 预见式返回动画（Android 14+）：实验性开关，运行时切换 window 的
                         // OnBackInvokedCallback 体系，返回时显示系统缩放预览动画。
                         // Android 16（API 36）+ 系统对 targetSdk 36+ 的应用强制启用

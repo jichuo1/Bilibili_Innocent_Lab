@@ -986,6 +986,8 @@
     <string name="home_recommend_early_load_tip">首页推荐离末尾约四行时就请求下一页，滑到底时很少再停在“加载中”。行数按当前列数计算，手机与平板都适用。会略微多用一些流量。重启哔哩哔哩后生效。</string>
     <string name="block_system_env_detection">阻止检测系统环境</string>
     <string name="block_system_env_detection_tip">对已适配的哔哩哔哩 Root / Hook 本地检测返回未检测到。不会改变设备真实状态或其它环境字段，不全局屏蔽文件、包查询、签名或网络风控；未适配版本保持原行为，覆盖不完整。重启哔哩哔哩后生效。</string>
+    <string name="host_predictive_back_enable">强制启用宿主预见式返回</string>
+    <string name="host_predictive_back_tip">在 Android 13+（推荐 14+）上强制为符合条件的哔哩哔哩标准页面开启系统预见式返回手势动画。重写了自定义返回或按键拦截的页面（如全屏播放、网页、首页及第三方中转页）保持原行为不受影响；实际手势动效仍受系统与 ROM 支持限制。重启哔哩哔哩后生效。</string>
     <string name="cloud_key_freeze">冻结指定云控键</string>
     <string name="cloud_key_freeze_tip">页面和按钮常由云控决定，一变就可能突然出现或消失。开启后，勾选的和手写规则里的云控键会被固定成指定值，其它不受影响；网络、登录、风控与初始化类键不可冻结。重启哔哩哔哩后生效。</string>
     <string name="cloud_key_freeze_rules">云控键规则</string>
@@ -1818,4 +1820,5 @@
     <string name="player_frame_mode_short_none">无</string>
     <string name="highlights_player_frame_mode">新增“强制指定插帧方式”开关与 GPU 能力感知选择面板：仅显示当前设备受支持的插帧路径，并在开启强制模式后禁止按帧数门槛自动回退。</string>
     <string name="highlights_system_environment_detection">兼容实验区新增“阻止检测系统环境”开关：仅对已适配的宿主本地 Root / Hook 检测结果返回干净副本，不改变设备真实状态或其它环境字段。</string>
+    <string name="highlights_host_predictive_back">兼容实验区新增“强制启用宿主预见式返回”开关：在 Android 13+（推荐 14+）上为符合条件的哔哩哔哩标准页面开启系统预见式返回手势动画，自定义返回页面保持原行为。</string>
 </resources>

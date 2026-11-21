@@ -1709,6 +1709,7 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
         FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE,
         FeaturePreferences.AI_INSIGHT_ENABLED, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
         FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION,
+        FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED,
         FeaturePreferences.HOST_UI_POWER_SAVING -> {
             val store = checkNotNull(settingStore)
             val descriptor = store.descriptors.single { it.storageKey == storageKey }
@@ -1833,6 +1834,7 @@ internal val modeledToggleKeys = setOf(
     HookEntry.PREF_ROAMING_COMPAT_ENABLED,
     HookEntry.PREF_PREDICTIVE_BACK_ENABLED,
     FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION,
+    FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED,
     HookEntry.PREF_LOG_ENABLED,
     FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON,
     FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,

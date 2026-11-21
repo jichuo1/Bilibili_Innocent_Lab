@@ -331,6 +331,9 @@ internal object FeaturePreferences {
     /** 仅在已适配的宿主本地 Root / Hook 检测边界返回未检测到。 */
     const val BLOCK_SYSTEM_ENV_DETECTION = "block_system_env_detection"
 
+    /** Android 13+（推荐 14+）上强制为符合条件的宿主标准页面开启系统预见式返回手势动画；默认关闭，重启宿主生效。 */
+    const val HOST_PREDICTIVE_BACK_ENABLED = "host_predictive_back_enabled"
+
     /** 冻结指定云控键：总开关、规则文本（`键名=取值`）与「记录读取到的云控键名」。 */
     const val CLOUD_KEY_FREEZE_ENABLED = "cloud_key_freeze_enabled"
     const val CLOUD_KEY_FREEZE_RULES = "cloud_key_freeze_rules"

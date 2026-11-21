@@ -417,6 +417,14 @@ internal object ReleaseHighlightsCatalog {
         // 实验能力，默认关闭；只在列表提示，不承诺未适配的检测路径。
         ReleaseHighlight("system-environment-detection", HighlightKind.NEW, R.string.highlights_system_environment_detection,
             HighlightDestination("system.env_detection.blocked"))
+    ), automatic = false), ReleaseHighlightsBatch(49, listOf(
+        // 实验能力，默认关闭；仅作用于符合条件的宿主标准页面，只在列表提示不自动弹窗。
+        ReleaseHighlight(
+            "host-predictive-back",
+            HighlightKind.NEW,
+            R.string.highlights_host_predictive_back,
+            HighlightDestination(SettingsCatalog.ID_HOST_PREDICTIVE_BACK)
+        )
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

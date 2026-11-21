@@ -36,13 +36,13 @@ class SettingsCatalogTest {
 
     @Test
     fun `current catalog satisfies global schema security and normalization invariants`() {
-        assertEquals(85, SettingsCatalog.CATALOG_VERSION)
-        assertEquals(280, SettingsCatalog.specs.size)
-        assertEquals(280, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(280, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(274, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertEquals(86, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(281, SettingsCatalog.specs.size)
+        assertEquals(281, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(281, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(275, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(6, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
-        assertEquals(173, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(174, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(25, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(82, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
@@ -141,7 +141,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog v85 adds system environment detection block switch with safe default`() {
-        assertEquals(85, SettingsCatalog.CATALOG_VERSION)
+        assertTrue(SettingsCatalog.CATALOG_VERSION >= 85)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 85 }.associateBy { it.id }
         assertEquals(setOf("system.env_detection.blocked"), added.keys)
 
@@ -152,5 +152,20 @@ class SettingsCatalogTest {
         assertEquals(RestorePolicy.AUTOMATIC, spec.restorePolicy)
         assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
         assertEquals(spec, SettingsCatalog.byStorageKey[FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION])
+    }
+
+    @Test
+    fun `catalog v86 adds host predictive back switch with safe default`() {
+        assertEquals(86, SettingsCatalog.CATALOG_VERSION)
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 86 }.associateBy { it.id }
+        assertEquals(setOf(SettingsCatalog.ID_HOST_PREDICTIVE_BACK), added.keys)
+
+        val spec = added.getValue(SettingsCatalog.ID_HOST_PREDICTIVE_BACK)
+        assertEquals(FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED, spec.storageKey)
+        assertEquals(SettingValueType.BOOLEAN, spec.type)
+        assertEquals(SettingValue.Bool(false), spec.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, spec.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
+        assertEquals(spec, SettingsCatalog.byStorageKey[FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED])
     }
 }

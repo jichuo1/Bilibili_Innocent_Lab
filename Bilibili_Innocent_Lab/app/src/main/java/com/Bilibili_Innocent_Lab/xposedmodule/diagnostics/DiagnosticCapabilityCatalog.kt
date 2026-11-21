@@ -20,8 +20,10 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 43
+    const val VERSION = 44
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("host_predictive_back", "host_predictive_back",
+            R.string.host_predictive_back_enable, setOf("compat.host_predictive_back.enabled"), introducedCatalogVersion = 44),
         DiagnosticCapabilityDefinition("system_environment_root", "system_environment_detection",
             R.string.diag_cap_system_environment_root, setOf("system.env_detection.blocked"), introducedCatalogVersion = 43),
         DiagnosticCapabilityDefinition("system_environment_hook", "system_environment_detection",

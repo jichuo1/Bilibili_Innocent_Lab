@@ -15,6 +15,20 @@ import org.junit.Test
 import java.io.File
 
 class DiagnosticCapabilityCatalogTest {
+    fun `host predictive back is an independent v44 compatibility capability`() {
+        assertTrue(DiagnosticCapabilityCatalog.VERSION >= 44)
+        val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 44 }
+        assertEquals(setOf("host_predictive_back"), added.map { it.id }.toSet())
+        val leaf = added.single()
+        assertEquals("host_predictive_back", leaf.parentId)
+        assertEquals(setOf(SettingsCatalog.ID_HOST_PREDICTIVE_BACK), leaf.settingIds)
+        assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(leaf.id))
+        assertFalse(leaf.id in DiagnosticCapabilityCatalog.splitParents)
+        val descriptor = requireNotNull(DiagnosticFeatureRegistry.descriptorOrNull("host_predictive_back"))
+        assertEquals(DiagnosticFeatureCategory.COMPATIBILITY, descriptor.category)
+        assertTrue(descriptor.runtimeEvidenceExpected)
+    }
+
     fun `system environment leaves are independent v43 compatibility capabilities under system_environment_detection`() {
         assertTrue(DiagnosticCapabilityCatalog.VERSION >= 43)
         val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 43 }
@@ -257,6 +271,7 @@ class DiagnosticCapabilityCatalogTest {
             val s = DiagnosticCapabilityCatalogTest()
             block(s)
         }
+        runIsolated { s -> s.`host predictive back is an independent v44 compatibility capability`() }
         runIsolated { s -> s.`system environment leaves are independent v43 compatibility capabilities under system_environment_detection`() }
         runIsolated { s -> s.`frame forced mode option has an independent catalog leaf covering both settings`() }
         runIsolated { s -> s.`frame temperature choice has an independent catalog leaf without invented runtime evidence`() }

@@ -986,6 +986,8 @@
     <string name="home_recommend_early_load_tip">Requests the next page of home recommendations when about four rows remain, so scrolling to the end rarely stops on the loading spinner. Rows follow the current column count on phones and tablets. Uses slightly more data. Restart Bilibili to apply.</string>
     <string name="block_system_env_detection">Block system environment detection</string>
     <string name="block_system_env_detection_tip">For verified Bilibili Root / Hook checks, return a clean local result. Device state and unrelated fields stay unchanged; system files, package inspection, signatures and network risk checks are not altered. Coverage depends on the host build and is not guaranteed. Restart Bilibili to apply.</string>
+    <string name="host_predictive_back_enable">Force predictive back for host</string>
+    <string name="host_predictive_back_tip">Forces predictive back gesture animations on eligible standard Bilibili pages on Android 13+ (14+ recommended). Pages with custom back or key interception (such as fullscreen player, web view, home tabs, or third-party transfer activities) stay unchanged. System animation behavior depends on OS and ROM support. Restart Bilibili to apply.</string>
     <string name="cloud_key_freeze">Freeze chosen remote flags</string>
     <string name="cloud_key_freeze_tip">Pages and buttons are often switched by remote flags and can appear or vanish overnight. Turn this on to pin the flags you tick below and those in your own rules. Other flags are untouched, and network, sign-in, risk-control and startup flags cannot be frozen. Restart Bilibili to apply.</string>
     <string name="cloud_key_freeze_rules">Remote flag rules</string>
@@ -1818,4 +1820,5 @@
     <string name="player_frame_mode_short_none">None</string>
     <string name="highlights_player_frame_mode">Added a \"Force interpolation backend\" toggle and GPU-aware backend picker showing only paths supported on this device, with frame-threshold fallback disabled when forced.</string>
     <string name="highlights_system_environment_detection">Added an experimental \"Block system environment detection\" toggle under Compatibility to return clean copies for verified local Root and Hook checks without altering real device state.</string>
+    <string name="highlights_host_predictive_back">Added an experimental \"Force predictive back for host\" toggle under Compatibility to enable predictive back gesture animations on eligible Bilibili pages while keeping custom back pages untouched.</string>
 </resources>
