@@ -90,7 +90,8 @@ internal object VersionAdapterContract {
     /** 89 → 90：关注流装饰新增构造边发现查询，缓存恢复改按父类/形状复验而非类名名单；
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
     /** 90 → 91：局部 Root/Hook 结果新增后台语义定位与可选缓存键，快路径必须重新验真后才能注册。 */
-    const val RULE_VERSION = 91
+    /** 91 → 92：9.20.0 三构建（9200100/9200200/9200300）ReplyInfo -> CommentItem 根包映射器搬迁入库，抬 rule 使已缓存缺失结论重定位。 */
+    const val RULE_VERSION = 92
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

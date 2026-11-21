@@ -5336,6 +5336,18 @@ class HookEntry : XposedModule() {
                                                 featureInstallCoordinator.installAll(listOf(endPageInstaller))
                                         }
                                     }
+                                    if (commentTopologyInstaller.requiresAdaptationRetry) {
+                                        commentTopologyInstaller.updateAdaptedPoints(
+                                            points = adapted?.commentTopology,
+                                            lowBindPoint = adapted?.commentLow,
+                                            highBindPoint = adapted?.commentHigh
+                                        )
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (commentTopologyInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(commentTopologyInstaller))
+                                            }
+                                        }
+                                    }
                                     run {
                                         val chrome = adapted?.homeChrome.orEmpty()
                                         hookEnvironment.postToMain?.invoke {

@@ -2927,7 +2927,20 @@ object VersionAdapter {
     private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
     private const val COMMENT_REPLY_MAPPER_PACKAGE =
         "com.bilibili.app.comment3.data.source.v1"
-    private const val COMMENT_REPLY_MAPPER_ROOT_919 = "rg40"
+    private data class VerifiedCommentReplyMapper(
+        val ownerClassName: String,
+        val methodName: String,
+        val fifthParamClassName: String
+    )
+
+    // 9.19/9.20 的五参 ReplyInfo -> CommentItem 根包混淆映射器逐构建验真，禁止跨构建串用。
+    private val VERIFIED_COMMENT_REPLY_MAPPERS: Map<Int, VerifiedCommentReplyMapper> = mapOf(
+        9190200 to VerifiedCommentReplyMapper("rg40", "B", "tev"),
+        9190400 to VerifiedCommentReplyMapper("rg40", "B", "tev"),
+        9200100 to VerifiedCommentReplyMapper("w360", "B", "caw"),
+        9200200 to VerifiedCommentReplyMapper("v260", "B", "m9w"),
+        9200300 to VerifiedCommentReplyMapper("l260", "B", "z8w")
+    )
 
     /**
      * `ReplyInfo -> CommentItem` 的旧映射落在同一个包的 Kotlin file facade 上，但类名随每次
@@ -3749,7 +3762,7 @@ object VersionAdapter {
         val commentFilter = locators.locate(PointFamily.COMMENT_FILTER) { locateCommentFilter(loader) }
         val commentTopologyOutcome = locators.locate<CommentTopologyLocateOutcome>(
             PointFamily.COMMENT_TOPOLOGY, found = { it.points != null }
-        ) { locateCommentTopologyWithDiagnostic(loader) }
+        ) { locateCommentTopologyWithDiagnostic(loader, hostVersionCode = hostVersionCode ?: 0) }
         val commentTopology = commentTopologyOutcome?.points
         val commentSection = locators.locate(PointFamily.COMMENT_SECTION) { locateCommentSection(loader) }
         val splashAds = locators.locate(PointFamily.SPLASH_ADS) { locateSplashAds(loader) }
@@ -3920,7 +3933,7 @@ object VersionAdapter {
         }
         val directTopologyOutcome = locators.locate<CommentTopologyLocateOutcome>(
             PointFamily.COMMENT_TOPOLOGY, found = { it.points != null }
-        ) { locateCommentTopologyWithDiagnostic(loader) } ?: CommentTopologyLocateOutcome(null, PLAN_NOT_REQUESTED)
+        ) { locateCommentTopologyWithDiagnostic(loader, hostVersionCode = vc) } ?: CommentTopologyLocateOutcome(null, PLAN_NOT_REQUESTED)
         val playerQualityNeedsAssist = directPlayerQuality?.defaultQualityMethod == null ||
             directPlayerQuality.usesLegacyQualityHelper()
         // 三类兜底只在功能开启、直接定位未满足、缓存没有可复用的点、且历史没有确认缺失时入队。
@@ -4310,7 +4323,7 @@ object VersionAdapter {
         val commentTopologyOutcome = if (topologyAssist.mapperOwners.isEmpty()) {
             directTopologyOutcome
         } else {
-            locateCommentTopologyWithDiagnostic(loader, topologyAssist.mapperOwners)
+            locateCommentTopologyWithDiagnostic(loader, topologyAssist.mapperOwners, hostVersionCode = vc)
         }
         val commentTopology = commentTopologyOutcome.points
             ?: if (topologyPlanned) null else assistHistory.commentTopology
@@ -4815,7 +4828,8 @@ object VersionAdapter {
         val commentTopologyCandidateExists by lazy {
             commentFilterCandidateExists &&
                 KavaMemberLookup.hasClass(loader, COMMENT_ITEM_CLASS) &&
-                COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                (COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } ||
+                    (hostVersionCode != null && VERIFIED_COMMENT_REPLY_MAPPERS.containsKey(hostVersionCode)))
         }
         val commentSectionCandidateExists by lazy {
             THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
@@ -5320,7 +5334,9 @@ object VersionAdapter {
                     ?.let { it.defaultQualityMethod != null && !it.usesLegacyQualityHelper() } == true
             } ||
             AdaptAssistGate.needsSupplementalScan(commentTopologyEnabled, history.commentTopology != null,
-                history.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { locateCommentTopology(loader) != null }
+                history.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) {
+                locateCommentTopology(loader, cached.biliVersionCode) != null
+            }
     }
 
     private data class BlockUpdateDexAssist(
@@ -7234,8 +7250,11 @@ object VersionAdapter {
      * protobuf 类型和方法名在 8.90.2—9.9.0 样本中保持公开稳定；唯一可能混淆的
      * ReplyInfo -> CommentItem 映射方法按首参/返回类型结构定位，拒绝猜测 a..g 字段。
      */
-    fun locateCommentTopology(loader: ClassLoader): CommentTopologyPoints? =
-        locateCommentTopologyWithDiagnostic(loader).points
+    fun locateCommentTopology(
+        loader: ClassLoader,
+        hostVersionCode: Int = 0
+    ): CommentTopologyPoints? =
+        locateCommentTopologyWithDiagnostic(loader, hostVersionCode = hostVersionCode).points
 
     /**
      * @param extraMapperOwners DEX 兜底补充的 mapper owner。它只扩大候选 owner 集合，不放宽
@@ -7243,7 +7262,8 @@ object VersionAdapter {
      */
     private fun locateCommentTopologyWithDiagnostic(
         loader: ClassLoader,
-        extraMapperOwners: List<Class<*>> = emptyList()
+        extraMapperOwners: List<Class<*>> = emptyList(),
+        hostVersionCode: Int = 0
     ): CommentTopologyLocateOutcome {
         var stage = "reply-info-class"
         val attempt = runCatching {
@@ -7255,16 +7275,28 @@ object VersionAdapter {
         val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
             ?: return@runCatching null
         stage = "reply-mapper-methods"
-        // Both 9.19.0 samples move the five-parameter mapper to the root package.
-        // Keep this direct path exact. The background query handles further semantic drift.
-        val relocatedMapper = KavaMemberLookup.classOrNull(loader, COMMENT_REPLY_MAPPER_ROOT_919)?.let { owner ->
-            val parameters = listOf(replyInfo.name, "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
-                "boolean", "java.lang.String", "tev")
-            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                method.name == "B" && method.isPublic && method.isStatic && method.isFinal && !method.isSynthetic &&
-                    method.returnType == commentItem && method.parameterTypes.firstOrNull() == replyInfo &&
-                    method.parameterTypes.map(Class<*>::getName) == parameters
-            }.singleOrNull()
+        // 9.19/9.20 builds move the five-parameter mapper to the root package; keep direct resolution exact per build.
+        val relocatedSpecs = when {
+            hostVersionCode > 0 -> listOfNotNull(VERIFIED_COMMENT_REPLY_MAPPERS[hostVersionCode])
+            else -> VERIFIED_COMMENT_REPLY_MAPPERS.values.distinct()
+        }
+        val relocatedMappers = relocatedSpecs.mapNotNull { spec ->
+            KavaMemberLookup.classOrNull(loader, spec.ownerClassName)?.let { owner ->
+                val parameters = listOf(
+                    replyInfo.name,
+                    "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
+                    "boolean",
+                    "java.lang.String",
+                    spec.fifthParamClassName
+                )
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    method.name == spec.methodName && method.isPublic && method.isStatic &&
+                        method.isFinal && !method.isSynthetic &&
+                        method.returnType == commentItem &&
+                        method.parameterTypes.firstOrNull() == replyInfo &&
+                        method.parameterTypes.map(Class<*>::getName) == parameters
+                }.singleOrNull()
+            }
         }
         val packageMappers = (
             COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.asSequence()
@@ -7279,7 +7311,7 @@ object VersionAdapter {
                         method.parameterTypes.firstOrNull() == replyInfo
                 }.asSequence()
             }
-        val mapperMethods = (packageMappers + listOfNotNull(relocatedMapper))
+        val mapperMethods = (packageMappers + relocatedMappers)
             .distinctBy(Method::toGenericString)
             .sortedBy(Method::toGenericString)
             .take(CommentTopologyPoints.MAX_MAPPER_METHODS + 1)

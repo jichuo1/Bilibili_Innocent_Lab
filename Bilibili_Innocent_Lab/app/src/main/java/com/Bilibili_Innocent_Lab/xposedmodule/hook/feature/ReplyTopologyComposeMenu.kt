@@ -69,6 +69,21 @@ internal class ReplyTopologyComposeMenuContext<A : Any, S : Any> {
         frame === current && current.menuBound && current.menu.get() === menu
 }
 
+/** 根包混淆后校验菜单项模型：首字段为文案 String，末字段为点击回调 Function0，且具备唯一匹配非 synthetic 构造器。 */
+internal fun isValidComposeMenuEntryClass(candidate: Class<*>): Boolean {
+    if (candidate.isPrimitive || candidate.isArray || candidate.isInterface || candidate.isEnum) return false
+    val fields = KavaMemberLookup.declaredFields(candidate, makeAccessible = true)
+        .filterNot { it.isStatic }.sortedBy { it.name }
+    if (fields.size < 2) return false
+    if (fields.first().type != classOf<String>() ||
+        fields.last().type.name != "kotlin.jvm.functions.Function0"
+    ) return false
+    val expectedTypes = fields.map { it.type }.toTypedArray()
+    return KavaMemberLookup.declaredConstructors(candidate).count { ctor ->
+        !ctor.isSynthetic && ctor.parameterTypes.contentEquals(expectedTypes)
+    } == 1
+}
+
 /** 在宿主原生 Compose 菜单追加一项，不接管三点按钮、不依赖自由复制开关。 */
 internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySeed) -> Unit) {
     private val context = ReplyTopologyComposeMenuContext<View, ReplyTopologySeed>()
@@ -113,13 +128,19 @@ internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySe
         } ?: return FeatureInstallResult.Skipped("ambiguous-compose-menu")
         val item = KavaMemberLookup.declaredMethods(owner).mapNotNull { method ->
             val params = method.parameterTypes
-            if (params.size < 4 || params.getOrNull(1)?.name != "kotlin.jvm.functions.Function0") null
-            else params[0].takeIf {
-                it.name.startsWith("kntr.common.comment.common.ui.moremenu.") ||
-                    // 9.19.0: row d casts each item to v0f1 and calls this exact renderer b.
-                    (row.name == "d" && method.name == "b" && method.isStatic && method.returnType == Void.TYPE &&
-                        params.map(Class<*>::getName) == listOf("v0f1", "kotlin.jvm.functions.Function0",
-                            "androidx.compose.ui.Modifier", "androidx.compose.runtime.Composer", "int"))
+            if (!method.isStatic || method.isSynthetic || method.returnType != Void.TYPE) return@mapNotNull null
+            if (params.size < 4 || params.getOrNull(1)?.name != "kotlin.jvm.functions.Function0") return@mapNotNull null
+            params[0].takeIf { candidate ->
+                candidate.name.startsWith("kntr.common.comment.common.ui.moremenu.") ||
+                    // 9.19/9.20 起 entry 类随 R8 混淆搬迁至根包，改以静态渲染器签名与字段/构造器结构判定。
+                    (params.size == 5 &&
+                        params.drop(1).map(Class<*>::getName) == listOf(
+                            "kotlin.jvm.functions.Function0",
+                            "androidx.compose.ui.Modifier",
+                            "androidx.compose.runtime.Composer",
+                            "int"
+                        ) &&
+                        isValidComposeMenuEntryClass(candidate))
             }
         }.distinct().singleOrNull() ?: return FeatureInstallResult.Skipped("missing-compose-menu-entry")
         val fields = KavaMemberLookup.declaredFields(item, makeAccessible = true)
@@ -128,7 +149,7 @@ internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySe
             fields.lastOrNull()?.type?.name != "kotlin.jvm.functions.Function0"
         ) return FeatureInstallResult.Skipped("missing-compose-menu-entry-shape")
         val constructor = KavaMemberLookup.declaredConstructors(item).singleOrNull {
-            it.parameterTypes.contentEquals(fields.map { field -> field.type }.toTypedArray())
+            !it.isSynthetic && it.parameterTypes.contentEquals(fields.map { field -> field.type }.toTypedArray())
         } ?: return FeatureInstallResult.Skipped("missing-compose-menu-entry-constructor")
         val function = fields.last().type
         val unit = KavaMemberLookup.classOrNull(loader, "kotlin.Unit")?.let {
@@ -152,7 +173,7 @@ internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySe
                     val merged = current.replacement.get() ?: run {
                         val sample = source.first() ?: return@before
                         val values = fields.map { it.get(sample) }.toTypedArray()
-                        values[0] = InjectedUiLocale.messages().replyTopologyEntryLabel
+                        values[0] = InjectedUiLocale.messages(anchor.context).replyTopologyEntryLabel
                         val menuAnchor = WeakReference(menuView)
                         values[values.lastIndex] = Proxy.newProxyInstance(loader, arrayOf(function)) { proxy, method, args ->
                             when (method.name) {

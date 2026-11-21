@@ -176,6 +176,26 @@ internal class CommentTopologyFeatureInstaller(
     }
 
     override val id: String = ID
+    private val pointsRef = AtomicReference(points)
+    private val lowBindRef = AtomicReference(lowBindPoint)
+    private val highBindRef = AtomicReference(highBindPoint)
+    @Volatile var requiresAdaptationRetry: Boolean = false
+        private set
+    private val adaptedRetryConsumed = AtomicBoolean(false)
+    private val installedOnce = AtomicBoolean(false)
+    @Volatile private var lastInstallResult: FeatureInstallResult? = null
+
+    fun updateAdaptedPoints(
+        points: VersionAdapter.CommentTopologyPoints?,
+        lowBindPoint: VersionAdapter.HookPoint?,
+        highBindPoint: VersionAdapter.HookPoint?
+    ) {
+        pointsRef.set(points)
+        lowBindRef.set(lowBindPoint)
+        highBindRef.set(highBindPoint)
+        adaptedRetryConsumed.set(true)
+    }
+
     private val bindingTokens = WeakHashMap<ViewGroup, Any>()
 
     /**
@@ -202,21 +222,33 @@ internal class CommentTopologyFeatureInstaller(
     private val pendingSeedRetries = WeakHashMap<ViewGroup, SeedRetryRequest>()
     private val pendingSeedRetryPostedAtMs = WeakHashMap<ViewGroup, Long>()
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
+        if (installedOnce.get()) {
+            return lastInstallResult ?: FeatureInstallResult.Installed(0)
+        }
         if (!enabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val adapted = points ?: return missing(environment, "missing-adapter-point")
+        val adapted = pointsRef.get() ?: run {
+            requiresAdaptationRetry = !adaptedRetryConsumed.get()
+            return missing(environment, "missing-adapter-point")
+        }
+        requiresAdaptationRetry = false
         val host = ReplyTopologyHostAccess.resolve(environment, adapted)
             ?: return missing(environment, "missing-host-access")
+        val resolvedLowBindPoint = lowBindRef.get()
+        val resolvedHighBindPoint = highBindRef.get()
         val expectedBindOwners = linkedSetOf<String>()
         val bindPoints = buildList {
-            lowBindPoint?.className?.let(expectedBindOwners::add)
-            lowBindPoint?.let(::add)
+            resolvedLowBindPoint?.className?.let(expectedBindOwners::add)
+            resolvedLowBindPoint?.let(::add)
             CommentNativeBindingCatalog.mainHandlers.forEach { className ->
                 val owner = environment.classLoader?.let { KavaMemberLookup.classOrNull(it, className) }
                     ?: return@forEach
@@ -225,7 +257,7 @@ internal class CommentTopologyFeatureInstaller(
                     add(VersionAdapter.HookPoint(owner.name, method.name, method.parameterTypes.map { it.name }))
                 }
             }
-            highBindPoint?.let { cachedPoint ->
+            resolvedHighBindPoint?.let { cachedPoint ->
                 expectedBindOwners += cachedPoint.className
                 val owner = environment.classLoader?.let { loader ->
                     KavaMemberLookup.classOrNull(loader, cachedPoint.className)
@@ -358,10 +390,12 @@ internal class CommentTopologyFeatureInstaller(
                     "${point.methodName}(${point.paramClassNames.orEmpty().joinToString(",")})"
                 } + ",status=$status"
         )
+        requiresAdaptationRetry = false
+        installedOnce.set(true)
         return FeatureInstallResult.Installed(
             installed,
             complete = complete
-        )
+        ).also { lastInstallResult = it }
     }
 
     private fun installComposeSeeds(environment: HookEnvironment, host: ReplyTopologyHostAccess): FeatureInstallResult {
@@ -708,9 +742,13 @@ internal class CommentTopologyFeatureInstaller(
                 neighbors += ConstraintNeighbor(child, params)
             }
         }
-        check(neighbors.size == 1) {
-            "constraint-neighbor-count=${neighbors.size}"
-        }
+        val neighbor = neighbors.singleOrNull()
+        val referenceConstraint = referenceToNeighbor.getInt(referenceParams)
+        val linkPlan = planConstrainedAnchorInsertion(
+            neighborCount = neighbors.size,
+            referenceInverseConstraint = referenceConstraint,
+            neighborViewId = neighbor?.view?.id
+        )
 
         val params = access.intConstructor.newInstance(
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -719,20 +757,14 @@ internal class CommentTopologyFeatureInstaller(
         view.id = View.generateViewId()
         access.topToTop.setInt(params, referenceId)
         access.bottomToBottom.setInt(params, referenceId)
-        val neighbor = neighbors.single()
-        val referenceConstraint = referenceToNeighbor.getInt(referenceParams)
-        check(referenceConstraint == View.NO_ID || referenceConstraint == neighbor.view.id) {
-            "constraint-reference-conflict=$referenceConstraint"
-        }
-        val hasReciprocalConstraint = referenceConstraint == neighbor.view.id
         if (target.beforeReference) {
             access.endToStart.setInt(params, referenceId)
-            if (hasReciprocalConstraint) {
+            if (linkPlan.updateReference && neighbor != null) {
                 access.startToEnd.setInt(params, neighbor.view.id)
             }
         } else {
             access.startToEnd.setInt(params, referenceId)
-            if (hasReciprocalConstraint) {
+            if (linkPlan.updateReference && neighbor != null) {
                 access.endToStart.setInt(params, neighbor.view.id)
             }
         }
@@ -744,21 +776,23 @@ internal class CommentTopologyFeatureInstaller(
             }
         }
 
-        val previousNeighborConstraint = neighborToReference.getInt(neighbor.params)
+        val previousNeighborConstraint = neighbor?.let { neighborToReference.getInt(it.params) } ?: View.NO_ID
         try {
             target.row.addView(view, index, params)
-            neighborToReference.setInt(neighbor.params, view.id)
-            neighbor.view.layoutParams = neighbor.params
-            if (hasReciprocalConstraint) {
+            if (linkPlan.updateNeighbor && neighbor != null) {
+                neighborToReference.setInt(neighbor.params, view.id)
+                neighbor.view.layoutParams = neighbor.params
+            }
+            if (linkPlan.updateReference) {
                 referenceToNeighbor.setInt(referenceParams, view.id)
                 target.referenceView.layoutParams = referenceParams
             }
         } catch (throwable: Throwable) {
-            runCatching {
+            if (linkPlan.updateNeighbor && neighbor != null) runCatching {
                 neighborToReference.setInt(neighbor.params, previousNeighborConstraint)
                 neighbor.view.layoutParams = neighbor.params
             }
-            if (hasReciprocalConstraint) runCatching {
+            if (linkPlan.updateReference) runCatching {
                 referenceToNeighbor.setInt(referenceParams, referenceConstraint)
                 target.referenceView.layoutParams = referenceParams
             }
@@ -1142,6 +1176,40 @@ internal class CommentTopologyFeatureInstaller(
     )
 }
 
+internal data class ConstrainedAnchorPlan(
+    val updateNeighbor: Boolean,
+    val updateReference: Boolean
+)
+
+/**
+ * 约束布局锚点插入规划：
+ * - 无邻居（例如传统操作栏独立右对齐 `more_button`）：不修改兄弟节点约束，仅禁止 reference 存在冲突反向约束；
+ * - 单邻居（例如 exp3 `dislike_button -> more_button`）：重连邻居与互指约束（若有）；
+ * - 多邻居：按歧义失败封闭。
+ */
+internal fun planConstrainedAnchorInsertion(
+    neighborCount: Int,
+    referenceInverseConstraint: Int,
+    neighborViewId: Int?
+): ConstrainedAnchorPlan {
+    check(neighborCount <= 1) {
+        "constraint-neighbor-count=$neighborCount"
+    }
+    if (neighborViewId == null) {
+        check(referenceInverseConstraint == View.NO_ID) {
+            "constraint-reference-conflict=$referenceInverseConstraint"
+        }
+        return ConstrainedAnchorPlan(updateNeighbor = false, updateReference = false)
+    }
+    check(referenceInverseConstraint == View.NO_ID || referenceInverseConstraint == neighborViewId) {
+        "constraint-reference-conflict=$referenceInverseConstraint"
+    }
+    return ConstrainedAnchorPlan(
+        updateNeighbor = true,
+        updateReference = referenceInverseConstraint == neighborViewId
+    )
+}
+
 /** 宿主操作栏内的轻量入口；只保存当前绑定评论的纯数据种子。 */
 @SuppressLint("AppCompatCustomView") // 注入宿主进程，不能依赖模块 AppCompat 主题包装。
 internal class ReplyTopologyAnchorView(context: Context) : TextView(context) {
@@ -1152,9 +1220,11 @@ internal class ReplyTopologyAnchorView(context: Context) : TextView(context) {
         val localizedText = InjectedUiLocale.messages(context)
         gravity = Gravity.CENTER
         textSize = 12f
+        isSingleLine = true
+        maxLines = 1
         text = localizedText.replyTopologyEntryLabel
         setTextColor(resolveSiblingTextColor() ?: Color.GRAY)
-        setPadding(dp(8), 0, dp(8), 0)
+        setPadding(dp(6), 0, dp(6), 0)
         isClickable = true
         isFocusable = true
         contentDescription = localizedText.replyTopologyEntryDescription
