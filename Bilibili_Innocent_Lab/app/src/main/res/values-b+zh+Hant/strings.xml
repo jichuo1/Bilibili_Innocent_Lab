@@ -148,8 +148,8 @@
     <string name="gamecard_ad_tip">啟用後，淨化帶有遊戲標籤之影片下方的「影片提及」廣告</string>
     <string name="hide_video_detail_app_promotion">隱藏影片詳細頁話題推廣</string>
     <string name="hide_video_detail_app_promotion_tip">啟用後隱藏影片播放器下方的話題、活動等推廣</string>
-    <string name="hide_follow_up_recommend">屏蔽關注感興趣UP主推廣</string>
-    <string name="hide_follow_up_recommend_tip">在影片詳細頁關注 UP 主後，不再彈出「你可能感興趣」的推薦 UP 主卡片，也不留空位；推薦請求在送出前即被攔截，修改後重新啟動嗶哩嗶哩生效</string>
+    <string name="hide_follow_up_recommend">隱藏關注感興趣UP主推廣</string>
+    <string name="hide_follow_up_recommend_tip">關注 UP 主後不再彈出「你可能感興趣」推薦卡片</string>
     <string name="banner_ad_settings">首頁大型卡片輪播</string>
     <string name="banner_ad_enable">隱藏首頁大型卡片輪播推薦</string>
     <string name="banner_ad_tip">啟用後，淨化漫遊模組已無法處理的首頁輪播內容</string>

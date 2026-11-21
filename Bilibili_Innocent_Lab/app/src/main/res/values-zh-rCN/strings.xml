@@ -148,8 +148,8 @@
     <string name="gamecard_ad_tip">开启后净化带有游戏标签的视频下的“视频提及”广告</string>
     <string name="hide_video_detail_app_promotion">隐藏视频详细页话题推广</string>
     <string name="hide_video_detail_app_promotion_tip">开启后隐藏视频播放器下方的话题、活动等推广</string>
-    <string name="hide_follow_up_recommend">屏蔽关注感兴趣UP主推广</string>
-    <string name="hide_follow_up_recommend_tip">在视频详细页关注 UP 主后，不再弹出“你可能感兴趣”的推荐 UP 主卡片，也不留空位；推荐请求在发出前即被拦截，修改后重启哔哩哔哩生效</string>
+    <string name="hide_follow_up_recommend">隐藏关注感兴趣UP主推广</string>
+    <string name="hide_follow_up_recommend_tip">关注 UP 主后不再弹出“你可能感兴趣”推荐卡片</string>
     <string name="banner_ad_settings">首页大卡轮播</string>
     <string name="banner_ad_enable">隐藏首页大卡轮播推荐</string>
     <string name="banner_ad_tip">开启后补全漫游失效的首页轮播净化</string>
