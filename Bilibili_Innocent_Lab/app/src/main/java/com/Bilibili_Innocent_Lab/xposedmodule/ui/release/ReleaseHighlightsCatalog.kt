@@ -408,6 +408,11 @@ internal object ReleaseHighlightsCatalog {
         // 默认关闭、只影响主动开启的人，同样只列出、不自动弹窗。
         ReleaseHighlight("follow-up-recommend", HighlightKind.NEW, R.string.hide_follow_up_recommend_tip,
             HighlightDestination("ads.video_detail.follow_recommend.hidden"))
+    ), automatic = false), ReleaseHighlightsBatch(47, listOf(
+        // 默认关闭、高级可选项，只在「新功能」列表里列出，不自动弹窗。
+        ReleaseHighlight("player-frame-mode", HighlightKind.NEW, R.string.highlights_player_frame_mode,
+            HighlightDestination("player.frame_interpolation.force_mode",
+                alsoCovers = setOf("player.frame_interpolation.mode")))
     ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

@@ -23,7 +23,8 @@ endforeach()
 
 # Query the decoder's existing window without acquiring a second buffer producer.
 add_library(bil_frame_window SHARED frame_window.cpp)
-target_link_libraries(bil_frame_window PRIVATE android)
+target_compile_definitions(bil_frame_window PRIVATE VK_USE_PLATFORM_ANDROID_KHR VK_NO_PROTOTYPES)
+target_link_libraries(bil_frame_window PRIVATE android dl)
 target_compile_options(bil_frame_window PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
 target_link_options(bil_frame_window PRIVATE "LINKER:-z,max-page-size=16384")
 

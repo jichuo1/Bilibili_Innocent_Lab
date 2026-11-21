@@ -13,7 +13,10 @@ import android.view.ViewGroup
 import androidx.core.content.edit
 import androidx.core.view.setPadding
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameGpuCapabilities
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationMode
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.GpuArchitecture
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
@@ -294,6 +297,157 @@ private fun MainActivity.savePlayerIntPreference(key: String, value: Int, logMes
     }.onFailure { throwable ->
         Log.e("BilibiliInnocentLab", logMessage, throwable)
     }.isSuccess
+
+private fun MainActivity.savePlayerStringPreference(key: String, value: String, logMessage: String): Boolean =
+    runCatching {
+        val preferences = prefs()
+        preferences.edit { putString(key, value) }
+        check(preferences.getString(key, null) == value)
+    }.onFailure { throwable ->
+        Log.e("BilibiliInnocentLab", logMessage, throwable)
+    }.isSuccess
+
+internal fun MainActivity.frameInterpolationArchitectureLabel(capabilities: FrameGpuCapabilities): String =
+    getString(when (capabilities.architecture) {
+        GpuArchitecture.QUALCOMM_ADRENO -> R.string.player_frame_gpu_arch_adreno
+        GpuArchitecture.ARM_MALI -> R.string.player_frame_gpu_arch_mali
+        GpuArchitecture.SAMSUNG_XCLIPSE_RDNA -> R.string.player_frame_gpu_arch_xclipse
+        GpuArchitecture.IMAGINATION_POWERVR -> R.string.player_frame_gpu_arch_powervr
+        GpuArchitecture.GENERIC_VULKAN -> R.string.player_frame_gpu_arch_generic
+        GpuArchitecture.UNAVAILABLE -> R.string.player_frame_gpu_arch_unavailable
+    })
+
+internal fun MainActivity.frameInterpolationQcomFeatures(capabilities: FrameGpuCapabilities): String =
+    getString(if (capabilities.qcomAhbZeroCopy) R.string.player_frame_feat_qcom_ahb else R.string.player_frame_feat_qcom_pbo)
+
+internal fun MainActivity.frameInterpolationRifeFeatures(capabilities: FrameGpuCapabilities): String {
+    val tags = buildList {
+        if (capabilities.fp16) add(getString(R.string.player_frame_feat_fp16))
+        if (capabilities.subgroupOps && capabilities.subgroupSize > 0) {
+            add(getString(R.string.player_frame_feat_subgroup, capabilities.subgroupSize))
+        }
+        if (capabilities.cooperativeMatrix) add(getString(R.string.player_frame_feat_coop_matrix))
+        if (capabilities.integerDotProduct) add(getString(R.string.player_frame_feat_dot_product))
+        if (capabilities.vulkanAhbZeroCopy) add(getString(R.string.player_frame_feat_vk_ahb))
+        if (capabilities.vulkanSyncFd) add(getString(R.string.player_frame_feat_sync_fd))
+        if (isEmpty() && capabilities.vulkanCompute) add(getString(R.string.player_frame_feat_vulkan_baseline))
+    }
+    return tags.joinToString(" · ").ifEmpty { getString(R.string.player_frame_gpu_arch_unavailable) }
+}
+
+private fun MainActivity.frameInterpolationAllFeatures(capabilities: FrameGpuCapabilities): String = buildList {
+    if (capabilities.qcomMotionSupported) add("QCOM ${frameInterpolationQcomFeatures(capabilities)}")
+    if (capabilities.rifeVulkanSupported) add(frameInterpolationRifeFeatures(capabilities))
+}.joinToString(" · ").ifEmpty { getString(R.string.player_frame_gpu_arch_unavailable) }
+
+/** 根据检测到的硬件与 GPU 架构能力展示可用的插帧方式，并在仅支持 RIFE 且缺模型时引导下载。 */
+internal fun MainActivity.showFrameInterpolationModeDialog(
+    currentMode: String,
+    capabilities: FrameGpuCapabilities,
+    modelReady: Boolean,
+    anchor: View?,
+    onSaved: (String) -> Unit,
+    onRequestDownloadModel: () -> Unit
+) {
+    val density = resources.displayMetrics.density
+    val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
+    val container = createModalContainer()
+    container.addView(NativeTextView(this).apply {
+        // 标题与来源行完全一致，保持 ModalTitleMotion 文字平移。
+        text = getString(R.string.player_frame_mode)
+        textColor = getColor(R.color.colorTextDark)
+        textSize = 17f
+        setLineSpacing(4 * density, 1f)
+    }, NativeLinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (8 * density).toInt() })
+
+    val archLabel = frameInterpolationArchitectureLabel(capabilities)
+    val featureLabel = frameInterpolationAllFeatures(capabilities)
+    container.addView(NativeTextView(this).apply {
+        text = getString(R.string.player_frame_mode_panel_hint, archLabel, featureLabel)
+        textColor = getColor(R.color.colorTextGray)
+        textSize = 12f
+        setLineSpacing(4 * density, 1f)
+    }, NativeLinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() })
+
+    val candidates = FrameInterpolationMode.supportedCandidates(capabilities)
+    val effectiveSelected = FrameInterpolationMode.resolveCandidate(currentMode, candidates)
+    val rows = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
+
+    fun persistMode(mode: FrameInterpolationMode): Boolean {
+        if (!savePlayerStringPreference(
+                FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE,
+                mode.wireValue,
+                "write frame interpolation mode failed"
+            )
+        ) {
+            toast(getString(R.string.player_codec_setting_save_failed))
+            return false
+        }
+        onSaved(mode.wireValue)
+        return true
+    }
+
+    if (candidates.isEmpty()) {
+        rows.addView(NativeTextView(this).apply {
+            text = getString(R.string.player_frame_mode_unavailable_dialog)
+            textColor = getColor(R.color.colorTextGray)
+            textSize = 13f
+            setLineSpacing(4 * density, 1f)
+        }, NativeLinearLayout.LayoutParams(-1, -2))
+    } else {
+        candidates.forEachIndexed { index, mode ->
+            val title = when (mode) {
+                FrameInterpolationMode.QCOM -> getString(R.string.player_frame_mode_qcom_title)
+                FrameInterpolationMode.RIFE -> getString(R.string.player_frame_mode_rife_title)
+            }
+            val subtitle = when (mode) {
+                FrameInterpolationMode.QCOM -> getString(
+                    R.string.player_frame_mode_qcom_subtitle,
+                    frameInterpolationQcomFeatures(capabilities)
+                )
+                FrameInterpolationMode.RIFE -> getString(
+                    if (modelReady) R.string.player_frame_mode_rife_subtitle_ready
+                    else R.string.player_frame_mode_rife_subtitle_missing,
+                    frameInterpolationRifeFeatures(capabilities)
+                )
+            }
+            rows.addView(
+                createGitHubMenuRow(title, subtitle, mode == effectiveSelected) {
+                    if (persistMode(mode)) dismissWithAnimation(dialog, container) {}
+                },
+                NativeLinearLayout.LayoutParams(-1, -2).apply {
+                    if (index > 0) topMargin = (6 * density).toInt()
+                }
+            )
+        }
+        if (!modelReady && FrameInterpolationMode.RIFE in candidates) {
+            rows.addView(
+                createGitHubMenuRow(
+                    title = getString(R.string.player_frame_mode_download_model_action),
+                    subtitle = getString(R.string.player_frame_mode_download_model_tip),
+                    highlight = false
+                ) {
+                    if (persistMode(FrameInterpolationMode.RIFE)) {
+                        dismissWithAnimation(dialog, container) { onRequestDownloadModel() }
+                    }
+                },
+                NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() }
+            )
+        }
+    }
+
+    val listCap = minOf(
+        (360 * density).toInt(),
+        (resources.displayMetrics.heightPixels * 0.48f).toInt()
+    )
+    container.addView(MaxHeightScrollView(this, listCap).apply {
+        addView(rows, NativeFrameLayout.LayoutParams(-1, -2))
+    }, NativeLinearLayout.LayoutParams(-1, -2))
+    container.addView(createPanelCloseRow {
+        dismissWithAnimation(dialog, container) {}
+    }, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (18 * density).toInt() })
+    presentModalDialog(dialog, container, anchor)
+}
 
 /** 使用百分比整数发布配置；非法输入留在弹窗内，跟随宿主是独立、明确的操作。 */
 internal fun MainActivity.showPlayerSpeedDialog(

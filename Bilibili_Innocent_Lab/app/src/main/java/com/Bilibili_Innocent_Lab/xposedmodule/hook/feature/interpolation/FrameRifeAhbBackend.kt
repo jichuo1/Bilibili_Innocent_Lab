@@ -26,7 +26,8 @@ internal object FrameRifeAhbBackend {
 
     fun open(holder: FrameInterpolationEngineHolder, width: Int, height: Int, outputWidth: Int, outputHeight: Int,
              sourceFps: Float, targetFps: Int, standard: FrameMediaPolicy.Standard,
-             isCurrent: () -> Boolean = { true }, androidColorStandard: Int? = null): WindowBackend? {
+             isCurrent: () -> Boolean = { true }, androidColorStandard: Int? = null,
+             bypassFrameBudget: Boolean = false): WindowBackend? {
         val engine = holder.windowEngine() ?: return null
         // ISO/IEC 23001-8 colour primaries and matrix coefficients for the captured SDR content.
         val color = when (standard) {
@@ -40,7 +41,8 @@ internal object FrameRifeAhbBackend {
         }
         if (!sourceFps.isFinite() || sourceFps <= 0f || targetFps <= 0 || !isCurrent()) return null
         val period = (1e9 / sourceFps).roundToLong()
-        val budget = minOf(period, (FrameInterpolationEngineHolder.CAPABILITY_LIMIT_MS * 1e6).toLong())
+        val budget = if (bypassFrameBudget) TimeUnit.MILLISECONDS.toNanos(120)
+            else minOf(period, (FrameInterpolationEngineHolder.CAPABILITY_LIMIT_MS * 1e6).toLong())
         val profile = FrameGenerationProfile(width, height, outputWidth, outputHeight, color, color, true,
             period, 1_000_000_000L / targetFps, budget)
         val sizes = holder.windowPixelBudgets().mapNotNull { pixels ->

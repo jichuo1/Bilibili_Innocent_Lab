@@ -286,7 +286,7 @@ internal object HostFeaturePlanAudit {
         val definitions = DiagnosticCapabilityCatalog.definitions
         val bySetting = mutableMapOf<String, MutableList<String>>()
         val frameOptions = setOf("player_frame_interpolation_max_fps", "player_frame_interpolation_status_toast",
-            "player_frame_interpolation_thermal_control")
+            "player_frame_interpolation_thermal_control", "player_frame_interpolation_mode")
         val liveOnly = mapOf(
             "guest_browsing" to "live host admission and guest state",
             "incognito_privacy" to "live host admission and privacy state",

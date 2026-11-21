@@ -93,7 +93,9 @@ internal class FrameCaptureBridge private constructor(
         /** 正式播放：源帧率已达目标时回原生（验证构建的显式档位可做纯复制测试）。 */
         val interpolationRequired: Boolean = true,
         /** 宿主格式给出的源帧率，仅用于状态提示。 */
-        val sourceFps: Float? = null
+        val sourceFps: Float? = null,
+        /** 开启「强制指定插帧方式」时跳过帧率吞吐与掉帧回退门槛。 */
+        val bypassFrameBudget: Boolean = false
     )
 
     private val presenter = FrameGlPresenter(display, config.targetFps, config.stageUploads) { onNativeRestored(it) }.apply {
@@ -107,7 +109,8 @@ internal class FrameCaptureBridge private constructor(
     private val gate = FrameMediaGate()
     // 真机：起步约 1/3 s 内 GL 线程仍在做首次纹理与读回分配，偶发连续 3 帧迟到即触发回退（10 次中 2 次）；
     // 延长预热并放宽连续失败门限，持续性问题仍由 25% 失败率判定。
-    private val recovery = FramePresentationRecovery(maxConsecutiveFailures = 6, warmupSamples = WARMUP_SAMPLES)
+    private val recovery = FramePresentationRecovery(maxConsecutiveFailures = 6, warmupSamples = WARMUP_SAMPLES,
+        fallbackOnFrameDrops = !config.bypassFrameBudget)
     private val timeline = FrameTimeline(config.targetFps, presentationDelayNs = config.presentationDelayNs,
         maxLeadNs = config.maxLeadNs, minLeadNs = config.minLeadNs, originalToleranceUs = 1_000_000L / config.targetFps / 4, phaseLock = true,
         maxClockUncertaintyUs = MAX_HOST_CLOCK_UNCERTAINTY_US, frameWindow = config.frameWindow)
@@ -297,7 +300,8 @@ internal class FrameCaptureBridge private constructor(
             }
         }
         // 引擎过载把 1080p 以上档标记为不可用：按 1080p 处理尺寸重建（一次短暂的原生交接）。
-        if (!rebuild && width.toLong() * height > FrameProcessingSize.STANDARD_FLOW_PIXELS && engine.capability.high == 0L) {
+        if (!config.bypassFrameBudget && !rebuild && width.toLong() * height > FrameProcessingSize.STANDARD_FLOW_PIXELS &&
+            engine.capability.high == 0L) {
             rebuild = true
             returnToNative("overload:${width}x$height")
             return
@@ -471,7 +475,7 @@ internal class FrameCaptureBridge private constructor(
             // 源已达上限（如 60 fps 视频在 60 Hz 下）没有可补的帧，不接管。
             val modes = displayModes(host.context())
             val target = requestedTargetFps ?: FrameRateTarget.choose(hint, host.maxFps(), modes, host.displayLimitHz(),
-                engine.inferenceMsFor(processing.pixels)) ?: run {
+                engine.inferenceMsFor(processing.pixels), ignoreInferenceBudget = config.bypassFrameBudget) ?: run {
                     host.log("bridge.skip", "rate:hint=$hint max=${host.maxFps()} limit=${host.displayLimitHz()}")
                     host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.RATE))
                     return null

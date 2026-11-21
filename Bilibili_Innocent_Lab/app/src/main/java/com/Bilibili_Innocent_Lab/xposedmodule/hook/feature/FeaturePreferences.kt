@@ -243,6 +243,10 @@ internal object FeaturePreferences {
     const val PLAYER_FRAME_INTERPOLATION_STATUS_TOAST = "player_frame_interpolation_status_toast"
     /** 经用户二次确认后跳过插帧自身的温度暂停；默认关。 */
     const val PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL = "player_frame_interpolation_disable_thermal_control"
+    /** 开启后锁定「插帧方式」所选路径，并禁止因帧数门槛自动回退其他插帧方式；默认关。 */
+    const val PLAYER_FRAME_INTERPOLATION_FORCE_MODE = "player_frame_interpolation_force_mode"
+    /** 强制指定插帧方式时的目标模式（"" 按本机首个可用候选，或 "qcom" / "rife"）。 */
+    const val PLAYER_FRAME_INTERPOLATION_MODE = "player_frame_interpolation_mode"
     const val PLAYER_DECODE_MODE = "player_decode_mode"
     const val PLAYER_BUFFER_MODE = "player_buffer_mode"
     const val PLAYER_BUFFER_SECONDS = "player_buffer_seconds"

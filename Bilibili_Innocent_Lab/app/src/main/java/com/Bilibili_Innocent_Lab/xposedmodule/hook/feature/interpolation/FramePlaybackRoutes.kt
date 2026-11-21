@@ -15,7 +15,34 @@ internal interface FramePlaybackBridge {
 }
 
 /** Runs on the attachment worker, with the host still presenting originals until a route takes over. */
-internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
+internal class FramePlaybackRoutes(
+    val rife: FrameInterpolationEngineHolder,
+    private val strategy: Strategy = Strategy.Auto
+) {
+    sealed interface Strategy {
+        val allowsQcom: Boolean
+        val allowsRife: Boolean
+        val bypassFrameBudget: Boolean
+
+        object Auto : Strategy {
+            override val allowsQcom = true
+            override val allowsRife = true
+            override val bypassFrameBudget = false
+        }
+
+        data class Forced(val mode: FrameInterpolationMode) : Strategy {
+            override val allowsQcom = mode == FrameInterpolationMode.QCOM
+            override val allowsRife = mode == FrameInterpolationMode.RIFE
+            override val bypassFrameBudget = true
+        }
+
+        object Unavailable : Strategy {
+            override val allowsQcom = false
+            override val allowsRife = false
+            override val bypassFrameBudget = true
+        }
+    }
+
     class Attempt {
         @Volatile var rifeOnly = false
             internal set
@@ -36,12 +63,12 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
          * A portrait/fullscreen resize invalidates the EGL window extent but does not mean QCOM is broken.
          * Allow QCOM to reattach at the new extent, capping consecutive zero-midpoint resizes to bound loops.
          */
-        @Synchronized fun retireQcom(reason: String, hadMidpoint: Boolean): Boolean {
+        @Synchronized fun retireQcom(reason: String, hadMidpoint: Boolean, allowRifeFallback: Boolean = true): Boolean {
             if (reason == "window_size") {
                 consecutiveQcomResizes = if (hadMidpoint) 0 else consecutiveQcomResizes + 1
                 if (consecutiveQcomResizes <= MAX_ZERO_MIDPOINT_RESIZES) return true
             }
-            rifeOnly = true
+            if (allowRifeFallback) rifeOnly = true
             return false
         }
 
@@ -93,23 +120,46 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
         val target = if (kotlin.math.abs(host.playbackRateReader(display)() - 1.0) <= 0.01)
             FrameRateTarget.midpoint(fps, requestedTargetFps ?: host.maxFps(),
                 FrameCaptureBridge.displayModes(host.context()), host.displayLimitHz()) else null
-        if (!attempt.rifeOnly) {
+        if (!strategy.allowsQcom && !strategy.allowsRife) {
+            host.log("route.native", "mode_unavailable")
+            host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.CAPABILITY))
+            return Result.Original
+        }
+        if (!attempt.rifeOnly && strategy.allowsQcom) {
             if (target != null && signal.standard == FrameMediaPolicy.Standard.BT709 &&
                 decodedSignal.standard == FrameMediaPolicy.Standard.BT709 && isCurrent()) {
                 val qcom = FrameQcomBridge.create(codec, display, width, height, fps, target, merged, host, isCurrent,
-                    attach) { reason, hadMidpoint ->
-                    val retryQcom = attempt.retireQcom(reason, hadMidpoint)
-                    onWindowFailed(if (retryQcom) "qcom-resize" else "qcom")
+                    attach, bypassFrameBudget = strategy.bypassFrameBudget) { reason, hadMidpoint ->
+                    val retryQcom = attempt.retireQcom(reason, hadMidpoint, allowRifeFallback = strategy.allowsRife)
+                    if (retryQcom) onWindowFailed("qcom-resize")
+                    else if (strategy.allowsRife) onWindowFailed("qcom")
+                    else host.onStatus(FrameStatus.Inactive(
+                        if (reason == "speed") FrameStatus.Reason.RATE else FrameStatus.Reason.ENGINE
+                    ))
                 }
                 if (qcom != null) {
-                    host.log("route.selected", "qcom ${width}x${height} target=$target")
+                    host.log("route.selected", "qcom ${width}x${height} target=$target forced=${!strategy.allowsRife}")
                     return Result.Attached(qcom, "qcom")
                 }
             }
+            if (!strategy.allowsRife) {
+                if (!isCurrent()) return Result.Original
+                val reason = when {
+                    target == null -> FrameStatus.Reason.RATE
+                    signal.standard != FrameMediaPolicy.Standard.BT709 ||
+                        decodedSignal.standard != FrameMediaPolicy.Standard.BT709 -> FrameStatus.Reason.MEDIA
+                    else -> FrameStatus.Reason.ENGINE
+                }
+                host.log("route.native", "qcom_forced=$reason")
+                host.onStatus(FrameStatus.Inactive(reason))
+                return Result.Original
+            }
             attempt.rifeOnly = true
             host.log("route.fallback", "rife ${width}x${height}")
+        } else if (!attempt.rifeOnly) {
+            attempt.rifeOnly = true
         }
-        if (!isCurrent()) return Result.Original
+        if (!isCurrent() || !strategy.allowsRife) return Result.Original
         // A model can be ready before RGB capability measurement finishes. AHB proves its own
         // Vulkan interop, pixel extent and pair-to-draw budget on the actual EGL owner.
         val windowColor = signal.standard == decodedSignal.standard && signal.standard in RIFE_WINDOW_STANDARDS
@@ -118,8 +168,9 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
                 val window = FrameQcomBridge.createRife(codec, display, width, height, fps, target, merged,
                     host, isCurrent, attach, { outputWidth, outputHeight ->
                         FrameRifeAhbBackend.open(rife, width, height, outputWidth, outputHeight, fps, target, signal.standard,
-                            isCurrent, androidColorStandard = merged.colorStandard ?: decoded.colorStandard)
-                    }) { _, _ -> onWindowFailed("rife-ahb") }
+                            isCurrent, androidColorStandard = merged.colorStandard ?: decoded.colorStandard,
+                            bypassFrameBudget = strategy.bypassFrameBudget)
+                    }, bypassFrameBudget = strategy.bypassFrameBudget) { _, _ -> onWindowFailed("rife-ahb") }
                 if (window != null) {
                     if (window.awaitingRetirement) {
                         host.log("route.retiring", "rife-ahb")
@@ -143,16 +194,16 @@ internal class FramePlaybackRoutes(val rife: FrameInterpolationEngineHolder) {
                 Result.WaitForRife
             }
         }
-        val fallback = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, crypto, rife, host,
-            requestedTargetFps, attach, isCurrent) ?: return Result.Original
+        val fallback = FrameCaptureBridge.create(FrameCaptureBridge.Config(bypassFrameBudget = strategy.bypassFrameBudget),
+            codec, format, display, crypto, rife, host, requestedTargetFps, attach, isCurrent) ?: return Result.Original
         host.log("route.selected", "rife")
         return Result.Attached(fallback, "rife")
     }
 
-    fun rifeCanAdvance(attempt: Attempt): Boolean = rife.ready() ||
+    fun rifeCanAdvance(attempt: Attempt): Boolean = strategy.allowsRife && (rife.ready() ||
         rife.state == FrameInterpolationEngineHolder.State.MODEL_READY ||
         (!attempt.rifeAhbTried && rife.ahbCandidateLoaded()) ||
-        (rife.state == FrameInterpolationEngineHolder.State.FAILED && !rife.recoveryPending())
+        (rife.state == FrameInterpolationEngineHolder.State.FAILED && !rife.recoveryPending()))
 
     companion object {
         private const val MAX_ZERO_MIDPOINT_RESIZES = 2

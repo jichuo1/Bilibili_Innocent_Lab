@@ -27,7 +27,9 @@ internal class FrameInterpolationEngineHolder(
      * 仅 debug 验证构建：目录内存在 armed 标记时，把之后每 15 次补帧的前帧/后帧/输出各存一份 PPM（共 12 组），
      * 用于查看真实画面中的伪影；写完删除标记。null 时完全不启用。
      */
-    private val dumpDir: File? = null
+    private val dumpDir: File? = null,
+    /** 开启「强制指定插帧方式」后不因推理耗时超出 24 ms 门槛而拒用或运行期降档。 */
+    private val bypassFrameBudget: Boolean = false
 ) {
     constructor(moduleApk: File, hostCodeCache: File, modelDirectory: File, log: (String, String) -> Unit,
                 protectStaticDetails: Boolean = true, workObserver: ((WorkSample) -> Unit)? = null) :
@@ -257,6 +259,9 @@ internal class FrameInterpolationEngineHolder(
         val probe = FrameCapabilityProbe(arena) { left, right, output, width, height, leftId, rightId, flowScale ->
             engine.probeInterpolation(left, right, output, width, height, flowScale, leftId, rightId)
         }
+        var fallbackPixels = 0L
+        var fallbackMs = 0.0
+        var fallbackFlowScale = 4
         val passing = capabilitySizes.filter { (width, height) ->
             val pixels = width.toLong() * height
             val tiers = if (pixels > 1280L * 720L && pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) STANDARD_TIERS
@@ -265,15 +270,29 @@ internal class FrameInterpolationEngineHolder(
             val tier = tiers.firstOrNull { scale ->
                 // 预运行或任一计时样本失败（非 OK）的档位不可用，失败样本不进入耗时分布。
                 val measured = robustMs(probe, width, height, scale)
+                if (measured != null && bypassFrameBudget && (fallbackPixels == 0L || pixels < fallbackPixels)) {
+                    fallbackPixels = pixels
+                    fallbackMs = measured
+                    fallbackFlowScale = scale
+                }
                 measured != null && measured.also { chosenMs = it } <= tierLimitMs(scale, tiers.size > 1) }
             if (tier != null && tiers.size > 1) standardFlowScale = tier
             if (tier != null) measuredMs[pixels] = chosenMs
             tier != null
         }.map { (width, height) -> width.toLong() * height }
         if (retireLostDevice(engine)) return
+        val effective = if (passing.isEmpty() && bypassFrameBudget && fallbackPixels > 0L) {
+            if (fallbackPixels > 1280L * 720L && fallbackPixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) {
+                standardFlowScale = fallbackFlowScale
+            }
+            measuredMs[fallbackPixels] = fallbackMs
+            listOf(fallbackPixels)
+        } else {
+            passing
+        }
         capability = FrameProcessingSize.Capability(
-            standard = passing.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
-            high = passing.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
+            standard = effective.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
+            high = effective.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
         if (maxPixels == 0L) { fail("capability", FramePreparationRetry.Work.CAPABILITY); return }
         preparationRetry.ready()
         recoveryTask?.cancel(false)
@@ -398,6 +417,7 @@ internal class FrameInterpolationEngineHolder(
      * 处理尺寸重建。本进程内不再升回，避免来回切换。
      */
     private fun observeLoad(pixels: Long, nativeUs: Long) {
+        if (bypassFrameBudget) return
         val now = System.nanoTime()
         if (loadWindowStartNs == 0L || now - loadWindowStartNs > 2 * LOAD_WINDOW_NS) { loadWindowStartNs = now; loadWindowUs = 0L; return }
         loadWindowUs += nativeUs

@@ -22,7 +22,9 @@ internal class FramePresentationRecovery(
     private val warmupSamples: Int = 0,
     /** 时钟拒绝会清空时间线；必须单独计数，不能被其间成功呈现的数百帧稀释。 */
     private val maxClockRestarts: Int = 3,
-    private val clockRestartWindowNs: Long = 5_000_000_000L
+    private val clockRestartWindowNs: Long = 5_000_000_000L,
+    /** 开启强制指定插帧方式时关闭因迟到/丢帧/超时触发的自动回退。 */
+    private val fallbackOnFrameDrops: Boolean = true
 ) {
     enum class State { INACTIVE, INTERPOLATING, DEGRADED, FALLBACK, DISABLED }
     enum class Cause {
@@ -133,13 +135,17 @@ internal class FramePresentationRecovery(
         if (samples < window) samples++
         consecutive = if (success) 0 else consecutive + 1
         val ratio = failures.toDouble() / samples
+        val frameDropCause = effective == Cause.LATE_FRAMES || effective == Cause.DROPPED_FRAMES ||
+            effective == Cause.WORKER_TIMEOUT
         when {
+            report.state == State.DEGRADED && samples == window && failures == 0 ->
+                transition(State.INTERPOLATING, Cause.RECOVERED)
+            !fallbackOnFrameDrops && frameDropCause ->
+                report = report.copy(failures = failures, samples = samples)
             consecutive >= maxConsecutiveFailures || samples >= MIN_SAMPLES && ratio >= fallbackRatio ->
                 fallback(effective, nowNs)
             report.state == State.INTERPOLATING && samples >= MIN_SAMPLES && ratio >= degradeRatio ->
                 transition(State.DEGRADED, effective)
-            report.state == State.DEGRADED && samples == window && failures == 0 ->
-                transition(State.INTERPOLATING, Cause.RECOVERED)
             else -> report = report.copy(failures = failures, samples = samples)
         }
         return report

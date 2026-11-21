@@ -48,11 +48,16 @@ internal object FrameRateTarget {
      * @param inferenceMs 当前处理尺寸的单次补帧耗时
      * @return 目标帧率；null 表示不值得接管（源已达上限或能力不足）
      */
-    fun choose(sourceFps: Float?, ceiling: Int, displayModes: List<Float>, measuredLimit: Float?, inferenceMs: Double): Int? {
+    fun choose(sourceFps: Float?, ceiling: Int, displayModes: List<Float>, measuredLimit: Float?, inferenceMs: Double,
+               ignoreInferenceBudget: Boolean = false): Int? {
         val source = normalizeSource(sourceFps ?: 30f) ?: return null
         val panel = displayModes.maxOrNull() ?: 60f
         val limit = minOf(ceiling.toFloat(), panel, measuredLimit ?: Float.MAX_VALUE)
-        val perSecond = if (inferenceMs > 0) BUSY_FRACTION * 1000.0 / inferenceMs else 0.0
+        val perSecond = when {
+            ignoreInferenceBudget -> Double.POSITIVE_INFINITY
+            inferenceMs > 0 -> BUSY_FRACTION * 1000.0 / inferenceMs
+            else -> 0.0
+        }
         var k = floor(limit * 1.01 / source).toInt()
         while (k >= 2) {
             val target = source * k

@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 41
+    const val VERSION = 42
     val definitions = listOf(
         DiagnosticCapabilityDefinition("ai_insight", "ai_insight", R.string.ai_insight_title,
             setOf("compat.ai_insight.enabled", "compat.ai_insight.auto_chapters",
@@ -184,6 +184,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("player_frame_interpolation_max_fps", "player_capabilities", R.string.player_frame_max_fps, setOf("player.frame_interpolation.max_fps"), introducedCatalogVersion = 27),
         DiagnosticCapabilityDefinition("player_frame_interpolation_status_toast", "player_capabilities", R.string.player_frame_status_toast, setOf("player.frame_interpolation.status_toast"), introducedCatalogVersion = 29),
         DiagnosticCapabilityDefinition("player_frame_interpolation_thermal_control", "player_capabilities", R.string.player_frame_disable_thermal_control, setOf("player.frame_interpolation.disable_thermal_control"), introducedCatalogVersion = 32),
+        DiagnosticCapabilityDefinition("player_frame_interpolation_mode", "player_capabilities", R.string.player_frame_force_mode, setOf("player.frame_interpolation.force_mode", "player.frame_interpolation.mode"), introducedCatalogVersion = 42),
         DiagnosticCapabilityDefinition("player_long_press_disabled", "player_speed", R.string.player_disable_long_press, setOf("player.long_press.disabled")),
         DiagnosticCapabilityDefinition("player_long_press_speed_percent", "player_speed", R.string.player_long_press_speed, setOf("player.long_press_speed.percent")),
         DiagnosticCapabilityDefinition("player_default_speed_percent", "player_speed", R.string.player_default_speed, setOf("player.default_speed.percent")),

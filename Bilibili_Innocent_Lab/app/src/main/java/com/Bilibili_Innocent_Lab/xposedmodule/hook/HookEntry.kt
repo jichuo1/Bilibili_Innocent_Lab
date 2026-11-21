@@ -3873,7 +3873,12 @@ class HookEntry : XposedModule() {
                         maxFps = prefs.getInt(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 60)
                             .takeIf { it in FrameRateTarget.CEILINGS } ?: 60,
                         statusToast = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, false),
-                        disableThermalControl = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, false)
+                        disableThermalControl = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, false),
+                        forceMode = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, false),
+                        forcedMode = prefs.getString(
+                            FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE,
+                            com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationMode.AUTO_DEFAULT
+                        ).orEmpty()
                     )
                 )
             )

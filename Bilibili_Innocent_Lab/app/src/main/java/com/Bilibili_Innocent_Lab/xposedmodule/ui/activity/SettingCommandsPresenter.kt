@@ -1689,6 +1689,23 @@ internal fun MainActivity.executeModeledToggle(storageKey: String, requested: Bo
             }
             requested
         }
+        FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE -> {
+            val store = checkNotNull(settingStore)
+            val descriptor = store.descriptors.single { it.storageKey == storageKey }
+            var savedChecked = store.state(descriptor.id).checked
+            if (requested != savedChecked) {
+                runCatching {
+                    val preferences = prefs()
+                    preferences.edit { putBoolean(storageKey, requested) }
+                    check(preferences.getBoolean(storageKey, !requested) == requested)
+                }.onSuccess {
+                    savedChecked = requested
+                }.onFailure {
+                    Log.e("BilibiliInnocentLab", "write frame force mode prefs failed", it)
+                }
+            }
+            savedChecked
+        }
         FeaturePreferences.PLAYER_SUBTITLE_STYLE, FeaturePreferences.PLAYER_AI_SUBTITLE,
         FeaturePreferences.AI_INSIGHT_ENABLED, FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
         FeaturePreferences.HOST_UI_POWER_SAVING -> {
@@ -1829,6 +1846,7 @@ internal val modeledToggleKeys = setOf(
     FeaturePreferences.AI_INSIGHT_AUTO_CHAPTERS,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
     FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST,
+    FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE,
     FeaturePreferences.PLAYER_SUBTITLE_STYLE,
     FeaturePreferences.PLAYER_AI_SUBTITLE,
     FeaturePreferences.HOST_UI_POWER_SAVING

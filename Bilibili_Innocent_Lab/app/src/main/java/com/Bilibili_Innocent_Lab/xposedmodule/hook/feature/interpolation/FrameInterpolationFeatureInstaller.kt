@@ -46,7 +46,11 @@ internal class FrameInterpolationFeatureInstaller(
     /** 「插帧状态提示」：每个视频提示插帧是否生效与补帧目标帧率。 */
     private val statusToast: Boolean = false,
     /** 仅关闭模块自己的自动温度暂停，不改变系统温控或其他准入条件。 */
-    private val disableThermalControl: Boolean = false
+    private val disableThermalControl: Boolean = false,
+    /** 开启后锁定「插帧方式」，不跨方式或按帧数门槛自动回退。 */
+    private val forceMode: Boolean = false,
+    /** 指定的插帧方式（"" / "qcom" / "rife"）。 */
+    private val forcedMode: String = FrameInterpolationMode.AUTO_DEFAULT
 ) : FeatureInstaller {
     override val id: String = ID
 
@@ -717,12 +721,24 @@ internal class FrameInterpolationFeatureInstaller(
                 }.getOrDefault(0)
                 val sizes = listOf(1280 to 720, 1920 to 1080, 2560 to 1440) +
                     (if (panelLong >= 3840) listOf(3840 to 2160) else emptyList())
+                val modePolicy = FrameInterpolationModePolicy(forceMode, forcedMode)
+                val routeStrategy = if (!modePolicy.forceMode) {
+                    FramePlaybackRoutes.Strategy.Auto
+                } else {
+                    val capabilities = FrameGpuCapabilityProbe.probe()
+                    when (val resolved = modePolicy.resolveForcedMode(capabilities)) {
+                        null -> FramePlaybackRoutes.Strategy.Unavailable
+                        else -> FramePlaybackRoutes.Strategy.Forced(resolved)
+                    }
+                }
                 val holder = FrameInterpolationEngineHolder(apk, host.codeCacheDir, modelSource,
                     log = { event, detail -> log(event, detail) }, capabilitySizes = sizes,
-                    dumpDir = if (verifying) File(external, "$VERIFY_DIR/dump").apply { mkdirs() } else null)
+                    dumpDir = if (verifying) File(external, "$VERIFY_DIR/dump").apply { mkdirs() } else null,
+                    bypassFrameBudget = modePolicy.bypassFrameBudget)
                 holder.onReady = ::schedulePendingTakeover
                 holder.onPreparationChanged = ::schedulePendingTakeover
-                routes = FramePlaybackRoutes(holder)
+                routes = FramePlaybackRoutes(holder, routeStrategy)
+                log("mode.policy", "force=$forceMode configured=$forcedMode strategy=${routeStrategy.javaClass.simpleName}")
                 schedulePendingTakeover()
             }
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")

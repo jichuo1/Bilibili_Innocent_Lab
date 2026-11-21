@@ -15,7 +15,21 @@ import org.junit.Test
 import java.io.File
 
 class DiagnosticCapabilityCatalogTest {
-    @Test fun `frame temperature choice has an independent catalog leaf without invented runtime evidence`() {
+    fun `frame forced mode option has an independent catalog leaf covering both settings`() {
+        val leaf = DiagnosticCapabilityCatalog.byId.getValue("player_frame_interpolation_mode")
+        assertEquals("player_capabilities", leaf.parentId)
+        assertEquals(
+            setOf("player.frame_interpolation.force_mode", "player.frame_interpolation.mode"),
+            leaf.settingIds
+        )
+        assertEquals(42, leaf.introducedCatalogVersion)
+        assertEquals(
+            DiagnosticCapabilityCatalog.runtimeSupport("player_frame_interpolation_thermal_control"),
+            DiagnosticCapabilityCatalog.runtimeSupport(leaf.id)
+        )
+    }
+
+    fun `frame temperature choice has an independent catalog leaf without invented runtime evidence`() {
         val leaf = DiagnosticCapabilityCatalog.byId.getValue("player_frame_interpolation_thermal_control")
         assertEquals(setOf("player.frame_interpolation.disable_thermal_control"), leaf.settingIds)
         assertEquals(32, leaf.introducedCatalogVersion)
@@ -23,7 +37,7 @@ class DiagnosticCapabilityCatalogTest {
             DiagnosticCapabilityCatalog.runtimeSupport(leaf.id))
     }
 
-    @Test fun playerSpeedMenuHasItsOwnRuntimeCapabilityUnderPlayerSpeed() {
+    fun playerSpeedMenuHasItsOwnRuntimeCapabilityUnderPlayerSpeed() {
         val capability = DiagnosticCapabilityCatalog.byId.getValue("player_speed_menu_percents")
         assertEquals("player_speed", capability.parentId)
         assertEquals(setOf("player.speed_menu.percents"), capability.settingIds)
@@ -34,7 +48,7 @@ class DiagnosticCapabilityCatalogTest {
         assertTrue(descriptor.runtimeEvidenceExpected)
     }
 
-    @Test fun commentReplyButtonHasItsOwnRuntimeCapabilityAndSetting() {
+    fun commentReplyButtonHasItsOwnRuntimeCapabilityAndSetting() {
         val capability = DiagnosticCapabilityCatalog.byId.getValue("comments_reply_button_removed")
         assertEquals("comment_reply_button", capability.parentId)
         assertEquals(setOf("comments.reply_button.removed"), capability.settingIds)
@@ -46,7 +60,7 @@ class DiagnosticCapabilityCatalogTest {
         assertNotEquals("comment_purify", capability.parentId)
     }
 
-    @Test fun everySettingsEntryIsMappedOrExplicitlyLocalAndLeafIdsAreUnique() {
+    fun everySettingsEntryIsMappedOrExplicitlyLocalAndLeafIdsAreUnique() {
         val catalog = DiagnosticCapabilityCatalog
         assertEquals(catalog.definitions.size, catalog.leafIds.size)
         assertEquals(SettingsCatalog.specs.map { it.id }.toSet(),
@@ -56,7 +70,7 @@ class DiagnosticCapabilityCatalogTest {
         assertTrue(catalog.splitParents.intersect(catalog.leafIds).isEmpty())
     }
 
-    @Test fun interactiveWhitelistChangesRequireExplicitDiagnosticMapping() {
+    fun interactiveWhitelistChangesRequireExplicitDiagnosticMapping() {
         val expected = buildSet {
             VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { family ->
                 assertNotEquals("unknown", family.diagnosticFamilyId)
@@ -69,7 +83,7 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(expected, DiagnosticCapabilityCatalog.byLocatorKey.keys)
     }
 
-    @Test fun videoTitleFreeCopyIsAnIndependentV39CapabilityBesideCommentAndDescription() {
+    fun videoTitleFreeCopyIsAnIndependentV39CapabilityBesideCommentAndDescription() {
         assertTrue(DiagnosticCapabilityCatalog.VERSION >= 39)
         val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 39 }
         assertEquals(setOf("free_copy_title_enabled"), added.map { it.id }.toSet())
@@ -86,7 +100,7 @@ class DiagnosticCapabilityCatalogTest {
             DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
     }
 
-    @Test fun aiCommentFilterIsAnIndependentV38CapabilityUnderTheCommentFilter() {
+    fun aiCommentFilterIsAnIndependentV38CapabilityUnderTheCommentFilter() {
         assertTrue(DiagnosticCapabilityCatalog.VERSION >= 38)
         val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 38 }
         assertEquals(setOf("comments_fish_filter_enabled"), added.map { it.id }.toSet())
@@ -105,7 +119,7 @@ class DiagnosticCapabilityCatalogTest {
             DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
     }
 
-    @Test fun guestBrowsingAndIncognitoHaveIndependentV37Capabilities() {
+    fun guestBrowsingAndIncognitoHaveIndependentV37Capabilities() {
         assertTrue(DiagnosticCapabilityCatalog.VERSION >= 37)
         val added = DiagnosticCapabilityCatalog.definitions.filter { it.introducedCatalogVersion == 37 }
         val expected = mapOf(
@@ -123,7 +137,7 @@ class DiagnosticCapabilityCatalogTest {
         }
     }
 
-    @Test fun codecPreferenceAndDecodeModeHaveIndependentCapabilityLeaves() {
+    fun codecPreferenceAndDecodeModeHaveIndependentCapabilityLeaves() {
         val codec = DiagnosticCapabilityCatalog.byId.getValue("player_codec_preference")
         val decode = DiagnosticCapabilityCatalog.byId.getValue("player_decode_mode")
         assertEquals("player_capabilities", codec.parentId)
@@ -134,7 +148,7 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(decode.id))
     }
 
-    @Test fun bufferStrategyAndPreloadRemainSeparateRuntimeCapabilities() {
+    fun bufferStrategyAndPreloadRemainSeparateRuntimeCapabilities() {
         val strategy = DiagnosticCapabilityCatalog.byId.getValue("player_buffer_strategy")
         val preload = DiagnosticCapabilityCatalog.byId.getValue("player_buffer_preload")
         assertEquals("player_buffer", strategy.parentId)
@@ -154,13 +168,13 @@ class DiagnosticCapabilityCatalogTest {
      * `introducedCatalogVersion == N` 时，增量是空集——新增的能力永远同步不下去。
      * 2026-09-11 真出过这个错：VERSION 从 4 跳到 6，9 个新条目却全标成 5。
      */
-    @Test fun bumpingTheCatalogVersionRequiresAtLeastOneEntryIntroducedAtThatVersion() {
+    fun bumpingTheCatalogVersionRequiresAtLeastOneEntryIntroducedAtThatVersion() {
         val introduced = DiagnosticCapabilityCatalog.definitions.map { it.introducedCatalogVersion }
         assertEquals(DiagnosticCapabilityCatalog.VERSION, introduced.max())
         assertTrue(introduced.all { it in 1..DiagnosticCapabilityCatalog.VERSION })
     }
 
-    @Test fun serverCatalogIsAProjectionOfTheAndroidDirectoryNotASecondManualRegistry() {
+    fun serverCatalogIsAProjectionOfTheAndroidDirectoryNotASecondManualRegistry() {
         val file = File("../../server/src/analytics/capability-catalog.json")
         // 服务端目录仅保留在本地；公开仓库仍运行所有 Android 目录完整性测试。
         org.junit.Assume.assumeTrue("Local server projection is not available in this checkout", file.isFile)
@@ -181,7 +195,7 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(DiagnosticCapabilityCatalog.leafIds, ids)
     }
 
-    @Test fun allLeafCapabilitiesFitOneBoundedReportWithoutDroppingTheTail() {
+    fun allLeafCapabilitiesFitOneBoundedReportWithoutDroppingTheTail() {
         val features = DiagnosticCapabilityCatalog.definitions.map {
             DiagnosticHostFeature(it.id, DiagnosticEvidence.APPLIED, DiagnosticFeatureInstallState.PARTIAL,
                 256, "PARTIAL_COVERAGE", true, runtimeError = true)
@@ -208,7 +222,7 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(features.size, HostRuntimeDiagnosticsCodec.decodeOrNull(HostRuntimeDiagnosticsCodec.encode(host))?.features?.size)
     }
 
-    @Test fun unverifiedAndPartialStatesSurviveTheHostProtocolWithoutBecomingInstalled() {
+    fun unverifiedAndPartialStatesSurviveTheHostProtocolWithoutBecomingInstalled() {
         val partial = HostRuntimeFeatureEvidence("comments_search_links_removed",1,1,0,HostFeatureInstallState.PARTIAL,1,"PARTIAL_COVERAGE",true)
         val unknown = HostRuntimeFeatureEvidence("comments_vote_widgets_removed",0,0,0,HostFeatureInstallState.UNKNOWN,0,"CAPABILITY_UNVERIFIED")
         val snapshot = HostRuntimeDiagnosticsSnapshot(1,"tv.danmaku.bili",listOf(partial,unknown))
@@ -218,5 +232,28 @@ class DiagnosticCapabilityCatalogTest {
         assertTrue(decoded.features[0].runtimeError)
         assertEquals(0,decoded.installedFeatureCount)
         assertEquals(1,decoded.failedFeatureCount)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (DiagnosticCapabilityCatalogTest) -> Unit) {
+            val s = DiagnosticCapabilityCatalogTest()
+            block(s)
+        }
+        runIsolated { s -> s.`frame forced mode option has an independent catalog leaf covering both settings`() }
+        runIsolated { s -> s.`frame temperature choice has an independent catalog leaf without invented runtime evidence`() }
+        runIsolated { s -> s.playerSpeedMenuHasItsOwnRuntimeCapabilityUnderPlayerSpeed() }
+        runIsolated { s -> s.commentReplyButtonHasItsOwnRuntimeCapabilityAndSetting() }
+        runIsolated { s -> s.everySettingsEntryIsMappedOrExplicitlyLocalAndLeafIdsAreUnique() }
+        runIsolated { s -> s.interactiveWhitelistChangesRequireExplicitDiagnosticMapping() }
+        runIsolated { s -> s.videoTitleFreeCopyIsAnIndependentV39CapabilityBesideCommentAndDescription() }
+        runIsolated { s -> s.aiCommentFilterIsAnIndependentV38CapabilityUnderTheCommentFilter() }
+        runIsolated { s -> s.guestBrowsingAndIncognitoHaveIndependentV37Capabilities() }
+        runIsolated { s -> s.codecPreferenceAndDecodeModeHaveIndependentCapabilityLeaves() }
+        runIsolated { s -> s.bufferStrategyAndPreloadRemainSeparateRuntimeCapabilities() }
+        runIsolated { s -> s.bumpingTheCatalogVersionRequiresAtLeastOneEntryIntroducedAtThatVersion() }
+        runIsolated { s -> s.serverCatalogIsAProjectionOfTheAndroidDirectoryNotASecondManualRegistry() }
+        runIsolated { s -> s.allLeafCapabilitiesFitOneBoundedReportWithoutDroppingTheTail() }
+        runIsolated { s -> s.unverifiedAndPartialStatesSurviveTheHostProtocolWithoutBecomingInstalled() }
     }
 }

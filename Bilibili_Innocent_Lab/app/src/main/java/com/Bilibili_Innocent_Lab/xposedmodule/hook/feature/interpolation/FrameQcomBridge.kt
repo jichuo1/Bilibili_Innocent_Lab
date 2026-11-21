@@ -27,6 +27,7 @@ internal class FrameQcomBridge private constructor(
     private val targetFps: Int,
     private val source: FrameHostMediaSignals.Values,
     private val mode: FrameStatus.Backend,
+    private val bypassFrameBudget: Boolean,
     private var rifeFactory: ((Int, Int) -> WindowBackend?)?,
     private var playback: Playback?
 ) : FramePlaybackBridge {
@@ -233,8 +234,8 @@ internal class FrameQcomBridge private constructor(
             handler.removeCallbacks(captureRetry)
             if (captureRetryUntil != 0L) {
                 missed++
-                if (++failures >= MAX_MISSES) { fail("capture_pressure"); return }
                 captureRetryUntil = 0L
+                if (!bypassFrameBudget && ++failures >= MAX_MISSES) { fail("capture_pressure"); return }
             }
             tex.updateTexImage()
         }
@@ -272,7 +273,7 @@ internal class FrameQcomBridge private constructor(
                 jobObsolete = true
                 backend.cancel(job)
             }
-            if (waitingLeft != null) { releaseWaiting(); missed++; failures++ }
+            if (waitingLeft != null) { releaseWaiting(); missed++; if (!bypassFrameBudget) failures++ }
             if (!showOriginal(left)) { fail("original_backpressure"); return }
         }
         tex.getTransformMatrix(transform)
@@ -312,7 +313,7 @@ internal class FrameQcomBridge private constructor(
             }
             missed++
             showOriginal(right)
-            if (++failures >= MAX_MISSES) fail("midpoint_pressure")
+            if (!bypassFrameBudget && ++failures >= MAX_MISSES) fail("midpoint_pressure")
         } finally {
             if (left != null && waitingLeft !== left) backend.release(left.frame)
         }
@@ -334,7 +335,7 @@ internal class FrameQcomBridge private constructor(
                 releaseWaiting()
                 missed++
                 showOriginal(right)
-                if (++failures >= MAX_MISSES) fail("readback_deadline")
+                if (!bypassFrameBudget && ++failures >= MAX_MISSES) fail("readback_deadline")
             } else if (backend.inputsReady(left.frame, right.frame)) {
                 val accepted = backend.submit(left.frame, right.frame, midDue)
                 if (accepted > 0L) {
@@ -358,8 +359,16 @@ internal class FrameQcomBridge private constructor(
         }
         val receipt = backend.poll()
         if (receipt == null) {
-            if (System.nanoTime() > midDue + periodNs * 3) { fail("worker_timeout"); return }
-            if (System.nanoTime() >= midDue) previous?.let { if (!it.shown) showOriginal(it) }
+            val now = System.nanoTime()
+            val workerTimeout = if (bypassFrameBudget) maxOf(periodNs * 12L, WORKER_HANG_SAFETY_NS) else periodNs * 3L
+            if (now > midDue + workerTimeout) { fail("worker_timeout"); return }
+            if (now >= midDue) {
+                previous?.let { if (!it.shown) showOriginal(it) }
+                if (bypassFrameBudget && now > midDue + periodNs * 3L && !jobObsolete) {
+                    jobObsolete = true
+                    backend.cancel(job)
+                }
+            }
             return
         }
         check(receipt.jobId == job)
@@ -375,14 +384,14 @@ internal class FrameQcomBridge private constructor(
                 failures = 0
             } else if (!jobObsolete) {
                 missed++
-                failures++
+                if (!bypassFrameBudget) failures++
             }
         } finally {
             if (output != null) backend.release(output)
         }
         if (right != null && !right.shown) showOriginal(right)
         if (receipt.status != 0 && receipt.status != -9 && !(jobObsolete && receipt.status == -13) ||
-            failures >= MAX_MISSES) fail("worker:${receipt.status}")
+            (!bypassFrameBudget && failures >= MAX_MISSES)) fail("worker:${receipt.status}")
     }
 
     private val originalRetry = Runnable { guarded {
@@ -391,7 +400,8 @@ internal class FrameQcomBridge private constructor(
     } }
     private fun showOriginal(frame: Original): Boolean {
         if (!draw(frame.frame, frame.dueNs, frame.ptsNs, midpoint = false)) {
-            if (System.nanoTime() >= frame.dueNs + periodNs) fail("original_deadline")
+            val deadline = if (bypassFrameBudget) maxOf(periodNs * 8L, ORIGINAL_HANG_SAFETY_NS) else periodNs
+            if (System.nanoTime() >= frame.dueNs + deadline) fail("original_deadline")
             else {
                 blockedOriginal = frame
                 handler.removeCallbacks(originalRetry)
@@ -562,6 +572,8 @@ internal class FrameQcomBridge private constructor(
     companion object {
         private const val MAX_MISSES = 12
         private const val MAX_RETIRE_RETRIES = 3
+        private const val WORKER_HANG_SAFETY_NS = 500_000_000L
+        private const val ORIGINAL_HANG_SAFETY_NS = 250_000_000L
         private fun temporary(status: Int) = status == -7 || status == -8 || status == -12
         private val unresolvedOwners = mutableSetOf<FrameQcomBridge>()
         private var nextRetirementWakeNs = 0L
@@ -593,12 +605,13 @@ internal class FrameQcomBridge private constructor(
         fun create(codec: MediaCodec, display: Surface, width: Int, height: Int, sourceFps: Float,
                    targetFps: Int, source: FrameHostMediaSignals.Values, host: FrameCaptureBridge.Host,
                    isCurrent: () -> Boolean, attach: (Surface) -> Boolean,
+                   bypassFrameBudget: Boolean = false,
                    onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
             if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || source.colorStandard != MediaFormat.COLOR_STANDARD_BT709 ||
                 !ownersReady()) return null
-            val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.QCOM, null,
-                Playback(display, host, isCurrent, attach, onBackendFailed))
+            val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.QCOM,
+                bypassFrameBudget, null, Playback(display, host, isCurrent, attach, onBackendFailed))
             return if (bridge.start()) bridge else null
         }
 
@@ -606,11 +619,12 @@ internal class FrameQcomBridge private constructor(
                        targetFps: Int, source: FrameHostMediaSignals.Values, host: FrameCaptureBridge.Host,
                        isCurrent: () -> Boolean, attach: (Surface) -> Boolean,
                        openBackend: (Int, Int) -> WindowBackend?,
+                       bypassFrameBudget: Boolean = false,
                        onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
             if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.RIFE,
-                openBackend, Playback(display, host, isCurrent, attach, onBackendFailed))
+                bypassFrameBudget, openBackend, Playback(display, host, isCurrent, attach, onBackendFailed))
             return if (bridge.start()) bridge else null
         }
     }

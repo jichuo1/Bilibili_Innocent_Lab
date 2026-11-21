@@ -9,7 +9,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsDependenciesTest {
-    @Test fun `mine dimming follows the capsule without discarding a disabled choice`() {
+    fun `mine dimming follows the capsule without discarding a disabled choice`() {
         val key = FeaturePreferences.HOST_MINE_GARB_DIM
         val id = "host.mine.garb_dim.enabled"
         assertTrue(ModuleUiSettings.EMPTY.bool(key))
@@ -21,7 +21,7 @@ class SettingsDependenciesTest {
         assertFalse(capsule.with(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false).bool(key))
     }
 
-    @Test fun `every preference dependency uses real catalog identities and boolean parents`() {
+    fun `every preference dependency uses real catalog identities and boolean parents`() {
         SettingsDependencies.requirements.forEach { (id, requirement) ->
             if (id != SettingsDependencies.FRAME_MODEL) assertNotNull(id, SettingsCatalog.byId[id])
             requirement.keys.forEach { key ->
@@ -32,7 +32,7 @@ class SettingsDependenciesTest {
         }
     }
 
-    @Test fun `frame options lock while off and restore without discarding saved values`() {
+    fun `frame options lock while off and restore without discarding saved values`() {
         val off = ModuleUiSettings.of { mapOf(
             FeaturePreferences.PLAYER_FRAME_INTERPOLATION to false,
             FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST to true,
@@ -40,7 +40,8 @@ class SettingsDependenciesTest {
             FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS to 144
         ) }
         val ids = listOf("player.frame_interpolation.max_fps", "player.frame_interpolation.status_toast",
-            "player.frame_interpolation.disable_thermal_control", SettingsDependencies.FRAME_MODEL)
+            "player.frame_interpolation.disable_thermal_control", "player.frame_interpolation.force_mode",
+            SettingsDependencies.FRAME_MODEL)
         repeat(3) {
             ids.forEach { assertFalse(it, SettingsDependencies.available(it, off)) }
             val on = off.with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, true)
@@ -54,7 +55,22 @@ class SettingsDependenciesTest {
         assertTrue(SettingsDependencies.available("player.frame_interpolation.enabled", off))
     }
 
-    @Test fun `each filter editor follows its own switch instead of neighbouring filters`() {
+    fun `forced interpolation backend requires both main switch and force mode while keeping saved choice`() {
+        val modeId = "player.frame_interpolation.mode"
+        val savedOnlyMode = ModuleUiSettings.EMPTY.with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE, "rife")
+        assertFalse(SettingsDependencies.available(modeId, savedOnlyMode))
+        assertFalse(SettingsDependencies.available(modeId, savedOnlyMode.with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, true)))
+        assertFalse(SettingsDependencies.available(modeId, savedOnlyMode.with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, true)))
+        val bothOn = savedOnlyMode
+            .with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, true)
+            .with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, true)
+        assertTrue(SettingsDependencies.available(modeId, bothOn))
+        assertTrue(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE in SettingsDependencies.parentKeys)
+        assertEquals("rife", bothOn.with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, false)
+            .string(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE))
+    }
+
+    fun `each filter editor follows its own switch instead of neighbouring filters`() {
         val pairs = listOf(
             FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED to "comments.keyword_filter.keywords",
             FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED to "comments.minimum_level_filter.level",
@@ -76,7 +92,7 @@ class SettingsDependenciesTest {
         }
     }
 
-    @Test fun `ai comment filter options follow only its own switch and keep saved choices`() {
+    fun `ai comment filter options follow only its own switch and keep saved choices`() {
         val children = listOf(
             "comments.fish_filter.sensitivity", "comments.fish_filter.nickname_words", "comments.fish_filter.text_words",
             "comments.fish_filter.whitelist", "comments.fish_filter.protect_high_level",
@@ -101,7 +117,7 @@ class SettingsDependenciesTest {
             .bool(FeaturePreferences.COMMENT_FISH_STRONG_MODE))
     }
 
-    @Test fun `semantic rules custom types and routes follow only the corresponding surface`() {
+    fun `semantic rules custom types and routes follow only the corresponding surface`() {
         val surfaces = listOf(
             FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED to "comments",
             FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED to "player.danmaku",
@@ -120,7 +136,7 @@ class SettingsDependenciesTest {
         assertTrue(SettingsDependencies.available(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, ModuleUiSettings.EMPTY))
     }
 
-    @Test fun `dependent settings require their own main feature`() {
+    fun `dependent settings require their own main feature`() {
         listOf(
             FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.automatic",
             FeaturePreferences.SPONSORBLOCK_ENABLED to "player.sponsorblock.story",
@@ -132,7 +148,7 @@ class SettingsDependenciesTest {
         }
     }
 
-    @Test fun `guest onboarding skip follows either browsing mode and keeps its saved choice`() {
+    fun `guest onboarding skip follows either browsing mode and keeps its saved choice`() {
         val id = "browsing.guest.skip_onboarding"
         val saved = ModuleUiSettings.EMPTY.with(FeaturePreferences.SKIP_GUEST_ONBOARDING, true)
         assertFalse(SettingsDependencies.available(id, saved))
@@ -142,7 +158,7 @@ class SettingsDependenciesTest {
         assertTrue(saved.bool(FeaturePreferences.SKIP_GUEST_ONBOARDING))
     }
 
-    @Test fun `disabling long press locks its speed while default speed remains independent`() {
+    fun `disabling long press locks its speed while default speed remains independent`() {
         val disabled = ModuleUiSettings.EMPTY.with(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, true)
         assertTrue(SettingsDependencies.available(SettingsCatalog.ID_PLAYER_LONG_PRESS_SPEED, ModuleUiSettings.EMPTY))
         assertFalse(SettingsDependencies.available(SettingsCatalog.ID_PLAYER_LONG_PRESS_SPEED, disabled))
@@ -150,7 +166,7 @@ class SettingsDependenciesTest {
         assertTrue(SettingsDependencies.available(SettingsCatalog.ID_PLAYER_SPEED_MENU, disabled))
     }
 
-    @Test fun `logging uses catalog default and does not clear retained detail level`() {
+    fun `logging uses catalog default and does not clear retained detail level`() {
         assertTrue(SettingsDependencies.available("diagnostics.logging.level", ModuleUiSettings.EMPTY))
         val settings = ModuleUiSettings.EMPTY.with(HookEntry.PREF_LOG_ENABLED, false)
             .with(HookEntry.PREF_LOG_LEVEL, HookEntry.LOG_LEVEL_COMPLETE)
@@ -158,12 +174,32 @@ class SettingsDependenciesTest {
         assertEquals(HookEntry.LOG_LEVEL_COMPLETE, settings.string(HookEntry.PREF_LOG_LEVEL))
     }
 
-    @Test fun `unrelated capabilities remain configurable and malformed values use catalog defaults`() {
+    fun `unrelated capabilities remain configurable and malformed values use catalog defaults`() {
         listOf("player.subtitle.ai.enabled", "player.subtitle.style.enabled", "share.mini_program.direct_link",
             "host.home_cards.horizontal_dp", "host.home_cards.vertical_dp", "splash.auto_night.enabled").forEach {
             assertTrue(it, SettingsDependencies.available(it, ModuleUiSettings.EMPTY))
         }
         val wrong = ModuleUiSettings.of { mapOf(FeaturePreferences.PLAYER_FRAME_INTERPOLATION to "true") }
         assertFalse(SettingsDependencies.available("player.frame_interpolation.max_fps", wrong))
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (SettingsDependenciesTest) -> Unit) {
+            val s = SettingsDependenciesTest()
+            block(s)
+        }
+        runIsolated { s -> s.`mine dimming follows the capsule without discarding a disabled choice`() }
+        runIsolated { s -> s.`every preference dependency uses real catalog identities and boolean parents`() }
+        runIsolated { s -> s.`frame options lock while off and restore without discarding saved values`() }
+        runIsolated { s -> s.`forced interpolation backend requires both main switch and force mode while keeping saved choice`() }
+        runIsolated { s -> s.`each filter editor follows its own switch instead of neighbouring filters`() }
+        runIsolated { s -> s.`ai comment filter options follow only its own switch and keep saved choices`() }
+        runIsolated { s -> s.`semantic rules custom types and routes follow only the corresponding surface`() }
+        runIsolated { s -> s.`dependent settings require their own main feature`() }
+        runIsolated { s -> s.`guest onboarding skip follows either browsing mode and keeps its saved choice`() }
+        runIsolated { s -> s.`disabling long press locks its speed while default speed remains independent`() }
+        runIsolated { s -> s.`logging uses catalog default and does not clear retained detail level`() }
+        runIsolated { s -> s.`unrelated capabilities remain configurable and malformed values use catalog defaults`() }
     }
 }

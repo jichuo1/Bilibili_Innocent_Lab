@@ -140,5 +140,6 @@ internal object SettingsUiCatalog {
         if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, R.string.player_frame_interpolation, 2, "ENHANCEMENT_ADVANCED", true)
         if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, R.string.player_frame_disable_thermal_control, 2, "ENHANCEMENT_ADVANCED", true)
         if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, R.string.player_frame_status_toast, 2, "ENHANCEMENT_ADVANCED", true)
+        if (FrameInterpolationEntryGate.entryOpen()) add(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, R.string.player_frame_force_mode, 2, "ENHANCEMENT_ADVANCED", true)
     }
 }

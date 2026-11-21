@@ -16,7 +16,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 
 /** Pure state tests plus source wiring guards; not an Android visual/interaction acceptance test. */
 class LiquidControlStyleTest {
-    @Test fun `all native state combinations preserve selection and disable interaction emphasis`() {
+    fun `all native state combinations preserve selection and disable interaction emphasis`() {
         for (enabled in listOf(false, true)) for (checked in listOf(false, true)) {
             for (pressed in listOf(false, true)) for (focused in listOf(false, true)) {
                 val state = LiquidControlStyle.resolve(enabled, checked, pressed, focused)
@@ -28,7 +28,7 @@ class LiquidControlStyleTest {
         }
     }
 
-    @Test fun `selected controls remain distinguishable without focus or press`() {
+    fun `selected controls remain distinguishable without focus or press`() {
         val idle = LiquidControlStyle.resolve(true, false, false, false)
         val checked = LiquidControlStyle.resolve(true, true, false, false)
         val focused = LiquidControlStyle.resolve(true, false, false, true)
@@ -37,7 +37,7 @@ class LiquidControlStyleTest {
         assertTrue(LiquidControlStyle.opacity(idle) > LiquidControlStyle.opacity(idle.copy(enabled = false)))
     }
 
-    @Test fun `new semantic surfaces retain fallback readability in both themes`() {
+    fun `new semantic surfaces retain fallback readability in both themes`() {
         for (dark in listOf(false, true)) {
             val params = LiquidTokenResolver.resolve(LiquidVisualTuningPolicy.resolve(dark))
             for (role in listOf(SurfaceRole.FILLED_BUTTON, SurfaceRole.TEXT_BUTTON, SurfaceRole.SELECTED_ITEM)) {
@@ -54,7 +54,7 @@ class LiquidControlStyleTest {
         return SourceContract.read(path)
     }
 
-    @Test fun `all main activity modal creators use the skin container and shared presenter`() {
+    fun `all main activity modal creators use the skin container and shared presenter`() {
         // 弹窗正在按主题外移到 ui/activity 下的 Dialogs 文件，所以这条不变式必须**跟着代码走**。
         // 只扫 MainActivity 的话，搬走的弹窗会悄悄退出统计——而这里是唯一能发现
         // "某个弹窗漏了 createModalContainer() 或 presentModalDialog()"的地方。
@@ -97,7 +97,8 @@ class LiquidControlStyleTest {
         // 2026-11-11：屏蔽 AI 评论与回复的判定敏感度弹窗，54 → 55。
         // 同日新增 NPatch「加入作用域」确认框（NPatchScopeDialogs.kt），55 → 56，同样走皮肤容器与 presentModalDialog。
         // 音频拯救实验面板同样使用皮肤容器，56 → 57。
-        assertEquals(57, dialogs)
+        // 视频插帧「插帧方式」选择面板同样使用皮肤容器与 presentModalDialog，57 → 58。
+        assertEquals(58, dialogs)
         // 「管理常用」改用定宽 presentSizedModalDialog（EXACTLY 行宽保证把手钉右缘）。
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("presentSizedModalDialog(dialog, container, width, anchor)"))
         val presenter = SettingsUiSource.function("presentSizedModalDialog")
@@ -115,7 +116,7 @@ class LiquidControlStyleTest {
         assertTrue(diagnostics.contains("stylePreparedSkinControls(container)"))
     }
 
-    @Test fun `control styling is gated and cannot change preferences or listeners`() {
+    fun `control styling is gated and cannot change preferences or listeners`() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
         val controls = skin.after("protected fun stylePreparedSkinControls").before("/** 让一个")
         assertTrue(controls.contains("if (skinSessionOrNull == null || lifecycleEnded) return"))
@@ -130,7 +131,7 @@ class LiquidControlStyleTest {
         assertTrue(controls.contains("view.foreground = RippleDrawable"))
     }
 
-    @Test fun `control outline stays pinned to the viewport of scrolled inputs`() {
+    fun `control outline stays pinned to the viewport of scrolled inputs`() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
         val outline = skin.after("private fun controlOutline(").before("/** 让一个")
         assertTrue(outline.contains("return viewportForeground(StateListDrawable()"))
@@ -143,7 +144,7 @@ class LiquidControlStyleTest {
         assertTrue(draw.contains("canvas.translate(x.toFloat(), y.toFloat())"))
     }
 
-    @Test fun `choice drawing caches geometry and has no animator or capture loop`() {
+    fun `choice drawing caches geometry and has no animator or capture loop`() {
         val drawable = source("ui/skin/liquid/LiquidChoiceDrawable.kt")
         val draw = drawable.after("override fun draw(canvas: Canvas)").before("override fun setAlpha")
         listOf("Path()", "RectF()", "LinearGradient(", "post", "invalidateSelf()").forEach {
@@ -154,7 +155,7 @@ class LiquidControlStyleTest {
         assertTrue(drawable.contains("if (checkbox && visualState.selected)"))
     }
 
-    @Test fun `secondary pages and new badge keep explicit skin wiring`() {
+    fun `secondary pages and new badge keep explicit skin wiring`() {
         val backup = source("ui/activity/SettingsBackupActivity.kt")
         assertTrue(backup.contains("skinActionButton(this, filled = true, radiusDp = 14f)"))
         assertTrue(backup.contains("skinActionButton(this, filled = false, radiusDp = 14f)"))
@@ -172,7 +173,7 @@ class LiquidControlStyleTest {
     }
 
     /** 2026-09-24 用户报告浅色下开关颜色较浅：浅色主题加深轨道，深色配比不变。 */
-    @Test fun `light theme switches keep a contrasting track`() {
+    fun `light theme switches keep a contrasting track`() {
         val drawable = source("ui/skin/liquid/LiquidChoiceDrawable.kt")
         assertTrue(drawable.contains("private val lightTheme = ColorUtils.calculateLuminance(surface) > 0.5"))
         fun constant(name: String) = Regex("const val $name = ([0-9.]+)f?").find(drawable)!!.groupValues[1].toFloat()
@@ -183,5 +184,22 @@ class LiquidControlStyleTest {
         assertTrue(drawable.contains("lightTheme && !thumb && !checkbox -> ColorUtils.blendARGB(surface, outline, UNCHECKED_TRACK_SHADE_LIGHT)"))
         assertTrue(drawable.contains("lightTheme && !thumb && !(checkbox && !checked)"))
         assertTrue(constant("UNCHECKED_EDGE_ALPHA_LIGHT") > 46f)
+    }
+
+    @org.junit.Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (LiquidControlStyleTest) -> Unit) {
+            val s = LiquidControlStyleTest()
+            block(s)
+        }
+        runIsolated { s -> s.`all native state combinations preserve selection and disable interaction emphasis`() }
+        runIsolated { s -> s.`selected controls remain distinguishable without focus or press`() }
+        runIsolated { s -> s.`new semantic surfaces retain fallback readability in both themes`() }
+        runIsolated { s -> s.`all main activity modal creators use the skin container and shared presenter`() }
+        runIsolated { s -> s.`control styling is gated and cannot change preferences or listeners`() }
+        runIsolated { s -> s.`control outline stays pinned to the viewport of scrolled inputs`() }
+        runIsolated { s -> s.`choice drawing caches geometry and has no animator or capture loop`() }
+        runIsolated { s -> s.`secondary pages and new badge keep explicit skin wiring`() }
+        runIsolated { s -> s.`light theme switches keep a contrasting track`() }
     }
 }

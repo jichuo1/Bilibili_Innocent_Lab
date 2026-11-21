@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
 
+import android.content.SharedPreferences
 import android.util.Log
 import android.view.View
 import android.widget.TextView as NativeTextView
@@ -11,7 +12,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameGpuCapabilities
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameGpuCapabilityProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationMode
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.frame.FrameModelDownloader
@@ -20,6 +24,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkSta
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import io.github.jichuo1.meguviz.android.extensions.textColor
+import io.github.jichuo1.meguviz.android.extensions.toast
 import io.github.jichuo1.meguviz.android.extensions.updatePadding
 
 /**
@@ -132,21 +137,143 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
+        val forceModeKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE
+        var forceModeEnabled = uiSettings.bool(forceModeKey)
+        materialSwitch(key = "PlayerFrameInterpolationPresenter:forceMode",
+            lparams = params(widthMatchParent = true) { topMargin = 8.dp; bottomMargin = 2.dp }
+        ) {
+            bindFavoriteSwitch(this, forceModeKey)
+            bindSettingDestination(this, forceModeKey)
+            text = stringResource(R.string.player_frame_force_mode)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = forceModeEnabled
+            setOnCheckedChangeListener { button, checked ->
+                applyModeledToggle(forceModeKey, checked, button)
+            }
+        }
+        textView(key = "PlayerFrameInterpolationPresenter:forceModeSummary", lparams = params(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.player_frame_force_mode_summary)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        val modeKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE
+        var configuredMode = uiSettings.string(modeKey)
+        var gpuCapabilities: FrameGpuCapabilities? = FrameGpuCapabilityProbe.cached()
+        var latestModelState: FrameModelDownloader.State? = null
+        var modeSummary: NativeTextView? = null
+        var downloadModel: () -> Unit = {}
+        fun refreshModeSummary() {
+            val view = modeSummary ?: return
+            val caps = gpuCapabilities
+            if (caps == null) {
+                view.text = getString(R.string.player_frame_mode_checking)
+                return
+            }
+            val candidates = FrameInterpolationMode.supportedCandidates(caps)
+            if (candidates.isEmpty()) {
+                view.text = getString(R.string.player_frame_mode_unavailable_summary)
+                return
+            }
+            val archLabel = frameInterpolationArchitectureLabel(caps)
+            val candidateNames = candidates.joinToString(" / ") { mode ->
+                getString(when (mode) {
+                    FrameInterpolationMode.QCOM -> R.string.player_frame_mode_short_qcom
+                    FrameInterpolationMode.RIFE -> R.string.player_frame_mode_short_rife
+                })
+            }
+            val effective = FrameInterpolationMode.resolveCandidate(configuredMode, candidates)
+            val base = if (!forceModeEnabled) {
+                getString(R.string.player_frame_mode_auto_summary, archLabel, candidateNames)
+            } else {
+                val selectedLabel = when (effective) {
+                    FrameInterpolationMode.QCOM -> getString(R.string.player_frame_mode_qcom_title)
+                    FrameInterpolationMode.RIFE -> getString(R.string.player_frame_mode_rife_title)
+                    null -> getString(R.string.player_frame_mode_short_none)
+                }
+                val features = when (effective) {
+                    FrameInterpolationMode.QCOM -> frameInterpolationQcomFeatures(caps)
+                    FrameInterpolationMode.RIFE -> frameInterpolationRifeFeatures(caps)
+                    null -> archLabel
+                }
+                getString(R.string.player_frame_mode_forced_summary, selectedLabel, features)
+            }
+            val needModel = latestModelState != null && latestModelState != FrameModelDownloader.State.READY &&
+                (candidates == listOf(FrameInterpolationMode.RIFE) ||
+                    (forceModeEnabled && effective == FrameInterpolationMode.RIFE))
+            view.text = if (needModel) "$base\n${getString(R.string.player_frame_mode_need_model_suffix)}" else base
+        }
+        linearLayout(key = "PlayerFrameInterpolationPresenter:mode",
+            lparams = params(widthMatchParent = true) { topMargin = 8.dp },
+            init = {
+                orientation = NativeLinearLayout.VERTICAL
+                background = selfRippleBackground(10f)
+                updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                isClickable = true
+                isFocusable = true
+                bindSettingDestination(this, modeKey)
+                bindSettingDependency(this, "player.frame_interpolation.mode")
+                setOnClickListener { anchor ->
+                    if (!isEnabled) return@setOnClickListener
+                    val caps = gpuCapabilities
+                    if (caps == null) {
+                        toast(getString(R.string.player_frame_mode_checking))
+                        return@setOnClickListener
+                    }
+                    showFrameInterpolationModeDialog(
+                        currentMode = configuredMode,
+                        capabilities = caps,
+                        modelReady = latestModelState == FrameModelDownloader.State.READY,
+                        anchor = anchor,
+                        onSaved = { value ->
+                            configuredMode = value
+                            refreshModeSummary()
+                        },
+                        onRequestDownloadModel = { downloadModel() }
+                    )
+                }
+            }
+        ) {
+            textView(key = "PlayerFrameInterpolationPresenter:modeTitle", lparams = params(widthMatchParent = true)) {
+                text = stringResource(R.string.player_frame_mode)
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+            }
+            textView(key = "PlayerFrameInterpolationPresenter:modeSummary", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
+                alpha = 0.6f
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                setLineSpacing(6f, 1f)
+                modeSummary = this
+                refreshModeSummary()
+            }
+        }
         var summary: NativeTextView? = null
         val checks = FrameModelCheckGate()
         fun show(token: Long, text: String) = runOnUiThread {
             if (!isDestroyed && checks.current(token)) summary?.text = text
         }
-        fun showState(token: Long, state: FrameModelDownloader.State) = show(token, getString(when (state) {
-            FrameModelDownloader.State.READY -> R.string.player_frame_model_ready
-            FrameModelDownloader.State.MISSING -> R.string.player_frame_model_missing
-            FrameModelDownloader.State.FRAMEWORK_UNAVAILABLE -> R.string.player_frame_model_framework_unavailable
-            FrameModelDownloader.State.FRAMEWORK_PENDING -> R.string.player_frame_model_framework_pending
-            FrameModelDownloader.State.FRAMEWORK_UNSUPPORTED -> R.string.player_frame_model_framework_unsupported
-            FrameModelDownloader.State.INVALID -> R.string.player_frame_model_invalid
-            FrameModelDownloader.State.REMOTE_FAILED -> R.string.player_frame_model_remote_failed
-            FrameModelDownloader.State.LOCAL_FAILED -> R.string.player_frame_model_local_failed
-        }))
+        fun showState(token: Long, state: FrameModelDownloader.State) {
+            runOnUiThread {
+                if (!isDestroyed && checks.current(token)) {
+                    latestModelState = state
+                    refreshModeSummary()
+                }
+            }
+            show(token, getString(when (state) {
+                FrameModelDownloader.State.READY -> R.string.player_frame_model_ready
+                FrameModelDownloader.State.MISSING -> R.string.player_frame_model_missing
+                FrameModelDownloader.State.FRAMEWORK_UNAVAILABLE -> R.string.player_frame_model_framework_unavailable
+                FrameModelDownloader.State.FRAMEWORK_PENDING -> R.string.player_frame_model_framework_pending
+                FrameModelDownloader.State.FRAMEWORK_UNSUPPORTED -> R.string.player_frame_model_framework_unsupported
+                FrameModelDownloader.State.INVALID -> R.string.player_frame_model_invalid
+                FrameModelDownloader.State.REMOTE_FAILED -> R.string.player_frame_model_remote_failed
+                FrameModelDownloader.State.LOCAL_FAILED -> R.string.player_frame_model_local_failed
+            }))
+        }
         var refresh: () -> Unit = {}
         var queueRetries = 0
         val retryRefresh = Runnable { refresh() }
@@ -165,13 +292,53 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 queueRetries = 0
             }
         }
+        downloadModel = {
+            runInBackground { token ->
+                if (FrameModelDownloader.state(applicationContext) == FrameModelDownloader.State.READY) {
+                    showState(token, FrameModelDownloader.State.READY); return@runInBackground
+                }
+                var shown = -1
+                FrameModelDownloader.download(applicationContext) { progress ->
+                    when (progress) {
+                        is FrameModelDownloader.Progress.Downloading -> {
+                            val percent = if (progress.total > 0) (progress.downloaded * 100 / progress.total).toInt() else 0
+                            if (percent != shown) {
+                                shown = percent
+                                show(token, getString(R.string.player_frame_model_downloading, progress.part, percent))
+                            }
+                        }
+                        FrameModelDownloader.Progress.Publishing ->
+                            show(token, getString(R.string.player_frame_model_publishing))
+                        FrameModelDownloader.Progress.Done -> showState(token, FrameModelDownloader.State.READY)
+                        is FrameModelDownloader.Progress.Failed ->
+                            progress.state?.let { showState(token, it) }
+                                ?: show(token, getString(R.string.player_frame_model_download_failed))
+                    }
+                }
+            }
+        }
         refresh = { runInBackground { token -> showState(token, FrameModelDownloader.refresh(applicationContext)) } }
+        var probeDispatched = false
+        var observedPrefs: SharedPreferences? = null
+        val modePrefListener = SharedPreferences.OnSharedPreferenceChangeListener { source, changedKey ->
+            if (changedKey == null || changedKey == forceModeKey || changedKey == modeKey) {
+                runOnUiThread {
+                    if (checks.attached && !isDestroyed) {
+                        forceModeEnabled = source.getBoolean(forceModeKey, false)
+                        configuredMode = source.getString(modeKey, FrameInterpolationMode.AUTO_DEFAULT).orEmpty()
+                        refreshModeSummary()
+                    }
+                }
+            }
+        }
         val frameworkListener = ModernFrameworkStatusListener {
             runOnUiThread {
                 if (checks.attached && !isDestroyed) { checks.invalidate(); refresh() }
             }
         }
         fun stopObserving() {
+            observedPrefs?.unregisterOnSharedPreferenceChangeListener(modePrefListener)
+            observedPrefs = null
             if (!checks.attached) return
             checks.attach(false)
             summary?.removeCallbacks(retryRefresh)
@@ -182,6 +349,26 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
             checks.attach(true)
             queueRetries = 0
+            runCatching { prefs() }.getOrNull()?.let { currentPrefs ->
+                observedPrefs = currentPrefs
+                currentPrefs.registerOnSharedPreferenceChangeListener(modePrefListener)
+                forceModeEnabled = currentPrefs.getBoolean(forceModeKey, false)
+                configuredMode = currentPrefs.getString(modeKey, FrameInterpolationMode.AUTO_DEFAULT).orEmpty()
+                refreshModeSummary()
+            }
+            if (gpuCapabilities == null && !probeDispatched) {
+                probeDispatched = true
+                FrameModelDownloader.execute {
+                    val probed = runCatching { FrameGpuCapabilityProbe.probe() }.getOrNull()
+                    runOnUiThread {
+                        if (!isDestroyed) {
+                            if (probed != null) gpuCapabilities = probed
+                            else probeDispatched = false
+                            refreshModeSummary()
+                        }
+                    }
+                }
+            }
             RemoteHookConfigStore.addStatusListener(frameworkListener)
         }
         val lifecycleObserver = LifecycleEventObserver { _, event ->
@@ -202,29 +389,7 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 bindSettingDependency(this, SettingsDependencies.FRAME_MODEL)
                 setOnClickListener {
                     if (!isEnabled) return@setOnClickListener
-                    runInBackground { token ->
-                        if (FrameModelDownloader.state(applicationContext) == FrameModelDownloader.State.READY) {
-                            showState(token, FrameModelDownloader.State.READY); return@runInBackground
-                        }
-                        var shown = -1
-                        FrameModelDownloader.download(applicationContext) { progress ->
-                            when (progress) {
-                                is FrameModelDownloader.Progress.Downloading -> {
-                                    val percent = if (progress.total > 0) (progress.downloaded * 100 / progress.total).toInt() else 0
-                                    if (percent != shown) {
-                                        shown = percent
-                                        show(token, getString(R.string.player_frame_model_downloading, progress.part, percent))
-                                    }
-                                }
-                                FrameModelDownloader.Progress.Publishing ->
-                                    show(token, getString(R.string.player_frame_model_publishing))
-                                FrameModelDownloader.Progress.Done -> showState(token, FrameModelDownloader.State.READY)
-                                is FrameModelDownloader.Progress.Failed ->
-                                    progress.state?.let { showState(token, it) }
-                                        ?: show(token, getString(R.string.player_frame_model_download_failed))
-                            }
-                        }
-                    }
+                    downloadModel()
                 }
             }
         ) {

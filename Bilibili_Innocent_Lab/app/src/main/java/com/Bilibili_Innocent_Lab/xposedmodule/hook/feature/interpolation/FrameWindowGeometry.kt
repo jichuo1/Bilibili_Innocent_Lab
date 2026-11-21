@@ -23,5 +23,12 @@ internal object FrameWindowGeometry {
         return if (width > 0 && height > 0) width to height else null
     }
 
+    /** Headless Vulkan physical-device capability bitmask; runs Vulkan queries in native C++ only. */
+    fun rawGpuCapabilities(): Long {
+        if (!available) return 0L
+        return runCatching { probeGpuCapabilities() }.getOrDefault(0L)
+    }
+
     private external fun extent(surface: Surface): Long
+    private external fun probeGpuCapabilities(): Long
 }

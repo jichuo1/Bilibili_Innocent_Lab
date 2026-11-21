@@ -9,13 +9,15 @@ internal object SettingsDependencies {
     // Model management is an action, not a backed-up preference or a search destination.
     const val FRAME_MODEL = "player.frame_interpolation.model"
 
-    /** Available while [key] (or any of [alternatives]) has the [enabled] value. */
+    /** Available while [key] (or any of [alternatives]) has [enabled] and every [requiredWith] key is true. */
     internal data class Requirement(
         val key: String,
         val enabled: Boolean = true,
-        val alternatives: List<String> = emptyList()
+        val alternatives: List<String> = emptyList(),
+        val requiredWith: List<String> = emptyList()
     ) {
-        val keys: List<String> get() = listOf(key) + alternatives
+        val keys: List<String> get() = listOf(key) + alternatives + requiredWith
+        val primaryKeys: List<String> get() = listOf(key) + alternatives
     }
 
     val requirements: Map<String, Requirement> = buildMap {
@@ -24,7 +26,11 @@ internal object SettingsDependencies {
         }
         children(FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
             "player.frame_interpolation.max_fps", "player.frame_interpolation.status_toast",
-            "player.frame_interpolation.disable_thermal_control", FRAME_MODEL)
+            "player.frame_interpolation.disable_thermal_control", "player.frame_interpolation.force_mode",
+            FRAME_MODEL)
+        put("player.frame_interpolation.mode",
+            Requirement(FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
+                requiredWith = listOf(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE)))
         children(FeaturePreferences.SPONSORBLOCK_ENABLED, "player.sponsorblock.automatic", "player.sponsorblock.story")
         children(FeaturePreferences.AI_INSIGHT_ENABLED, "compat.ai_insight.auto_chapters")
         // Onboarding is skipped inside the guest installer, which either browsing mode starts.
@@ -61,6 +67,7 @@ internal object SettingsDependencies {
     val parentKeys: Set<String> = requirements.values.flatMap { it.keys }.toSet()
 
     fun available(id: String, settings: ModuleUiSettings): Boolean = requirements[id]?.let {
-        it.keys.any { key -> settings.bool(key) == it.enabled }
+        it.primaryKeys.any { key -> settings.bool(key) == it.enabled } &&
+            it.requiredWith.all { key -> settings.bool(key) }
     } ?: true
 }

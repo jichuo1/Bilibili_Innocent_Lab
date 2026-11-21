@@ -67,6 +67,7 @@ internal object SettingsActionCatalog {
         ).forEach { byKey(it, 2, "ENHANCEMENT_ADVANCED") }
         if (FrameInterpolationEntryGate.entryOpen()) {
             byKey(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 2, "ENHANCEMENT_ADVANCED")
+            byKey(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE, 2, "ENHANCEMENT_ADVANCED")
         }
         listOf(
             SettingsCatalog.ID_PLAYER_SPEED_MENU,
