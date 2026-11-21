@@ -106,6 +106,9 @@ class SettingsBackupActivity : SkinnedActivity(),
     private var allowLaunchOriginForExit = true
     private lateinit var motionController: ContainerMorphController
     private var pageStretchViewport: View? = null
+    private var pageScrollView: NestedScrollView? = null
+    private var pendingRestoreScrollY = 0
+    private var pendingRestoreScrollPage: String? = null
 
     /** 确认页条目分组的手风琴驱动器；随页面重绘/销毁统一撤销，见 [releaseEntrySections]。 */
     private val sectionExpansionControllers = HashMap<View, SectionExpansionController>()
@@ -135,6 +138,8 @@ class SettingsBackupActivity : SkinnedActivity(),
         window.decorView.setBackgroundColor(Color.TRANSPARENT)
         launchOrigin = SettingsBackupTransitionOrigin.from(intent)
         allowLaunchOriginForExit = savedInstanceState == null
+        pendingRestoreScrollY = savedInstanceState?.getInt(KEY_SCROLL_Y, 0)?.coerceAtLeast(0) ?: 0
+        pendingRestoreScrollPage = savedInstanceState?.getString(KEY_SCROLL_PAGE)
         motionHost = SettingsBackupMotionHost(
             context = this,
             collapsedSurfaceColor = if (isLiquidSkinEffective) {
@@ -208,10 +213,17 @@ class SettingsBackupActivity : SkinnedActivity(),
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(KEY_SCROLL_Y, pageScrollView?.scrollY ?: pendingRestoreScrollY)
+        outState.putString(KEY_SCROLL_PAGE, pendingRestoreScrollPage ?: page.name)
+    }
+
     override fun onDestroy() {
         releaseEntrySections()
         finishPageStretch()
         pageStretchViewport = null
+        pageScrollView = null
         if (::motionController.isInitialized) motionController.onDestroy()
         operationGeneration += 1L
         activeFuture?.cancel(true)
@@ -550,23 +562,37 @@ class SettingsBackupActivity : SkinnedActivity(),
                 content.addView(infoCard(getString(message), monetColors.primary))
                 content.addView(verticalSpace(12))
             }
-            content.addView(
-                operationCard(
-                    title = getString(R.string.settings_backup_export_title),
-                    summary = getString(R.string.settings_backup_export_summary),
-                    action = getString(R.string.settings_backup_export_action),
-                    onClick = ::chooseExportLocation
-                )
+            val density = resources.displayMetrics.density
+            val usableWidthDp = ((usableWindowSizePx().first - dp(30)) / density).toInt()
+            val useTwoColumns = AdaptiveWindowLayout.gridSpanCount(usableWidthDp, minColumnWidthDp = 300, maxSpans = 2) >= 2
+            val exportCard = operationCard(
+                title = getString(R.string.settings_backup_export_title),
+                summary = getString(R.string.settings_backup_export_summary),
+                action = getString(R.string.settings_backup_export_action),
+                onClick = ::chooseExportLocation
             )
-            content.addView(verticalSpace(12))
-            content.addView(
-                operationCard(
-                    title = getString(R.string.settings_backup_import_title),
-                    summary = getString(R.string.settings_backup_import_summary),
-                    action = getString(R.string.settings_backup_import_action),
-                    onClick = ::chooseImportFile
-                )
+            val importCard = operationCard(
+                title = getString(R.string.settings_backup_import_title),
+                summary = getString(R.string.settings_backup_import_summary),
+                action = getString(R.string.settings_backup_import_action),
+                onClick = ::chooseImportFile
             )
+            if (useTwoColumns) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.TOP
+                    clipChildren = false
+                    clipToPadding = false
+                    addView(exportCard, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(Space(this@SettingsBackupActivity), LinearLayout.LayoutParams(dp(12), 0))
+                    addView(importCard, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                }
+                content.addView(row)
+            } else {
+                content.addView(exportCard)
+                content.addView(verticalSpace(12))
+                content.addView(importCard)
+            }
             content.addView(verticalSpace(12))
 
             val automaticCount = SettingsCatalog.specs.count {
@@ -895,6 +921,24 @@ class SettingsBackupActivity : SkinnedActivity(),
             isFillViewport = true
             addView(content)
         }
+        pageScrollView = scrollView
+        root.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            val w = right - left
+            val h = root.height
+            if (w <= 0 || h <= 0) return@addOnLayoutChangeListener
+            val density = resources.displayMetrics.density
+            val metrics = AdaptiveWindowLayout.classifyPx(w, h, density)
+            val maxW = AdaptiveWindowLayout.contentMaxWidthPx(metrics, density, multiColumn = page == Page.HOME)
+            val sidePad = AdaptiveWindowLayout.horizontalContentPaddingPx(w, maxW, dp(15))
+            if (content.paddingStart != sidePad || content.paddingEnd != sidePad) {
+                content.setPaddingRelative(sidePad, dp(14), sidePad, dp(22))
+            }
+            val toolbarStart = maxOf(dp(4), sidePad - dp(11))
+            val toolbarEnd = maxOf(dp(16), sidePad)
+            if (toolbar.paddingStart != toolbarStart || toolbar.paddingEnd != toolbarEnd) {
+                toolbar.setPaddingRelative(toolbarStart, dp(4), toolbarEnd, dp(4))
+            }
+        }
         root.addView(
             scrollView,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
@@ -909,6 +953,18 @@ class SettingsBackupActivity : SkinnedActivity(),
         currentPageTitle = title
         motionHost.replacePage(root, toolbarTitle)
         motionController.showExpanded()
+        val restorePage = pendingRestoreScrollPage
+        if (pendingRestoreScrollY > 0 && (restorePage == null || restorePage == page.name)) {
+            val restoreY = pendingRestoreScrollY
+            pendingRestoreScrollY = 0
+            pendingRestoreScrollPage = null
+            scrollView.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
+                    scrollView.removeOnLayoutChangeListener(this)
+                    scrollView.scrollTo(0, restoreY)
+                }
+            })
+        }
     }
 
     private fun finishPageStretch() {
@@ -1125,5 +1181,7 @@ class SettingsBackupActivity : SkinnedActivity(),
         private const val CONTENT_TRAVEL_DP = 12f
         private const val ID_PLAYER_DEFAULT_QUALITY = "player.default_quality.qn"
         private const val ID_LOG_LEVEL = "diagnostics.logging.level"
+        private const val KEY_SCROLL_Y = "settings_backup_scroll_y"
+        private const val KEY_SCROLL_PAGE = "settings_backup_scroll_page"
     }
 }

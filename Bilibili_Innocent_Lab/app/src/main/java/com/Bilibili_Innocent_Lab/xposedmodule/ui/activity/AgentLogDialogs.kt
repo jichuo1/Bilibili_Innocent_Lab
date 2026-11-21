@@ -22,8 +22,7 @@ internal fun MainActivity.showAgentLogsDialog(anchor: View? = null) {
         setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
     }, LinearLayout.LayoutParams(-1, -2))
     val logs = AgentLogView(this)
-    container.addView(logs, LinearLayout.LayoutParams(-1,
-        minOf((480 * resources.displayMetrics.density).toInt(), (resources.displayMetrics.heightPixels * 0.55f).toInt())))
+    container.addView(logs, LinearLayout.LayoutParams(-1, modalScrollMaxHeight(480, 0.55f)))
     container.addView(createPanelCloseRow {
         dismissWithAnimation(dialog, container) { logs.close() }
     }, LinearLayout.LayoutParams(-1, -2))

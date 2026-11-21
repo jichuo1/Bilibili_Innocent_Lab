@@ -40,7 +40,9 @@ import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -92,6 +94,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         const val BACK_CANCEL_DURATION_MS = 210L
         const val MIN_CLOSE_DURATION_MS = 80L
         const val CONTENT_TRAVEL_DP = 12f
+        const val KEY_SCROLL_Y = "diagnostics_scroll_y"
 
         val lightSeverityDotRecipes = severityDotRecipes(darkTheme = false)
         val darkSeverityDotRecipes = severityDotRecipes(darkTheme = true)
@@ -114,6 +117,8 @@ class DiagnosticsActivity : SkinnedActivity(),
         private set
     private var stretchViewport: View? = null
     private var stretchScrollTarget: View? = null
+    private var scrollView: ScrollView? = null
+    private var pendingRestoreScrollY = 0
     private lateinit var motionHost: SettingsBackupMotionHost
     private var toolbarTitleView: TextView? = null
     private var launchOrigin: DiagnosticsTransitionOrigin? = null
@@ -186,6 +191,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         window.decorView.setBackgroundColor(Color.TRANSPARENT)
         launchOrigin = DiagnosticsTransitionOrigin.from(intent)
         allowLaunchOriginForExit = savedInstanceState == null
+        pendingRestoreScrollY = savedInstanceState?.getInt(KEY_SCROLL_Y, 0)?.coerceAtLeast(0) ?: 0
         val transitionSurfaceColor = if (isLiquidSkinEffective) {
             ColorUtils.setAlphaComponent(monetColors.surface, 0x28)
         } else monetColors.background
@@ -283,6 +289,11 @@ class DiagnosticsActivity : SkinnedActivity(),
         super.onStop()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(KEY_SCROLL_Y, scrollView?.scrollY ?: pendingRestoreScrollY)
+    }
+
     override fun onDestroy() {
         RemoteHookConfigStore.removeStatusListener(frameworkListener)
         mainHandler.removeCallbacksAndMessages(null)
@@ -291,6 +302,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         finishPageStretch()
         stretchViewport = null
         stretchScrollTarget = null
+        scrollView = null
         if (::motionController.isInitialized) motionController.onDestroy()
         super.onDestroy()
     }
@@ -426,18 +438,37 @@ class DiagnosticsActivity : SkinnedActivity(),
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        root.addView(buildToolbar(), linearMatch(height = 60.dp))
+        val toolbar = buildToolbar()
+        root.addView(toolbar, linearMatch(height = 60.dp))
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalFadingEdgeEnabled = false
             clipToPadding = false
             setPadding(15.dp, 8.dp, 15.dp, 28.dp)
         }
+        scrollView = scroll
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
         scroll.addView(content, ViewGroup.LayoutParams(matchParent, wrapContent))
         root.addView(scroll, LinearLayout.LayoutParams(matchParent, 0, 1f))
+        root.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            val w = right - left
+            val h = root.height
+            if (w <= 0 || h <= 0) return@addOnLayoutChangeListener
+            val density = resources.displayMetrics.density
+            val metrics = AdaptiveWindowLayout.classifyPx(w, h, density)
+            val maxW = AdaptiveWindowLayout.contentMaxWidthPx(metrics, density)
+            val sidePad = AdaptiveWindowLayout.horizontalContentPaddingPx(w, maxW, 15.dp)
+            if (scroll.paddingStart != sidePad || scroll.paddingEnd != sidePad) {
+                scroll.setPaddingRelative(sidePad, 8.dp, sidePad, 28.dp)
+            }
+            val toolbarStart = maxOf(10.dp, sidePad - 5.dp)
+            val toolbarEnd = maxOf(8.dp, sidePad - 7.dp)
+            if (toolbar.paddingStart != toolbarStart || toolbar.paddingEnd != toolbarEnd) {
+                toolbar.setPaddingRelative(toolbarStart, 0, toolbarEnd, 0)
+            }
+        }
         bindPreparedSkinScrollHost(scroll)
         stretchScrollTarget = scroll
         return root
@@ -628,6 +659,19 @@ class DiagnosticsActivity : SkinnedActivity(),
                     }
                 }, linearWrap())
             }, cardParams())
+        }
+        val restoreY = pendingRestoreScrollY
+        if (restoreY > 0) {
+            pendingRestoreScrollY = 0
+            scrollView?.let { target ->
+                target.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
+                        target.removeOnLayoutChangeListener(this)
+                        target.scrollTo(0, restoreY)
+                    }
+                })
+                target.requestLayout()
+            }
         }
     }
 
@@ -1092,7 +1136,10 @@ class DiagnosticsActivity : SkinnedActivity(),
         activeDialog?.dismiss()
         val density = resources.displayMetrics.density
         val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
-        val container = LinearLayout(this).apply {
+        val container = BoundedModalContainer(
+            this,
+            AdaptiveWindowLayout.modalMaxWidthPx(usableWindowSizePx().first, density)
+        ).apply {
             orientation = LinearLayout.VERTICAL
             minimumWidth = (292 * density).toInt()
             setPadding(
@@ -1178,9 +1225,28 @@ class DiagnosticsActivity : SkinnedActivity(),
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
                     gravity = Gravity.CENTER
-                    setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
+                    setMargins((32 * density).toInt(), (16 * density).toInt(), (32 * density).toInt(), (16 * density).toInt())
                 }
             )
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val params = container.layoutParams as? FrameLayout.LayoutParams
+            if (params != null) {
+                val baseSide = (32 * density).toInt()
+                val baseTop = (16 * density).toInt()
+                val left = baseSide + safe.left
+                val top = baseTop + safe.top
+                val right = baseSide + safe.right
+                val bottom = baseTop + safe.bottom
+                if (params.leftMargin != left || params.topMargin != top ||
+                    params.rightMargin != right || params.bottomMargin != bottom
+                ) {
+                    params.setMargins(left, top, right, bottom)
+                    container.layoutParams = params
+                }
+            }
+            insets
         }
         dialog.window?.apply {
             setBackgroundDrawable(Color.TRANSPARENT.toDrawable())

@@ -43,7 +43,7 @@ internal fun MainActivity.showCommunicationCompatibilityConfirmDialog(anchor: Vi
     }
     container.addView(NativeScrollView(this).apply { addView(warning) },
         NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf((300 * density).toInt(), (resources.displayMetrics.heightPixels * 0.42f).toInt())).apply {
+            modalScrollMaxHeight(300, 0.42f)).apply {
             topMargin = (14 * density).toInt()
             bottomMargin = (16 * density).toInt()
         })

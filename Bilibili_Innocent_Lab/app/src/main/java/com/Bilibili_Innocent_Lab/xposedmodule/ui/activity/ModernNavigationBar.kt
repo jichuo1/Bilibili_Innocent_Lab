@@ -598,11 +598,11 @@ internal class ModernNavigationBar(
             // 可触达空间：底栏两侧/下缘贴近屏幕边缘时触点走不满 pileRefPx——
             // 剩余空间交给策略层压缩满额行程，贴屏边缘方向也能堆出完整"集中"。
             getLocationOnScreen(screenLoc)
-            val metrics = resources.displayMetrics
+            val (windowW, windowH) = hostWindowSizePx()
             frame.pileRoomPx = reachablePileRoomPx(
                 screenLoc[0], screenLoc[1],
                 screenLoc[0] + width, screenLoc[1] + height,
-                metrics.widthPixels, metrics.heightPixels,
+                windowW, windowH,
                 touchX, touchY, barWidth.toFloat(), barHeight.toFloat()
             )
             state.update(frame, dt, radius, NAVIGATION_GLOW_BASE_ALPHA, config)

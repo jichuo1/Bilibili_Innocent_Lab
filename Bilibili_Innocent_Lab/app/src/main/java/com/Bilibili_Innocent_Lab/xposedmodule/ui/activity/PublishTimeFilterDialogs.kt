@@ -352,7 +352,7 @@ internal fun MainActivity.showRecommendVideoPublishTimeDialog(anchor: View? = nu
         ).apply { topMargin = dp(10) }
     )
     renderMode()
-    val contentCap = minOf(dp(520), (resources.displayMetrics.heightPixels * 0.6f).toInt())
+    val contentCap = modalScrollMaxHeight(520, 0.6f)
     container.addView(
         MaxHeightScrollView(this, contentCap).apply {
             addView(body, FrameLayout.LayoutParams(-1, -2))

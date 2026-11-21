@@ -36,7 +36,7 @@ internal class GlowFloatingChrome(
     private class Surface(
         val host: View,
         val companions: List<View>,
-        val edge: GlowScrollEdge,
+        val edge: GlowScrollEdge?,
         val foregroundColor: Int,
         val thickenHost: Boolean,
         val onForeground: (Float) -> Unit
@@ -105,7 +105,7 @@ internal class GlowFloatingChrome(
      */
     fun attach(
         host: View,
-        edge: GlowScrollEdge,
+        edge: GlowScrollEdge?,
         foregroundColor: Int,
         companions: List<View> = emptyList(),
         thickenHost: Boolean = true,
@@ -173,13 +173,13 @@ internal class GlowFloatingChrome(
             val valid = host.parent === target.parent && host.width > 0 && host.height > 0 && host.isShown
             surface.regionValid = valid
             if (!valid) {
-                edgeViews[surface.edge]?.setCapsule(Float.NaN, Float.NaN)
+                surface.edge?.let { edgeViews[it]?.setCapsule(Float.NaN, Float.NaN) }
                 continue
             }
             val left = host.left + host.translationX - target.left - target.translationX
             val top = host.top + host.translationY - target.top - target.translationY
             surface.region.set(left, top, left + host.width, top + host.height)
-            edgeViews[surface.edge]?.setCapsule(surface.region.top, surface.region.bottom)
+            surface.edge?.let { edgeViews[it]?.setCapsule(surface.region.top, surface.region.bottom) }
         }
     }
 
@@ -307,7 +307,7 @@ internal class GlowFloatingChrome(
                 val goal = GlowLegibilityPolicy.target(sample, surface.foregroundColor, optics)
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
                     Log.d(TAG, String.format(Locale.ROOT, "%s luma=%.3f busy=%.4f -> boost=%.3f edge=%.3f",
-                        surface.edge, sample.luma, sample.busyness, goal.boost, goal.edgeDefinition))
+                        surface.edge?.name ?: "FLOATING", sample.luma, sample.busyness, goal.boost, goal.edgeDefinition))
                 }
                 transitionTo(surface, goal)
             }

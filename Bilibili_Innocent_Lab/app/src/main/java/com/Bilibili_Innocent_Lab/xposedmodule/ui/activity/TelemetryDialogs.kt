@@ -62,7 +62,7 @@ internal fun MainActivity.showTelemetryDisclosureDialog() {
         })
     }, NativeLinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
-        minOf((380 * density).toInt(), (resources.displayMetrics.heightPixels * 0.5f).toInt())
+        modalScrollMaxHeight(380, 0.5f)
     ).apply { topMargin = (12 * density).toInt() })
     fun decide(enabled: Boolean) {
         if (!TelemetryStore.writeConsentChoice(applicationContext, enabled)) {
@@ -250,7 +250,7 @@ private fun MainActivity.showTelemetryExplanationDialog() {
         bodyScroll,
         NativeLinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf((300 * density).toInt(), (resources.displayMetrics.heightPixels * 0.42f).toInt())
+            modalScrollMaxHeight(300, 0.42f)
         ).apply {
             topMargin = (12 * density).toInt()
             bottomMargin = (10 * density).toInt()
@@ -303,7 +303,7 @@ private fun MainActivity.showTelemetryPayloadPreview(payload: String) {
         scroll,
         NativeLinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf((430 * density).toInt(), (resources.displayMetrics.heightPixels * 0.58f).toInt())
+            modalScrollMaxHeight(430, 0.58f)
         ).apply { topMargin = (12 * density).toInt() }
     )
     val closeRow = NativeLinearLayout(this).apply {

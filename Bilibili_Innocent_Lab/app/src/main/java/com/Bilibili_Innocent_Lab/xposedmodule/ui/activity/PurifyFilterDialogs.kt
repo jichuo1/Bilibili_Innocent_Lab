@@ -123,9 +123,7 @@ internal fun MainActivity.showHomeRecommendFilterDialog(
         isFillViewport = true
         addView(rows)
     }
-    val listHeight = minOf(
-        (304 * density).toInt(), (resources.displayMetrics.heightPixels * 0.38f).toInt()
-    )
+    val listHeight = modalScrollMaxHeight(304, 0.38f)
     container.addView(listBody, NativeLinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, listHeight
     ).apply {
@@ -304,10 +302,7 @@ internal fun MainActivity.showPortraitContentFilterDialog(anchor: View? = null) 
         )
     }
     listBody.addView(rowContainer)
-    val listHeight = minOf(
-        (390 * density).toInt(),
-        (resources.displayMetrics.heightPixels * 0.48f).toInt()
-    )
+    val listHeight = modalScrollMaxHeight(390, 0.48f)
     container.addView(
         listBody,
         NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight).apply {
@@ -653,10 +648,7 @@ internal fun MainActivity.showVideoRelateFilterDialog(anchor: View? = null) {
         }
     )
     listBody.addView(rowContainer)
-    val listHeight = minOf(
-        (440 * density).toInt(),
-        (resources.displayMetrics.heightPixels * 0.54f).toInt()
-    )
+    val listHeight = modalScrollMaxHeight(440, 0.54f)
     container.addView(
         listBody,
         NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight).apply {

@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.widget.NestedScrollView
@@ -81,6 +82,15 @@ internal class SettingsHomePresenter(
     private val pageCount = 5
     private val headings = ArrayList<View>(pageCount)
     private var navigation: ModernNavigationBar? = null
+    private var navigationRail: AdaptiveNavigationRail? = null
+    private var chromeMode = NavigationChromeMode.BOTTOM_BAR
+    private var favoriteSpanCount = 1
+    private var contentStartPadPx = 0
+    private var contentEndPadPx = 0
+    private var favoritesStartPadPx = 0
+    private var favoritesEndPadPx = 0
+    private var headerHorizontalStartMarginPx = -1
+    private var headerHorizontalEndMarginPx = -1
     private val contents = List(pageCount) { LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL } }
     private val builtPages = BooleanArray(pageCount).apply { this[0] = true }
     private val buildingPages = BooleanArray(pageCount)
@@ -158,6 +168,7 @@ internal class SettingsHomePresenter(
             ensurePage(pager.pagePosition.toInt().coerceIn(0, pageCount - 1))
             ensurePage(kotlin.math.ceil(pager.pagePosition.toDouble()).toInt().coerceIn(0, pageCount - 1))
             navigation?.setPageProgress(pager.pagePosition, notifyPositionChanged = false)
+            navigationRail?.setPageProgress(pager.pagePosition, notifyPositionChanged = false)
             skinPositionChanged()
             floatingChrome?.onContentMoved()
             textChain?.onPositionChanged()
@@ -211,13 +222,16 @@ internal class SettingsHomePresenter(
             pager.addView(scrolls[index], FrameLayout.LayoutParams(-1, -1))
             stretches += installStretch(scrolls[index]) { pager.selectedPage == index && pager.isSettled }
         }
+        favoriteRows.clipChildren = false
+        favoriteRows.clipToPadding = false
         contents[0].addView(favoriteRows, LinearLayout.LayoutParams(-1, -2).apply {
             setMargins(dp(15), 0, dp(15), 0)
         })
         val pageLayer = object : FrameLayout(activity) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                val available = (View.MeasureSpec.getSize(widthMeasureSpec) - dp(64)).coerceAtLeast(0)
-                navigation?.layoutParams?.width = minOf(available, dp(480))
+                val widthPx = View.MeasureSpec.getSize(widthMeasureSpec)
+                val heightPx = View.MeasureSpec.getSize(heightMeasureSpec)
+                updateAdaptiveLayout(widthPx, heightPx)
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             }
         }.apply {
@@ -229,23 +243,25 @@ internal class SettingsHomePresenter(
         shell.addView(pageLayer, LinearLayout.LayoutParams(-1, 0, 1f))
         // 底栏与顶部胶囊都是 pager 的兄弟，皮肤层可以安全地抓 pager 做透镜采样。
         skinContentSource(pager)
-        val icons = intArrayOf(R.drawable.ic_favorites, R.drawable.ic_purify, R.drawable.ic_enhancement,
+        val navIcons = intArrayOf(R.drawable.ic_favorites, R.drawable.ic_purify, R.drawable.ic_enhancement,
             R.drawable.ic_palette, R.drawable.ic_science)
+        val navColors = ModernNavigationColors(
+            text = activity.getColor(R.color.colorTextGray),
+            selectedText = activity.monetColors.primary,
+            highlight = activity.monetColors.primary
+        )
+        val navBackgroundFactory: (ModernNavigationSurface, Float) -> android.graphics.drawable.Drawable = { surface, radius ->
+            when (surface) {
+                ModernNavigationSurface.BAR -> activity.skinFloatingBackground(activity.monetColors.surface, radius)
+                ModernNavigationSurface.SELECTION -> activity.skinChromeOverlayBackground(activity.monetColors.surface, radius, selected = true)
+            }
+        }
         val dock = ModernNavigationBar(
             context = activity,
             titles = titleIds.map(activity::getString),
-            icons = icons,
-            colors = ModernNavigationColors(
-                text = activity.getColor(R.color.colorTextGray),
-                selectedText = activity.monetColors.primary,
-                highlight = activity.monetColors.primary
-            ),
-            backgroundFactory = { surface, radius ->
-                when (surface) {
-                    ModernNavigationSurface.BAR -> activity.skinFloatingBackground(activity.monetColors.surface, radius)
-                    ModernNavigationSurface.SELECTION -> activity.skinChromeOverlayBackground(activity.monetColors.surface, radius, selected = true)
-                }
-            },
+            icons = navIcons,
+            colors = navColors,
+            backgroundFactory = navBackgroundFactory,
             onSelect = { pager.selectPage(it) },
             onUserInteraction = ::userNavigated,
             onVisualMovement = skinPositionChanged
@@ -256,7 +272,7 @@ internal class SettingsHomePresenter(
             setMargins(dp(32), 0, dp(32), dp(16))
         })
         dock.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
-            if (bottom - top != oldBottom - oldTop) {
+            if (dock.isVisible && bottom > top && bottom - top != oldBottom - oldTop) {
                 dockInset = bottom - top + dp(32)
                 applyScrollInsets()
             }
@@ -309,11 +325,42 @@ internal class SettingsHomePresenter(
                 companions = icons, thickenHost = false, onForeground = toolbarForeground(icons)
             )
         }
+        val rail = AdaptiveNavigationRail(
+            context = activity,
+            titles = titleIds.map(activity::getString),
+            icons = navIcons,
+            colors = navColors,
+            backgroundFactory = navBackgroundFactory,
+            onSelect = { pager.selectPage(it) },
+            onUserInteraction = ::userNavigated,
+            onVisualMovement = skinPositionChanged
+        ).apply {
+            isVisible = false
+            isEnabled = false
+            tag = ElasticInteractionController.EXCLUDED_TAG
+        }
+        navigationRail = rail
+        pageLayer.addView(
+            rail,
+            FrameLayout.LayoutParams(
+                dp(AdaptiveWindowLayout.SIDE_RAIL_WIDTH_DP),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.START or Gravity.CENTER_VERTICAL
+            ).apply {
+                marginStart = dp(AdaptiveWindowLayout.SIDE_RAIL_OUTER_MARGIN_DP)
+                topMargin = dp(12) + systemTopInset
+                bottomMargin = dp(12)
+            }
+        )
+        chrome.attach(rail, null, activity.getColor(R.color.colorTextGray)) { boost ->
+            rail.setLegibility(boost, activity.monetColors.surface)
+        }
         pager.onPageSelected = { index ->
             ensurePage(index)
             stretches.getOrNull(previousPage)?.let(finishStretch)
             previousPage = index
             dock.setSelectedPage(index)
+            rail.setSelectedPage(index)
         }
         pager.onMotionStarted = { stretches.forEach(finishStretch) }
         textChain = SettingsPageTextChain(pager, headings)
@@ -325,6 +372,8 @@ internal class SettingsHomePresenter(
         previousPage = restored
         dock.setSelectedPage(restored)
         dock.setPageProgress(pager.pagePosition)
+        rail.setSelectedPage(restored)
+        rail.setPageProgress(pager.pagePosition)
         renderFavorites()
         SettingsFavoritesRepository.read(activity.applicationContext, this)
         installTopInset()
@@ -430,6 +479,7 @@ internal class SettingsHomePresenter(
                     params.topMargin = dp(4) + systemTopInset
                     header?.layoutParams = params
                 }
+                navigationRail?.let(::applyRailMargins)
                 applyScrollInsets()
             }
             insets
@@ -437,12 +487,122 @@ internal class SettingsHomePresenter(
         ViewCompat.requestApplyInsets(shell)
     }
 
+    /** 依据当前窗口尺寸切分 BottomBar / SideRail 与居中列宽，折叠屏展开与分屏切换即时收敛。 */
+    private fun updateAdaptiveLayout(widthPx: Int, heightPx: Int) {
+        if (widthPx <= 0 || heightPx <= 0) return
+        val metrics = AdaptiveWindowLayout.classifyPx(widthPx, heightPx, density)
+        val nextChromeMode = AdaptiveWindowLayout.navigationChromeMode(metrics)
+        val railClearance = AdaptiveWindowLayout.sideRailClearancePx(nextChromeMode, density)
+        val availableAreaPx = (widthPx - railClearance).coerceAtLeast(0)
+
+        navigation?.let { dock ->
+            val showDock = nextChromeMode == NavigationChromeMode.BOTTOM_BAR
+            if (dock.isVisible != showDock) {
+                dock.isVisible = showDock
+                dock.isEnabled = showDock
+            }
+            val dockParams = dock.layoutParams as? ViewGroup.MarginLayoutParams
+            if (dockParams != null && showDock) {
+                val maxDockWidth = dp(AdaptiveWindowLayout.navigationDockMaxWidthDp(metrics))
+                val targetWidth = minOf((widthPx - dp(64)).coerceAtLeast(0), maxDockWidth)
+                if (dockParams.width != targetWidth) {
+                    dockParams.width = targetWidth
+                    dock.layoutParams = dockParams
+                }
+            }
+        }
+
+        navigationRail?.let { rail ->
+            val showRail = nextChromeMode == NavigationChromeMode.SIDE_RAIL
+            if (rail.isVisible != showRail) {
+                rail.isVisible = showRail
+                rail.isEnabled = showRail
+            }
+            applyRailMargins(rail)
+        }
+
+        val singleMaxWidth = AdaptiveWindowLayout.contentMaxWidthPx(metrics, density, multiColumn = false)
+        val singleExtraPad = AdaptiveWindowLayout.horizontalContentPaddingPx(availableAreaPx, singleMaxWidth, 0)
+        val nextContentStart = railClearance + singleExtraPad
+        val nextContentEnd = singleExtraPad
+
+        headerHorizontalStartMarginPx = nextContentStart + dp(10)
+        headerHorizontalEndMarginPx = nextContentEnd + dp(10)
+        header?.let(::applyHeaderMargins)
+
+        val multiMaxWidth = AdaptiveWindowLayout.contentMaxWidthPx(metrics, density, multiColumn = true)
+        val favUsablePx = (minOf(availableAreaPx, multiMaxWidth) - dp(30)).coerceAtLeast(0)
+        val favUsableDp = (favUsablePx / density).toInt()
+        val nextFavoriteSpanCount = AdaptiveWindowLayout.gridSpanCount(favUsableDp, minColumnWidthDp = 280, maxSpans = 2)
+        val favMaxForCurrentSpans = AdaptiveWindowLayout.contentMaxWidthPx(
+            metrics,
+            density,
+            multiColumn = nextFavoriteSpanCount >= 2
+        )
+        val favExtraPad = AdaptiveWindowLayout.horizontalContentPaddingPx(availableAreaPx, favMaxForCurrentSpans, 0)
+        val nextFavStart = railClearance + favExtraPad
+        val nextFavEnd = favExtraPad
+
+        val layoutChanged = chromeMode != nextChromeMode ||
+            contentStartPadPx != nextContentStart ||
+            contentEndPadPx != nextContentEnd ||
+            favoritesStartPadPx != nextFavStart ||
+            favoritesEndPadPx != nextFavEnd
+        val spanChanged = favoriteSpanCount != nextFavoriteSpanCount
+
+        chromeMode = nextChromeMode
+        contentStartPadPx = nextContentStart
+        contentEndPadPx = nextContentEnd
+        favoritesStartPadPx = nextFavStart
+        favoritesEndPadPx = nextFavEnd
+        favoriteSpanCount = nextFavoriteSpanCount
+
+        if (layoutChanged) {
+            applyScrollInsets()
+            floatingChrome?.onContentMoved()
+        }
+        if (spanChanged && state != null) {
+            favoriteRows.post { if (!disposed) renderFavorites() }
+        }
+    }
+
+    private fun applyHeaderMargins(target: View) {
+        val params = target.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val start = if (headerHorizontalStartMarginPx >= 0) headerHorizontalStartMarginPx else dp(10)
+        val end = if (headerHorizontalEndMarginPx >= 0) headerHorizontalEndMarginPx else dp(10)
+        val top = dp(4) + systemTopInset
+        if (params.marginStart != start || params.marginEnd != end || params.topMargin != top) {
+            params.marginStart = start
+            params.marginEnd = end
+            params.topMargin = top
+            target.layoutParams = params
+        }
+    }
+
+    private fun applyRailMargins(rail: AdaptiveNavigationRail) {
+        val params = rail.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val start = dp(AdaptiveWindowLayout.SIDE_RAIL_OUTER_MARGIN_DP)
+        val top = dp(12) + systemTopInset
+        val bottom = dp(12)
+        if (params.marginStart != start || params.topMargin != top || params.bottomMargin != bottom) {
+            params.marginStart = start
+            params.topMargin = top
+            params.bottomMargin = bottom
+            rail.layoutParams = params
+        }
+    }
+
     /** 两栏悬浮 chrome 的高度折算成滚动页内缩；任一侧变化只重设一次 padding。 */
     private fun applyScrollInsets() {
         val top = (if (headerInset > 0) headerInset else dp(8)) + systemTopInset
-        scrolls.forEach { scroll ->
-            if (scroll.paddingTop != top || scroll.paddingBottom != dockInset) {
-                scroll.setPadding(0, top, 0, dockInset)
+        val bottom = if (chromeMode == NavigationChromeMode.SIDE_RAIL) dp(24) else dockInset
+        scrolls.forEachIndexed { index, scroll ->
+            val start = if (index == 0) favoritesStartPadPx else contentStartPadPx
+            val end = if (index == 0) favoritesEndPadPx else contentEndPadPx
+            if (scroll.paddingStart != start || scroll.paddingTop != top ||
+                scroll.paddingEnd != end || scroll.paddingBottom != bottom
+            ) {
+                scroll.setPaddingRelative(start, top, end, bottom)
             }
         }
     }
@@ -534,7 +694,10 @@ internal class SettingsHomePresenter(
             })
             return
         }
-        ids.forEach { id ->
+        val columns = favoriteSpanCount.coerceIn(1, 2)
+        val rows = ArrayList<LinearLayout>((ids.size + columns - 1) / columns)
+        val rowGap = dp(10)
+        ids.forEachIndexed { index, id ->
             val entry = entries.singleOrNull { it.id == id }
             val card = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -583,7 +746,34 @@ internal class SettingsHomePresenter(
                     }
                 })
             }
-            favoriteRows.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+            if (columns <= 1) {
+                favoriteRows.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = rowGap })
+            } else {
+                val rowIndex = index / columns
+                val colIndex = index % columns
+                val row = if (colIndex == 0) {
+                    LinearLayout(activity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.TOP
+                        clipChildren = false
+                        clipToPadding = false
+                    }.also { created ->
+                        rows += created
+                        favoriteRows.addView(created, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = rowGap })
+                    }
+                } else {
+                    rows[rowIndex]
+                }
+                row.addView(card, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                    marginStart = if (colIndex > 0) rowGap else 0
+                })
+            }
+        }
+        if (columns > 1 && ids.size % columns != 0) {
+            rows.lastOrNull()?.addView(
+                Space(activity),
+                LinearLayout.LayoutParams(0, 0, 1f).apply { marginStart = rowGap }
+            )
         }
         activity.styleHomeControls(favoriteRows)
     }
@@ -689,6 +879,8 @@ internal class SettingsHomePresenter(
         pager.onPositionChanged = {}
         navigation?.dispose()
         navigation = null
+        navigationRail?.dispose()
+        navigationRail = null
         pager.onMotionStarted = {}
         pager.onUserInteraction = {}
         afterEdit = null

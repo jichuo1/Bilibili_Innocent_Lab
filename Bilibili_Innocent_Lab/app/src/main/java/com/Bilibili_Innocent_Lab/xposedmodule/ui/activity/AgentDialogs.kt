@@ -275,7 +275,7 @@ internal fun MainActivity.showAgentDialog(anchor: View? = null) {
             if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnWindowFocusChangeListener(focusRefresh)
         }
     })
-    container.addView(MaxHeightScrollView(this, minOf(dp(520), (resources.displayMetrics.heightPixels * 0.64f).toInt())).apply {
+    container.addView(MaxHeightScrollView(this, modalScrollMaxHeight(520, 0.64f)).apply {
         addView(body, FrameLayout.LayoutParams(-1, -2))
     }, LinearLayout.LayoutParams(-1, -2))
     val buttons = LinearLayout(this).apply { gravity = Gravity.END; orientation = LinearLayout.HORIZONTAL }

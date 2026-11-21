@@ -197,7 +197,7 @@ private fun MainActivity.presentRecommendationBlocklistDialog(
         }
     }
     val listHeight = if (draft.rows.isEmpty()) dp(80) else minOf(
-        dp(320), (resources.displayMetrics.heightPixels * 0.38f).toInt(),
+        modalScrollMaxHeight(320, 0.38f),
         dp(draft.rows.size.coerceAtMost(6) * 56 + 80)
     )
     container.addView(ScrollView(this).apply { addView(rows) },

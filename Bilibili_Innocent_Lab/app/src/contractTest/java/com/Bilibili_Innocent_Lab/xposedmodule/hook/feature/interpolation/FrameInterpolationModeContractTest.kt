@@ -65,7 +65,7 @@ class FrameInterpolationModeContractTest {
 
         val dialog = SourceContract.read("ui/activity/PlayerPickerDialogs.kt")
             .after("internal fun MainActivity.showFrameInterpolationModeDialog(")
-            .before("val listCap = minOf(")
+            .before("val listCap =")
         assertTrue(dialog.contains("text = getString(R.string.player_frame_mode)"))
         assertTrue(dialog.contains("FrameInterpolationMode.supportedCandidates(capabilities)"))
         assertTrue(dialog.contains("player_frame_mode_download_model_action"))

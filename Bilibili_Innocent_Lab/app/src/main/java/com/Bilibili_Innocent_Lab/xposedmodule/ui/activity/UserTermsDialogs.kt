@@ -187,7 +187,7 @@ internal fun MainActivity.showPendingTermsPage(snapshot: UserTermsAuthorizationS
         addView(
             container,
             NativeFrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                modalPreferredWidth(520),
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = Gravity.CENTER
@@ -294,7 +294,7 @@ internal fun MainActivity.showUserTermsDeclinedPage() {
     root.addView(
         container,
         NativeFrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
+            modalPreferredWidth(520),
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = Gravity.CENTER

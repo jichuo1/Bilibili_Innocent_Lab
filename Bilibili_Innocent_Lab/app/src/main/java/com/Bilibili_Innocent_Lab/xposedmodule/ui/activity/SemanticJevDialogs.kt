@@ -216,7 +216,7 @@ private fun MainActivity.presentSemanticDialog(
     val body = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
     val builder = SemanticForm(this, body) { modalSurfaceBounds(dialog, container) }
     form(builder)
-    val scrollCap = minOf(builder.dp(460), (resources.displayMetrics.heightPixels * 0.56f).toInt())
+    val scrollCap = modalScrollMaxHeight(460, 0.56f)
     container.addView(MaxHeightScrollView(this, scrollCap).apply {
         addView(body, NativeFrameLayout.LayoutParams(-1, -2))
     }, NativeLinearLayout.LayoutParams(-1, -2))
@@ -270,7 +270,7 @@ private fun MainActivity.showSemanticInfoDialog(
         textSize = 18f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }, NativeLinearLayout.LayoutParams(-1, -2))
-    val scrollCap = minOf((440 * density).toInt(), (resources.displayMetrics.heightPixels * 0.56f).toInt())
+    val scrollCap = modalScrollMaxHeight(440, 0.56f)
     container.addView(MaxHeightScrollView(this, scrollCap).apply {
         addView(NativeTextView(this@showSemanticInfoDialog).apply {
             text = body
@@ -1243,7 +1243,7 @@ internal fun MainActivity.showSemanticRulesDialog(
         }
     }, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
 
-    val listCap = minOf(dp(420), (resources.displayMetrics.heightPixels * 0.52f).toInt())
+    val listCap = modalScrollMaxHeight(420, 0.52f)
     container.addView(MaxHeightScrollView(this, listCap).apply {
         addView(list, NativeFrameLayout.LayoutParams(-1, -2))
     }, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })

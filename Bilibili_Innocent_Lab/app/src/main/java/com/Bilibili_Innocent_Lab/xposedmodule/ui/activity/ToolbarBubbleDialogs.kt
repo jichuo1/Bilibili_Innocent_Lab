@@ -205,10 +205,7 @@ internal fun MainActivity.showSettingsSearchDialog(anchor: View? = null) {
     }
     // 按结果数收敛：空结果/少量结果时面板只占内容那么高，多了才停在上限并滚动。
     // 原先写死 min(360dp, 44% 屏高)，贴着图标的气泡下半部会留一大片空白。
-    val resultHeight = minOf(
-        (360 * density).toInt(),
-        (resources.displayMetrics.heightPixels * 0.44f).toInt()
-    )
+    val resultHeight = modalScrollMaxHeight(360, 0.44f)
     val resultScroll = MaxHeightScrollView(this, resultHeight).apply {
         addView(resultContainer)
     }

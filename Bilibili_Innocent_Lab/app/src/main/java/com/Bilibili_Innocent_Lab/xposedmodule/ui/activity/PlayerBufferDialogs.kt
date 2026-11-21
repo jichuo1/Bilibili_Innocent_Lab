@@ -135,7 +135,7 @@ internal fun MainActivity.showPlayerBufferDialog(anchor: View? = null) {
         refreshMode()
     }
     refreshMode()
-    val contentCap = minOf((520 * density).toInt(), (resources.displayMetrics.heightPixels * 0.55f).toInt())
+    val contentCap = modalScrollMaxHeight(520, 0.55f)
     container.addView(MaxHeightScrollView(this, contentCap).apply {
         addView(body, FrameLayout.LayoutParams(-1, -2))
     }, LinearLayout.LayoutParams(-1, -2))

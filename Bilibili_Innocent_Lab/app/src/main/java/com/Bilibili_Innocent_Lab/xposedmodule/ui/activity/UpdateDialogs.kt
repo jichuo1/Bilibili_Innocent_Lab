@@ -280,11 +280,7 @@ internal fun MainActivity.showUpdateAvailableDialog(release: GitHubReleaseChecke
             setPadding(0, (5 * density).toInt(), (4 * density).toInt(), (5 * density).toInt())
         }
         val notesScroll = ReleaseNotesScrollView(this).apply {
-            maximumHeight = minOf(
-                (360 * density).toInt(),
-                (resources.displayMetrics.heightPixels * 0.34f).toInt()
-                    .coerceAtLeast((96 * density).toInt())
-            )
+            maximumHeight = modalScrollMaxHeight(360, 0.34f, minFloorDp = 96)
             isFillViewport = false
             isVerticalScrollBarEnabled = true
             isScrollbarFadingEnabled = true
@@ -481,7 +477,7 @@ internal fun MainActivity.showReleaseHighlights(
         textColor = getColor(R.color.colorTextGray)
     })
     val body = NativeScrollView(this).apply { isFillViewport = false; addView(rows) }
-    val maxHeight = minOf((380 * density).toInt(), (resources.displayMetrics.heightPixels * 0.48f).toInt())
+    val maxHeight = modalScrollMaxHeight(380, 0.48f)
     container.addView(body,NativeLinearLayout.LayoutParams(-1,
         if (entries.isEmpty()) ViewGroup.LayoutParams.WRAP_CONTENT else maxHeight).apply {
         topMargin = (12 * density).toInt()
@@ -494,8 +490,7 @@ internal fun MainActivity.showReleaseHighlights(
         dismissWithAnimation(dialog,container) {}
     },NativeLinearLayout.LayoutParams(0,-2,1f).apply { marginStart = (8 * density).toInt() })
     container.addView(buttons,NativeLinearLayout.LayoutParams(-1,-2).apply { topMargin = (12 * density).toInt() })
-    val width = minOf((520 * density).toInt(),
-        resources.displayMetrics.widthPixels - (64 * density).toInt()).coerceAtLeast(1)
+    val width = modalPreferredWidth(520)
     val innerWidth = (width - container.paddingLeft - container.paddingRight).coerceAtLeast(1)
     var fixedHeight = 0
     for (index in 0 until container.childCount) {
@@ -507,7 +502,7 @@ internal fun MainActivity.showReleaseHighlights(
         fixedHeight += child.measuredHeight + params.topMargin + params.bottomMargin
     }
     val bodyParams = body.layoutParams as NativeLinearLayout.LayoutParams
-    val budget = ReleaseHighlightsLayout.budget(resources.displayMetrics.heightPixels - (64 * density).toInt(),
+    val budget = ReleaseHighlightsLayout.budget((usableWindowSizePx().second - (64 * density).toInt()).coerceAtLeast(1),
         container.paddingTop + container.paddingBottom, fixedHeight, bodyParams.topMargin + bodyParams.bottomMargin,
         maxHeight, (96 * density).toInt())
     if (budget.scrollWholeContent) {

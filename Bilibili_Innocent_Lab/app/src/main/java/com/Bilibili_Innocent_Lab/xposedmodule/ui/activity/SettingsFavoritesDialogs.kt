@@ -219,8 +219,7 @@ internal fun MainActivity.showSettingsFavoritesDialog(anchor: View? = null) {
         override fun isLongPressDragEnabled() = true
         override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
     }).attachToRecyclerView(list)
-    container.addView(list, LinearLayout.LayoutParams(-1,
-        (resources.displayMetrics.heightPixels * 0.42f).toInt()))
+    container.addView(list, LinearLayout.LayoutParams(-1, modalScrollMaxHeight(420, 0.42f)))
     render = {
         val snapshot = home.state
         // 有乐观模型时以它为准；仓库权威状态追上（队列清空）后自动回落。
@@ -266,8 +265,7 @@ internal fun MainActivity.showSettingsFavoritesDialog(anchor: View? = null) {
     // 弹窗必须给显式宽度：WRAP_CONTENT 容器会让列表和行全部拿到 AT_MOST 规格，
     // 每行收缩成自己的内容宽，把手跟随文字长度漂移（真机实证四行宽 992/840/802/728）。
     // 显式宽度使容器走 EXACTLY，行满宽、把手统一钉右缘（UpdateDialogs 同公式）。
-    val width = minOf(dp(440),
-        resources.displayMetrics.widthPixels - dp(64)).coerceAtLeast(1)
+    val width = modalPreferredWidth(440)
     presentSizedModalDialog(dialog, container, width, anchor)
 }
 

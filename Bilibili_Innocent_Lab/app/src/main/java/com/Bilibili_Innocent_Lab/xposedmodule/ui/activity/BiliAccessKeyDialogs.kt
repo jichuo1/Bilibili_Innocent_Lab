@@ -47,7 +47,7 @@ internal fun MainActivity.showBiliAccessKeyConfirmDialog(
     }
     container.addView(NativeScrollView(this).apply { addView(warning) },
         NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf((360 * density).toInt(), (resources.displayMetrics.heightPixels * 0.5f).toInt())).apply {
+            modalScrollMaxHeight(360, 0.5f)).apply {
             topMargin = (14 * density).toInt()
             bottomMargin = (16 * density).toInt()
         })

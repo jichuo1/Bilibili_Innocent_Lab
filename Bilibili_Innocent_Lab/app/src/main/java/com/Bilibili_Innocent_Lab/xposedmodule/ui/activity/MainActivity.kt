@@ -2512,8 +2512,7 @@ class MainActivity : SkinnedActivity() {
     /** 正文起始位移上限（每轴）。够看出"从锚点方向飞来"，又不至于让长卡片整体晃动。 */
     private val CONTENT_TRAVEL_CAP_DP = 20f
 
-    /** 气泡宽度、边距与小角尺寸。 */
-    private val BUBBLE_WIDTH_DP = 320f
+    /** 气泡边距与小角尺寸（宽度按宿主可用窗宽自适应，见 [AdaptiveWindowLayout.bubbleMaxWidthPx]）。 */
     private val BUBBLE_SIDE_MARGIN_DP = 12f
     private val BUBBLE_EDGE_MARGIN_DP = 16f
     private val BUBBLE_GAP_DP = 6f
@@ -2584,9 +2583,24 @@ class MainActivity : SkinnedActivity() {
         ).takeIf { it.isUsable }
     }
 
+    internal fun adaptiveModalMaxWidthPx(maxWidthDp: Int = AdaptiveWindowLayout.MODAL_MAX_WIDTH_DP): Int =
+        AdaptiveWindowLayout.modalMaxWidthPx(usableWindowSizePx().first, resources.displayMetrics.density, maxWidthDp)
+
+    internal fun modalPreferredWidth(maxWidthDp: Int): Int =
+        AdaptiveWindowLayout.modalMaxWidthPx(usableWindowSizePx().first, resources.displayMetrics.density, maxWidthDp)
+
+    internal fun modalScrollMaxHeight(capDp: Int, windowFraction: Float, minFloorDp: Int = 120): Int =
+        AdaptiveWindowLayout.modalScrollMaxHeightPx(
+            usableWindowSizePx().second,
+            resources.displayMetrics.density,
+            capDp,
+            windowFraction,
+            minFloorDp
+        )
+
     internal fun createModalContainer(): NativeLinearLayout {
         val density = resources.displayMetrics.density
-        return NativeLinearLayout(this).apply {
+        return BoundedModalContainer(this, adaptiveModalMaxWidthPx()).apply {
             orientation = NativeLinearLayout.VERTICAL
             minimumWidth = (292 * density).toInt()
             setPadding(
@@ -2687,22 +2701,24 @@ class MainActivity : SkinnedActivity() {
             ?: capturedAnchorBounds?.takeIf { ValueAnimator.areAnimatorsEnabled() }
         // 工具栏上的 27dp 小图标飞到屏幕正中会显得莫名，改成贴在图标旁边、伸出小角的气泡。
         fun placeBubble(anchor: SettingsBackupMotionRect, width: Float, height: Float) =
-            BubblePlacementSpec.place(
-                anchor = anchor,
-                windowWidth = width,
-                windowHeight = height,
-                desiredWidth = BUBBLE_WIDTH_DP * density,
-                maxWidthPx = BUBBLE_WIDTH_DP * density,
-                sideMarginPx = BUBBLE_SIDE_MARGIN_DP * density,
-                edgeMarginPx = BUBBLE_EDGE_MARGIN_DP * density,
-                gapPx = BUBBLE_GAP_DP * density,
-                tailHeightPx = BUBBLE_TAIL_HEIGHT_DP * density,
-                tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
-                cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density
-            )
+            AdaptiveWindowLayout.bubbleMaxWidthPx(width.toInt(), density).let { bubbleWidthPx ->
+                BubblePlacementSpec.place(
+                    anchor = anchor,
+                    windowWidth = width,
+                    windowHeight = height,
+                    desiredWidth = bubbleWidthPx,
+                    maxWidthPx = bubbleWidthPx,
+                    sideMarginPx = BUBBLE_SIDE_MARGIN_DP * density,
+                    edgeMarginPx = BUBBLE_EDGE_MARGIN_DP * density,
+                    gapPx = BUBBLE_GAP_DP * density,
+                    tailHeightPx = BUBBLE_TAIL_HEIGHT_DP * density,
+                    tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
+                    cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density
+                )
+            }
         val bubblePlacement = if (anchorStyle == AnchorStyle.BUBBLE && anchorBounds != null) {
-            placeBubble(anchorBounds, resources.displayMetrics.widthPixels.toFloat(),
-                resources.displayMetrics.heightPixels.toFloat())
+            val (usableW, usableH) = usableWindowSizePx()
+            placeBubble(anchorBounds, usableW.toFloat(), usableH.toFloat())
         } else {
             null
         }

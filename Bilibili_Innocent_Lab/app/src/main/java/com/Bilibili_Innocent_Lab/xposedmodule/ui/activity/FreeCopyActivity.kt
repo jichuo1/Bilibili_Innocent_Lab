@@ -20,8 +20,11 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.view.updatePadding
+import androidx.core.widget.NestedScrollView
 import io.github.jichuo1.meguviz.android.extensions.textColor
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -34,10 +37,15 @@ class FreeCopyActivity : SkinnedActivity() {
 
     private var liquidStretchScrollTarget: View? = null
     private var liquidStretchViewport: View? = null
+    private var rootContainer: LinearLayout? = null
+    private var toolbarRow: LinearLayout? = null
+    private var hintTextView: TextView? = null
+    private var pendingRestoreScrollY = 0
 
     companion object {
         /** 防御性上限：即使未来重新暴露 Activity，也不接受无限大的外部文本。 */
         private const val MAX_TEXT_LENGTH = 12_000
+        private const val KEY_SCROLL_Y = "free_copy_scroll_y"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,6 +54,7 @@ class FreeCopyActivity : SkinnedActivity() {
             finish()
             return
         }
+        pendingRestoreScrollY = savedInstanceState?.getInt(KEY_SCROLL_Y, 0)?.coerceAtLeast(0) ?: 0
         prepareSkinSession()
         // 预见式返回（跟随主界面的实验性开关；Android 14+ 才有 window 级运行时接口）
         val predictiveBackEnabled = runCatching {
@@ -64,6 +73,7 @@ class FreeCopyActivity : SkinnedActivity() {
                 lparams = params(matchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
+                    rootContainer = this
                 }
             ) {
                 // ===== 顶部 AppBar =====
@@ -74,6 +84,7 @@ class FreeCopyActivity : SkinnedActivity() {
                         gravity = Gravity.CENTER or Gravity.START
                         background = skinTopBarBackground(monetColors.surface, 0f)
                         updatePadding(left = 4, top = 6, right = 16, bottom = 6)
+                        toolbarRow = this
                     }
                 ) {
                     // 关闭按钮（✕，48dp 点击热区）
@@ -113,6 +124,7 @@ class FreeCopyActivity : SkinnedActivity() {
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 12f
                         alpha = 0.7f
+                        hintTextView = this
                     }
                 )
                 // ===== 可选择文本区（卡片内 TextView，系统级选择复制）=====
@@ -151,6 +163,59 @@ class FreeCopyActivity : SkinnedActivity() {
         bindPreparedSkinRoot(findViewById<View>(android.R.id.content)) {
             if (!isFinishing && !isDestroyed) recreate()
         }
+        installAdaptiveContentLayout()
+        restorePendingScroll()
+    }
+
+    private fun installAdaptiveContentLayout() {
+        val root = rootContainer ?: return
+        root.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            val w = right - left
+            val h = root.height
+            if (w <= 0 || h <= 0) return@addOnLayoutChangeListener
+            val density = resources.displayMetrics.density
+            val metrics = AdaptiveWindowLayout.classifyPx(w, h, density)
+            val maxW = AdaptiveWindowLayout.contentMaxWidthPx(metrics, density)
+            val extraPad = AdaptiveWindowLayout.horizontalContentPaddingPx(w, maxW, 0)
+            toolbarRow?.let { bar ->
+                val startPad = 4 + extraPad
+                val endPad = 16 + extraPad
+                if (bar.paddingStart != startPad || bar.paddingEnd != endPad) {
+                    bar.setPaddingRelative(startPad, 6, endPad, 6)
+                }
+            }
+            hintTextView?.let { hint ->
+                val params = hint.layoutParams as? ViewGroup.MarginLayoutParams ?: return@let
+                val side = (20 * density).toInt() + extraPad
+                if (params.marginStart != side || params.marginEnd != side) {
+                    params.marginStart = side
+                    params.marginEnd = side
+                    hint.layoutParams = params
+                }
+            }
+            liquidStretchScrollTarget?.let { scroll ->
+                val params = scroll.layoutParams as? ViewGroup.MarginLayoutParams ?: return@let
+                val side = (15 * density).toInt() + extraPad
+                if (params.marginStart != side || params.marginEnd != side) {
+                    params.marginStart = side
+                    params.marginEnd = side
+                    scroll.layoutParams = params
+                }
+            }
+        }
+    }
+
+    private fun restorePendingScroll() {
+        val restoreY = pendingRestoreScrollY
+        if (restoreY <= 0) return
+        val scroll = liquidStretchScrollTarget as? NestedScrollView ?: return
+        pendingRestoreScrollY = 0
+        scroll.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
+                scroll.removeOnLayoutChangeListener(this)
+                scroll.scrollTo(0, restoreY)
+            }
+        })
     }
 
     override fun onDestroy() {
@@ -159,6 +224,15 @@ class FreeCopyActivity : SkinnedActivity() {
         finishPreparedLiquidStretch(liquidStretchViewport)
         liquidStretchViewport = null
         liquidStretchScrollTarget = null
+        rootContainer = null
+        toolbarRow = null
+        hintTextView = null
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val currentY = (liquidStretchScrollTarget as? NestedScrollView)?.scrollY ?: pendingRestoreScrollY
+        outState.putInt(KEY_SCROLL_Y, currentY)
     }
 }

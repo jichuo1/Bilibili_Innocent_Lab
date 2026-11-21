@@ -42,9 +42,14 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
             }
             if (Build.VERSION.SDK_INT >= 28) {
                 own({ target.navigationBarDividerColor }, { target.navigationBarDividerColor = it }, Color.TRANSPARENT)
+                val cutoutMode = if (Build.VERSION.SDK_INT >= 30) {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
                 own({ target.attributes.layoutInDisplayCutoutMode }, { mode ->
                     target.attributes = target.attributes.apply { layoutInDisplayCutoutMode = mode }
-                }, WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES)
+                }, cutoutMode)
             }
             val mask = WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION or

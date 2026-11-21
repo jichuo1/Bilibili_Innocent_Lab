@@ -106,7 +106,7 @@ private fun MainActivity.showAudioRescueDialog(anchor: View, onSaved: () -> Unit
     val noise = option(audioKeys[2], R.string.player_audio_noise_reduction, R.string.player_audio_noise_tip, 14)
     val voice = option(audioKeys[3], R.string.player_audio_voice_focus, R.string.player_audio_voice_tip, 14)
     body.addView(createModalTip(getString(R.string.player_audio_optional_tip)), gap(14))
-    container.addView(MaxHeightScrollView(this, (resources.displayMetrics.heightPixels * .6f).toInt()).apply {
+    container.addView(MaxHeightScrollView(this, modalScrollMaxHeight(520, 0.6f)).apply {
         addView(body, FrameLayout.LayoutParams(-1, -2))
     }, gap(12))
     val buttons = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.HORIZONTAL; gravity = Gravity.END }

@@ -185,10 +185,7 @@ private fun MainActivity.showPlayerChoiceDialog(
     // 原先写死的 360dp 会在选项下方留出一大片空白。换成 MaxHeightScrollView：
     // 内容少就按内容高，只有多到超过上限才停住并开始滚动。
     // 上限再与屏高取小，横屏/小屏下不会把下面的关闭按钮顶出面板。
-    val listCap = minOf(
-        (360 * density).toInt(),
-        (resources.displayMetrics.heightPixels * 0.44f).toInt()
-    )
+    val listCap = modalScrollMaxHeight(360, 0.44f)
     container.addView(MaxHeightScrollView(this, listCap).apply {
         addView(rows, NativeFrameLayout.LayoutParams(-1, -2))
     }, NativeLinearLayout.LayoutParams(-1, -2))
@@ -436,10 +433,7 @@ internal fun MainActivity.showFrameInterpolationModeDialog(
         }
     }
 
-    val listCap = minOf(
-        (360 * density).toInt(),
-        (resources.displayMetrics.heightPixels * 0.48f).toInt()
-    )
+    val listCap = modalScrollMaxHeight(360, 0.48f)
     container.addView(MaxHeightScrollView(this, listCap).apply {
         addView(rows, NativeFrameLayout.LayoutParams(-1, -2))
     }, NativeLinearLayout.LayoutParams(-1, -2))
