@@ -9,10 +9,10 @@
 [![Target](https://img.shields.io/badge/target-tv.danmaku.bili-FB7299?style=flat-square&labelColor=2d3a55)](https://www.bilibili.com)
 [![Telegram](https://img.shields.io/badge/Telegram-group-26A5E4?style=flat-square&logo=telegram&labelColor=2d3a55)](https://t.me/Bilibili_Innocent_Lab)
 
-### A UI cleanup and interaction enhancement module for the Android Bilibili client
+### UI cleanup and enhancement module for the official Android Bilibili client
 
-Clean up the UI · Filter content · Free copy · Enhance the player · Visual polish<br>
-Every feature is optional and enabled on demand, targeting the official Android client `tv.danmaku.bili`
+Clean up ads · Filter content · Free copy · Enhance playback · Visual polish<br>
+Every feature has its own toggle and targets the official client `tv.danmaku.bili`
 
 [Download releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [Report an issue](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues) · [Telegram group](https://t.me/Bilibili_Innocent_Lab)
 
@@ -30,11 +30,10 @@ Every feature is optional and enabled on demand, targeting the official Android 
 | Category | Sections |
 | --- | --- |
 | **Get started** | [Introduction](#introduction) · [Requirements](#requirements) · [Installation](#installation) · [ROOT permission](#a-note-on-root-permission) · [Recommended testing order](#recommended-testing-order) |
-| **Loading methods** | [Root-free support](#root-free-support) · [Cloning and multi-user](#cloning-and-multi-user) |
+| **Root-free & cloning** | [Root-free support](#root-free-support) · [Cloning and multi-user](#cloning-and-multi-user) |
 | **Features** | [Features](#features) · [Release channels](#release-channels) |
 | **Help** | [FAQ](#faq) · [Reporting issues](#reporting-issues) |
-| **Notices** | [Notices and disclaimers](#notices-and-disclaimers) · [License and credits](#license-and-credits) |
-| **Developers** | [Building and design](#for-developers) |
+| **Notices & developers** | [Notices and disclaimers](#notices-and-disclaimers) · [For developers](#for-developers) · [License and credits](#license-and-credits) |
 
 </details>
 
@@ -42,25 +41,25 @@ Every feature is optional and enabled on demand, targeting the official Android 
 
 ## Introduction
 
-Bilibili Innocent Lab is an Xposed / LSPosed module for the Android Bilibili client. It cleans up distracting content while **keeping the official layout and interaction habits**, and adds capabilities around comments, descriptions, the player, appearance and version adaptation.
+Bilibili Innocent Lab is an open-source Xposed / LSPosed module for the official Android Bilibili client, supporting both Root (LSPosed) and Root-free (NPatch / LSPatch local patching) setups.
 
-The module is loaded into the official client through runtime hooks and only modifies adapted screens and interaction entry points; your account, player, recommendations and comment section remain the official ones. Almost every feature has its own switch and is off by default, so enable only what you need; turn a switch off and restart Bilibili to restore the original behaviour, and settings can be exported as a backup.
+It keeps the official layout and navigation habits intact while clearing out ads and unwanted cards, letting you freely select fragments of comments, video descriptions and titles to copy, and adding player frame interpolation, audio rescue, floating glass UI options and logged-out/incognito browsing. Every feature has an independent switch (almost all off by default); turn a switch off and restart Bilibili to restore original behaviour, and export or restore your settings locally at any time.
 
 ### Capability overview
 
-| Area | Representative features |
+| Area | Highlights |
 | --- | --- |
-| 🧹 **Cleanup** | Ads, promotions and extra components on Home, Dynamics, Search and video detail pages; twelve categories in the portrait video feed; splash ads |
-| 🔎 **Filtering** | Keyword, author, level, publish time, view count and recommendation reason; AI comment detection; optional AI semantic judging |
-| 📋 **Free copy** | Long-press comments, descriptions and titles for a copy bubble with system selection handles |
-| ▶️ **Player** | Quality and codec preferences, speed menu, buffering strategy, frame interpolation, subtitle enhancement, audio rescue, sponsor-segment prompts and skipping |
-| 🎨 **Appearance** | Floating top / bottom bars, host page backgrounds, card materials, splash polish |
-| 🔒 **Privacy** | Browse without login, incognito mode, share-link cleanup |
-| 🧰 **Tools** | AI Insight, AI task assistant, reply context map, settings backup and restore, Diagnostics Center |
-| 📦 **Root-free** | Loaded through NPatch / LSPatch local (Manager) mode |
+| 🧹 **Cleanup** | Ads, promotions and unwanted cards across Home, Dynamics, Search, Player and detail pages; splash ads; 12 category filters in the portrait feed |
+| 🔎 **Filtering** | Keywords, uploaders, tags, duration, view count and publish time; offline AI comment scoring; optional BYO-API semantic filters |
+| 📋 **Free copy** | Long-press comments, descriptions or titles for a selection bubble with system text handles |
+| ▶️ **Player** | Preferred quality/codec, custom speed menu, buffering strategy, frame interpolation (QCOM / RIFE selectable), audio rescue, subtitle styling and SponsorBlock skipping |
+| 🎨 **Appearance** | Floating glass top/bottom bars, custom page backgrounds, rounded card styles and dark-aware splash screen |
+| 🔒 **Privacy** | Browse without login, incognito sessions, share-link tracking cleanup and plain link cards |
+| 🧰 **Tools** | Reply context map, AI video insight and task assistant, local backup/restore, Diagnostics Center and remote-flag overrides |
+| 📦 **Root-free** | Works via NPatch and JingMatrix LSPatch local (Manager) patching |
 
 > [!IMPORTANT]
-> Please read [Notices and disclaimers](#notices-and-disclaimers) in full before downloading, installing, compiling, distributing or using this project; if you disagree with any part of it, stop using the project. Hook-based modules cannot guarantee compatibility with future versions, so read the release notes before use and report problems as described in [Reporting issues](#reporting-issues).
+> Read [Notices and disclaimers](#notices-and-disclaimers) in full before downloading, installing, compiling, distributing or using this project. Hook-based modules may break after major client updates; check release notes before updating Bilibili.
 
 ---
 
@@ -71,89 +70,87 @@ The module is loaded into the official client through runtime hooks and only mod
 | Item | Requirement |
 | --- | --- |
 | **Android version** | Android 8.1 (API 27) or later |
-| **Root / hook environment** | Magisk + LSPosed (an Xposed-compatible environment) recommended; [root-free loading](#root-free-support) is also available |
-| **Target app** | The official Android Bilibili client, package `tv.danmaku.bili` |
-| **Cloning** | Only system multi-user / app twin / work profile setups **whose package name is still `tv.danmaku.bili`** are supported; renamed clones and VirtualApp-style containers are unsupported, see [Cloning and multi-user](#cloning-and-multi-user) |
-| **Adapted clients** | 8.84.0 to 9.20.0. The cloud archive holds 47 exact APKs (different builds of the same version are compared separately) and each feature is audited per build; class / interface, member signature, generic and R8 differences are in the [9.16.0 adaptation notes](docs/host-9.16.0-adaptation.md), and the incremental audit of 9.17.0 (9170100 → 9170300) is in the [adaptation notes](docs/host-9.17.0-9170300-adaptation.md) |
-| **On-device testing and other versions** | On-device testing is mostly done on sampled versions, and results may differ by device, system theme, account experiment group and minor client version. Clients between the audited versions should work in theory, but complete feature coverage is not guaranteed; if a feature fails and you want the project to adapt to it, follow [Reporting issues](#reporting-issues) |
-| **BiliRoaming extension** | Requires a compatible BiliRoaming version installed and enabled separately |
+| **Environment** | Root + LSPosed recommended; [root-free loading](#root-free-support) is also supported |
+| **Target app** | Official Android Bilibili client (`tv.danmaku.bili`) |
+| **Adapted builds** | Verified across official releases **8.84.0 – 9.20.0**; minor client updates usually adapt automatically, while major refactors may require a module update |
+| **Cloning / twins** | Supported only for system multi-user / app twin / work profiles that keep the package name `tv.danmaku.bili`; see [Cloning and multi-user](#cloning-and-multi-user) |
+| **BiliRoaming extension** | Requires a compatible BiliRoaming APK installed and enabled separately |
 
 ### Installation
 
 | Step | Action |
 | :---: | --- |
-| **1** | Download the APK from [GitHub Releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) and install or overwrite-install the module (the version in the LSPosed repository may lag behind). Overwrite-installing normally does not require clearing Bilibili's data; wipe client data, module configuration or the BiliRoaming cache only when the release notes explicitly ask for it |
+| **1** | Download the APK from [GitHub Releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) and install or overwrite-install it (third-party repos may lag behind). Clearing app data is unnecessary unless explicitly noted in release notes |
 | **2** | Open the LSPosed manager and enable `Bilibili Innocent Lab` |
-| **3** | Add the official Bilibili client `tv.danmaku.bili` to the module scope |
-| **4** | Force-stop Bilibili, then start it again. If the host cold-starts very slowly after enabling the module, or the module cannot communicate with the host, try turning off host hiding in HMA-OSS |
-| **5** | Open the module settings and confirm the page shows "**module activated**" |
-| **6** | Enable the options you need under Cleanup, Enhancements, Beautify or Experimental features; when using the "advanced settings", turn off duplicated features in other modules |
-| **7** | If a setting does not take effect immediately, use "restart Bilibili" inside the module, or force-stop the target app manually |
-| **8** | With BiliRoaming (this module also provides compatibility settings for newer host versions): after the first build or a rebuild, check the cache result first; restart as the page guides once it is ready, and skip the extra restart when the cache was reused |
+| **3** | Add official Bilibili (`tv.danmaku.bili`) to the module scope |
+| **4** | Force-stop and reopen Bilibili (if startup slows down or the module stays inactive, try turning off hiding for Bilibili in HMA-OSS) |
+| **5** | Open module settings and confirm the banner reads "**module activated**" |
+| **6** | Toggle only the features you want under Cleanup, Enhancements, Beautify or Experimental; avoid enabling overlapping options in other modules |
+| **7** | Tap "Restart Bilibili" inside settings (or force-stop Bilibili manually) for changes to take effect |
+| **8** | If using the BiliRoaming extension, follow the on-screen cache check prompt and restart Bilibili once ready |
 
 ### A note on ROOT permission
 
-Where possible, grant this module ROOT permission, which enables:
+If your device is rooted, you may grant ROOT permission to allow:
 
-- Confirming and restarting Bilibili after saving settings.
-- Unifying part of the local diagnostics in the Diagnostics Center.
+- Restarting and verifying Bilibili automatically after saving settings;
+- Reading additional local diagnostic details in the Diagnostics Center.
 
-This note is updated with each version so ROOT usage always stays transparent. The project promises never to abuse ROOT permission in any way that harms the host device. See the latest open-source code for details.
+No other ROOT operations are performed, and all usage can be inspected directly in source.
 
 ### Recommended testing order
 
-On a first install, enable and verify features one at a time in this order, which makes it easier to tell where a problem comes from:
+On a fresh setup, enable features step by step so any issue is easy to isolate:
 
-1. Confirm the module is activated;
-2. Enable only **one** UI cleanup feature, restart Bilibili and check the home page or detail page;
-3. Test free copy in comments, descriptions and titles, and choose the manual light bubble or auto follow according to your theme;
-4. Once the basics are stable, try the experimental features;
-5. Enable the BiliRoaming extension only if BiliRoaming is installed and you actually need the compatibility.
+1. Confirm the module home screen says activated;
+2. Turn on **one or two** cleanup switches, restart Bilibili and verify;
+3. Test long-press free copy on comments, descriptions and titles;
+4. Once core features look good, try player frame interpolation, audio rescue, visual theming or AI options;
+5. Enable the BiliRoaming extension only if you actively use BiliRoaming and need newer-client compatibility.
 
 ---
 
 ## Root-free support
 
-The module can be loaded into a **locally patched** Bilibili client through a patch manager, independently of Root / LSPosed usage. Two paths are supported:
+Non-rooted devices can load the module into a locally patched official Bilibili APK via **NPatch** or **JingMatrix LSPatch** in Manager (local) mode:
 
-| | **NPatch** (Manager mode) | **LSPatch** (local / Manager mode) |
+| | **NPatch (Manager mode)** | **JingMatrix LSPatch (local / Manager mode)** |
 | --- | --- | --- |
-| **Verified scope** | Bilibili 8.90.2, fixed repair build 833, signature level 2, Android 16 / arm64 | Bilibili 9.13.0, signature level 2, Android 16 / arm64 (Debug on-device pass) |
-| **Version floor** | Code requires Android 9; NPatch Manager 1.0.7 or later | JingMatrix LSPatch 1.2 (487) |
-| **Embedded mode** | ❌ Not supported for now | ❌ Not supported for now |
-| **Switch in settings** | Select "Root-free support" | No NPatch switch or Communication Compatibility Mode needed |
+| **Recommended version** | NPatch Manager 1.0.7+ (Android 9+) | JingMatrix LSPatch 1.2 (487)+ |
+| **Tested reference** | Bilibili 8.90.2, Android 16 / arm64 | Bilibili 9.13.0, Android 16 / arm64 |
+| **Embedded (`--embed`) mode** | ❌ Not available in current releases | ❌ Not available in current releases |
+| **Settings switch** | Accept terms and enable "Root-free support" | No NPatch switch or compatibility mode required |
 
-**This version does not support embedded (`--embed`) mode**: it is temporarily disabled to discourage resale of hosts with the module bundled inside; the implementation is retained, and NPatch and LSPatch share the same disabled flag. The floors above are minimum requirements; actual support is limited to the verified combinations.
+> [!NOTE]
+> Only Manager-based local patching is available right now; bundled embedded APK builds are not offered in current releases.
 
-### NPatch
+### Setup steps
 
-1. In NPatch Manager, add and enable the module and the host scope;
-2. Keep the separate module settings app installed, accept the terms and select "Root-free support";
-3. Cold-start Bilibili and verify the receipt in the module UI.
+**NPatch (Manager mode)**
 
-- Once enabled, the NPatch host reads the full settings through the **module's own admission channel** so Communication Compatibility Mode is not needed; Manager Remote Store sync is an optional mirror, and its being unavailable does not affect delivery.
-- After enabling, disabling or changing settings, **force-stop and reopen** Bilibili manually. Features are installed only after current authorisation and full configuration validation pass, and the module UI shows "activated" only after a verified host receipt. If all authorising endpoints are unreachable, features stay off; an old cache is never used.
-- If the settings app was force-stopped by the system, open the settings app first, then cold-start Bilibili.
-- Overwrite-installing the settings app keeps your configuration; uninstalling and reinstalling deletes its configuration, terms record and account authorisation, so you must accept the terms and enable root-free support again. Business settings can be imported from "Settings backup"; terms consent, authorisation credentials and runtime receipts are not restored by a backup, and the host must obtain current permission again. Uninstalling only the settings app does not remove the module code already embedded in a host.
+1. Patch and install official Bilibili in Manager mode via NPatch;
+2. Open NPatch Manager and associate `Bilibili Innocent Lab` with Bilibili;
+3. Open the standalone module settings app, accept the terms, turn on **"Root-free support"** under compatibility settings, then force-stop and reopen Bilibili.
 
-### LSPatch
+**JingMatrix LSPatch (local mode)**
 
-1. In the LSPatch manager, select the module and apply it (the "local" option in the UI corresponds to `--manager`);
-2. Keep the separate module settings app installed and complete the terms authorisation;
-3. Cold-start Bilibili to verify. Activation must be confirmed by the current authorised configuration and a real host receipt.
+1. Patch official Bilibili in LSPatch Manager using **local** mode and link `Bilibili Innocent Lab`;
+2. Install the patched client while keeping the standalone module settings app installed, and accept the terms inside settings;
+3. Force-stop and reopen Bilibili, then verify activation in the module home screen.
 
-The conflict between the old NPatch intent and the LSPatch configuration channel described in [issue #31](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues/31) has been reproduced and fixed; legacy LSPatch, Canary and combinations outside the matrix remain unverified.
+### Everyday tips
+
+- **Keep the settings app installed**: In root-free mode Bilibili retrieves configuration from the standalone module app. If the system kills the settings app, open settings once before cold-starting Bilibili.
+- **Force-stop after changes**: After toggling features in root-free mode, force-stop and reopen Bilibili manually. Unauthorised or incomplete configuration states keep features disabled instead of applying stale caches.
+- **Upgrades and reinstalls**: Updating the module APK keeps your preferences; uninstalling and reinstalling resets terms consent and root-free authorisation (you can restore feature toggles from a Settings Backup file).
 
 <details>
-<summary><b>Diagnostics and more notes</b></summary>
+<summary><b>Additional root-free troubleshooting notes</b></summary>
 
 <br>
 
-- The root-free Diagnostics details show the patch mode, signature bypass level, Loader API / version, Manager version, actual configuration source, and the processes responding to the current query with their hook counts. Unresponsive processes remain unknown; installation counts do not prove feature behaviour.
-- Build 833's Manager loading failure when Manager is unavailable requires the tool's Java loader fix. See the [patching guide](scripts/npatch/README.md) for patching, your own signing and same-certificate upgrades.
-- Full scope, recovery and untested combinations: [NPatch support notes](docs/npatch-release-support.md); per-category compatibility and historical round-trip / recovery evidence: [implementation roadmap](docs/npatch-implementation-roadmap.md); LSPatch artifacts, recovery steps and the historical test boundary: [stage 9 record](docs/lspatch-stage9.md). Embedded mode is not available at present; its records are kept for historical reference.
-
-NPatch support is still experimental. Its stability is affected by the Android version, ROM, NPatch Manager version, Bilibili version and other injected modules, and it cannot fully replace a Root/LSPosed setup. Back up your configuration first and keep the ability to restore the unmodified app. Other systems, ABIs, host versions, signature levels and module coexistence combinations are unverified, and generic business items still to be verified in the catalogue matrix are not counted as passed. Your own certificates are covered by the artifact and same-certificate upgrade checks; their third-party share SDKs and long-term account risk control need separate verification.
+- Root-free stability depends on your ROM, Android version, patch manager build and other injected modules, and may not match Root + LSPosed in every environment. Keep a local settings backup and original APK handy.
+- Open **Diagnostics Center → Root-free support** in the module app to inspect the detected patch mode, loader version, active configuration source and responding processes when filing bug reports.
 
 </details>
 
@@ -161,45 +158,34 @@ NPatch support is still experimental. Its stability is affected by the Android v
 
 ## Cloning and multi-user
 
-The module works by **package name**: a cloned client is supported only if it keeps the package name `tv.danmaku.bili`.
+The module only attaches to clients keeping the official package name `tv.danmaku.bili`:
 
-| Cloning form | Package name after cloning | Supported |
+| Setup | Package name | Supported |
 | --- | --- | :---: |
-| System multi-user, app twin, work profile | Still `tv.danmaku.bili` | ✅ Must be enabled separately **under that user** following the steps below |
-| Renamed clones (some root-free multi-instance and package-renaming tools) | Changed to another package name | ❌ |
-| VirtualApp-style container cloning (running inside a cloning app) | The container app's own package name | ❌ |
+| System multi-user, App Twin, Work Profile | Still `tv.danmaku.bili` | ✅ Enable separately **inside that user profile** |
+| Renamed APK clones | Custom package name | ❌ |
+| VirtualApp / container cloners | Container package name | ❌ |
 
-**Renamed clones are unsupported**: the module's scope is fixed to the official package name, so no other package can be added in the manager; even if the framework injects, the host resources and cache directories resolved through the official package name would all miss.
+Renamed clones or container apps cannot match Bilibili's official package resources or config paths.
 
-**Enabling under a twin app or another user**: the framework delivers its service **per Android user**, so a twin user must enable the module separately even if the primary user already has.
+**Enabling for a twin app / secondary Android user**:
 
-1. Install the module app under the user that runs the twin client as well;
-2. In the framework manager, switch to that user, enable this module for it and make sure the scope includes Bilibili;
-3. Open the module settings once under that user so the configuration is published;
-4. Force-stop and restart Bilibili under that user.
+1. Install `Bilibili Innocent Lab` inside the secondary user profile as well;
+2. Switch to that user inside your LSPosed / patch manager, enable the module and select Bilibili in its scope;
+3. Open the module settings app once inside that user profile;
+4. Force-stop and reopen the cloned Bilibili client.
 
-The messages on the settings page mean the following (the "framework service" item in the Diagnostics Center gives the same evidence):
-
-| Message on the settings page | Meaning |
-| --- | --- |
-| "There is no framework service under the current Android user N" | Step 2 was not completed under that user |
-| "The module is in user A while Bilibili is in user B" | The module and the client are installed under different users and the configuration cannot be delivered |
+If the settings screen warns about a missing framework service in user N or a user mismatch between the module and Bilibili, repeat steps 1–2 for that specific user profile.
 
 ---
 
 ## Features
 
-Every feature has its own switch, organised as below in the settings; favorites and search take you straight to them.
+Options are organised under **Favorites / Cleanup / Enhancements / Beautify / Module**, with search and pinned favorites.
 
-| UI entry | Contents |
-| --- | --- |
-| **Favorites** | Saved feature entries |
-| **Cleanup** | Content, advertisement, component and prompt filters per page |
-| **Enhancements** | Comment / description / title copy, reading and browsing interactions, playback and full number display |
-| **Beautify** | Module and host visuals, materials, backgrounds and other appearance options |
-| **Module** | Activation, diagnostics, updates and module management, plus the experimental compatibility and task assistant entries |
-
-**Legend**: `On by default` means enabled on a fresh install; anything not marked is off by default. `Experimental` means still being validated, with results that vary by device and client version. Unless stated otherwise, **restart Bilibili** after changing a setting. When the current client has no reliable adaptation entry point, the feature is skipped and the official behaviour is kept.
+- `On by default`: enabled on fresh installs; all other switches start off;
+- `Experimental`: relies on newer host paths or hardware capabilities and varies by device;
+- Changes take effect after **restarting Bilibili** unless noted otherwise; unsupported entry points on an untested client build are skipped safely.
 
 **Quick jump**: [Home and navigation](#-home-and-navigation) · [Dynamics, search and "My"](#-dynamics-search-and-my) · [Video detail pages](#-video-detail-pages-and-recommendations) · [Player](#-player) · [Danmaku and live](#-danmaku-live-rooms-and-the-portrait-feed) · [Comments](#-comments) · [Free copy](#-free-copy) · [Smart filtering and AI](#-smart-filtering-and-ai-features-experimental) · [Appearance](#-appearance-and-beautify) · [Privacy](#-privacy-and-browsing) · [System and remote flags](#-system-and-remote-flags) · [BiliRoaming extension](#-biliroaming-version-support-extension) · [Module management](#-module-management-and-maintenance)
 
@@ -209,80 +195,69 @@ Every feature has its own switch, organised as below in the settings; favorites 
 
 | Feature | Description |
 | --- | --- |
-| Hide the top-bar game center entry | Hides the game center entry at the top of the home page |
-| Hide the default search suggestion | Hides the default suggestion in the search box and on the search page |
-| Hide home banner carousel `On by default` | Hides the carousel cards that take up a lot of space at the top of the home page or recommendation area, completing the carousel cleanup in environments where it previously failed |
-| Hide promoted live cards on the Live tab | Removes the promoted live carousel at the top of the "Live" tab without leaving a gap |
-| Filter recommendation cards by type | Separately filter ads, standard feed ads, image-text posts, game promotions, live, anime & films, comics, courses, special cards, portrait-video and large-card recommendations, judged by explicit card type only; ordinary video recommendations stay as they are |
-| Open portrait videos in details | Opening a portrait video from the home page goes to the normal video detail page instead of the portrait continuous-play screen; home page only |
-| Load home recommendations early | Requests the next page about four rows before the end of the list, reducing "loading" stalls at the bottom; works on phones and tablets and uses slightly more data |
-| Enhanced video recommendation feedback | Adds tag and uploader blocking options to the feedback panel of home and detail-page recommendations, with optional auto-confirmation of new blocked tags |
+| Hide top-bar Game Center entry | Removes the game shortcut in the top bar |
+| Hide default search placeholder | Removes promoted default search suggestions in the search box and search page |
+| Hide home banner carousel `On by default` | Clears large banner carousels on the home feed without leaving blank space |
+| Hide Live tab promoted banner | Removes the top promotional carousel on the Live tab |
+| Filter recommendation cards by type | Hide ads, feed promotions, image-text posts, game cards, live streams, anime/films, comics, courses, special cards, portrait or large-card picks by card type without touching ordinary videos |
+| Open portrait videos in standard details | Opens home portrait cards in the normal video page instead of jumping into the portrait swipe feed |
+| Load home recommendations early | Prefetches the next page ~4 rows before the bottom to avoid loading stalls (uses slightly more data) |
+| Enhanced recommendation feedback | Adds quick tag and uploader blocklist shortcuts to the feedback sheet, with optional auto-confirm for new blocked tags |
 
-#### Recommendation filter rules
-
-| Feature | Description |
-| --- | --- |
-| Filter by title keywords | Hides recommended videos whose title contains a keyword |
-| Filter by tag / uploader | Filters recommendations by tag name or ID and by uploader name or UID |
-| Filter by video duration | Set a minimum and a maximum duration; videos outside the range are removed from home recommendations and the recommendations below video details; leave either bound empty to leave it unrestricted |
-| Filter by view count | Set a minimum and a maximum view count; leave either empty for no limit |
-| Filter by publish time | Before or after a date, inside or outside a range, or relative to now (such as the last two days); cards without a readable time are always kept |
-
-#### Custom structure
+#### Recommendation rules
 
 | Feature | Description |
 | --- | --- |
-| Customize Home tabs | Open the home page to scan and tick, or type name rules (separated by commas, full-width commas, semicolons or newlines); at least one tab is kept |
-| Customize Home components | Scan and tick, or write rules by component name or known identifier, to remove home sections you do not need |
-| Customize the bottom bar | Hide bottom navigation entries by name; at least one usable entry is kept |
+| Filter by title keywords | Hides recommended videos matching any keyword |
+| Filter by tag / uploader | Filters home and detail recommendations by tag name/ID or uploader name/UID |
+| Filter by duration / view count | Set min/max seconds or view bounds; leave either bound blank for no limit |
+| Filter by publish time | Keep or exclude videos by calendar date range or relative window (e.g. last 2 days); cards missing timestamps are kept |
+
+#### Custom navigation layout
+
+| Feature | Description |
+| --- | --- |
+| Customise home tabs / modules | Visit home once, scan items in settings and tick entries to hide, or write text rules (at least one home tab stays enabled) |
+| Customise bottom bar | Hide unwanted bottom navigation tabs by name (keeps at least one tab) |
 
 ### 🔔 Dynamics, search and "My"
 
 #### Dynamics
 
-The combined page and the video page share the same rules, so configuring once covers both. Filtering may shorten the current page; pagination is unaffected.
+Rules apply to both the All and Videos tabs at once.
 
 | Feature | Description |
 | --- | --- |
-| Hide the "City" / "Campus" tabs | Removes each from the Dynamics tabs separately |
-| Show the Video tab by default | Opening Dynamics lands on the "Video" category; when the current version has no such entry, the default page is kept |
-| Hide the topic bar | Removes the topic bar above the Dynamics list |
-| Hide frequently visited on Dynamics | Hides the whole frequently-visited block at the top without leaving a gap |
-| Hide live authors from the top bar | Removes UPs that are currently live and re-lays out the remaining entries so no gap is left |
-| Filter dynamics by keyword | Hides a Dynamic when any keyword appears in its body, in the body of a reposted original Dynamic, or in the module text; each text segment is matched separately |
-| Filter dynamics by author | Each rule entry is one UID or username (usernames must match exactly); Dynamics from a matching author, including reposts, are hidden; Dynamics whose author cannot be identified are kept |
-| Hide shopping and recommendation cards | Judged by the attachment card type Bilibili delivers |
-| Hide locked charge-only dynamics | Unlocked ones and ones whose permission state cannot be read are kept |
+| Hide "City" / "Campus" tabs | Removes each tab from Dynamics separately |
+| Land on "Videos" tab by default | Selects the Video feed tab automatically when opening Dynamics |
+| Hide topic bar / frequently visited | Removes the top topic bar or the frequently-visited strip cleanly |
+| Hide live uploaders from the top strip | Drops currently live avatars and compacts the remaining row |
+| Filter dynamics by keyword / author | Matches post body, reposted text or uploader UID/exact name (cards without readable author info are kept) |
+| Hide shopping / recommendation cards | Removes attached commerce/product cards |
+| Hide locked fan-charge dynamics | Hides unsubscribed charge-only posts while keeping unlocked or unreadable ones |
 
-#### Search
+#### Search and "My"
 
 | Feature | Description |
 | --- | --- |
-| Hide search-page trending and recommendations | Hides trending and discovery on the search home with their accessories, keeps search history and leaves no gap |
-| Hide promoted search results | Removes commercial ad cards and special campaign cards from the combined search results |
-| Filter search results by keyword / author | Hides **video** results whose title contains a keyword or whose author is on the list; other card types such as anime, live and articles are left as they are |
-
-#### The "My" page
-
-| Feature | Description |
-| --- | --- |
-| Hide the VIP card | Hides the VIP card on the "My" page |
-| Keep the VIP card position | Works with the option above: hides the content but keeps its placeholder, avoiding layout jumps |
-| Customize Mine-page components | Scan and tick, or write rules by menu name, to trim entries such as the creation centre, courses and the game center |
+| Hide search trending and discovery | Clears trending searches and discovery suggestions while keeping personal search history |
+| Hide promoted search results | Strips ad and campaign cards from combined search |
+| Filter search video results | Filters video results by keyword or author without touching anime, live or articles |
+| Hide VIP card on "My" page | Hides the VIP banner (optional placeholder lock prevents layout jump) |
+| Customise "My" page entries | Scan and hide unwanted creation-center, course or game shortcuts |
 
 ### 📺 Video detail pages and recommendations
 
 | Feature | Description |
 | --- | --- |
-| Hide game ads inside the "Video mentioned" section `On by default` | Filters recognised game promotion cards in areas such as "video mentions" under videos with game tags |
-| Hide UP merchandise promotions `On by default` | Hides recognised product promotion areas such as "products shared by the UP" |
-| Hide topic promotions on video detail pages | Hides topic and activity promotions below the player |
-| Hide "You may be interested" uploaders after following | After you follow an uploader, the "You may be interested" card no longer pops up and leaves no gap; the recommendation request is blocked before it is sent |
-| Hide player recommended video component | Hides the recommendation cards inside the player after an ordinary video ends |
-| Hide detail-page elements | Separately hide the honor list, live reservation card, collection entry, uploader membership badge, video topic tags, co-creator follow buttons and trending-search strips and badges |
-| Filter related recommendations | Separately filter commercial promotions, game, live, course and special recommendations (by explicit card type); recommendation reasons can also be used to detect promotions, and related videos can be filtered by reason keywords, uploader or tag |
-| Strong mode for related recommendations | Additionally filters recommendations with unclear type or reason, trending recommendations and promotion cards; may hide ordinary recommendations |
-| Block videos declared as AI-generated `Experimental` | Opening a video that carries the "Contains AI-generated content" declaration jumps to a related video (in playlists it skips to the next item), and shows a notice when none is usable; home recommendations are filtered in advance by the AI creation tag. Optional strong mode: after you authorise `access_key`, detail-page recommendations are pre-checked in the background and removed early (the token is only used inside Bilibili and is never stored anywhere except secure device memory) |
+| Hide game ads in "Video mentioned" `On by default` | Removes game promotion cards in video mention panels |
+| Hide uploader merchandise cards `On by default` | Hides "shared by UP" product shopping blocks |
+| Hide topic promotions | Removes promotional topic banners below the player |
+| Hide "You may be interested" after following | Blocks follow-triggered uploader suggestion cards before they appear |
+| Hide post-playback recommendations | Hides end-of-video suggestion overlays inside the player |
+| Hide detail page clutter | Independently hide rankings, live reserve cards, collection entries, VIP badges, topic pills, co-creator follow buttons and trending search strips |
+| Filter related recommendations | Hide commercial, game, live, course or reason-matched cards; **Strong mode** also drops unknown/trending recommendation cards |
+| Block AI-declared videos `Experimental` | Auto-skips videos carrying the "Contains AI-generated content" disclosure; optional strong mode with `access_key` pre-checks related cards in-memory only |
 
 ### 🎬 Player
 
@@ -290,278 +265,107 @@ The combined page and the video page share the same rules, so configuring once c
 
 | Feature | Description |
 | --- | --- |
-| Hide paused-page video ads `On by default` | Hides promotional content that appears after pausing some videos; the effect depends on the client version, player type, account experiment group and ad delivery policy |
-| Hide player interactive overlays | Blocks the vote card, follow prompt, triple-action contract card, command danmaku and the TV-app promotion banner at the top left |
-| Hide player popup promotions | Hides automatically appearing data-plan, shopping and mini-program floating promotions, keeping network-status reminders and panels you open yourself |
-| Block automatic activity panels on series pages | Blocks the Premium promotion and similar activity panels that expand automatically below the player on film and TV pages; activity links and purchase entries you open yourself are kept |
-| Hide the portrait-feed button | Hides the "enter look-around" button in the player |
-| Transparent player status bar | Applies the transparent status bar only on the ordinary video detail page |
+| Hide paused-page ads `On by default` | Suppresses promotional overlays shown when pausing playback |
+| Hide player interactive overlays | Removes vote cards, follow prompts, triple-action cards, command danmaku and the top-left TV banner |
+| Hide popup promotions | Suppresses unsolicited data-plan, commerce and mini-program popups while keeping user-opened sheets and network warnings |
+| Block automatic series activity panels | Prevents automatic Premium promos from expanding on anime/movie pages |
+| Hide portrait-feed shortcut / transparent status bar | Hides the portrait enter button or uses a transparent status bar on video detail pages |
 
 #### Quality, codec and playback control
 
 | Feature | Description |
 | --- | --- |
-| Default playback quality | Follow Bilibili, or prefer 360P up to 8K (including 720P60, 1080P high bitrate, 1080P60 and 4K); it only changes the initial quality request when playback starts and does not unlock Premium or paid quality; the client adjusts automatically when the source, account or network does not support it |
-| Preferred video codec | Prefer H.264 / H.265 / AV1; only affects newly created playback sessions |
-| Decoding mode | Follow Bilibili, or force hardware / software decoding, only for newly created playback sessions |
-| Default playback speed | Sets the base speed for newly played videos; follows Bilibili by default |
-| Playback speed menu options | In Advanced settings → Player, enter 1–12 speeds from 0.1× to 8× (up to two decimals, separated by commas or spaces); the menu lists them from highest to lowest. Mutually exclusive with Default playback speed, with a prompt when switching; "Follow Bilibili" restores the original menu |
-| Long-press speed | Customise the long-press speed, or disable long-press acceleration; independent of the speed menu |
-| Unlock background playback / mini player / casting | Three independent switches, each unlocking the matching playback capability |
-| Video buffering strategy `Experimental` | Follows the host by default; choose minimal buffering, a custom 1–600 second forward buffer or whole-video prefetch, with memory / disk budgets and a Wi-Fi-only option. Whole-video prefetch only attempts a recognisable current MP4/FLV single-file video; with DASH/HLS/DRM, unknown size or insufficient space a bounded cache is kept. Actual forward duration and offline availability still need validation |
+| Preferred quality | Follow Bilibili or request 360P up to 8K at start (respects source, account and network limits; does not bypass paid tiers) |
+| Preferred codec / decode mode | Prefer H.264 / H.265 / AV1 or force hardware/software decoding for new playback sessions |
+| Default speed / speed menu / long-press speed | Set default playback speed, enter 1–12 custom menu speeds (`0.1×–8×`) or customise/disable long-press fast-forward |
+| Unlock background / PiP / cast | Independently enables background playback, mini-player and casting |
+| Video buffering strategy `Experimental` | Choose minimal buffer, custom `1–600s` forward buffer or full single-file MP4/FLV prefetch with memory/disk caps and Wi-Fi-only switch |
 
 #### Video frame interpolation `Experimental`
 
-On supported Qualcomm devices, interpolation uses QCOM hardware motion estimation first. QCOM works without a model download. Other Vulkan GPUs and streams outside the QCOM path can use the RIFE v4.6 model downloaded in settings. BIL checks hardware-buffer interoperability and measures the available processing sizes and synchronization modes against the frame budget. Enable interpolation status prompts to see which backend is active.
+Smooths standard videos up to 4K (e.g., 30 fps → 60 fps target), with both **Automatic** selection and **Forced interpolation mode** control (enable interpolation status prompts to inspect the active backend live):
 
-- The player accepts video up to 4K. Doubling a 30 fps source targets 60 fps. Actual presentation depends on the GPU, driver, display and workload. HDR, protected content and unsupported formats use normal playback.
-- Higher resolutions add a little delay (audio stays in sync) and use more battery.
-- You can set a **frame-rate ceiling** (the real target follows what the system actually outputs and what the phone can sustain), turn on **interpolation status prompts**, and disable thermal control (with a confirmation first).
+- **Automatic mode (default)**: Snapdragon devices with QCOM hardware motion estimation use model-free QCOM interpolation first; other Vulkan GPUs or unsupported streams fall back automatically to the RIFE v4.6 model downloaded in settings, dynamically scaling resolution tier to frame budget.
+- **Force interpolation mode**: Enable **"Force interpolation mode"** to unlock the **"Interpolation mode"** picker:
+  - The module probes your device's GPU architecture and acceleration features (e.g., Adreno / Mali·Immortalis / Xclipse·RDNA / PowerVR, FP16, Subgroup, AHB zero-copy);
+  - **On QCOM-capable devices**, both `QCOM` and `RIFE` appear as selectable backends;
+  - **Without QCOM hardware support**, `QCOM` is hidden and only `RIFE` is displayed with an inline prompt and one-tap button to download the RIFE v4.6 model;
+  - Locking a mode keeps it selected without dropping back across backends or frame-time thresholds.
+- **Limits & controls**: HDR, protected streams and non-1.0x speeds keep native playback; you can configure the FPS ceiling, toggle live status prompts and optionally bypass thermal throttling after confirmation (higher resolution adds slight A/V-synced latency and power draw).
 
-#### Subtitles
-
-| Feature | Description |
-| --- | --- |
-| Enhanced subtitle styling | In the player's subtitle settings, adjust font, size, text, backdrop and outline; styles are stored locally in Bilibili |
-| Try forcing AI multilingual subtitles | Turns on the client's AI-subtitle rollout flag and requests video subtitles; the languages available depend on the tracks the official server provides, and not every video has a translation |
-
-#### Audio rescue `Experimental`
-
-Processes the audio of the current video; off by default.
-
-| Option | Description |
-| --- | --- |
-| Sudden peak guard | Suppresses sudden loud peaks immediately and limits the sample peak to −6 dBFS, then recovers smoothly; independent of overall loudness levelling, and the actual headphone volume is still yours to control |
-| Channels | Original, mono (left and right mixed to both ears; out-of-phase sound can cancel) or auto (fills in sound when only one side stays loud or the other is almost inaudible) |
-| Speech denoising | Reduces noise floor and ambient interference in speech videos; may change the timbre, so turn it off for music-focused videos |
-| Voice clarity | Reduces background music covering speech, already includes denoising; suited to speech videos with overly loud BGM |
-
-Speech denoising and voice clarity need optional files (about 56 MB on first download, or import them offline); peak protection and channel repair work without them. The two add about 33 ms of delay. Multichannel and passthrough audio are not supported.
-
-#### Sponsor segments · SponsorBlock
+#### Subtitles, Audio rescue & SponsorBlock
 
 | Feature | Description |
 | --- | --- |
-| Sponsor segment prompts | Prompts community-marked sponsor segments on ordinary video detail pages (markings may be inaccurate). Queries the community service `www.bsbsb.top` using a video ID hash prefix; no submissions, votes or account data are sent |
-| Automatically skip sponsor segments | Requires prompts to be enabled; pause and manual scrubbing take priority, and a confirmed skip can be undone for 6 seconds |
-| Also skip sponsor segments in short videos | Short (portrait) videos get prompts or skipping too; one query per short video you linger on (at most 12 per minute); only markings on ordinary uploads, never ads, and coverage is small |
+| Enhanced subtitle styling & AI subtitle flag | Adjust subtitle font, size, backdrop and outline locally; toggle client AI multilingual subtitle rollout flag |
+| Audio rescue `Experimental` | Sudden peak guard (−6 dBFS ceiling), stereo/mono/one-sided channel repair, plus optional ~56 MB speech denoising and voice clarity (~33 ms latency) |
+| SponsorBlock integration | Queries `www.bsbsb.top` by video hash prefix (no account data sent) to prompt or auto-skip sponsor segments with a 6-second undo button; optional short-video support |
 
 ### 💬 Danmaku, live rooms and the portrait feed
 
-#### Danmaku
-
-Danmaku filtering is independent of "Hide player interactive overlays"; the two can be enabled separately.
-
 | Feature | Description |
 | --- | --- |
-| Filter danmaku by weight | The server assigns each danmaku a weight from 1 to 10 (higher is better); after setting a minimum kept weight, danmaku below it are removed before playback. When Bilibili delivers no weights, the whole danmaku set is kept as is |
-| Hide premium gradient danmaku | Removes the gradient colouring; the danmaku themselves still show in ordinary colours |
-| Smart danmaku filter (AI) `Experimental` | See [Smart filtering](#-smart-filtering-and-ai-features-experimental) |
-
-#### Live rooms
-
-| Feature | Description |
-| --- | --- |
-| Disable swiping between live rooms | Disables swiping up or down to switch to another room |
-| Double-tap pauses instead of liking | Double tapping the live video pauses or resumes playback; when the playback state cannot be switched, the original like still happens |
-
-#### Portrait video feed
-
-The portrait continuous-play screen can filter the following categories independently:
-
-**Ads · Live · Game promotions · Anime and film · Courses · Short dramas · Shopping · Movies · Documentaries · TV series · Variety shows · Music**
-
-Categories are judged by explicit structured types; anything that does not match passes through, and ordinary portrait videos stay as they are. You can also hide the like, comment, coin, favorite and share icons and the danmaku toggle on the side of the feed.
+| Danmaku weight filter / hide gradient danmaku | Drop danmaku below a 1–10 server weight threshold or strip gradient effects while keeping text visible |
+| Live rooms | Disable vertical room-swiping, or remap double-tap to pause/resume instead of liking |
+| Portrait feed filters | Independently hide ads, live, game promos, anime/film, courses, short dramas, shopping, movies, documentaries, TV series, variety or music cards, plus side action/danmaku icons |
 
 ### 💭 Comments
 
-#### Interface cleanup
-
 | Feature | Description |
 | --- | --- |
-| Disable comment keyword search links | Keywords in comments no longer jump to search; normal links are kept |
-| Hide the empty-comment prompt | Hides the one-tap send prompt in the "no comments yet" state |
-| Hide comment vote widgets | Hides polls, side-picking and similar widgets in comments |
-| Hide comment follow buttons | Hides the follow button in comments |
-| Disable comment experience feedback | Hides comment experience feedback, questionnaires and similar content |
-| Hide comment promotions | Filters recognised promotional content in the comment section data |
-| Hide comment reply buttons | Hides the Reply control in comment action bars; the "N replies" entry, input bar and three-dot menu stay |
-| Disable tap-to-quick-reply | Briefly tapping a comment body or card no longer opens the reply editor directly; the explicit reply button, bottom input bar, three-dot menu and long-press free copy work as usual |
-| Hide the comment section | Removes the comment tab from the video detail page |
-
-#### Content filtering
-
-Filtering covers top-level comments, pinned comments and nested reply lists, and is independent of free copy; the two can be enabled separately.
-
-| Feature | Description |
-| --- | --- |
-| Filter comments by keyword | Up to 64 keywords, separated by commas, full-width commas, semicolons or newlines; a comment or reply is hidden when its body contains any keyword, ignoring letter case |
-| Filter comments by user level | Set a minimum kept level; when a user level cannot be read reliably the comment is kept, to avoid deleting anything by mistake |
-| Hide mention-only comments | Hides a comment whose body contains nothing but an @ mention; when the mention list cannot be read the comment is kept |
-| Filter comments by author | Each rule entry is one UID or username (usernames must match exactly); when the author cannot be identified the comment is kept |
-| Hide AI comments and replies | Scores nickname, level, text features, how closely a reply repeats its root comment and already-loaded public profile data offline, hiding comments and replies from suspected AI spam accounts; three sensitivity levels, custom nickname words, comment words and an allow list, accounts at Lv5 and above protected by default, plus a strong mode; everything is computed on the device, and a comment is kept when its nickname, level or text cannot be read. Rules and weights are ported from dafeiyu-cleaner (MIT); see [docs/comment-ai-filter.md](docs/comment-ai-filter.md) |
-| Smart comment filter (AI) `Experimental` | See [Smart filtering](#-smart-filtering-and-ai-features-experimental) |
-
-#### Reading and layout
-
-| Feature | Description |
-| --- | --- |
-| Reply context map | Adds a "Trace" entry to top-level comments with replies to inspect reply relationships and locate comments; filter by author or reply keywords and copy the visible reply previews; the tree loads all available replies in the thread in batches, selecting a node highlights its ancestors and descendants, and you can pan and zoom. Data is loaded only while the panel is open |
-| Restore classic comments | Under Enhancements → Advanced enhancement settings → Comment reading and interaction. Restores the classic comment layout; when a comment has replies but no preview, fetches up to three replies through Bilibili's detail API and shows them below the parent comment, with more replies one tap away. Only the first detail page is requested, with at most four concurrent requests and a 2.5-second wait budget for the entire comment page; timeouts or failures keep the original reply entry, and fetching may increase loading time |
+| Interface cleanup | Remove keyword search links, empty-comment send prompts, poll/vote cards, inline follow buttons, QoE prompts, promotions, reply buttons, tap-to-quick-reply or the entire comment tab |
+| Rule filtering | Filter root, pinned and nested replies by keyword (up to 64 rules), minimum user level, mention-only text or author UID/username |
+| Hide AI spam comments | Scores nickname, level, phrasing and public profile cues locally on device (three sensitivity tiers, Lv5+ protection, custom lists; rules ported from MIT-licensed `dafeiyu-cleaner`) |
+| Reply context map & classic layout | "Trace" button visualizes full thread trees with pan/zoom and author/keyword search; optionally restore the classic nested reply preview layout |
 
 ### 📋 Free copy
 
-Once enabled, long-pressing text pops up a copy bubble (tap outside it to close). Keep long-pressing and drag the system selection handles to select just the fragment you need, then copy it through the system floating toolbar — no need to copy the whole text.
+Long-press supported text to open a selection bubble (tap outside to close), then drag standard Android selection handles to copy any snippet:
 
 | Surface | Description | Default |
 | --- | --- | :---: |
-| **Comments** | Long-press a comment body. Covers ordinary comments, long comments, expanded content and some reply lists; the complete original text (with its line breaks) is read from the comment data where possible, rather than the abbreviated collapsed text; Bilibili's own emoji are converted to readable text where possible | On |
-| **Video descriptions** | Long-press the description on a video detail page. Expandable descriptions are read in full, with line breaks normalised, trailing whitespace trimmed and icon placeholder characters removed, keeping the paragraph structure | On |
-| **Video titles** | Long-press the title on a video detail page; turn it on separately in the free copy group of the Enhancements page. A collapsed long title is copied in full (placeholder characters of the badge image in front of the title are dropped); when the original cannot be read, the text shown on screen is used | Off |
+| **Comments** | Long-press comment bodies to copy complete original text with line breaks and converted emojis | On |
+| **Video descriptions** | Expands and reads full description paragraphs with clean whitespace | On |
+| **Video titles** | Enable under Enhancements → Free copy to copy full unclipped titles | Off |
 
-- The long-press time matches the system long-press time; scrolling and multi-finger gestures do not trigger it, and the official tap-to-expand or collapse behaviour of the title stays as it is.
-- Official interaction areas such as images, buttons, media containers and the three-dot menu keep responding as before; after closing the bubble on a comment with images, the image can still be tapped to open its preview.
-
-**Bubble appearance**
-
-| Appearance | Description |
-| --- | --- |
-| Default dark | The default colour scheme; no configuration needed |
-| Manual light | White background with black text, for light themes |
-| Auto follow | Follows the Bilibili light/dark theme; enabling it overrides the manual light setting |
+Supports **Default dark / Manual light / Auto-follow Bilibili theme** bubbles without blocking image preview taps after dismissal.
 
 ### 🤖 Smart filtering and AI features (experimental)
 
-The features below are off by default and send content to the API services you configure yourself — **please understand their data flow and billing first**. API keys stay on this device and are excluded from settings backups and diagnostics.
+All AI features start **off** and only contact API endpoints you configure yourself; review your provider's privacy and billing terms before enabling. API keys stay local on device and are excluded from backups and diagnostics.
 
-#### Smart filtering (AI semantic judging)
-
-Configure API sources under "Experimental features → Compatibility → AI semantic judging" (service type, model, endpoint, key; JEV and OpenAI-compatible providers are supported, including third-party relays). Up to 8 sources are supported, with bounded load balancing and failure cooldown, and each filter can pick its own source.
-
-| Filter | Description |
-| --- | --- |
-| Smart dynamic filter | Hides lottery posts, sponsored or shopping promotions and flame bait by meaning |
-| Smart comment filter | Hides comments of the selected types by meaning |
-| Smart recommended-video filter | Judges video titles in the home feed and related recommendations; a title is judged once and remembered for both places |
-| Smart danmaku filter | Hides danmaku of the selected types by meaning; always waits for judging, so danmaku may appear a moment later while video playback is not delayed; identical danmaku are judged once and at most 300 distinct lines per segment are judged |
-
-- Smart filtering works **on top of the rule filters and only removes more**; if no source is configured, a request times out or fails, only the rules apply, and turning it off and restarting removes every judgement.
-- Adjustable sensitivity (low / medium / high), custom blocked types, judging guidance, and whether to wait for judging on first load (on: the first screen is already filtered but each load is about 1 to 2 seconds slower; off: content shows at once, judging runs in the background and applies from the next refresh).
-- **Privacy**: the text to be judged (never your account, cookies or user ID) is sent to the judging sources automatically in the background; with several sources the same content may go to more than one and be billed more than once.
-
-#### AI Insight video assistant
-
-Adds Summary, Ask, Topics and Chapters to the detail page, generated only when tapped. It sends the current part's subtitles, title, description and up to 12 loaded comments and danmaku to the dedicated model configured in "AI Insight service config" (Topics reads up to 40 comments); without subtitles only metadata is used, and results are cached on this device. Native chapters need subtitles, a video of at least 3 minutes and no official chapters. This configuration is independent of the AI semantic judging sources.
-
-#### AI task assistant
-
-Search Bilibili, look up video information or operate the current interface from a natural-language goal, with capability-tested collaboration across multiple sources.
-
-- Configure and tick API sources under "Module → Experimental features → Compatibility → AI task assistant", then enter a goal once the capability test passes; the original business tools need a Bilibili restart after first enabling them, while general interface actions also need the module accessibility service enabled.
-- Task time and steps are adjustable; status, logs and stopping are available from the task notification. General actions stop when you switch to another app or lock the screen, and sensitive operations such as passwords, identity verification and payments are protected.
-- Your goal and the necessary on-screen content go to the selected model, and capability tests and tasks consume API quota. Task logs keep only redacted status and usage, never goals, keys, screenshots or raw responses.
+- **Smart semantic filtering**: Configure up to 8 JEV / OpenAI-compatible endpoints under Compatibility settings with round-robin balancing and cooldown, then route Dynamic, Comment, Recommended Video and Danmaku filters independently on top of rule filters.
+- **AI Insight video assistant**: On-demand Summary, Ask, Topic clustering and AI Chapters on video detail pages using subtitles and loaded comments/danmaku.
+- **AI task assistant**: Goal-driven in-app search and UI automation across capability-checked endpoints (stops on app switch/screen lock; blocks sensitive credential/payment steps).
 
 ### 🎨 Appearance and beautify
 
-Visual materials and motion are provided by [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine).
+Materials and motion are powered by [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine).
 
-#### Top and bottom bars
-
-| Feature | Description |
-| --- | --- |
-| Floating top / bottom bar | Turns the top or bottom bar into a floating capsule with a live-sampled glass material that shows the content beneath; personalised theme artwork blends in automatically. Slightly raises rendering load |
-| Glass material | The top and bottom bars can separately use soft light, transparent glass or liquid glass, with a choice of rendering mode |
-| Compact bottom bar / icon-only bottom bar | Require the floating bottom bar; shrink the capsule height, or hide labels and keep icons only; the two can be combined |
-| Touch glow | Touching a top-bar tab or bottom-bar icon blooms an adaptive glow that deforms in real time with your touch point |
-| Accent-colored tab badges | Requires the floating bottom bar; badges use the accent colour and digits automatically pick black or white for contrast |
-| Dim profile theme artwork `On by default` | Requires the floating bottom bar; dims the theme artwork behind the "My" page to improve text contrast |
-
-#### Pages and cards
-
-| Feature | Description |
-| --- | --- |
-| Host page background | Backgrounds for native pages including home, dynamic feeds, comments, details, profiles, history, favorites, search, messages and settings. Presets: Aurora, Sakura haze, Ocean glass, Peach sunset, Forest mist, Quiet starfield, Dream nebula, Meteor dusk, or a custom image; images stay on this device and settings backups include effects only |
-| Floating video cards | Adds large rounded corners and subtle soft shadows to recommendation and dynamic cards, with wider two-column spacing and screen-edge margins; recommendation corners are configurable from 0–40dp, dynamic cards use the 16dp preset. Located in advanced enhancement settings |
-| Card material | Sets the material of video, anime & film and dynamic cards together, original by default; requires Floating video cards |
-| Home card spacing | 0–40dp horizontally / vertically, blank keeps the default; usable on its own and affects only the home page |
-| Host UI power saving `On by default` | Reuses glass and card materials while scrolling to cut power use; occasionally a frame arrives late, so turn it off if it feels less smooth |
-
-#### Splash and module UI
-
-| Feature | Description |
-| --- | --- |
-| Clean up splash ads | Filters splash ads |
-| Skip brand splash | Skips Bilibili's brand display; the system launch screen still shows |
-| Official splash selection | Choose among the official splash screens provided in Bilibili's settings, including premium material (no digital collectible benefits); the material must finish downloading first, and it shows once "Skip brand splash" is off |
-| Match the splash screen to dark mode | The splash background follows dark / light mode (black / white), so switching from a dark UI no longer flashes white; the splash image and logo are unchanged |
-| Module UI | UI aesthetics are fixed to Soft light; "advanced material" adds liquid glass (full-screen live sampling by default), panel window blur and the SPEC 2025 colour specification are optional, with appearance settings collected under "Experimental features → Appearance" |
+- **Floating top / bottom bars**: Real-time sampled glass capsules (`Soft light`, `Clear glass`, `Liquid glass`), theme artwork blending, compact/icon-only bottom bar, touch glow bloom, accent badges and profile theme dimming (`On by default`).
+- **Page backgrounds & floating cards**: Built-in gradient presets or local custom images for native pages (images stay on device), plus configurable `0–40dp` card corner radius, spacing, card materials and `Interface power saving` (`On by default`).
+- **Splash & module UI**: Remove splash ads, skip brand splash, pick downloaded official splash assets, match splash background to dark mode and optionally enable liquid glass inside module settings.
 
 ### 🔒 Privacy and browsing
 
-| Feature | Description |
-| --- | --- |
-| Browse without login | When signed out, hides login prompts but keeps manual login; history, favorites and follows stay on this device; signed-in accounts are unaffected and video quality is limited to what guests can get; incognito takes priority when both are on |
-| Incognito mode | Uses a temporary guest session; turn it off and restart to get your account back. Session history, favorites and follows stay in memory and are discarded when the session ends; embedded pages stay offline so account web credentials are not reused; some live interactions and real-time updates are unavailable, and the server may still log visits |
-| Skip basic information and interest setup | When any browsing mode is on and you are a guest, skips the gender, age and interest selection and goes straight to the home page, without filling in any profile |
-| Clean up shared links | Removes tracking parameters from Bilibili links in the share panel link and share text, keeping only the page number and timestamp; **b23.tv short links are not expanded**, and no network request is made |
-| Share mini-program cards as plain links | When sharing to WeChat or QQ a plain link card is sent instead; when the title only contains the app name, the real video title is filled back in and no attribution text is appended |
-| Share to re-signed WeChat | Enable only if you trust the re-signed WeChat on this device. Keeps native friend and Moments sharing by skipping the WeChat certificate comparison for Bilibili's sharing instances; login and payment checks are unchanged. Supports audited Bilibili builds from 8.84.0 to 9.18.0; other builds keep their original behaviour |
-| Open external links in the system browser | Web pages outside Bilibili no longer open in the built-in browser; Bilibili domains plus payment and UnionPay gateways stay inside the app, and when no browser is available the original behaviour is kept |
+- **Browse without login / Incognito mode**: Hide login prompts while keeping manual login, store local history/favorites/follows on device (`Incognito` uses an ephemeral in-memory guest session and disconnects embedded webviews), and optionally skip guest onboarding questionnaires.
+- **Link & share hygiene**: Strip tracking query params cleanly offline without resolving `b23.tv` short links; send plain link cards instead of mini-programs; optional re-signed WeChat share compatibility (`8.84.0–9.18.0`); open external links in the system browser.
 
 ### 🧩 System and remote flags
 
-| Feature | Description |
-| --- | --- |
-| Disable client update prompts | Blocks the Bilibili client's own update reminder; this module's update checks are unaffected |
-| Disable the teen-mode prompt | Hides the teen mode notice page; teen mode's own state and rules are unchanged |
-| Show full numbers | Counts such as views and likes show the full value instead of abbreviations like "wan" and "yi" |
-| Show AV numbers instead of BV | Bilibili shows either an AV number or a BV number at the same place; enabling this always shows the AV number, and BV links in the body are still recognised and clickable |
-| Use the system media notification | Enables the background playback system media-style notification that Bilibili ships but has switched off in its gradual rollout |
-| Keep the legacy home frame | Blocks the remote flag that moves phones to the new home frame, so features built on the legacy home keep working; large screens are unaffected |
-| Freeze chosen remote flags | Pages and buttons are often switched by remote flags and can appear or vanish overnight. Scan the on/off flags Bilibili reads and tick the ones to pin, or write rules as `key=value`; Bilibili then reads those fixed values and every other flag stays untouched. Network, sign-in, risk-control and startup flags cannot be frozen. See [docs/cloud-key-freeze.md](docs/cloud-key-freeze.md) |
-| Block App component-library downloads | Pick the resource pools to block; blocked pools are no longer downloaded and Bilibili deletes what was already downloaded for them when it next refreshes its resource manifest, so the matching features lose their resources |
+Hide client update & teen-mode prompts, show exact un-abbreviated counts, always display AV numbers, unlock system media playback notifications, pin the legacy home frame, freeze individual boolean/custom remote flags (auth/network/risk-control keys stay protected) and block unwanted app component asset pools.
 
 ### 🌍 BiliRoaming version support extension
 
-Works together with an installed and enabled BiliRoaming module, and provides no accounts, access keys or network proxy services of its own. It does not and will not provide any server-side parsing; look elsewhere if you need that.
-
-When a newer Bilibili client changes its internal structure, an older BiliRoaming may fail to analyse it. Once the extension is enabled, this module repairs known problems and helps BiliRoaming rebuild a complete cache, so that its settings entry, page customisation and related features keep working on adapted versions:
-
-- Re-analyses when the cache is damaged, expired or the client version changes, and cuts repeated full analyses and cold-start waiting;
-- Adds a BiliRoaming settings entry on the "My" page;
-- Keeps switch state in sync between the module and BiliRoaming;
-- Handles app visibility and background launch restrictions in some MIUI/HyperOS environments;
-- Restores native behaviour once the feature is turned off.
-
-**Under NPatch 833**, when the APK contents, versions and manual rebuild generation of the host and BiliRoaming all match, a verified analysis cache is reused or restored, and an installation-time change caused only by re-patching needs no new full analysis; the first build, changed contents, a damaged cache or a manual rebuild still need analysis. First use "Check NPatch BiliRoaming cache" in the compatibility settings, and continue through the existing restart guide once a ready receipt arrives. A ready cache only means the analysis is done; it does not mean every BiliRoaming feature is in effect.
+Works alongside an enabled **BiliRoaming** module (provides no accounts, keys, proxies or server parsing of its own). Repairs known compatibility issues on newer Bilibili builds, helps rebuild and safely reuse verified caches across restarts or root-free updates, syncs switches, adds a settings entry on "My" and mitigates MIUI/HyperOS background restrictions.
 
 ### 🔧 Module management and maintenance
 
-| Feature | Description |
-| --- | --- |
-| Activation status | The module home page shows whether Xposed/LSPosed has activated it and, where available, the framework name and API version; if it shows as not activated, check the module switch, whether the scope includes Bilibili, and whether the target process has been restarted |
-| One-tap restart of Bilibili | Saves the current settings first, then restarts in the order Root → Shizuku → manual; when automatic restart is not possible it guides you to the system details page to force-stop, then confirms the reopen with a receipt from the current process |
-| Settings backup and restore | Exports module settings to a local file; before restoring, the file is validated and a compatibility preview is shown, and settings are written only after you confirm. App language, update channel, activation and scope state, logs and runtime caches are not included |
-| Diagnostics Center | Read-only diagnostics such as activation, framework service and per-feature installation and hit status, to help locate problems; diagnostics never carry body text, accounts, setting values or tokens |
-| Log settings | Log capture can be enabled independently and comes in "concise" and "full" levels: concise keeps notable errors and key runtime problems, while full adds hook registration, feature hits and interception information. Before publishing logs, check them yourself for client version, class names and runtime state |
-| Update check | Supports Stable, Preview (including Alpha) and Canary channels, each checked infrequently, with a fallback mirror when the network fails; the module never installs an APK silently in the background, and downloading, installing or using a test build is up to you |
-| Hide the launcher icon | Hides the module's launcher icon; the settings can still be reached from the LSPosed manager afterwards. If LSPosed has "force show launcher icon" enabled, turn that option off first |
-| App language | The module UI supports Follow system, 简体中文, 繁體中文 and English |
-| Predictive back animation `Experimental` | Going back from the module settings uses the system's predictive back transition preview. Android 14–15: an experimental switch; Android 16 and later: forced on by the system, so the switch is no longer shown (a saved preference is kept so old backups can be imported). Some vendor systems may modify or disable the animation |
+View live Xposed/LSPosed framework status, restart Bilibili via Root / Shizuku / guided manual stop, export and preview-validate local settings backups (secrets & consent stay excluded), inspect read-only Diagnostics & concise/full logs, check Stable / Preview (Alpha) / Canary updates, hide launcher icon, switch app language (`Follow system / 简体中文 / 繁體中文 / English`) and toggle Predictive Back (Android 14–15; system-managed on Android 16+).
 
-#### Automatic version adaptation
+#### Re-adapting after a Bilibili update
 
-After a Bilibili update, obfuscated class names, method signatures and page structures can change. The module relocates the entry points each feature needs from class structure, field types and method parameters, and caches the result; while the client version, APK and adaptation rules are unchanged, later launches use the cache directly. Each feature is installed and diagnosed independently.
-
-Automatic adaptation only covers client versions with a similar structure; after a heavy host refactor, some features have to wait for a module update.
-
-**If features stop working after upgrading Bilibili:**
-
-| Step | Action |
-| :---: | --- |
-| **1** | Open the module settings and go to "Experimental features → Compatibility" |
-| **2** | Choose "Re-adapt to the current version" and confirm clearing the records |
-| **3** | Restart Bilibili; the module relocates the feature entry points for the current version on the next launch |
+If an update changes obfuscated class names and causes features to stop responding: open **Experimental features → Compatibility**, tap **"Re-adapt to the current version"**, confirm and restart Bilibili.
 
 ---
 
@@ -569,57 +373,42 @@ Automatic adaptation only covers client versions with a similar structure; after
 
 | | **Stable** | **Alpha pre-release** | **Canary** |
 | --- | --- | --- | --- |
-| **Purpose** | Everyday use | Early validation of new features, adaptation to new clients and testing of compatibility fixes | Follows the latest `main` development for quick validation of new features and fixes |
-| **Update check** | The built-in check receives official Releases only by default | The Preview channel also compares official releases against Alpha pre-releases that follow the semantic version format | The Canary channel checks the most recent successful, unexpired Actions build produced by a `main` push |
-| **Where to get it** | [Latest release](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases/latest) | Alpha pre-releases in the [release list](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) | [Canary builds](https://github.com/jichuo1/Bilibili_Innocent_Lab/actions/workflows/canary-build.yml) or the [Telegram release channel](https://t.me/Bilibili_Innocent_LabRelease) |
-| **Recommendation** | ✅ Recommended for everyday use | May contain changes not yet widely validated; not recommended for long-term use on devices where you cannot export logs or restore an older version | Updated frequently with limited validation; for testing and feedback, prefer Stable for everyday use |
+| **Best for** | Everyday use | Testing new client adaptations & upcoming features | Following `main` commits & rapid bugfix verification |
+| **Source** | [Latest release](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases/latest) | Pre-releases on [Releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) | [Actions Canary](https://github.com/jichuo1/Bilibili_Innocent_Lab/actions/workflows/canary-build.yml) / [Telegram channel](https://t.me/Bilibili_Innocent_LabRelease) |
+| **Recommendation** | ✅ Recommended for most users | Expect rough edges; keep logs/backups ready | Frequent updates, minimal verification |
 
-**Getting Canary**: choose Canary in the module's "update channel"; once an update is found, download it through the Telegram or Actions entry in the prompt. When using Actions directly, pick a successful run, download the `Bilibili_Innocent_Lab-vX.Y.Z-canary.N-<short commit SHA>` archive from Artifacts, unzip it and install the APK inside; downloading requires a GitHub sign-in, build artifacts are kept for 30 days, and the archive also contains build information, a SHA-256 checksum file and the change log.
-
-**Release cadence**
-
-- **Alpha** is published to GitHub Releases through a workflow once the developer confirms it.
-- **Canary** is built automatically after a push to `main` and can also be triggered manually; artifacts are kept in Actions.
-- The **Telegram release channel** syncs the latest Canary that passed its checks every day at 22:00 Beijing time; it is skipped when a manual run happened that day, one was already delivered that day, or the build is identical to the last release, and the developer can also pick a successful build to sync manually at any time. Scheduled runs may queue, so the channel version can lag behind the newest Actions build.
-- **Version numbering**: Alpha and Canary both use the next patch version after the current stable one as their prefix. For example, while stable is `1.2.0`, Alpha uses `1.2.1-alpha.N` and Canary uses `1.2.1-canary.N` (Canary's `N` is the build sequence number). After `1.2.1` is released, development versions move on to the `1.2.2` prefix.
+Canary builds are synced nightly at 22:00 UTC+8 to the Telegram channel when a new verified build is available, and GitHub Actions artifacts remain downloadable for 30 days with SHA-256 checksums.
 
 ---
 
 ## FAQ
 
-| Question | How to troubleshoot |
+| Question | Quick fix |
 | --- | --- |
-| The module shows as not activated | Make sure LSPosed has this module enabled and the scope includes the official Bilibili client; after changing the scope, restart the target app and reboot the device if needed |
-| The host cold-starts very slowly, or the module cannot communicate with it | Try turning off host hiding in HMA-OSS |
-| The libxposed service is not detected in a twin app | The framework delivers the service per Android user: install the module and enable it for the user running the twin client in the manager as well, then open the module settings once. Renamed clones and VirtualApp-style containers are out of scope, see [Cloning and multi-user](#cloning-and-multi-user) |
-| A switch is on but the feature does not work | Force-stop and restart Bilibili first; right after a client upgrade try "re-adapt to the current version"; after the BiliRoaming extension's first analysis, check the cache status first and then restart as the ready prompt says |
-| Long-pressing a comment does not show the free copy bubble | Make sure the comment free copy switch is on and the current page is an adapted official comment section; if only a few comments fail, note the comment type, whether it has images, whether it is in a reply list, and the client version |
-| Images cannot be opened after using free copy | The current version specifically protects the media container of comments with images; check that you are on the latest build and fully restart the Bilibili process. If it still reproduces, describe the order of operations and the delay between closing the bubble and tapping the image |
-| Text cannot be selected or copied inside the bubble | Make sure no other module also hooks the system clipboard, the text selection toolbar or PopupWindow; some vendor systems deeply customise the text selection component — if it crashes, provide the system version and the crash log |
-| The home carousel still appears | The home layout can be affected by account experiment groups; provide the client version, a screenshot of the home layout and full logs, rather than only describing the feature as "not working" |
-| The BiliRoaming extension is enabled but problems persist | Provide the versions of Bilibili, BiliRoaming, this module, LSPosed (including the branch) and Android/ROM, the cache check result and number of restarts, and the relevant LSPosed logs for the target main process |
-| What to do about conflicts with other modules | When several modules modify the comment section, video detail page, clipboard, theme attributes or the BiliRoaming cache at the same time, execution-order conflicts can occur; temporarily disable the other modules and reproduce with only this one, then restore them one by one once this module alone behaves correctly |
+| Module shows "Not activated" | Verify the module is enabled in LSPosed, `tv.danmaku.bili` is ticked in scope, and Bilibili was force-stopped and reopened (reboot if needed). |
+| Very slow startup or communication failure | Turn off hiding for Bilibili / this module in HMA-OSS and test again. |
+| Twin app lacks framework service | Install and enable the module inside the twin user profile too, open module settings once there, then restart the twin client. |
+| Switch is on with no effect | Force-stop & restart Bilibili; after client upgrades run "Re-adapt to the current version"; with BiliRoaming, confirm cache readiness first. |
+| Free copy doesn't open / blocks image taps | Ensure free copy is enabled and you're on the latest build; check for conflicts with other clipboard/PopupWindow modules. |
+| Conflict with other modules | Reproduce with only this module enabled first, then re-enable other modules one by one. |
 
 ---
 
 ## Reporting issues
 
-Before filing an issue, please carry out the following checks where possible; clear, reproducible steps are far easier to act on than a bare "it does not work":
+Before opening an issue, please try to include:
 
-1. Use the latest stable version, or state which Alpha / Canary version you are running with the matching release or build link;
-2. Confirm the problem still reproduces with only this module enabled;
-3. Note the versions of Bilibili, Android, LSPosed and the module;
-4. Describe the state of the specific feature switches;
-5. Give the full sequence of steps from entering the page to the problem appearing;
-6. Attach screenshots, screen recordings or LSPosed logs where necessary;
-7. For crashes, provide the full stack trace from the crash buffer where possible;
-8. **Do not publicly upload accounts, cookies, access keys or other personal sensitive data.**
+1. Exact module version (latest Stable, or the Alpha/Canary build tag);
+2. Confirmation that the bug still reproduces with only this module active;
+3. Bilibili, Android, LSPosed/patch manager versions and active toggle states;
+4. Step-by-step reproduction steps, screenshots/recordings and LSPosed logs (or crash stack traces);
+5. **Never upload accounts, cookies, `access_key`, API keys or sensitive personal data.**
 
 ---
 
 ## Notices and disclaimers
 
-This chapter collects the project statements, the privacy note and the disclaimers in one place. **Please read it in full before downloading, installing, compiling, distributing or using this project.**
+Read this section carefully before downloading, installing, compiling, distributing or using the project.
 
 ### Project statements
 
@@ -629,19 +418,16 @@ This chapter collects the project statements, the privacy note and the disclaime
 
 ### Privacy
 
-The module's logic runs mainly on the local device and inside the target app process. Runtime logs are written to the LSPosed log system, and the update check fetches GitHub Release information. The module does not log in to Bilibili on your behalf and never asks you to send account credentials to this project.
-
-Before exporting or sharing logs, you should still check them yourself for video links, device information, app versions or anything else you would rather not make public.
+All core processing runs locally on your device. Logs go to the local LSPosed buffer and update checks query GitHub Releases metadata; the module never transmits your Bilibili credentials, cookies or BYO API keys. Review exported logs for links or device identifiers before sharing publicly.
 
 ### Disclaimer
 
-This project is an unofficial, non-commercial personal study and research project, and has no affiliation, authorisation, cooperation or endorsement relationship with Bilibili or its affiliates.
+This is an unofficial, non-commercial personal research project with no affiliation, sponsorship or endorsement from Bilibili. Runtime hooks alter app behaviour and depend on client builds, system policies, ROMs and account experiments; you assume responsibility for testing, backups and compliant usage.
 
-Using an Xposed/LSPosed module can change how the target app behaves and may be affected by client updates, system security policy, vendor ROMs, account experiment groups or other modules. You should assess the risk yourself and take responsibility for installation, enabling, data backup and your device environment.
+<details>
+<summary><b>Read full Additional Disclaimer and Risk Notice (15 clauses)</b></summary>
 
-This project provides no content resources, takes no part in account trading, offers no access credentials, and does not guarantee the availability of third-party extension services. Use it in compliance with the laws of your jurisdiction, the target platform's rules and the applicable open-source licences.
-
-### Additional Disclaimer and Risk Notice
+<br>
 
 > **Important: please read this notice in full before downloading, installing, compiling, distributing or using this project.**  
 > This notice explains the nature of the project, the risks of use and the boundaries of responsibility, and does not constitute formal legal advice for any individual, organisation or jurisdiction. If you plan to use this project for public distribution, organisational operation, commercial activity or other scenarios with higher legal risk, consult a suitably qualified professional. If you disagree with any part of this notice, stop downloading, installing, compiling, distributing or using this project immediately.
@@ -819,79 +605,75 @@ Before downloading, installing, compiling, modifying, distributing or using this
 
 If you cannot accept these risks, do not install, enable or continue to use this project.
 
+</details>
+
 ---
 
 ## For developers
 
+Technical notes for contributors, builders and maintainers.
+
 <details>
-<summary><b>Building</b></summary>
+<summary><b>Building and local verification gates</b></summary>
 
 <br>
 
-The Gradle project lives in `Bilibili_Innocent_Lab/`, which differs from the repository root.
+The Gradle project lives in [`Bilibili_Innocent_Lab/`](Bilibili_Innocent_Lab) and includes Rust (`danmaku-wire`) and C++/Vulkan (`frame_window`) native modules.
 
-**Build a debug APK**
-
-Windows PowerShell:
+**Common commands (Windows PowerShell; use `./gradlew` on Linux/macOS)**
 
 ```powershell
 cd Bilibili_Innocent_Lab
-.\gradlew.bat assembleDebug --console=plain --no-daemon
+
+# Query source-contract tests affected by current working-tree edits
+.\gradlew.bat :app:contractsFor '-PinnocentLab.contractTarget=changed' --console=plain --no-daemon
+
+# Full verification gate (Debug APK + unit/contract tests + full Lint + Release R8 check)
+.\gradlew.bat assembleDebug testDebugUnitTest lintDebug minifyReleaseWithR8 --continue --console=plain --no-daemon
 ```
 
-Linux / macOS:
-
-```bash
-cd Bilibili_Innocent_Lab
-./gradlew assembleDebug --console=plain --no-daemon
-```
-
-**Run the JVM unit tests**
-
-```powershell
-.\gradlew.bat testDebugUnitTest --console=plain --no-daemon
-```
-
-**Run lint**
-
-Use the fast check during local iteration:
-
-```powershell
-.\gradlew.bat :app:lintFast --console=plain --no-daemon
-```
-
-The fast check enables the same rules as the full check; it differs only in its report directory and the tasks it may run alongside. Test sources are verified by compilation and tests, and are excluded from Lint. Before committing and in CI, run:
-
-```powershell
-.\gradlew.bat :app:lintDebug --console=plain --no-daemon
-```
-
-Fast reports are saved under `app/build/reports/lint/fast/`, and full reports under `app/build/reports/lint/full/`; both HTML files are named `lint-results-debug.html`. Use full task names. Only `assembleDebug`, `assembleDebugAndroidTest`, and `testDebugUnitTest` may accompany `lintFast`; run other tasks and full gates separately. On Linux / macOS, use `./gradlew` with the same tasks.
-
-Use `--no-daemon` consistently while retaining dependency and task caches. Avoid routine `clean`. Add `--offline` when dependencies are cached.
-
-**Verifying the artifact**
-
-The debug APK is written to `Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk`.
-
-Confirm that Gradle completed successfully and use the APK from that build. `UP-TO-DATE` and `FROM-CACHE` are valid incremental results; APK modification time alone does not prove whether an artifact includes the current inputs. After installation, compare the SHA-256 of the local APK with the installed `base.apk` to confirm that the intended artifact was installed.
+- **Fast Lint**: Run `.\gradlew.bat :app:lintFast --console=plain --no-daemon` during day-to-day iteration (same ruleset as `lintDebug`, writing reports to `app/build/reports/lint/fast/`). Always pass `--no-daemon`, retain Gradle caches and avoid routine `clean`.
+- **Artifact check**: The debug APK is output to `Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk`. After device installation, compare SHA-256 against the installed `base.apk`. Release/embedded signing tasks remain gated behind fixed signing credentials.
 
 </details>
 
 <details>
-<summary><b>Performance and compatibility design</b></summary>
+<summary><b>Test layers and source contracts</b></summary>
 
 <br>
 
-The module's hooks run inside the target app process, so high-frequency callbacks only do the minimum lightweight checks.
+`testDebugUnitTest` executes two distinct source layers together:
 
-| Aspect | Approach |
-| --- | --- |
-| **Hot paths and scheduling** | Fast-return conditions on scrolling, touch and text-binding paths; comment binding uses idle scheduling and batching |
-| **Caching and lifecycle** | Methods and fields obtained through reflection are cached where possible; pages, dialogs and comment views are held through weak references; asynchronous tasks hold only the Application Context; adaptation results for a new version are written to a cache so scanning is not repeated on every launch |
-| **Compatibility and exemptions** | Cross-process switch reads have several fallback levels; identity or origin exemptions are set for the module's own dialogs, the system selection handles and host media containers; explicit configuration is used for window, status bar and theme attributes that differ markedly between ROMs |
+| Layer | Directory | Purpose & filter |
+| --- | --- | --- |
+| **Behavior unit tests** | `app/src/test/java` | Catalog snapshots, filters, protocol codecs, state machines and fallback boundaries (`-PinnocentLab.testLayer=unit`) |
+| **Source contract tests** | `app/src/contractTest/java` | Strict anchor guards over host wrappers, lifecycle cleanup, hot paths and library delegations (`-PinnocentLab.testLayer=contract`) |
 
-For entry points with a wide blast radius such as PopupWindow, Dialog, the clipboard, broadcasts and touch events, the module steps in only when object identity, call origin and gesture lifecycle all match, avoiding interference with image previews, system text selection and other host features.
+- Run `:app:contractsFor -PinnocentLab.contractTarget=<File.kt|symbol>` before modifying production code;
+- `SourceContract` fails loudly when `after`/`before` anchors disappear rather than falling back to the full file;
+- `.github/release-templates/run_gradle_gates.py` enforces non-empty, 100%-reported coverage across both `unit` and `contract` layers plus zero effective Lint errors.
+
+</details>
+
+<details>
+<summary><b>Hook runtime and performance boundaries</b></summary>
+
+<br>
+
+- **Framework & stack**: Uses Modern Xposed API (API 102) with the Meguviz library suite (`MeguvizRef`, `MeguvizUI`, `MeguvizAndroid`, `MeguvizMedia`) and [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine).
+- **Zero-blocking hot paths**: Resolved `Class`/`Field`/`Method` handles are cached during background adaptation so scroll, touch, binding and hook callbacks perform no disk, network, IPC or global DEX scans.
+- **Lifecycle & isolation**: Views, Activities, Dialogs and Bindings are weakly held or explicitly detached; Protobuf rewrites copy only modified messages while keeping unknown fields; asynchronous/UI host entries route through `HostThreadGuard` to fail open safely.
+
+</details>
+
+<details>
+<summary><b>Adaptation cache & root-free tooling</b></summary>
+
+<br>
+
+- **Structure relocation**: `VersionAdapter` locates obfuscated targets by structural signatures and bounded DexKit fallbacks, persists fingerprinted caches and tracks each feature family independently.
+- **Root-free config boundaries**: Both NPatch and LSPatch Manager channels enforce signature, version and terms consent checks before installing hooks without trusting stale unverified caches.
+- **Patching utilities**: Local NPatch build/signing scripts and baselines are documented in [scripts/npatch/README.md](scripts/npatch/README.md).
 
 </details>
 
@@ -911,7 +693,7 @@ Third-party components, frameworks and code used by or compatible with the proje
 - [MeguvizRef](https://github.com/jichuo1/MeguvizRef) (reflection and member lookup, Apache-2.0)
 - [MeguvizUI](https://github.com/jichuo1/MeguvizUI) (native View UI construction, Apache-2.0)
 - [MeguvizAndroid](https://github.com/jichuo1/MeguvizAndroid) (Android runtime and window foundations, Apache-2.0)
-- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine) (visual materials and motion for host and module surfaces, Apache-2.0)
+- [Lumen Coacervation Engine](https://github.com/jichuo1/LumenCoacervationEngine) (visual materials and motion for client and module surfaces, Apache-2.0)
 - [BBZQ](https://github.com/HSSkyBoy/BBZQ)
 - The Xposed / LSPosed community
 - The Android Open Source Project and related developer documentation
