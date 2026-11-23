@@ -115,7 +115,11 @@ internal enum class DexAssistQuery {
     /** Native bottom content scope, before the full-size row and its tabs are composed. */
     HOME_CHROME_BOTTOM_CONTENT,
     /** Canonical Compose semantics keys: initializer constants plus runtime key-name verification. */
-    HOME_CHROME_SEMANTICS
+    HOME_CHROME_SEMANTICS,
+    /** Compose comment more-menu rows across bubble, grouped sheet/panel and legacy layouts. */
+    COMMENT_COMPOSE_MORE_MENU,
+    /** KMP GrpcEngine wire dispatch entry taking method descriptor, payload bytes and byte handler. */
+    KMP_GRPC_WIRE_ENGINE
 }
 
 internal sealed interface DexAssistResult {

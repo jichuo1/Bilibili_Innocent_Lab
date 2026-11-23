@@ -115,6 +115,67 @@ class KotlinMossChannelTest {
         assertSame(root, seen[2].second)
     }
 
+    private class LegacyMossEndpoint {
+        @Suppress("UNUSED_PARAMETER")
+        fun mainList(
+            request: Any,
+            serializer: SerializationStrategy<Any>,
+            decoder: DeserializationStrategy<Any>,
+            handler: KotlinMossResponseHandlerProxyCases.Handler
+        ) = Unit
+    }
+
+    private class LegacySerializer : SerializationStrategy<Any>, DeserializationStrategy<Any>
+
+    fun `legacy four parameter callback entry falls back to default ProtoBuf`() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val registrar = PlayerPortTestRegistrar()
+        val environment = HookEnvironment(
+            "tv.danmaku.bili",
+            loader,
+            HookPointRegistry(loader),
+            registrar,
+            { _, _ -> },
+            { _, _ -> },
+            { _, _ -> }
+        )
+        val members = KotlinMossBridgeMembers.resolve(loader)!!
+        val entry = KotlinMossBridgeMembers.legacyCallbackEntry(LegacyMossEndpoint::class.java, "mainList")
+        assertNotNull(entry)
+        assertTrue(
+            KotlinMossChannel.install(
+                environment = environment,
+                loader = loader,
+                members = members,
+                javaMossClassName = "kmossfixture.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = KotlinMossReplyBridgeTest.FakeJavaReply::class.java,
+                hookId = "channel.legacy",
+                what = "legacy",
+                logKey = "legacy",
+                javaRequestClass = KotlinMossReplyBridgeTest.FakeJavaReply::class.java,
+                transformRequest = { req ->
+                    KotlinMossReplyBridgeTest.FakeJavaReply((req as KotlinMossReplyBridgeTest.FakeJavaReply).text + "|req")
+                },
+                resolvedEntry = entry
+            ) { reply ->
+                KotlinMossReplyBridgeTest.FakeJavaReply((reply as KotlinMossReplyBridgeTest.FakeJavaReply).text + "|resp")
+            }
+        )
+        val serializer = LegacySerializer()
+        var delivered: Any? = null
+        val sink = object : KotlinMossResponseHandlerProxyCases.Handler {
+            override fun onNext(reply: Any?) { delivered = reply }
+        }
+        val args = arrayOf<Any?>("in", serializer, serializer, sink)
+        registrar.invoke("channel.legacy", args = args) { modified ->
+            assertEquals("K:K:in|req", modified[0])
+            (modified[3] as KotlinMossResponseHandlerProxyCases.Handler).onNext("orig")
+            null
+        }
+        assertEquals("K:K:orig|resp", delivered)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (KotlinMossChannelTest) -> Unit) {
@@ -127,6 +188,7 @@ class KotlinMossChannelTest {
         runIsolated { s -> s.`a non removable single only has its children filtered`() }
         runIsolated { s -> s.`getter filters are bypassed while reading raw lists`() }
         runIsolated { s -> s.`owner aware decision sees the message that holds each batch`() }
+        runIsolated { s -> s.`legacy four parameter callback entry falls back to default ProtoBuf`() }
     
         KotlinMossResponseHandlerProxyCases().verifyAllCases()
         LiveHomePromotionFeatureInstallerCases().verifyAllCases()

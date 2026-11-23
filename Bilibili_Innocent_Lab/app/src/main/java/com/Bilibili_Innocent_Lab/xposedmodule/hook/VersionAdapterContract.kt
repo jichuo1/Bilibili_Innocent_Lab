@@ -91,7 +91,8 @@ internal object VersionAdapterContract {
      *  只加不改 JSON 形状，不抬 SCHEMA。 */
     /** 90 → 91：局部 Root/Hook 结果新增后台语义定位与可选缓存键，快路径必须重新验真后才能注册。 */
     /** 91 → 92：9.20.0 三构建（9200100/9200200/9200300）ReplyInfo -> CommentItem 根包映射器搬迁入库，抬 rule 使已缓存缺失结论重定位。 */
-    const val RULE_VERSION = 92
+    /** 92 → 93：新增 Compose 更多菜单与 KMP GrpcEngine 线格式可选缓存键及 DexMeguviz 兜底查询，旧缓存缺键降级、不抬 schema。 */
+    const val RULE_VERSION = 93
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

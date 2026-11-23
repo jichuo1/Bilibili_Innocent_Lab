@@ -2,9 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
@@ -56,6 +58,7 @@ internal object DexMeguvizQueries {
                 addInvoke(StoryQualityLocator.DEFAULT_HELPER, "getDefaultQuality", "int") { paramCount(0) }
             }
         )
+        DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> composeMenuRules()
         DexAssistQuery.COMMENT_REPLY_MAPPER -> listOf(
             rule { configure(query) },
             rule {
@@ -242,9 +245,15 @@ internal object DexMeguvizQueries {
                 paramCount(2)
                 addInvoke(name = "getScriptPace", returnType = "float") { paramCount(0) }
             }
+            DexAssistQuery.KMP_GRPC_WIRE_ENGINE -> {
+                returnType = "void"
+                paramCount(4..6)
+                strings(*KmpGrpcWireAdapter.ENTRY_MARKS.toTypedArray())
+            }
             DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT,
             DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY,
-            DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS -> error("Expected a multi-rule query")
+            DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS,
+            DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> error("Expected a multi-rule query")
         }
     }
 
@@ -252,6 +261,55 @@ internal object DexMeguvizQueries {
         val family = HomeChromeAdapter.families.getValue(query)
         within(HomeChromeAdapter.ownerPackage(family), HomeChromeAdapter.repackagedOwners(family))
     }
+
+    private fun composeMenuRules(): List<ByteArray> = listOf(
+        rule {
+            modifiers(Modifier.STATIC)
+            returnType = "void"
+            params("java.util.List", "kotlin.jvm.functions.Function1", "androidx.compose.runtime.Composer", "int")
+            strings(CommentComposeMenuAdapter.BUBBLE_TRACE_MARK, contains = true)
+        },
+        rule {
+            modifiers(Modifier.STATIC)
+            returnType = "void"
+            params(
+                "java.util.List",
+                "kotlin.jvm.functions.Function1",
+                "androidx.compose.ui.Modifier",
+                "androidx.compose.foundation.layout.PaddingValues",
+                "androidx.compose.runtime.Composer",
+                "int",
+                "int"
+            )
+            strings(CommentComposeMenuAdapter.GROUPED_TRACE_MARK, contains = true)
+        },
+        rule {
+            within("kntr.common.comment")
+            modifiers(Modifier.STATIC)
+            returnType = "void"
+            params(
+                "java.util.List",
+                "kotlin.jvm.functions.Function1",
+                "androidx.compose.ui.Modifier",
+                "androidx.compose.foundation.layout.PaddingValues",
+                "androidx.compose.runtime.Composer",
+                "int",
+                "int"
+            )
+        },
+        rule {
+            modifiers(Modifier.STATIC)
+            returnType = "void"
+            paramCount(6)
+            strings(CommentComposeMenuAdapter.GROUPED_ITEM_TRACE_MARK, contains = true)
+        },
+        rule {
+            modifiers(Modifier.STATIC)
+            returnType = "void"
+            paramCount(8..9)
+            strings(CommentComposeMenuAdapter.LEGACY_TRACE_MARK, contains = true)
+        }
+    )
 
     private fun speedMenuRules(): List<ByteArray> =
         listOf("java.util.List", "java.util.ArrayList").flatMap { clearOwner ->

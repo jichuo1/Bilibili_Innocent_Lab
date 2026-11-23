@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import io.github.jichuo1.meguviz.android.extensions.child
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
@@ -21,7 +22,8 @@ internal class CommentPurifyFeatureInstaller(
     private val removeQoe: Boolean,
     private val removeOperations: Boolean,
     private val blockQuickReply: Boolean = false,
-    private val points: VersionAdapter.CommentPurifyPoints?
+    private val points: VersionAdapter.CommentPurifyPoints?,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -517,7 +519,6 @@ internal class CommentPurifyFeatureInstaller(
         val loader = environment.classLoader ?: return skip("no-class-loader")
         val replyInfoClass = KavaMemberLookup.classOrNull(loader, "$REPLY_PACKAGE.ReplyInfo")
             ?: return skip("no-reply-info")
-        val members = KotlinMossChannel.prepare(environment, loader, "评论净化", KMOSS_LOG_KEY) ?: return skip("no-bridge")
         val payloads = buildMap {
             if (removeQoe) put("Qoe", "comments_qoe_removed")
             if (removeOperations) {
@@ -557,6 +558,44 @@ internal class CommentPurifyFeatureInstaller(
             } else {
                 null
             }
+        val confirmedTransform: (Any) -> KotlinMossResponseHandlerProxy.ConfirmedReply = { javaReply ->
+            val pending = ArrayList<Pair<String, Int>>(4)
+            val previous = appliedSink.get()
+            appliedSink.set(pending)
+            val updated = try { purifier.purify(javaReply) } finally {
+                if (previous == null) appliedSink.remove() else appliedSink.set(previous)
+            }
+            KotlinMossResponseHandlerProxy.ConfirmedReply(updated) {
+                pending.forEach { (capability, count) -> environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED, count) }
+            }
+        }
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        if (wireSurface != null) {
+            var wireHooks = 0
+            KMOSS_RPCS.forEach { (rpc, replyName) ->
+                val replyClass = KavaMemberLookup.classOrNull(loader, "$REPLY_PACKAGE.$replyName")
+                    ?: return@forEach skip("no-reply-class:$rpc")
+                val rewriteRequest = rpc == "mainList" && requestTransform != null
+                val installed = KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = "$REPLY_PACKAGE.ReplyMoss",
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    what = "评论净化",
+                    logKey = KMOSS_LOG_KEY,
+                    javaRequestClass = mainListReq?.takeIf { rewriteRequest },
+                    transformRequest = requestTransform?.takeIf { rewriteRequest },
+                    confirmedTransform = confirmedTransform
+                ) { it }
+                if (installed) wireHooks += 1
+            }
+            if (wireHooks > 0) {
+                environment.logInfo("comment_purify_kmoss", "[BIL] 评论净化：线格式通道 $wireHooks 个")
+                return
+            }
+        }
+        val members = KotlinMossChannel.prepare(environment, loader, "评论净化", KMOSS_LOG_KEY) ?: return skip("no-bridge")
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->
             val replyClass = KavaMemberLookup.classOrNull(loader, "$REPLY_PACKAGE.$replyName")
@@ -573,17 +612,7 @@ internal class CommentPurifyFeatureInstaller(
                 javaRequestClass = mainListReq?.takeIf { rewriteRequest },
                 transformRequest = requestTransform?.takeIf { rewriteRequest },
                 shareUnchangedReply = true,
-                confirmedTransform = { javaReply ->
-                    val pending = ArrayList<Pair<String, Int>>(4)
-                    val previous = appliedSink.get()
-                    appliedSink.set(pending)
-                    val updated = try { purifier.purify(javaReply) } finally {
-                        if (previous == null) appliedSink.remove() else appliedSink.set(previous)
-                    }
-                    KotlinMossResponseHandlerProxy.ConfirmedReply(updated) {
-                        pending.forEach { (capability, count) -> environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED, count) }
-                    }
-                }
+                confirmedTransform = confirmedTransform
             ) { it }
             if (installed) hooks += 1
         }

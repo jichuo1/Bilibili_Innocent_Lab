@@ -80,11 +80,20 @@ internal object KotlinMossChannel {
             return false
         }
         val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(javaMossClassName) ?: return skip("no-kotlin-name")
-        if (resolvedEntry != null && !KotlinMossBridgeMembers.isCallbackEntry(resolvedEntry)) return skip("invalid-adapted-entry")
+        if (resolvedEntry != null &&
+            !KotlinMossBridgeMembers.isCallbackEntry(resolvedEntry) &&
+            !KotlinMossBridgeMembers.isLegacyCallbackEntry(resolvedEntry)
+        ) return skip("invalid-adapted-entry")
         val kotlinMoss = resolvedEntry?.declaringClass ?: KavaMemberLookup.classOrNull(loader, kotlinName)
             ?: return skip("no-kotlin-moss")
         val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(javaReplyClass) ?: return skip("no-java-codec")
-        val entry = resolvedEntry ?: KotlinMossBridgeMembers.callbackEntry(kotlinMoss, rpc) ?: return skip("no-callback-entry")
+        val entry = resolvedEntry
+            ?: KotlinMossBridgeMembers.callbackEntry(kotlinMoss, rpc)
+            ?: KotlinMossBridgeMembers.legacyCallbackEntry(kotlinMoss, rpc)
+            ?: return skip("no-callback-entry")
+        val hasProtoBufParam = entry.parameterCount >= 5
+        val fallbackProtoBuf = if (hasProtoBufParam) null else members.defaultProtoBuf()
+            ?: return skip("no-default-protobuf")
         val handlerClass = entry.parameterTypes[3]
         val requestCodec = javaRequestClass?.takeIf { transformRequest != null }
             ?.let { KotlinMossBridgeMembers.JavaReplyCodec.resolve(it) ?: return skip("no-java-request-codec") }
@@ -97,10 +106,11 @@ internal object KotlinMossChannel {
                     if (called.compareAndSet(false, true)) {
                         environment.logInfo("${logKey}_call", "[BIL] $what 新通道请求已进入 ${kotlinMoss.simpleName}#${entry.name}")
                     }
+                    val protoBuf = if (hasProtoBufParam) args.getOrNull(4) else fallbackProtoBuf
                     if (requestCodec != null && transformRequest != null) {
                         val request = args.getOrNull(0)
                         // 请求的生成 `$serializer` 同时是序列化与反序列化策略，可以原样往返。
-                        val requestBridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(1), requestCodec)
+                        val requestBridge = members.bridgeFor(protoBuf, args.getOrNull(1), requestCodec)
                         if (request != null && requestBridge != null) {
                             runCatching { requestBridge.transform(request, transformRequest) }
                                 .onSuccess { updated -> if (updated !== request) args[0] = updated }
@@ -115,7 +125,8 @@ internal object KotlinMossChannel {
                         }
                     }
                     val delegate = args.getOrNull(3) ?: return@before
-                    val bridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(2), codec) ?: return@before
+                    val serializer = args.getOrNull(2) ?: return@before
+                    val bridge = members.bridgeFor(protoBuf, serializer, codec) ?: return@before
                     val failed: (Throwable) -> Unit = { throwable ->
                         if (failedLogged.compareAndSet(false, true)) {
                             environment.logError("${logKey}_failed",
@@ -123,7 +134,8 @@ internal object KotlinMossChannel {
                         }
                     }
                     val proxy = if (shareUnchangedReply || confirmedTransform != null) {
-                        val key = KotlinMossResponseHandlerProxy.Key(entry, javaReplyClass, args[4]!!, args[2]!!)
+                        val safeProtoBuf = protoBuf ?: return@before
+                        val key = KotlinMossResponseHandlerProxy.Key(entry, javaReplyClass, safeProtoBuf, serializer)
                         KotlinMossResponseHandlerProxy.wrap(handlerClass, delegate, key, bridge, failed, transformJava, confirmedTransform)
                     } else MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) { reply ->
                         runCatching { bridge.transform(reply, transformJava) }.getOrElse { throwable ->

@@ -3931,7 +3931,8 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
                             false
                         ),
-                        points = hostAdaptResult?.commentPurify
+                        points = hostAdaptResult?.commentPurify,
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     )
                 )
             )
@@ -3994,7 +3995,8 @@ class HookEntry : XposedModule() {
                             rawWhitelist = prefs.getString(FeaturePreferences.COMMENT_FISH_WHITELIST, "").orEmpty(),
                             protectHighLevel = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, true),
                             strongMode = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_STRONG_MODE, false)
-                        )
+                        ),
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     )
                 )
             )
@@ -4158,7 +4160,9 @@ class HookEntry : XposedModule() {
                         enabled = commentTopologyEnabled,
                         points = hostAdaptResult?.commentTopology,
                         lowBindPoint = hostAdaptResult?.commentLow,
-                        highBindPoint = hostAdaptResult?.commentHigh
+                        highBindPoint = hostAdaptResult?.commentHigh,
+                        composeMenuPoints = hostAdaptResult?.commentComposeMenu,
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     )
             featureInstallCoordinator.installAll(listOf(commentTopologyInstaller))
 
@@ -5336,15 +5340,19 @@ class HookEntry : XposedModule() {
                                                 featureInstallCoordinator.installAll(listOf(endPageInstaller))
                                         }
                                     }
-                                    if (commentTopologyInstaller.requiresAdaptationRetry) {
+                                    if (commentTopologyInstaller.requiresAdaptationRetry || commentTopologyInstaller.requiresComposeAdaptationRetry) {
                                         commentTopologyInstaller.updateAdaptedPoints(
                                             points = adapted?.commentTopology,
                                             lowBindPoint = adapted?.commentLow,
-                                            highBindPoint = adapted?.commentHigh
+                                            highBindPoint = adapted?.commentHigh,
+                                            composeMenuPoints = adapted?.commentComposeMenu,
+                                            kmpGrpcWireEngine = adapted?.kmpGrpcWireEngine
                                         )
                                         hookEnvironment.postToMain?.invoke {
                                             if (commentTopologyInstaller.requiresAdaptationRetry) {
                                                 featureInstallCoordinator.installAll(listOf(commentTopologyInstaller))
+                                            } else if (commentTopologyInstaller.requiresComposeAdaptationRetry) {
+                                                commentTopologyInstaller.retryComposeInstallIfNeeded(hookEnvironment)
                                             }
                                         }
                                     }
@@ -5406,6 +5414,17 @@ class HookEntry : XposedModule() {
                         weChatShareEnabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
                         blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
+                        kmpGrpcWireEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_AT_ONLY_COMMENTS, false) ||
+                            prefs.getBoolean(FeaturePreferences.COMMENT_USER_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.COMMENT_FISH_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_QOE, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_OPERATIONS, false),
                         plan = adaptPlan
                     ) }
                 }.onFailure { throwable ->

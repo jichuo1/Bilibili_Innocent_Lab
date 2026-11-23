@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Method
@@ -42,7 +43,8 @@ internal class CommentFilterFeatureInstaller(
     fishFilter: FishScorePolicy.Config = FishScorePolicy.Config.DISABLED,
     /** 主线程上不做同步联网；单测可替换。 */
     private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
-    private val fishVideoMetadata: FishVideoMetadata? = if (fishFilter.enabled) FishVideoMetadata() else null
+    private val fishVideoMetadata: FishVideoMetadata? = if (fishFilter.enabled) FishVideoMetadata() else null,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -493,10 +495,45 @@ internal class CommentFilterFeatureInstaller(
         val replyInfoClass = accessors.content?.declaringClass ?: return skip("no-reply-info")
         val loader = replyInfoClass.classLoader ?: return skip("no-class-loader")
         val packageName = replyInfoClass.name.substringBeforeLast('.')
-        val members = KotlinMossChannel.prepare(environment, loader, "评论过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
         val rewriter = kotlinRewriter(replyInfoClass, "mainList")
         val singleRewriter = kotlinRewriter(replyInfoClass, "replyInfo")
         val readers = ConcurrentHashMap<Class<*>, List<Method>>()
+        fun transformFor(rpcRewriter: ProtobufReplyTreeRewriter): (Any) -> KotlinMossResponseHandlerProxy.ConfirmedReply = { javaReply ->
+            observePeers(javaReply, accessors, peerSource)
+            prewarmSemantic(javaReply, replyInfoClass, accessors, plan, readers)
+            val snapshots = if (plan.fish != null) fishSnapshots() else null
+            val result = rpcRewriter.rewrite(javaReply) { replies, owner ->
+                kotlinDecide(environment, replies, accessors, plan, owner, videoIdentity, peerSource, snapshots)
+            }
+            KotlinMossResponseHandlerProxy.ConfirmedReply(result.message) {
+                if (result.removed > 0) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, result.removed)
+            }
+        }
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        if (wireSurface != null) {
+            var wireHooks = 0
+            KMOSS_RPCS.forEach { (rpc, replyName) ->
+                val replyClass = KavaMemberLookup.classOrNull(loader, "$packageName.$replyName")
+                    ?: return@forEach skip("no-reply-class:$rpc")
+                val rpcRewriter = if (rpc == "replyInfo") singleRewriter else rewriter
+                val installed = KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = "$packageName.ReplyMoss",
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    what = "评论过滤",
+                    logKey = KMOSS_LOG_KEY,
+                    confirmedTransform = transformFor(rpcRewriter)
+                ) { it }
+                if (installed) wireHooks += 1
+            }
+            if (wireHooks > 0) {
+                environment.logInfo("comment_filter_kmoss", "[BIL] 评论过滤：线格式通道 $wireHooks 个")
+                return
+            }
+        }
+        val members = KotlinMossChannel.prepare(environment, loader, "评论过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->
             val replyClass = KavaMemberLookup.classOrNull(loader, "$packageName.$replyName")
@@ -511,17 +548,7 @@ internal class CommentFilterFeatureInstaller(
                 what = "评论过滤",
                 logKey = KMOSS_LOG_KEY,
                 shareUnchangedReply = true,
-                confirmedTransform = { javaReply ->
-                    observePeers(javaReply, accessors, peerSource)
-                    prewarmSemantic(javaReply, replyInfoClass, accessors, plan, readers)
-                    val snapshots = if (plan.fish != null) fishSnapshots() else null
-                    val result = rpcRewriter.rewrite(javaReply) { replies, owner ->
-                        kotlinDecide(environment, replies, accessors, plan, owner, videoIdentity, peerSource, snapshots)
-                    }
-                    KotlinMossResponseHandlerProxy.ConfirmedReply(result.message) {
-                        if (result.removed > 0) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, result.removed)
-                    }
-                }
+                confirmedTransform = transformFor(rpcRewriter)
             ) { it }
             if (installed) hooks += 1
         }

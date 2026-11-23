@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import io.github.jichuo1.meguviz.android.extensions.childOrNull
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -160,7 +161,9 @@ internal class CommentTopologyFeatureInstaller(
     private val enabled: Boolean,
     private val points: VersionAdapter.CommentTopologyPoints?,
     private val lowBindPoint: VersionAdapter.HookPoint?,
-    private val highBindPoint: VersionAdapter.HookPoint?
+    private val highBindPoint: VersionAdapter.HookPoint?,
+    private val composeMenuPoints: VersionAdapter.CommentComposeMenuPoints? = null,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
     private var composeMenu: ReplyTopologyComposeMenu? = null
     private val composeSeeds = LinkedHashMap<Long, ReplyTopologySeed>(32, 0.75f, true)
@@ -179,20 +182,33 @@ internal class CommentTopologyFeatureInstaller(
     private val pointsRef = AtomicReference(points)
     private val lowBindRef = AtomicReference(lowBindPoint)
     private val highBindRef = AtomicReference(highBindPoint)
+    private val composeMenuPointsRef = AtomicReference(composeMenuPoints)
+    private val kmpGrpcWireRef = AtomicReference(kmpGrpcWireEngine)
     @Volatile var requiresAdaptationRetry: Boolean = false
+        private set
+    @Volatile var requiresComposeAdaptationRetry: Boolean = false
         private set
     private val adaptedRetryConsumed = AtomicBoolean(false)
     private val installedOnce = AtomicBoolean(false)
     @Volatile private var lastInstallResult: FeatureInstallResult? = null
+    @Volatile private var resolvedHostRef: ReplyTopologyHostAccess? = null
+    @Volatile private var coordinatorRef: ReplyTopologyCoordinator? = null
+    @Volatile private var composeMenuInstalledComplete: Boolean = false
+    @Volatile private var composeSeedsInstalledComplete: Boolean = false
+    @Volatile private var composeSeedChannelKind: String = ""
 
     fun updateAdaptedPoints(
         points: VersionAdapter.CommentTopologyPoints?,
         lowBindPoint: VersionAdapter.HookPoint?,
-        highBindPoint: VersionAdapter.HookPoint?
+        highBindPoint: VersionAdapter.HookPoint?,
+        composeMenuPoints: VersionAdapter.CommentComposeMenuPoints? = composeMenuPointsRef.get(),
+        kmpGrpcWireEngine: VersionAdapter.HookPoint? = kmpGrpcWireRef.get()
     ) {
         pointsRef.set(points)
         lowBindRef.set(lowBindPoint)
         highBindRef.set(highBindPoint)
+        composeMenuPointsRef.set(composeMenuPoints)
+        kmpGrpcWireRef.set(kmpGrpcWireEngine)
         adaptedRetryConsumed.set(true)
     }
 
@@ -367,7 +383,9 @@ internal class CommentTopologyFeatureInstaller(
         var composeComplete = true
         val loader = environment.classLoader
         if (loader != null && KavaMemberLookup.hasClass(loader, "kntr.common.comment.card.model.comment.CommentModel")) {
-            val menu = ReplyTopologyComposeMenu { anchor, seed ->
+            resolvedHostRef = host
+            coordinatorRef = coordinator
+            val menu = ReplyTopologyComposeMenu(composeMenuPointsRef.get()) { anchor, seed ->
                 commentOwnerActivity(anchor.context)?.let { coordinator.open(it, seed, anchor) }
             }
             val menuResult = menu.install(environment)
@@ -375,9 +393,17 @@ internal class CommentTopologyFeatureInstaller(
             val capture = installComposeSeeds(environment, host)
             installed += (menuResult as? FeatureInstallResult.Installed)?.hookCount ?: 0
             installed += (capture as? FeatureInstallResult.Installed)?.hookCount ?: 0
-            composeComplete = menuResult is FeatureInstallResult.Installed && menuResult.complete &&
-                capture is FeatureInstallResult.Installed && capture.complete
-            if (!composeComplete) environment.logError("comment_topology_compose_missing", "[BIL] 回复脉络 Compose 菜单／数据桥未完整接入")
+            composeMenuInstalledComplete = menuResult is FeatureInstallResult.Installed && menuResult.complete
+            composeSeedsInstalledComplete = capture is FeatureInstallResult.Installed && capture.complete
+            composeComplete = composeMenuInstalledComplete && composeSeedsInstalledComplete
+            if (!composeComplete) {
+                requiresComposeAdaptationRetry = !adaptedRetryConsumed.get()
+                environment.logError("comment_topology_compose_missing", "[BIL] 回复脉络 Compose 菜单／数据桥未完整接入")
+            } else {
+                requiresComposeAdaptationRetry = false
+            }
+        } else {
+            requiresComposeAdaptationRetry = false
         }
 
         val complete = bindInstalled == bindPoints.size && installedBindOwners.containsAll(expectedBindOwners) && composeComplete
@@ -398,10 +424,35 @@ internal class CommentTopologyFeatureInstaller(
         ).also { lastInstallResult = it }
     }
 
+    @Synchronized
+    fun retryComposeInstallIfNeeded(environment: HookEnvironment) {
+        if (!installedOnce.get() || !requiresComposeAdaptationRetry || !enabled || environment.processName != TARGET_PACKAGE) {
+            return
+        }
+        requiresComposeAdaptationRetry = false
+        val loader = environment.classLoader ?: return
+        if (!KavaMemberLookup.hasClass(loader, "kntr.common.comment.card.model.comment.CommentModel")) return
+        val host = resolvedHostRef ?: return
+        val coordinator = coordinatorRef ?: return
+        if (!composeMenuInstalledComplete) {
+            val menu = composeMenu?.apply { updateCachedPoints(composeMenuPointsRef.get()) }
+                ?: ReplyTopologyComposeMenu(composeMenuPointsRef.get()) { anchor, seed ->
+                    commentOwnerActivity(anchor.context)?.let { coordinator.open(it, seed, anchor) }
+                }
+            val menuResult = menu.install(environment)
+            if (menuResult is FeatureInstallResult.Installed) {
+                composeMenu = menu
+                composeMenuInstalledComplete = menuResult.complete
+            }
+        }
+        if (!composeSeedsInstalledComplete && composeSeedChannelKind.isEmpty()) {
+            val capture = installComposeSeeds(environment, host)
+            composeSeedsInstalledComplete = capture is FeatureInstallResult.Installed && capture.complete
+        }
+    }
+
     private fun installComposeSeeds(environment: HookEnvironment, host: ReplyTopologyHostAccess): FeatureInstallResult {
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
-        val bridge = KotlinMossChannel.prepare(environment, loader, "回复脉络", "comment_topology_kmoss")
-            ?: return FeatureInstallResult.Skipped("missing-kotlin-bridge")
         val reader = ProtobufReplyTreeVisitor(host.replyInfoClass) { reply ->
             host.snapshotRoot(reply)?.let { seed ->
                 synchronized(composeSeeds) {
@@ -410,6 +461,35 @@ internal class CommentTopologyFeatureInstaller(
                 }
             }
         }
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireRef.get())
+        if (wireSurface != null) {
+            var expected = 0
+            var installed = 0
+            listOf("mainList" to "MainListReply", "detailList" to "DetailListReply", "dialogList" to "DialogListReply").forEach { (rpc, name) ->
+                expected++
+                val response = KavaMemberLookup.classOrNull(loader, "com.bapis.bilibili.main.community.reply.v1.$name") ?: return@forEach
+                if (KmpGrpcWireChannel.install(
+                        environment = environment,
+                        surface = wireSurface,
+                        javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                        rpc = rpc,
+                        javaReplyClass = response,
+                        what = "回复脉络",
+                        logKey = "comment_topology_kmoss"
+                    ) { reply -> reader.visit(reply); reply }
+                ) installed++
+            }
+            if (installed > 0) {
+                composeSeedChannelKind = "wire"
+                environment.logInfo(
+                    "comment_topology_wire_ready",
+                    "[BIL] 回复脉络 Compose 种子桥已接入(wire=$installed/$expected)"
+                )
+                return FeatureInstallResult.Installed(installed, installed == expected)
+            }
+        }
+        val bridge = KotlinMossChannel.prepare(environment, loader, "回复脉络", "comment_topology_kmoss")
+            ?: return FeatureInstallResult.Skipped("missing-kotlin-bridge")
         var expected = 0
         var installed = 0
         listOf("mainList" to "MainListReply", "detailList" to "DetailListReply", "dialogList" to "DialogListReply").forEach { (rpc, name) ->
@@ -422,8 +502,11 @@ internal class CommentTopologyFeatureInstaller(
                 ) { reply -> reader.visit(reply); reply }
             ) installed++
         }
-        return if (installed > 0) FeatureInstallResult.Installed(installed, installed == expected)
-        else FeatureInstallResult.Skipped("missing-kotlin-reply-channel")
+        if (installed > 0) {
+            composeSeedChannelKind = "kmoss"
+            return FeatureInstallResult.Installed(installed, installed == expected)
+        }
+        return FeatureInstallResult.Skipped("missing-kotlin-reply-channel")
     }
 
     private fun findCommentItem(

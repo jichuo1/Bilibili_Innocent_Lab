@@ -109,6 +109,25 @@ class CommentSurfaceCoverageTest {
         assertEquals(10L, reader.rootCommentId(TextModel(2, Translation.ORIGIN, Rich("子回复"), null, b = 11, c = 10)))
     }
 
+    fun sameStoreTracksMultipleCardIdsWithoutCrossOverwriting() {
+        val registry = ComposeCommentBindings<Any, Any, Any>()
+        val store = Any()
+        val firstModel = Any()
+        val secondModel = Any()
+        val firstAnchor = Any()
+        val secondAnchor = Any()
+
+        registry.bind(store, 101L, firstModel, firstAnchor)
+        registry.bind(store, 202L, secondModel, secondAnchor)
+
+        assertSame(firstModel, registry.get(store, 101L)!!.first)
+        assertSame(firstAnchor, registry.get(store, 101L)!!.second)
+        assertSame(secondModel, registry.get(store, 202L)!!.first)
+        assertSame(secondAnchor, registry.get(store, 202L)!!.second)
+        assertSame(secondModel, registry.get(store)!!.first)
+        assertNull(registry.get(store, 303L))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (CommentSurfaceCoverageTest) -> Unit) {
@@ -124,5 +143,6 @@ class CommentSurfaceCoverageTest {
         runIsolated { s -> s.legacyListenerMustIdentifyExactlyOneCurrentComment() }
         runIsolated { s -> s.nativeRichTextReaderSupportsOldGetterAndNewFieldWithoutTruncation() }
         runIsolated { s -> s.rootAndChildModelSelectTheirOwnThread() }
+        runIsolated { s -> s.sameStoreTracksMultipleCardIdsWithoutCrossOverwriting() }
     }
 }

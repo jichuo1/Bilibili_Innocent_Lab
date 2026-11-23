@@ -30,6 +30,7 @@ class BrandDecoderDexWiringContractTest {
         PlayerSpeedCalculatorDexWiringContractCases().calculatorDexIsFeatureGatedAndNeverRunsInsideInstallationOrQuickLookup()
         PlayerSpeedSessionDexWiringContractCases().speedSessionDexIsFeatureGatedAndNeverRunsInsideInstallationOrQuickLookup()
         SponsorDexWiringContractCases().sponsorDexIsFeatureGatedAndNeverRunsInsideInstallationOrQuickLookup()
+        CommentComposeAndWireDexWiringContractCases().verifyAllCases()
     }
 }
 
@@ -276,5 +277,73 @@ private class SponsorDexWiringContractCases {
         assertTrue(hook.contains("sponsorBlockEnabled = prefs.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false)"))
         assertTrue(hook.contains("if (sponsorInstaller.requiresAdaptationRetry)"))
         assertTrue(hook.contains("featureInstallCoordinator.installAll(listOf(sponsorInstaller))"))
+    }
+}
+
+private class CommentComposeAndWireDexWiringContractCases {
+    fun `compose menu and kmp wire engine use shared background dex session only`() {
+        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
+        assertFalse(quick.contains("CommentComposeMenuAdapter.locate("))
+        assertFalse(quick.contains("KmpGrpcWireAdapter.locate("))
+        assertFalse(quick.contains("DexAssistSession("))
+
+        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
+        assertTrue(merge.contains("CommentComposeMenuAdapter.DIAGNOSTIC"))
+        assertTrue(merge.contains("KmpGrpcWireAdapter.DIAGNOSTIC"))
+        assertTrue(merge.contains("CommentComposeMenuAdapter.merge("))
+
+        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        assertTrue(background.contains("CommentComposeMenuAdapter.needsQuery("))
+        assertTrue(background.contains("KmpGrpcWireAdapter.needsQuery("))
+        assertTrue(background.contains("if (composeMenuPlanned) add(CommentComposeMenuAdapter.query)"))
+        assertTrue(background.contains("if (kmpGrpcWirePlanned) add(KmpGrpcWireAdapter.query)"))
+        assertTrue(background.contains("DexAssistAttemptGuard("))
+
+        for (installer in listOf(
+            "hook/feature/CommentTopologyFeatureInstaller.kt",
+            "hook/feature/ReplyTopologyComposeMenu.kt",
+            "hook/feature/CommentFilterFeatureInstaller.kt",
+            "hook/feature/CommentPurifyFeatureInstaller.kt",
+            "hook/feature/KmpGrpcWireChannel.kt"
+        )) {
+            val source = SourceContract.read(installer)
+            assertFalse(installer, source.contains("DexRefHookBridge"))
+            assertFalse(installer, source.contains("DexAssistSession("))
+            assertFalse(installer, source.contains(".locate("))
+        }
+
+        val hook = SourceContract.read("hook/HookEntry.kt")
+        assertTrue(hook.contains("composeMenuPoints = hostAdaptResult?.commentComposeMenu"))
+        assertTrue(hook.contains("kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine"))
+        assertTrue(hook.contains("retryComposeInstallIfNeeded(hookEnvironment)"))
+        assertTrue(hook.contains("kmpGrpcWireEnabled ="))
+    }
+
+    fun `comment kmp installers prefer raw wire byte channel over kotlinx roundtrip`() {
+        for (file in listOf(
+            "hook/feature/CommentTopologyFeatureInstaller.kt",
+            "hook/feature/CommentFilterFeatureInstaller.kt",
+            "hook/feature/CommentPurifyFeatureInstaller.kt"
+        )) {
+            val source = SourceContract.read(file)
+            assertTrue("$file should resolve KmpGrpcWireAdapter", source.contains("KmpGrpcWireAdapter.resolve("))
+            assertTrue("$file should install KmpGrpcWireChannel", source.contains("KmpGrpcWireChannel.install("))
+            assertTrue(
+                "$file should check wire before KotlinMossChannel fallback",
+                source.indexOf("KmpGrpcWireChannel.install(") < source.indexOf("KotlinMossChannel.install(")
+            )
+        }
+        val channel = SourceContract.read("hook/feature/KmpGrpcWireChannel.kt")
+        assertFalse(channel.contains("encodeToByteArray"))
+    }
+
+    fun verifyAllCases() {
+        fun runIsolated(block: (CommentComposeAndWireDexWiringContractCases) -> Unit) {
+            val s = CommentComposeAndWireDexWiringContractCases()
+            block(s)
+        }
+        runIsolated { s -> s.`compose menu and kmp wire engine use shared background dex session only`() }
+        runIsolated { s -> s.`comment kmp installers prefer raw wire byte channel over kotlinx roundtrip`() }
     }
 }

@@ -60,26 +60,65 @@ internal class ComposeCommentText private constructor(
 /** Dispatcher 身份隔离窗口／页面，同一 cardId 在另一页出现时不能串正文；不强持宿主对象。 */
 internal class ComposeCommentBindings<K : Any, M : Any, A : Any> {
     private data class Binding<M : Any, A : Any>(val model: WeakReference<M>, val anchor: WeakReference<A>)
-    private val bindings = WeakHashMap<K, Binding<M, A>>()
+    private class StoreSlot<M : Any, A : Any> {
+        var latest: Binding<M, A>? = null
+        val byId = object : LinkedHashMap<Long, Binding<M, A>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Binding<M, A>>?): Boolean = size > 64
+        }
+    }
+    private val bindings = WeakHashMap<K, StoreSlot<M, A>>()
 
     @Synchronized fun bind(owner: K, model: M, anchor: A) {
-        val old = bindings[owner]
+        val slot = slotFor(owner)
+        val old = slot.latest
         if (old?.model?.get() === model && old.anchor.get() === anchor) return
-        if (bindings.size >= 192 && !bindings.containsKey(owner)) {
-            bindings.entries.removeAll { it.value.model.get() == null || it.value.anchor.get() == null }
-            if (bindings.size >= 192) bindings.remove(bindings.keys.first())
+        slot.latest = Binding(WeakReference(model), WeakReference(anchor))
+    }
+
+    @Synchronized fun bind(owner: K, itemId: Long, model: M, anchor: A) {
+        val slot = slotFor(owner)
+        val old = slot.byId[itemId]
+        val entry = if (old?.model?.get() === model && old.anchor.get() === anchor) {
+            old
+        } else {
+            Binding(WeakReference(model), WeakReference(anchor)).also { slot.byId[itemId] = it }
         }
-        bindings[owner] = Binding(WeakReference(model), WeakReference(anchor))
+        slot.latest = entry
     }
 
     @Synchronized fun get(owner: K): Pair<M, A>? {
-        val bound = bindings[owner] ?: return null
-        val model = bound.model.get()
-        val anchor = bound.anchor.get()
-        if (model == null || anchor == null) {
-            bindings.remove(owner)
-            return null
+        val slot = bindings[owner] ?: return null
+        val bound = slot.latest ?: return null
+        val resolved = resolveLive(bound)
+        if (resolved == null) slot.latest = null
+        return resolved
+    }
+
+    @Synchronized fun get(owner: K, itemId: Long): Pair<M, A>? {
+        val slot = bindings[owner] ?: return null
+        val bound = slot.byId[itemId] ?: return null
+        val resolved = resolveLive(bound)
+        if (resolved == null) slot.byId.remove(itemId)
+        return resolved
+    }
+
+    private fun slotFor(owner: K): StoreSlot<M, A> {
+        bindings[owner]?.let { return it }
+        if (bindings.size >= 64) {
+            bindings.entries.removeAll { (_, slot) ->
+                slot.byId.entries.removeAll { it.value.model.get() == null || it.value.anchor.get() == null }
+                val latestLive = slot.latest?.let { it.model.get() != null && it.anchor.get() != null } == true
+                if (!latestLive) slot.latest = null
+                !latestLive && slot.byId.isEmpty()
+            }
+            if (bindings.size >= 64) bindings.remove(bindings.keys.first())
         }
+        return StoreSlot<M, A>().also { bindings[owner] = it }
+    }
+
+    private fun resolveLive(bound: Binding<M, A>): Pair<M, A>? {
+        val model = bound.model.get() ?: return null
+        val anchor = bound.anchor.get() ?: return null
         return model to anchor
     }
 }
@@ -146,7 +185,8 @@ internal class CommentComposeCopyBridge(
                             val store = storeField.get(context) ?: return@runCatching
                             val composer = argOrNull(composerIndex) ?: return@runCatching
                             val anchor = viewAccess.read(composer) ?: return@runCatching
-                            bindings.bind(store, model, anchor)
+                            val cardId = text.cardId(model)
+                            if (cardId != null) bindings.bind(store, cardId, model, anchor) else bindings.bind(store, model, anchor)
                         }.onFailure { environment.logError("free_copy_compose_binding", "[BIL] Compose 评论窗口绑定失败，保留原操作") }
                     }
                 }
@@ -165,9 +205,11 @@ internal class CommentComposeCopyBridge(
                         resetMore()
                         val source = (actionSource.get(request) as? Enum<*>)?.name
                         val store = instance ?: return@before
-                        val (model, anchor) = bindings.get(store) ?: return@before
-                        if (!anchor.isAttachedToWindow || !anchor.isShown || !anchor.hasWindowFocus()) return@before
-                        if (actionId.get(request) != text.cardId(model)) return@before
+                        val requestedId = actionId.get(request) as? Long
+                        val (model, anchor) = (requestedId?.let { bindings.get(store, it) } ?: bindings.get(store))
+                            ?: return@before
+                        if (!anchor.isAttachedToWindow || !anchor.isShown || anchor.windowToken == null) return@before
+                        if (requestedId != text.cardId(model)) return@before
                         if (source == "LONG_PRESS" || source == "BUTTON") {
                             text.rootCommentId(model)?.let { rootId ->
                                 val ownerRef = WeakReference(store)
@@ -175,14 +217,16 @@ internal class CommentComposeCopyBridge(
                                 val cardId = text.cardId(model)
                                 onMore(anchor, rootId) {
                                     val owner = ownerRef.get()
-                                    val current = owner?.let(bindings::get)
+                                    val current = owner?.let { target ->
+                                        cardId?.let { id -> bindings.get(target, id) } ?: bindings.get(target)
+                                    }
                                     current != null && current.second === anchorRef.get() &&
                                         text.cardId(current.first) == cardId &&
                                         text.rootCommentId(current.first) == rootId
                                 }
                             }
                         }
-                        if (!enabled() || source != "LONG_PRESS") return@before
+                        if (!enabled() || source != "LONG_PRESS" || !anchor.hasWindowFocus()) return@before
                         val raw = text.read(model) ?: run {
                             environment.logError("free_copy_compose_empty", "[BIL] Compose 评论完整正文不可用，保留原菜单")
                             return@before

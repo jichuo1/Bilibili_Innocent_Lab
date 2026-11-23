@@ -26,6 +26,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionPro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
@@ -1620,6 +1622,44 @@ object VersionAdapter {
         }
     }
 
+    /** Compose 评论更多菜单（气泡／分组 Sheet／旧版纵向行）的可选后台兜底定位点。 */
+    data class CommentComposeMenuPoints(
+        val bubbleRow: HookPoint? = null,
+        val groupedRow: HookPoint? = null,
+        val groupedItem: HookPoint? = null,
+        val legacyRow: HookPoint? = null
+    ) {
+        fun isEmpty(): Boolean =
+            bubbleRow == null && groupedRow == null && groupedItem == null && legacyRow == null
+
+        fun isStructurallyValid(): Boolean {
+            fun HookPoint?.validShape(expectedParams: IntRange): Boolean =
+                this == null || (className.isNotBlank() && methodName.isNotBlank() &&
+                    viewField == null && paramClassNames?.all { it.isNotBlank() } == true &&
+                    paramClassNames.size in expectedParams)
+            return bubbleRow.validShape(4..4) &&
+                groupedRow.validShape(7..7) &&
+                groupedItem.validShape(6..6) &&
+                legacyRow.validShape(8..9)
+        }
+
+        fun toJson(): JSONObject = JSONObject().apply {
+            bubbleRow?.let { put("bubble", it.toJson()) }
+            groupedRow?.let { put("grouped", it.toJson()) }
+            groupedItem?.let { put("grouped_item", it.toJson()) }
+            legacyRow?.let { put("legacy", it.toJson()) }
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): CommentComposeMenuPoints? = CommentComposeMenuPoints(
+                bubbleRow = o.optJSONObject("bubble")?.let(HookPoint::fromJson),
+                groupedRow = o.optJSONObject("grouped")?.let(HookPoint::fromJson),
+                groupedItem = o.optJSONObject("grouped_item")?.let(HookPoint::fromJson),
+                legacyRow = o.optJSONObject("legacy")?.let(HookPoint::fromJson)
+            ).takeIf { !it.isEmpty() && it.isStructurallyValid() }
+        }
+    }
+
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint?,
@@ -1897,6 +1937,8 @@ object VersionAdapter {
         val homeChrome: Map<String, HookPoint> = emptyMap(),
         val homeChromeSemantics: HomeChromeSemanticsPoint? = null,
         val systemEnvironment: SystemEnvironmentPoints? = null,
+        val commentComposeMenu: CommentComposeMenuPoints? = null,
+        val kmpGrpcWireEngine: HookPoint? = null,
         /**
          * 同步定位家族的覆盖范围与尝试状态；`null` = 旧缓存（没有 `cov` 键），覆盖范围未知，**不等于**覆盖完整。
          * 只描述「这一轮尝试过什么」，不描述数据是否有效：被计划裁剪的家族即使带着此前缓存的点，也要看这里。
@@ -1985,6 +2027,8 @@ object VersionAdapter {
             if (homeChrome.isNotEmpty()) put("home_chrome", HomeChromeAdapter.toJson(homeChrome))
             homeChromeSemantics?.let { put("home_chrome_semantics", it.toJson()) }
             systemEnvironment?.let { put("system_environment", it.toJson()) }
+            commentComposeMenu?.let { put("comment_compose_menu", it.toJson()) }
+            kmpGrpcWireEngine?.let { put("kmp_grpc_wire_engine", it.toJson()) }
             coverage?.let { put("cov", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
@@ -2312,6 +2356,8 @@ object VersionAdapter {
                 pageBoundaries?.isValid() != false &&
                 HomeChromeAdapter.validCache(homeChrome) && systemEnvironment?.isStructurallyValid() != false &&
                 homeChromeSemantics?.isStructurallyValid() != false &&
+                commentComposeMenu?.isStructurallyValid() != false &&
+                kmpGrpcWireEngine?.let { it.isValid() && it.viewField == null && it.paramClassNames?.size in 4..6 } != false &&
                 // 声称「找到」的家族必须真的带着点；否则这份覆盖范围不可信，整份缓存按无效处理（重新适配）。
                 coverage?.let { cov ->
                     cov.attempted.all { cov.attempt(it) != AdaptAssistGate.Attempt.FOUND || hasPoint(it) }
@@ -2404,6 +2450,12 @@ object VersionAdapter {
                         HomeChromeSemanticsPoint.fromJson(o.getJSONObject("home_chrome_semantics")) ?: return null else null,
                     systemEnvironment = if (o.has("system_environment"))
                         SystemEnvironmentPoints.fromJson(o.getJSONObject("system_environment")) ?: return null else null,
+                    commentComposeMenu = if (o.has("comment_compose_menu"))
+                        CommentComposeMenuPoints.fromJson(o.getJSONObject("comment_compose_menu")) ?: return null else null,
+                    kmpGrpcWireEngine = if (o.has("kmp_grpc_wire_engine"))
+                        HookPoint.fromJson(o.getJSONObject("kmp_grpc_wire_engine")).also { point ->
+                            if (point.viewField != null || point.paramClassNames?.size !in 4..6) return null
+                        } else null,
                     // 旧缓存没有 cov：覆盖范围未知（null），不会被当成覆盖完整。
                     coverage = o.optJSONObject("cov")?.let(AdaptCoverage::fromJson)
                 ).takeIf { it.isStructurallyValid() }
@@ -3166,7 +3218,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic) || id in SystemEnvironmentAdapter.Family.entries.map { it.diagnostic }) &&
+                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic) || id in SystemEnvironmentAdapter.Family.entries.map { it.diagnostic } || id == CommentComposeMenuAdapter.DIAGNOSTIC || id == KmpGrpcWireAdapter.DIAGNOSTIC) &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live
@@ -3230,6 +3282,8 @@ object VersionAdapter {
             homeChrome = cached.homeChrome + runtime.homeChrome,
             homeChromeSemantics = runtime.homeChromeSemantics ?: cached.homeChromeSemantics,
             systemEnvironment = SystemEnvironmentAdapter.merge(runtime.systemEnvironment, cached.systemEnvironment),
+            commentComposeMenu = CommentComposeMenuAdapter.merge(runtime.commentComposeMenu, cached.commentComposeMenu),
+            kmpGrpcWireEngine = runtime.kmpGrpcWireEngine ?: cached.kmpGrpcWireEngine,
             coverage = AdaptCoverage.merge(runtime.coverage, cached.coverage),
         ).applyStartupExclusions()
     }
@@ -3385,9 +3439,10 @@ object VersionAdapter {
         homeTopTabCenteringEnabled: Boolean = false,
         systemEnvironmentEnabled: Boolean = false,
         blockUpdateEnabled: Boolean = false,
-        commentTopologyEnabled: Boolean = false
+        commentTopologyEnabled: Boolean = false,
+        kmpGrpcWireEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled, kmpGrpcWireEnabled
     )
 
     internal fun ensureAdapted(
@@ -3415,6 +3470,7 @@ object VersionAdapter {
         systemEnvironmentEnabled: Boolean = false,
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false,
+        kmpGrpcWireEnabled: Boolean = false,
         /** 安装链从已接受的配置快照生成的定位计划；缺省 = 全量（原始行为）。 */
         plan: AdaptPlan = AdaptPlan.full()
     ) {
@@ -3496,6 +3552,14 @@ object VersionAdapter {
         val previouslyMissingSystemEnv = SystemEnvironmentAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
             popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
         }
+        val previousComposeMenu = popupHistory?.commentComposeMenu
+        val previouslyMissingComposeMenu = popupHistory?.diagnostics.orEmpty().any {
+            it.id == CommentComposeMenuAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
+        }
+        val previousKmpGrpcWire = popupHistory?.kmpGrpcWireEngine
+        val previouslyMissingKmpGrpcWire = popupHistory?.diagnostics.orEmpty().any {
+            it.id == KmpGrpcWireAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
+        }
         // 有效缓存里计划要求、却从未尝试过的家族（旧缓存没有覆盖范围 = 全部待补）。
         val coverageMissing = if (usable != null) AdaptPlanner.missing(usable.coverage, adaptPlan) else emptySet()
         fun requiresFeatureRefresh(value: AdaptResult): Boolean {
@@ -3542,6 +3606,18 @@ object VersionAdapter {
                 HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
                 HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
                 systemEnvRefresh ||
+                CommentComposeMenuAdapter.needsQuery(
+                    classLoader,
+                    value.commentComposeMenu,
+                    commentTopologyEnabled,
+                    value.diagnostics.any { it.id == CommentComposeMenuAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }
+                ) ||
+                KmpGrpcWireAdapter.needsQuery(
+                    classLoader,
+                    value.kmpGrpcWireEngine,
+                    kmpGrpcWireEnabled || commentTopologyEnabled,
+                    value.diagnostics.any { it.id == KmpGrpcWireAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }
+                ) ||
                 assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled) ||
                 pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || speedSessionRefresh || speedCalculatorRefresh || weChatShareRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                 enabled = true,
@@ -3611,7 +3687,9 @@ object VersionAdapter {
                         homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
                         previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
                         systemEnvironmentEnabled, previousSystemEnv, previouslyMissingSystemEnv,
-                        blockUpdateEnabled, commentTopologyEnabled, assistHistory, adaptPlan, popupHistory, dexSource, vc) }.getOrNull()
+                        blockUpdateEnabled, commentTopologyEnabled,
+                        previousComposeMenu, previouslyMissingComposeMenu, kmpGrpcWireEnabled, previousKmpGrpcWire, previouslyMissingKmpGrpcWire,
+                        assistHistory, adaptPlan, popupHistory, dexSource, vc) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3878,6 +3956,11 @@ object VersionAdapter {
                       previousSystemEnv: SystemEnvironmentPoints? = null,
                       previouslyMissingSystemEnv: Set<SystemEnvironmentAdapter.Family> = emptySet(),
                       blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
+                      previousComposeMenu: CommentComposeMenuPoints? = null,
+                      previouslyMissingComposeMenu: Boolean = false,
+                      kmpGrpcWireEnabled: Boolean = false,
+                      previousKmpGrpcWire: HookPoint? = null,
+                      previouslyMissingKmpGrpcWire: Boolean = false,
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
                       plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
                       dexSource: DexSourceFingerprint.Result?, vc: Int): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
@@ -3944,6 +4027,13 @@ object VersionAdapter {
         val topologyPlanned = AdaptAssistGate.needsQuery(commentTopologyEnabled, assistHistory.commentTopology != null,
             assistHistory.attempt(AdaptAssistGate.Family.COMMENT_TOPOLOGY)) { directTopologyOutcome.points != null }
         val systemEnvPlanned = SystemEnvironmentAdapter.planned(loader, previousSystemEnv, previouslyMissingSystemEnv, systemEnvironmentEnabled)
+        val composeMenuPlanned = CommentComposeMenuAdapter.needsQuery(
+            loader, previousComposeMenu, commentTopologyEnabled, previouslyMissingComposeMenu
+        )
+        val effectiveKmpGrpcWireEnabled = kmpGrpcWireEnabled || commentTopologyEnabled
+        val kmpGrpcWirePlanned = KmpGrpcWireAdapter.needsQuery(
+            loader, previousKmpGrpcWire, effectiveKmpGrpcWireEnabled, previouslyMissingKmpGrpcWire
+        )
         // 本轮兜底共享适配会话，每个代码归档只打开一次 DEX 快照。
         val dexAssist = dexSource?.let { source ->
             DexAssistSession(
@@ -3976,6 +4066,8 @@ object VersionAdapter {
                     }
                     if (speedMenuPlanned) add(PlayerSpeedMenuAdapter.query)
                     systemEnvPlanned.forEach { add(it.query) }
+                    if (composeMenuPlanned) add(CommentComposeMenuAdapter.query)
+                    if (kmpGrpcWirePlanned) add(KmpGrpcWireAdapter.query)
                 }
             )
         }
@@ -4327,6 +4419,65 @@ object VersionAdapter {
         }
         val commentTopology = commentTopologyOutcome.points
             ?: if (topologyPlanned) null else assistHistory.commentTopology
+        val commentComposeMenu = CommentComposeMenuAdapter.locate(
+            loader, dexAssist, commentTopologyEnabled, previousComposeMenu, composeMenuPlanned
+        )
+        val composeMenuResolved = CommentComposeMenuAdapter.resolve(loader, commentComposeMenu)
+        val composeMenuDiagnostic = AdaptDiagnostic(
+            CommentComposeMenuAdapter.DIAGNOSTIC,
+            when {
+                !commentTopologyEnabled || !CommentComposeMenuAdapter.applicable(loader) ->
+                    if (previouslyMissingComposeMenu) AdaptState.MISSING else AdaptState.NOT_APPLICABLE
+                composeMenuResolved.isComplete() -> AdaptState.FOUND
+                composeMenuPlanned || previouslyMissingComposeMenu -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !commentTopologyEnabled ->
+                    if (previouslyMissingComposeMenu) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !CommentComposeMenuAdapter.applicable(loader) ->
+                    if (previouslyMissingComposeMenu) "cached-attempt-preserved" else "not-applicable-host"
+                composeMenuResolved.isComplete() ->
+                    "bubble=${composeMenuResolved.bubbleRow != null}," +
+                        "grouped=${composeMenuResolved.groupedRow != null}," +
+                        "legacy=${composeMenuResolved.legacyRow != null}"
+                !composeMenuPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(CommentComposeMenuAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "incomplete-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val kmpGrpcWireEngine = KmpGrpcWireAdapter.locate(
+            loader, dexAssist, effectiveKmpGrpcWireEnabled, previousKmpGrpcWire, kmpGrpcWirePlanned
+        )
+        val kmpGrpcWireReady = effectiveKmpGrpcWireEnabled &&
+            KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine) != null
+        val kmpGrpcWireDiagnostic = AdaptDiagnostic(
+            KmpGrpcWireAdapter.DIAGNOSTIC,
+            when {
+                kmpGrpcWireReady -> AdaptState.FOUND
+                effectiveKmpGrpcWireEnabled && KmpGrpcWireAdapter.applicable(loader) &&
+                    (kmpGrpcWirePlanned || previouslyMissingKmpGrpcWire) -> AdaptState.MISSING
+                !effectiveKmpGrpcWireEnabled && previouslyMissingKmpGrpcWire -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !effectiveKmpGrpcWireEnabled ->
+                    if (previouslyMissingKmpGrpcWire) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !KmpGrpcWireAdapter.applicable(loader) ->
+                    if (previouslyMissingKmpGrpcWire) "cached-attempt-preserved" else "not-applicable-host"
+                KmpGrpcWireAdapter.direct(loader) != null -> "direct"
+                kmpGrpcWireReady -> "verified"
+                !kmpGrpcWirePlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(KmpGrpcWireAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
         val commentSection = sync(PointFamily.COMMENT_SECTION, previous?.commentSection) { locateCommentSection(loader) }
         val splashAds = sync(PointFamily.SPLASH_ADS, previous?.splashAds) { locateSplashAds(loader) }
         // 只有所有点都落空时才需要；改成惰性求值，避免每轮适配白白探测上百个候选类。
@@ -4434,11 +4585,13 @@ object VersionAdapter {
             pageBoundaries = pages,
             homeChrome = chrome,
             homeChromeSemantics = chromeSemantics,
-            systemEnvironment = systemEnvironment
+            systemEnvironment = systemEnvironment,
+            commentComposeMenu = commentComposeMenu,
+            kmpGrpcWireEngine = kmpGrpcWireEngine
         )
         val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
-            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic + systemEnvironmentDiagnostics
+            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic + systemEnvironmentDiagnostics + composeMenuDiagnostic + kmpGrpcWireDiagnostic
         located.copy(
             diagnostics = diagnostics,
             coverage = coverageOf(located, locators, plan, previous?.coverage)
