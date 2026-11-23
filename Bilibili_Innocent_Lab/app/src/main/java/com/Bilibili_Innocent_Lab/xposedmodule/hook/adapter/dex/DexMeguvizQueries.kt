@@ -59,6 +59,8 @@ internal object DexMeguvizQueries {
             }
         )
         DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> composeMenuRules()
+        DexAssistQuery.SPONSOR_RUN_PLAYABLE -> sponsorRunPlayableRules()
+        DexAssistQuery.SPONSOR_PLAYER_WRAPPER -> sponsorPlayerWrapperRules()
         DexAssistQuery.COMMENT_REPLY_MAPPER -> listOf(
             rule { configure(query) },
             rule {
@@ -182,21 +184,6 @@ internal object DexMeguvizQueries {
                 strings(if (query == DexAssistQuery.COMMENT_CLASSIC_NATIVE)
                     CommentClassicStyleLocator.NATIVE_ANCHOR else CommentClassicStyleLocator.KOTLIN_ANCHOR)
             }
-            DexAssistQuery.SPONSOR_RUN_PLAYABLE -> {
-                within(SponsorPlayerLocator.FAMILY)
-                returnType = "java.lang.Object"
-                paramCount(2)
-                strings(SponsorPlayerLocator.COROUTINE_ERROR)
-                addInvoke("kotlinx.coroutines.sync.Mutex", "lock") { paramCount(2) }
-                addInvoke("kotlinx.coroutines.flow.MutableStateFlow", "setValue") { paramCount(1) }
-            }
-            DexAssistQuery.SPONSOR_PLAYER_WRAPPER -> {
-                within(SponsorPlayerLocator.CONTAINER_PACKAGE)
-                name = "seekTo"
-                returnType = "void"
-                params("int", "boolean")
-                addInvoke(name = "<init>") { paramCount(4) }
-            }
             DexAssistQuery.SPONSOR_CONTAINER_SCOPE -> {
                 within(SponsorPlayerLocator.CONTAINER_PACKAGE)
                 name = "<init>"
@@ -253,6 +240,8 @@ internal object DexMeguvizQueries {
             DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT,
             DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY,
             DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS,
+            DexAssistQuery.SPONSOR_RUN_PLAYABLE,
+            DexAssistQuery.SPONSOR_PLAYER_WRAPPER,
             DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> error("Expected a multi-rule query")
         }
     }
@@ -366,6 +355,38 @@ internal object DexMeguvizQueries {
         addInvoke(StoryQualityLocator.MEDIA_RESOURCE, "findMaxAvailableQuality") { params("int") }
         addInvoke(StoryQualityLocator.MEDIA_RESOURCE, "setResolvedIndex") { params("int") }
     }
+
+    private fun MethodRule.sponsorRunPlayable() {
+        returnType = "java.lang.Object"
+        paramCount(2)
+        strings(SponsorPlayerLocator.COROUTINE_ERROR)
+        addInvoke("kotlinx.coroutines.sync.Mutex", "lock") { paramCount(2) }
+        addInvoke("kotlinx.coroutines.flow.MutableStateFlow", "setValue") { paramCount(1) }
+    }
+
+    private fun sponsorRunPlayableRules(): List<ByteArray> = listOf(
+        rule {
+            within(SponsorPlayerLocator.FAMILY)
+            sponsorRunPlayable()
+        },
+        // 兼容未来 R8 将 TheseusKeelPlayer 扁平化至根包，沿用强三锚点做跨包兜底。
+        rule { sponsorRunPlayable() }
+    )
+
+    private fun MethodRule.sponsorPlayerWrapper() {
+        name = "seekTo"
+        returnType = "void"
+        params("int", "boolean")
+        addInvoke(name = "<init>") { paramCount(4) }
+    }
+
+    private fun sponsorPlayerWrapperRules(): List<ByteArray> = listOf(
+        rule {
+            within(SponsorPlayerLocator.CONTAINER_PACKAGE)
+            sponsorPlayerWrapper()
+        },
+        rule { sponsorPlayerWrapper() }
+    )
 
     private fun rule(configure: MethodRule.() -> Unit): ByteArray =
         JSONObject()

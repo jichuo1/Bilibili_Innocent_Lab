@@ -14,6 +14,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.hostProxyDefaultValue
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
@@ -174,9 +175,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
 
     private fun main(block: () -> Unit) {
         // 始终排队：构造、宿主观察者和缓存回调不能重入尚未完成的初始化。
-        handler.post { runCatching(block).onFailure {
-            env.logError("sponsorblock_runtime", "[BIL] 商单提示已保持宿主行为: ${it.javaClass.simpleName}")
-        } }
+        handler.post(HostThreadGuard.runnable("sponsorblock.main", block))
     }
 
     private fun reconcile() {
@@ -230,7 +229,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
             } }
         }
         val controller = SponsorPlaybackController(video, automatic, this, repository::lookup, ::main,
-            { delay, block -> val task = Runnable(block); handler.postDelayed(task, delay)
+            { delay, block -> val task = HostThreadGuard.runnable("sponsorblock.timer", block); handler.postDelayed(task, delay)
                 SponsorSegmentRepository.Ticket { handler.removeCallbacks(task) } }, SystemClock::uptimeMillis,
             ::render, { env.reportRuntimeEvidence(SponsorBlockFeatureInstaller.ID, FeatureRuntimeStage.APPLIED) },
             log)
@@ -304,8 +303,9 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
                     "equals" -> proxy === args?.firstOrNull()
                     "toString" -> "InnocentLabSponsorObserver"
                     else -> {
-                        if (weak.get()?.invalid?.get() == false) runCatching { callback(method.name, args) }
-                            .onFailure { diagnostics.record("observer.failed", it.javaClass.simpleName) }
+                        if (weak.get()?.invalid?.get() == false) HostThreadGuard.run("sponsorblock.observer") {
+                            callback(method.name, args)
+                        }
                         // 宿主直接调用这个代理，框架的 PROTECTIVE 兜不住：基本类型返回值不能给 null。
                         hostProxyDefaultValue(method.returnType)
                     }
@@ -320,7 +320,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
             invalid.set(true)
             controller.stop()
             wrapper.get()?.let { target -> unregister.asReversed().forEach { (method, observer) ->
-                runCatching { method.invoke(target, observer) }
+                HostThreadGuard.run("sponsorblock.unregister") { method.invoke(target, observer) }
             } }
             unregister.clear()
             render(SponsorPlaybackController.Hint.NONE)

@@ -3218,7 +3218,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic) || id in SystemEnvironmentAdapter.Family.entries.map { it.diagnostic } || id == CommentComposeMenuAdapter.DIAGNOSTIC || id == KmpGrpcWireAdapter.DIAGNOSTIC) &&
+                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic) || id in SystemEnvironmentAdapter.Family.entries.map { it.diagnostic } || id == CommentComposeMenuAdapter.DIAGNOSTIC || id == KmpGrpcWireAdapter.DIAGNOSTIC || id == SponsorPlayerLocator.DIAGNOSTIC) &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live

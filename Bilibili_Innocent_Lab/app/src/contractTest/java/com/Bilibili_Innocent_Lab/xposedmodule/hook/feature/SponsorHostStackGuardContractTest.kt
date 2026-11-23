@@ -27,6 +27,26 @@ class SponsorHostStackGuardContractTest {
         }
     }
 
+    fun detailPageSchedulerTasksRunInsideHostThreadGuard() {
+        val sessions = SourceContract.read("hook/feature/sponsor/SponsorPlayerSessions.kt")
+        assertTrue(sessions.contains("HostThreadGuard.runnable(\"sponsorblock.main\""))
+        assertTrue(sessions.contains("HostThreadGuard.runnable(\"sponsorblock.timer\""))
+        assertTrue(sessions.contains("HostThreadGuard.run(\"sponsorblock.observer\")"))
+        assertTrue(sessions.contains("HostThreadGuard.run(\"sponsorblock.unregister\")"))
+        assertFalse(sessions.contains("handler.post {"))
+        assertFalse(sessions.contains("Runnable(block)"))
+    }
+
+    fun sponsorPlayerResolvesPlayableStructurallyWithoutHardcodedObfuscation() {
+        val access = SourceContract.read("hook/adapter/SponsorPlayerAccess.kt")
+        assertTrue(access.contains("fun isPlayableInterface("))
+        assertTrue(access.contains("fun resolveRunSurface("))
+        assertTrue(access.contains("fun resolveContinuationOwnerField("))
+        for (hardcoded in listOf("\"hcg2\"", "\"nmq2\"", "\"bpq2\"", "\"spq2\"")) {
+            assertFalse("SponsorPlayerAccess must not hardcode $hardcoded", access.contains(hardcoded))
+        }
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (SponsorHostStackGuardContractTest) -> Unit) {
@@ -35,5 +55,7 @@ class SponsorHostStackGuardContractTest {
         }
         runIsolated { s -> s.theHintButtonClickIsGuardedBecauseItRunsOnTheHostWindowsUiThread() }
         runIsolated { s -> s.bothObserverProxiesAnswerUnhandledMethodsWithATypedZeroNeverNull() }
+        runIsolated { s -> s.detailPageSchedulerTasksRunInsideHostThreadGuard() }
+        runIsolated { s -> s.sponsorPlayerResolvesPlayableStructurallyWithoutHardcodedObfuscation() }
     }
 }

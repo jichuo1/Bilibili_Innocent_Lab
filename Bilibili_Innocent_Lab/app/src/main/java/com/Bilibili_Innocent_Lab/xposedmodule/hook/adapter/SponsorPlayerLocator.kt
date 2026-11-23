@@ -4,8 +4,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import org.json.JSONObject
-import java.lang.reflect.Modifier
 
 /** 仅保存成员所属类名；缓存重新使用时必须在当前宿主 ClassLoader 完整验真。 */
 data class SponsorPlayerClasses(val continuation: String, val wrapper: String,
@@ -14,11 +15,15 @@ data class SponsorPlayerClasses(val continuation: String, val wrapper: String,
         .put("container", containerScope ?: JSONObject.NULL).put("seek", seek)
 
     companion object {
+        private fun isAllowedClassName(name: String): Boolean =
+            name.length in 1..512 && (
+                (name.startsWith("com.bilibili.ship.theseus.") &&
+                    name.all { c -> c.isLetterOrDigit() || c in "._$" }) ||
+                    PlayerSpeedMenuAdapter.flattenedOwner(name)
+                )
+
         fun fromJson(value: JSONObject): SponsorPlayerClasses? {
-            fun name(key: String) = value.optString(key).takeIf {
-                it.length in 1..512 && it.startsWith("com.bilibili.ship.theseus.") &&
-                    it.all { c -> c.isLetterOrDigit() || c in "._$" }
-            }
+            fun name(key: String) = value.optString(key).takeIf(::isAllowedClassName)
             val container = if (value.isNull("container")) null else name("container") ?: return null
             return SponsorPlayerClasses(name("continuation") ?: return null, name("wrapper") ?: return null,
                 container, name("seek") ?: return null)
@@ -67,23 +72,23 @@ internal object SponsorPlayerLocator {
     fun select(loader: ClassLoader, run: DexAssistResult.Candidates, wrappers: DexAssistResult.Candidates,
         scopes: DexAssistResult.Candidates): Resolved? {
         if (listOf(run.methods.size, wrappers.methods.size, scopes.classes.size).any { it > MAX_CANDIDATES }) return null
+        val params = Lookup.classOrNull(loader, SponsorPlayerAccess.PARAMS_CLASS) ?: return null
+        val core = Lookup.classOrNull(loader, SponsorPlayerAccess.CORE_CLASS) ?: return null
         val runs = run.methods.flatMap { method ->
-            if (Modifier.isStatic(method.modifiers) || method.returnType != Any::class.java ||
-                method.parameterCount != 2 || !method.parameterTypes[0].isInterface ||
-                !SponsorPlayerAccess.acceptsPlayableClass(method.declaringClass.name, method.name,
-                    method.parameterTypes[0].name) || method.parameterTypes[1].name !in
+            if (method.isStatic || method.isAbstract || method.isBridge ||
+                method.returnType != Any::class.java || method.parameterCount != 2 ||
+                !SponsorPlayerAccess.isPlayableInterface(method.parameterTypes[0], params) ||
+                method.parameterTypes[1].name !in
                 setOf("kotlin.coroutines.Continuation", "kotlin.coroutines.jvm.internal.ContinuationImpl")) return@flatMap emptyList()
             run.relatedClasses[method].orEmpty().takeIf { it.size <= MAX_CANDIDATES }.orEmpty().filter { cls ->
                 cls.superclass?.name == "kotlin.coroutines.jvm.internal.ContinuationImpl" &&
-                    Lookup.fieldOrNull(cls, "label")?.let { !Modifier.isStatic(it.modifiers) && it.type == Int::class.javaPrimitiveType } == true &&
-                    Lookup.declaredFields(cls, true) { !Modifier.isStatic(it.modifiers) && it.type.name.startsWith("$FAMILY.") && it.type != cls }
-                        .singleOrNull()?.type == method.declaringClass
+                    Lookup.fieldOrNull(cls, "label")?.let { !it.isStatic && it.type == Int::class.javaPrimitiveType } == true &&
+                    SponsorPlayerAccess.resolveContinuationOwnerField(cls, params)?.type == method.declaringClass
             }.map { method to it }
         }.distinct()
         val (runMethod, continuation) = runs.singleOrNull() ?: return null
-        val core = Lookup.classOrNull(loader, SponsorPlayerAccess.CORE_CLASS) ?: return null
         val routes = wrappers.methods.filter { method ->
-            method.name == "seekTo" && method.returnType == Void.TYPE && !Modifier.isStatic(method.modifiers) &&
+            method.name == "seekTo" && method.returnType == Void.TYPE && !method.isStatic &&
                 method.parameterTypes.toList() == listOf(Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType) &&
                 SponsorPlayerAccess.resolveWrapper(method.declaringClass, core, runMethod.declaringClass) != null
         }.distinct()

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -41,6 +42,16 @@ class DexMeguvizQueriesTest {
         assertEquals(3, DexMeguvizQueries.rules(DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY).size)
         assertEquals(2, DexMeguvizQueries.rules(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS).size)
         assertEquals(5, DexMeguvizQueries.rules(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU).size)
+        val sponsorRun = DexMeguvizQueries.rules(DexAssistQuery.SPONSOR_RUN_PLAYABLE)
+        val sponsorWrapper = DexMeguvizQueries.rules(DexAssistQuery.SPONSOR_PLAYER_WRAPPER)
+        assertEquals(2, sponsorRun.size)
+        assertEquals(2, sponsorWrapper.size)
+        assertTrue(JSONObject(sponsorRun[0].toString(Charsets.UTF_8)).getJSONObject("where").has("owner"))
+        assertFalse(JSONObject(sponsorRun[1].toString(Charsets.UTF_8)).getJSONObject("where").has("owner"))
+        assertTrue(sponsorRun[1].toString(Charsets.UTF_8).contains(SponsorPlayerLocator.COROUTINE_ERROR))
+        assertTrue(JSONObject(sponsorWrapper[0].toString(Charsets.UTF_8)).getJSONObject("where").has("owner"))
+        assertFalse(JSONObject(sponsorWrapper[1].toString(Charsets.UTF_8)).getJSONObject("where").has("owner"))
+        assertTrue(sponsorWrapper[1].toString(Charsets.UTF_8).contains("seekTo"))
     }
 
     fun `compose menu and grpc wire queries avoid obfuscated method names`() {

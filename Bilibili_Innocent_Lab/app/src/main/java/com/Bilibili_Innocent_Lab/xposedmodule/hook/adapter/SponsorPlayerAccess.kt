@@ -3,10 +3,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorVideoId
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 
 /** 31 样本共享的业务边界；仅安装期查找，运行期只用已验证的成员。 */
 internal class SponsorPlayerAccess private constructor(
@@ -103,15 +104,53 @@ internal class SponsorPlayerAccess private constructor(
         const val CONTAINER_INTERFACE = "tv.danmaku.biliplayerv2.IPlayerContainer"
         private const val FAMILY = "com.bilibili.ship.theseus.keel.player."
 
-        /** 9190200/9190400 keep the run owner and move its playable interface to the root package. */
-        internal fun acceptsPlayableClass(owner: String, method: String, type: String): Boolean =
-            type.startsWith(FAMILY) || owner == "${FAMILY}b" && method == "r" && type == "hcg2"
+        internal fun findParamsGetter(playable: Class<*>, paramsClass: Class<*>): Method? =
+            Lookup.methods(playable, includeSuperclasses = true, makeAccessible = true) {
+                !it.isStatic && !it.isBridge && it.parameterCount == 0 && it.returnType == paramsClass
+            }.distinctBy { it.name to it.parameterTypes.toList() }.singleOrNull()
+
+        /** 可播条目接口不锁定混淆类名：9.19/9.20 起移至根包，改按无参 GeminiCommonPlayableParams 读取契约唯一判定。 */
+        internal fun isPlayableInterface(candidate: Class<*>, paramsClass: Class<*>): Boolean =
+            candidate.isInterface &&
+                (candidate.name.startsWith(FAMILY) || PlayerSpeedMenuAdapter.flattenedOwner(candidate.name)) &&
+                findParamsGetter(candidate, paramsClass) != null
+
+        internal fun resolveRunSurface(owner: Class<*>, paramsClass: Class<*>): Triple<Method, Method, Method>? {
+            val methods = Lookup.declaredMethods(owner, true)
+            return methods.mapNotNull { run ->
+                if (run.isStatic || run.isAbstract || run.isBridge ||
+                    run.returnType != classOf<Any>() || run.parameterCount != 2
+                ) return@mapNotNull null
+                val (playable, continuationType) = run.parameterTypes
+                if (continuationType.name !in setOf(
+                        "kotlin.coroutines.Continuation",
+                        "kotlin.coroutines.jvm.internal.ContinuationImpl"
+                    )
+                ) return@mapNotNull null
+                if (!isPlayableInterface(playable, paramsClass)) return@mapNotNull null
+                val parameters = findParamsGetter(playable, paramsClass) ?: return@mapNotNull null
+                val active = methods.singleOrNull {
+                    !it.isStatic && !it.isAbstract && !it.isBridge &&
+                        it.parameterCount == 0 && it.returnType == playable
+                } ?: return@mapNotNull null
+                Triple(run, active, parameters)
+            }.singleOrNull()
+        }
+
+        internal fun resolveContinuationOwnerField(continuation: Class<*>, paramsClass: Class<*>): Field? =
+            Lookup.declaredFields(continuation, true) {
+                !it.isStatic && it.type.name.startsWith(FAMILY) && it.type != continuation
+            }.singleOrNull() ?: Lookup.declaredFields(continuation, true) {
+                !it.isStatic && !it.type.isPrimitive && !it.type.isArray && !it.type.isInterface &&
+                    it.type != continuation && PlayerSpeedMenuAdapter.flattenedOwner(it.type.name) &&
+                    resolveRunSurface(it.type, paramsClass) != null
+            }.singleOrNull()
 
         fun resolve(loader: ClassLoader, continuationName: String = RUN_CLASS,
             wrapperName: String = WRAPPER_CLASS, containerScopeName: String? = CONTAINER_SCOPE_CLASS): SponsorPlayerAccess? = runCatching {
             val continuation = Lookup.classOrNull(loader, continuationName) ?: return null
             val runLabel = Lookup.fieldOrNull(continuation, "label")?.takeIf {
-                !Modifier.isStatic(it.modifiers) && it.type == classOf<Int>()
+                !it.isStatic && it.type == classOf<Int>()
             } ?: return null
             val params = Lookup.classOrNull(loader, PARAMS_CLASS) ?: return null
             val core = Lookup.classOrNull(loader, CORE_CLASS)?.takeIf { it.isInterface } ?: return null
@@ -126,22 +165,9 @@ internal class SponsorPlayerAccess private constructor(
                 method(seekObserver, "onSeekComplete", Void.TYPE, classOf<Long>()) == null ||
                 method(stateObserver, "onPlayerStateChanged", Void.TYPE, classOf<Int>()) == null ||
                 method(release, "onPlayerWillRelease", Void.TYPE) == null) return null
-            val continuationOwner = Lookup.declaredFields(continuation, true) {
-                !Modifier.isStatic(it.modifiers) && it.type.name.startsWith(FAMILY) && it.type != continuation
-            }.singleOrNull() ?: return null
+            val continuationOwner = resolveContinuationOwnerField(continuation, params) ?: return null
             val owner = continuationOwner.type
-            val run = Lookup.declaredMethods(owner, true) {
-                !Modifier.isStatic(it.modifiers) && it.returnType == classOf<Any>() && it.parameterCount == 2 &&
-                    it.parameterTypes[0].isInterface &&
-                    acceptsPlayableClass(it.declaringClass.name, it.name, it.parameterTypes[0].name) &&
-                    it.parameterTypes[1].name in setOf("kotlin.coroutines.Continuation", "kotlin.coroutines.jvm.internal.ContinuationImpl")
-            }.singleOrNull() ?: return null
-            val active = Lookup.declaredMethods(owner, true) {
-                !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == run.parameterTypes[0]
-            }.singleOrNull() ?: return null
-            val parameters = Lookup.methods(run.parameterTypes[0], true, true) {
-                !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == params
-            }.distinctBy { it.name to it.parameterTypes.toList() }.singleOrNull() ?: return null
+            val (run, active, parameters) = resolveRunSurface(owner, params) ?: return null
             val binding = resolveWrapper(wrapper, core, owner) ?: return null
             // 与 owner 显式成对的宿主 Context；不按当前 Activity 猜测播放器归属。
             val context = Lookup.classOrNull(loader, "android.content.Context") ?: return null
@@ -169,10 +195,10 @@ internal class SponsorPlayerAccess private constructor(
                 containerConstructor.parameterTypes.indexOf(container), containerCore) else null
             if (scope == null && containerScope == null) return null
             val business = Lookup.inheritedMethodOrNull(params, "getBizType")?.takeIf {
-                !Modifier.isStatic(it.modifiers) && it.returnType.isEnum
+                !it.isStatic && it.returnType.isEnum
             } ?: return null
             val ugc = Lookup.fieldOrNull(business.returnType, "UGC")?.takeIf {
-                Modifier.isStatic(it.modifiers) && it.type == business.returnType
+                it.isStatic && it.type == business.returnType
             }?.get(null) ?: return null
             SponsorPlayerAccess(run, binding.constructor, binding.ownerIndex, binding.coreIndex,
                 scope, containerScope, active, continuation, continuationOwner, runLabel, parameters,
@@ -209,7 +235,7 @@ internal class SponsorPlayerAccess private constructor(
 
         private fun method(owner: Class<*>, name: String, result: Class<*>, vararg parameters: Class<*>): Method? =
             Lookup.inheritedMethodOrNull(owner, name, *parameters)?.takeIf {
-                !Modifier.isStatic(it.modifiers) && it.returnType == result
+                !it.isStatic && it.returnType == result
             }
     }
 }

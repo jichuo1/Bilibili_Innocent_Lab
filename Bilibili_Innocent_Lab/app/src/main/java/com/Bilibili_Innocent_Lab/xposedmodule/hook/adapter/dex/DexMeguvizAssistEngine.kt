@@ -253,8 +253,11 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
                 collectStoryDefault(data, outcome)
             }
             if (query in SponsorPlayerLocator.queries) {
-                // 保持同一调用者的构造引用配对。
-                invokes(data).filter { it.name == "<init>" && it.owner.startsWith("Lcom/bilibili/ship/theseus/") }
+                // 保持同一调用者的构造引用配对；同时兼容未来 R8 扁平化到根包的 seekTo 协程。
+                invokes(data).filter {
+                    it.name == "<init>" && (it.owner.startsWith("Lcom/bilibili/ship/theseus/") ||
+                        PlayerSpeedMenuAdapter.flattenedOwner(it.owner.removePrefix("L").removeSuffix(";")))
+                }
                     .mapNotNull(::resolveConstructor).filter { it.parameterCount in 2..4 }
                     .forEach { outcome.relate(method, it.declaringClass) }
             }

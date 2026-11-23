@@ -9,8 +9,13 @@ import com.bilibili.ship.theseus.keel.player.`TheseusKeelPlayer$runPlayable$1`
 import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 import tv.danmaku.biliplayerv2.service.IPlayerCoreService
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 
 class SponsorPlayerAccessTest {
     private val loader = javaClass.classLoader!!
@@ -142,6 +147,154 @@ class SponsorPlayerAccessTest {
         }
     }
 
+    private interface DistractorInterfaceA { fun z(): String }
+    private interface DistractorInterfaceB { fun y(): Int }
+    private interface FakeContinuationImpl
+    private interface Playable920 { fun t(): GeminiCommonPlayableParams }
+    private interface SecondPlayable920 { fun u(): GeminiCommonPlayableParams }
+
+    @Suppress("unused")
+    private class Owner920(@JvmField var current: Playable920? = null) {
+        fun e(a: DistractorInterfaceA, c: Continuation<Any?>): Any? = null
+        fun o(b: DistractorInterfaceB, c: Continuation<Any?>): Any? = null
+        fun k(): Playable920? = current
+        fun r(p: Playable920, c: FakeContinuationImpl): Any? = null
+    }
+
+    @Suppress("unused")
+    private class AmbiguousPlayableOwner {
+        fun a(): Playable920? = null
+        fun b(): SecondPlayable920? = null
+        fun r(p: Playable920, c: FakeContinuationImpl): Any? = null
+        fun s(p: SecondPlayable920, c: FakeContinuationImpl): Any? = null
+    }
+
+    @Suppress("unused")
+    private class Wrapper920(core: IPlayerCoreService, owner: Owner920, scope: CoroutineScope) : IPlayerCoreService by core
+
+    @Suppress("unused")
+    private class Seek920(owner: Owner920, position: Int, accurate: Boolean, continuation: Continuation<Any?>?) {
+        @JvmField var label = 0
+        fun create(value: Any, continuation: Continuation<Any?>): Continuation<Any?> =
+            throw UnsupportedOperationException()
+        fun invokeSuspend(value: Any): Any = Unit
+    }
+
+    private fun rewriteConstantPool(template: Class<*>, replacements: Map<String, String>): ByteArray {
+        val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class")).use { it.readBytes() }
+        val input = DataInputStream(ByteArrayInputStream(raw))
+        val outBuffer = ByteArrayOutputStream()
+        val output = DataOutputStream(outBuffer)
+        output.writeInt(input.readInt())
+        output.writeShort(input.readUnsignedShort())
+        output.writeShort(input.readUnsignedShort())
+        val count = input.readUnsignedShort()
+        output.writeShort(count)
+        val pattern = Regex(replacements.keys.sortedByDescending { it.length }.joinToString("|", transform = Regex::escape))
+        var index = 1
+        while (index < count) {
+            val tag = input.readUnsignedByte()
+            output.writeByte(tag)
+            if (tag == 1) {
+                val utf = pattern.replace(input.readUTF()) { match -> replacements.getValue(match.value) }
+                output.writeUTF(utf)
+            } else {
+                val len = when (tag) {
+                    3, 4, 9, 10, 11, 12, 17, 18 -> 4
+                    5, 6 -> 8
+                    7, 8, 16, 19, 20 -> 2
+                    15 -> 3
+                    else -> error("Unsupported classfile tag: $tag")
+                }
+                repeat(len) { output.writeByte(input.readUnsignedByte()) }
+                if (tag == 5 || tag == 6) index++
+            }
+            index++
+        }
+        output.write(input.readBytes())
+        output.flush()
+        return outBuffer.toByteArray()
+    }
+
+    private fun loaderWithRelocatedNames(
+        ownerTarget: String,
+        playableTarget: String,
+        continuationTarget: String = SponsorPlayerAccess.RUN_CLASS,
+        wrapperTarget: String = SponsorPlayerAccess.WRAPPER_CLASS,
+        seekTarget: String = SponsorSeekAccess.CLASS,
+        ambiguousOwner: Boolean = false
+    ): ClassLoader {
+        fun internal(cls: Class<*>) = cls.name.replace('.', '/')
+        val ownerTemplate = if (ambiguousOwner) AmbiguousPlayableOwner::class.java else Owner920::class.java
+        val ownerInternal = ownerTarget.replace('.', '/')
+        val templates = linkedMapOf<String, Class<*>>(
+            "l723" to DistractorInterfaceA::class.java,
+            "c723" to DistractorInterfaceB::class.java,
+            playableTarget to Playable920::class.java,
+            "nmq2" to SecondPlayable920::class.java,
+            ownerTarget to ownerTemplate,
+            continuationTarget to com.bilibili.ship.theseus.keel.player.RenamedSponsorContinuation::class.java,
+            wrapperTarget to Wrapper920::class.java,
+            seekTarget to Seek920::class.java
+        )
+        val replacements = linkedMapOf(
+            internal(FakeContinuationImpl::class.java) to "kotlin/coroutines/jvm/internal/ContinuationImpl",
+            internal(DistractorInterfaceA::class.java) to "l723",
+            internal(DistractorInterfaceB::class.java) to "c723",
+            internal(Playable920::class.java) to playableTarget.replace('.', '/'),
+            internal(SecondPlayable920::class.java) to "nmq2",
+            internal(ownerTemplate) to ownerInternal,
+            internal(Owner920::class.java) to ownerInternal,
+            "com/bilibili/ship/theseus/keel/player/TheseusKeelPlayer" to ownerInternal,
+            internal(com.bilibili.ship.theseus.keel.player.RenamedSponsorContinuation::class.java) to continuationTarget.replace('.', '/'),
+            internal(Wrapper920::class.java) to wrapperTarget.replace('.', '/'),
+            internal(Seek920::class.java) to seekTarget.replace('.', '/')
+        )
+        val hidden = setOf(
+            SponsorPlayerAccess.RUN_CLASS,
+            SponsorPlayerAccess.WRAPPER_CLASS,
+            SponsorSeekAccess.CLASS
+        ) - templates.keys
+        return object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
+                if (name in hidden) throw ClassNotFoundException(name)
+                val tpl = templates[name] ?: return@synchronized super.loadClass(name, resolve)
+                val loaded = findLoadedClass(name) ?: rewriteConstantPool(tpl, replacements).let {
+                    defineClass(name, it, 0, it.size)
+                }
+                if (resolve) resolveClass(loaded)
+                loaded
+            }
+        }
+    }
+
+    fun resolves920AndArbitraryRootPackagePlayableStructurallyAndRejectsAmbiguousOwners() {
+        for ((ownerName, playableName) in listOf(
+            "com.bilibili.ship.theseus.keel.player.b" to "spq2",
+            "com.bilibili.ship.theseus.keel.player.b" to "bpq2",
+            "k0" to "q9z0"
+        )) {
+            val l = loaderWithRelocatedNames(ownerName, playableName)
+            val access = requireNotNull(SponsorPlayerAccess.resolve(l))
+            val ownerClass = l.loadClass(ownerName)
+            val playableClass = l.loadClass(playableName)
+            val playableProxy = java.lang.reflect.Proxy.newProxyInstance(l, arrayOf(playableClass)) { _, method, _ ->
+                if (method.name == "t") GeminiCommonPlayableParams("BV14741127BN", 9L, 2L, SponsorBusiness.UGC) else null
+            }
+            val instance = ownerClass.getDeclaredConstructor(playableClass).apply { isAccessible = true }
+                .newInstance(playableProxy)
+            assertEquals(SponsorVideoId("BV14741127BN", 9L), access.video(instance))
+            assertTrue(access.bound(instance, playableProxy, null))
+        }
+
+        val ambigLoader = loaderWithRelocatedNames(
+            ownerTarget = "com.bilibili.ship.theseus.keel.player.b",
+            playableTarget = "spq2",
+            ambiguousOwner = true
+        )
+        assertNull(SponsorPlayerAccess.resolve(ambigLoader))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (SponsorPlayerAccessTest) -> Unit) {
@@ -156,5 +309,6 @@ class SponsorPlayerAccessTest {
         runIsolated { s -> s.activePlaybackCanBeBoundWhileRunPlayableIsSuspendedButNotWhileWaitingForItsMutex() }
         runIsolated { s -> s.eitherExplicitActivityBindingRouteCanSupportAHostButNeitherCannot() }
         runIsolated { s -> s.reordered912ConstructorCapturesTheActualOwnerAndCoreAndRejectsAmbiguousShapes() }
+        runIsolated { s -> s.resolves920AndArbitraryRootPackagePlayableStructurallyAndRejectsAmbiguousOwners() }
     }
 }

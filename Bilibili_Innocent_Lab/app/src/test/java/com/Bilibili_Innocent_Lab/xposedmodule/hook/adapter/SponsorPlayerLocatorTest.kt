@@ -1,12 +1,21 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.*
+import com.bilibili.app.gemini.base.player.GeminiCommonPlayableParams
+import com.bilibili.app.gemini.base.player.SponsorBusiness
 import com.bilibili.ship.theseus.keel.player.RenamedSponsorContinuation
+import com.bilibili.ship.theseus.keel.player.SponsorPlayable
 import com.bilibili.ship.theseus.keel.player.TheseusKeelPlayer
 import com.bilibili.ship.theseus.united.player.oldway.playercontainer.*
+import kotlinx.coroutines.CoroutineScope
 import org.json.JSONObject
 import org.junit.Assert.*
-import org.junit.Test
+import tv.danmaku.biliplayerv2.service.IPlayerCoreService
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import kotlin.coroutines.Continuation
 
 class SponsorPlayerLocatorTest {
     private val loader = javaClass.classLoader!!
@@ -42,12 +51,116 @@ class SponsorPlayerLocatorTest {
         assertNull(SponsorPlayerLocator.select(loader, DexAssistResult.Candidates(List(33) { run }), wrappers(), scopes))
     }
 
-    fun repackagedPlayableIsLimitedToTheAuditedRun() {
-        val owner = "com.bilibili.ship.theseus.keel.player.b"
-        assertTrue(SponsorPlayerAccess.acceptsPlayableClass(owner, "r", "hcg2"))
-        assertFalse(SponsorPlayerAccess.acceptsPlayableClass(owner, "s", "hcg2"))
-        assertFalse(SponsorPlayerAccess.acceptsPlayableClass("com.bilibili.ship.theseus.keel.player.c", "r", "hcg2"))
-        assertFalse(SponsorPlayerAccess.acceptsPlayableClass(owner, "r", "unrelated0"))
+    private interface FixtureDistractor { fun ping(): Int }
+    private interface FixtureRootPlayable { fun t(): GeminiCommonPlayableParams }
+    @Suppress("unused")
+    private class FixtureRootOwner {
+        fun e(d: FixtureDistractor, c: Continuation<Any?>): Any? = null
+        fun k(): FixtureRootPlayable? = null
+        fun r(p: FixtureRootPlayable, c: Continuation<Any?>): Any? = null
+    }
+    @Suppress("unused")
+    private class FixtureRootWrapper(core: IPlayerCoreService, owner: FixtureRootOwner, scope: CoroutineScope) : IPlayerCoreService by core {
+        override fun seekTo(position: Int, accurate: Boolean) {}
+    }
+    @Suppress("unused")
+    private class FixtureRootSeek(owner: FixtureRootOwner, position: Int, accurate: Boolean, continuation: Continuation<Any?>?) {
+        @JvmField var label = 0
+        fun create(value: Any, continuation: Continuation<Any?>): Continuation<Any?> =
+            throw UnsupportedOperationException()
+        fun invokeSuspend(value: Any): Any = Unit
+    }
+
+    private fun rewriteConstantPool(template: Class<*>, replacements: Map<String, String>): ByteArray {
+        val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class")).use { it.readBytes() }
+        val input = DataInputStream(ByteArrayInputStream(raw))
+        val outBuffer = ByteArrayOutputStream()
+        val output = DataOutputStream(outBuffer)
+        output.writeInt(input.readInt())
+        output.writeShort(input.readUnsignedShort())
+        output.writeShort(input.readUnsignedShort())
+        val count = input.readUnsignedShort()
+        output.writeShort(count)
+        val sorted = replacements.entries.sortedByDescending { it.key.length }
+        var index = 1
+        while (index < count) {
+            val tag = input.readUnsignedByte()
+            output.writeByte(tag)
+            if (tag == 1) {
+                var utf = input.readUTF()
+                sorted.forEach { (from, to) -> utf = utf.replace(from, to) }
+                output.writeUTF(utf)
+            } else {
+                val len = when (tag) {
+                    3, 4, 9, 10, 11, 12, 17, 18 -> 4
+                    5, 6 -> 8
+                    7, 8, 16, 19, 20 -> 2
+                    15 -> 3
+                    else -> error("Unsupported classfile tag: $tag")
+                }
+                repeat(len) { output.writeByte(input.readUnsignedByte()) }
+                if (tag == 5 || tag == 6) index++
+            }
+            index++
+        }
+        output.write(input.readBytes())
+        output.flush()
+        return outBuffer.toByteArray()
+    }
+
+    fun relocatedAndFlattenedRootClassesSelectStructurallyAndSurviveCacheRoundTrip() {
+        val paramsClass = GeminiCommonPlayableParams::class.java
+        assertFalse(SponsorPlayerAccess.isPlayableInterface(paramsClass, paramsClass))
+        assertFalse(SponsorPlayerAccess.isPlayableInterface(FixtureDistractor::class.java, paramsClass))
+        assertTrue(SponsorPlayerAccess.isPlayableInterface(SponsorPlayable::class.java, paramsClass))
+
+        fun internal(cls: Class<*>) = cls.name.replace('.', '/')
+        val templates = linkedMapOf<String, Class<*>>(
+            "l723" to FixtureDistractor::class.java,
+            "spq2" to FixtureRootPlayable::class.java,
+            "k0" to FixtureRootOwner::class.java,
+            "r0" to RenamedSponsorContinuation::class.java,
+            "w0" to FixtureRootWrapper::class.java,
+            "s0" to FixtureRootSeek::class.java
+        )
+        val replacements = linkedMapOf(
+            internal(FixtureDistractor::class.java) to "l723",
+            internal(FixtureRootPlayable::class.java) to "spq2",
+            internal(FixtureRootOwner::class.java) to "k0",
+            "com/bilibili/ship/theseus/keel/player/TheseusKeelPlayer" to "k0",
+            internal(RenamedSponsorContinuation::class.java) to "r0",
+            internal(FixtureRootWrapper::class.java) to "w0",
+            internal(FixtureRootSeek::class.java) to "s0"
+        )
+        val hidden = setOf(SponsorPlayerAccess.RUN_CLASS, SponsorPlayerAccess.WRAPPER_CLASS, SponsorSeekAccess.CLASS)
+        val flatLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
+                if (name in hidden) throw ClassNotFoundException(name)
+                val tpl = templates[name] ?: return@synchronized super.loadClass(name, resolve)
+                val loaded = findLoadedClass(name) ?: rewriteConstantPool(tpl, replacements).let {
+                    defineClass(name, it, 0, it.size)
+                }
+                if (resolve) resolveClass(loaded)
+                loaded
+            }
+        }
+        assertNull(SponsorPlayerLocator.direct(flatLoader))
+        val flatRun = flatLoader.loadClass("k0").declaredMethods.single { it.name == "r" }
+        val flatCont = flatLoader.loadClass("r0")
+        val flatSeekMethod = flatLoader.loadClass("w0").getMethod("seekTo", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+        val flatSeekClass = flatLoader.loadClass("s0")
+        val selected = requireNotNull(
+            SponsorPlayerLocator.select(
+                flatLoader,
+                DexAssistResult.Candidates(listOf(flatRun), relatedClasses = mapOf(flatRun to listOf(flatCont))),
+                DexAssistResult.Candidates(listOf(flatSeekMethod), relatedClasses = mapOf(flatSeekMethod to listOf(flatSeekClass))),
+                DexAssistResult.Candidates(emptyList())
+            )
+        )
+        assertEquals(SponsorPlayerClasses("r0", "w0", SponsorPlayerAccess.CONTAINER_SCOPE_CLASS, "s0"), selected.classes)
+        val roundTripped = requireNotNull(SponsorPlayerClasses.fromJson(selected.classes.toJson()))
+        assertEquals(selected.classes, roundTripped)
+        assertNotNull(SponsorPlayerLocator.resolve(flatLoader, roundTripped))
     }
 
     fun disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() {
@@ -93,7 +206,7 @@ class SponsorPlayerLocatorTest {
         }
         runIsolated { s -> s.renamedPlayerAndGuardAreSelectedTogetherAndCacheIsReverified() }
         runIsolated { s -> s.unrelatedOrAmbiguousGuardsAndOverBudgetInputsCannotBeInstalled() }
-        runIsolated { s -> s.repackagedPlayableIsLimitedToTheAuditedRun() }
+        runIsolated { s -> s.relocatedAndFlattenedRootClassesSelectStructurallyAndSurviveCacheRoundTrip() }
         runIsolated { s -> s.disabledDirectAndAlreadyAttemptedHostsNeverNeedARepeatScan() }
         runIsolated { s -> s.sponsorQueriesShareOnePlannedBatchAndPreserveCallerAssociations() }
         runIsolated { s -> s.cacheRejectsUnboundedAndForeignNames() }
