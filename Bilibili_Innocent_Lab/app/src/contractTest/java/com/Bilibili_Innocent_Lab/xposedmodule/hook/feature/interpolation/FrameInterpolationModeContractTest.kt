@@ -74,4 +74,31 @@ class FrameInterpolationModeContractTest {
         assertFalse(probe.contains("telemetry"))
         assertFalse(probe.contains("Telemetry"))
     }
+
+    @Test fun `qcom allows sdr bt601 and bt709 without overwriting configure metadata or conflating resize with hdr`() {
+        val routes = SourceContract.read("$dir/FramePlaybackRoutes.kt")
+        val attach = routes.after("fun attach(").before("fun rifeCanAdvance(")
+        assertTrue(attach.contains("val qcomColor = qcomColorEligible(signal, decodedSignal)"))
+        assertTrue(attach.contains("if (target != null && qcomColor && isCurrent())"))
+        val qcomArgs = attach.after("FrameQcomBridge.create(").before("initialColorStandard")
+        assertTrue(qcomArgs.contains("source, host"))
+        assertFalse(qcomArgs.contains("merged"))
+        val rifeArgs = attach.after("FrameQcomBridge.createRife(").before("{ outputWidth")
+        assertTrue(rifeArgs.contains("source,"))
+        assertFalse(rifeArgs.contains("merged"))
+
+        val qcom = SourceContract.read("$dir/FrameQcomBridge.kt")
+        val createFn = qcom.after("fun create(").before("fun createRife(")
+        assertTrue(createFn.contains("!supportsQcomColorStandard(initialColorStandard)"))
+        assertFalse(createFn.contains("COLOR_STANDARD_BT709"))
+
+        val captureFn = qcom.after("private fun capture(").before("private val pollTask")
+        assertTrue(captureFn.contains("is RuntimeEligibility.MediaRejected -> { fail(\"media:\${check.reason}\", FrameStatus.Reason.MEDIA)"))
+        assertTrue(captureFn.contains("RuntimeEligibility.ColorChanged -> { fail(\"color_changed\"); return }"))
+        assertTrue(captureFn.contains("RuntimeEligibility.SourceSizeChanged -> { fail(\"source_size\"); return }"))
+
+        val installer = SourceContract.read("$dir/FrameInterpolationFeatureInstaller.kt")
+        val activation = installer.after("private fun prepareActivation(").before("private val bridgeHost")
+        assertTrue(activation.contains("strategy=\${routeStrategy.logName}"))
+    }
 }

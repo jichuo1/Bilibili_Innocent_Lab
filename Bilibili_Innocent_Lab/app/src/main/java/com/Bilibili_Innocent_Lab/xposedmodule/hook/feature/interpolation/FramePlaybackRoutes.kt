@@ -23,23 +23,27 @@ internal class FramePlaybackRoutes(
         val allowsQcom: Boolean
         val allowsRife: Boolean
         val bypassFrameBudget: Boolean
+        val logName: String
 
         object Auto : Strategy {
             override val allowsQcom = true
             override val allowsRife = true
             override val bypassFrameBudget = false
+            override val logName = "auto"
         }
 
         data class Forced(val mode: FrameInterpolationMode) : Strategy {
             override val allowsQcom = mode == FrameInterpolationMode.QCOM
             override val allowsRife = mode == FrameInterpolationMode.RIFE
             override val bypassFrameBudget = true
+            override val logName get() = "forced:${mode.wireValue}"
         }
 
         object Unavailable : Strategy {
             override val allowsQcom = false
             override val allowsRife = false
             override val bypassFrameBudget = true
+            override val logName = "unavailable"
         }
     }
 
@@ -126,31 +130,25 @@ internal class FramePlaybackRoutes(
             return Result.Original
         }
         if (!attempt.rifeOnly && strategy.allowsQcom) {
-            if (target != null && signal.standard == FrameMediaPolicy.Standard.BT709 &&
-                decodedSignal.standard == FrameMediaPolicy.Standard.BT709 && isCurrent()) {
-                val qcom = FrameQcomBridge.create(codec, display, width, height, fps, target, merged, host, isCurrent,
-                    attach, bypassFrameBudget = strategy.bypassFrameBudget) { reason, hadMidpoint ->
+            val qcomColor = qcomColorEligible(signal, decodedSignal)
+            if (target != null && qcomColor && isCurrent()) {
+                val qcom = FrameQcomBridge.create(codec, display, width, height, fps, target, source, host, isCurrent,
+                    attach, initialColorStandard = merged.colorStandard, initialStandard = signal.standard,
+                    bypassFrameBudget = strategy.bypassFrameBudget) { reason, hadMidpoint ->
                     val retryQcom = attempt.retireQcom(reason, hadMidpoint, allowRifeFallback = strategy.allowsRife)
                     if (retryQcom) onWindowFailed("qcom-resize")
                     else if (strategy.allowsRife) onWindowFailed("qcom")
-                    else host.onStatus(FrameStatus.Inactive(
-                        if (reason == "speed") FrameStatus.Reason.RATE else FrameStatus.Reason.ENGINE
-                    ))
+                    else host.onStatus(FrameStatus.Inactive(forcedQcomFailureReason(reason)))
                 }
                 if (qcom != null) {
-                    host.log("route.selected", "qcom ${width}x${height} target=$target forced=${!strategy.allowsRife}")
+                    host.log("route.selected", "qcom ${width}x${height} target=$target std=${signal.standard}/${decodedSignal.standard} forced=${!strategy.allowsRife}")
                     return Result.Attached(qcom, "qcom")
                 }
             }
             if (!strategy.allowsRife) {
                 if (!isCurrent()) return Result.Original
-                val reason = when {
-                    target == null -> FrameStatus.Reason.RATE
-                    signal.standard != FrameMediaPolicy.Standard.BT709 ||
-                        decodedSignal.standard != FrameMediaPolicy.Standard.BT709 -> FrameStatus.Reason.MEDIA
-                    else -> FrameStatus.Reason.ENGINE
-                }
-                host.log("route.native", "qcom_forced=$reason")
+                val reason = forcedQcomRejectReason(target, qcomColor)
+                host.log("route.native", "qcom_forced=$reason src=${signal.standard} dec=${decodedSignal.standard} raw=${merged.colorStandard}/${decoded.colorStandard}")
                 host.onStatus(FrameStatus.Inactive(reason))
                 return Result.Original
             }
@@ -162,15 +160,15 @@ internal class FramePlaybackRoutes(
         if (!isCurrent() || !strategy.allowsRife) return Result.Original
         // A model can be ready before RGB capability measurement finishes. AHB proves its own
         // Vulkan interop, pixel extent and pair-to-draw budget on the actual EGL owner.
-        val windowColor = signal.standard == decodedSignal.standard && signal.standard in RIFE_WINDOW_STANDARDS
+        val windowColor = signal.standard == decodedSignal.standard && signal.standard in SDR_WINDOW_STANDARDS
         if (attempt.claimRifeAhb(rife.ahbCandidateLoaded())) {
             if (target != null && windowColor) {
-                val window = FrameQcomBridge.createRife(codec, display, width, height, fps, target, merged,
+                val window = FrameQcomBridge.createRife(codec, display, width, height, fps, target, source,
                     host, isCurrent, attach, { outputWidth, outputHeight ->
                         FrameRifeAhbBackend.open(rife, width, height, outputWidth, outputHeight, fps, target, signal.standard,
                             isCurrent, androidColorStandard = merged.colorStandard ?: decoded.colorStandard,
                             bypassFrameBudget = strategy.bypassFrameBudget)
-                    }, bypassFrameBudget = strategy.bypassFrameBudget) { _, _ -> onWindowFailed("rife-ahb") }
+                    }, initialStandard = signal.standard, bypassFrameBudget = strategy.bypassFrameBudget) { _, _ -> onWindowFailed("rife-ahb") }
                 if (window != null) {
                     if (window.awaitingRetirement) {
                         host.log("route.retiring", "rife-ahb")
@@ -207,8 +205,23 @@ internal class FramePlaybackRoutes(
 
     companion object {
         private const val MAX_ZERO_MIDPOINT_RESIZES = 2
-        private val RIFE_WINDOW_STANDARDS = setOf(FrameMediaPolicy.Standard.BT601, FrameMediaPolicy.Standard.BT709)
+        private val SDR_WINDOW_STANDARDS = setOf(FrameMediaPolicy.Standard.BT601, FrameMediaPolicy.Standard.BT709)
         private val WAITABLE = setOf(FrameMediaPolicy.Reason.UNKNOWN_COLOR, FrameMediaPolicy.Reason.UNKNOWN_BIT_DEPTH,
             FrameMediaPolicy.Reason.UNKNOWN_AUDIO_PATH)
+
+        internal fun qcomColorEligible(signal: FrameMediaPolicy.Signal, decoded: FrameMediaPolicy.Signal): Boolean =
+            signal.standard in SDR_WINDOW_STANDARDS && decoded.standard in SDR_WINDOW_STANDARDS
+
+        internal fun forcedQcomRejectReason(target: Int?, qcomColor: Boolean): FrameStatus.Reason = when {
+            target == null -> FrameStatus.Reason.RATE
+            !qcomColor -> FrameStatus.Reason.MEDIA
+            else -> FrameStatus.Reason.ENGINE
+        }
+
+        internal fun forcedQcomFailureReason(reason: String): FrameStatus.Reason = when (reason) {
+            "speed", "cadence" -> FrameStatus.Reason.RATE
+            "source_size" -> FrameStatus.Reason.FORMAT
+            else -> FrameStatus.Reason.ENGINE
+        }
     }
 }

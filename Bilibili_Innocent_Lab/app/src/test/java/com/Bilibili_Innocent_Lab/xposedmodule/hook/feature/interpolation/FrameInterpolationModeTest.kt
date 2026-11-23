@@ -182,4 +182,157 @@ class FrameInterpolationModeTest {
         assertEquals(FramePresentationRecovery.State.DISABLED, fatal.state)
         assertEquals(FramePresentationRecovery.Cause.NATIVE_FATAL, fatal.cause)
     }
+
+    @Test fun `qcom route allows sdr bt601 and bt709 standards and maps forced errors accurately`() {
+        val bt709 = FrameMediaPolicy.Signal(standard = FrameMediaPolicy.Standard.BT709)
+        val bt601 = FrameMediaPolicy.Signal(standard = FrameMediaPolicy.Standard.BT601)
+        val bt2020 = FrameMediaPolicy.Signal(standard = FrameMediaPolicy.Standard.BT2020)
+        val other = FrameMediaPolicy.Signal(standard = FrameMediaPolicy.Standard.OTHER)
+        val unknown = FrameMediaPolicy.Signal(standard = FrameMediaPolicy.Standard.UNKNOWN)
+
+        assertTrue(FramePlaybackRoutes.qcomColorEligible(bt709, bt709))
+        assertTrue(FramePlaybackRoutes.qcomColorEligible(bt601, bt601))
+        assertTrue(FramePlaybackRoutes.qcomColorEligible(bt709, bt601))
+        assertTrue(FramePlaybackRoutes.qcomColorEligible(bt601, bt709))
+        for (bad in listOf(bt2020, other, unknown)) {
+            assertFalse(FramePlaybackRoutes.qcomColorEligible(bad, bt709))
+            assertFalse(FramePlaybackRoutes.qcomColorEligible(bt709, bad))
+        }
+
+        assertEquals(FrameStatus.Reason.RATE, FramePlaybackRoutes.forcedQcomRejectReason(target = null, qcomColor = true))
+        assertEquals(FrameStatus.Reason.RATE, FramePlaybackRoutes.forcedQcomRejectReason(target = null, qcomColor = false))
+        assertEquals(FrameStatus.Reason.MEDIA, FramePlaybackRoutes.forcedQcomRejectReason(target = 60, qcomColor = false))
+        assertEquals(FrameStatus.Reason.ENGINE, FramePlaybackRoutes.forcedQcomRejectReason(target = 60, qcomColor = true))
+
+        assertEquals(FrameStatus.Reason.RATE, FramePlaybackRoutes.forcedQcomFailureReason("speed"))
+        assertEquals(FrameStatus.Reason.RATE, FramePlaybackRoutes.forcedQcomFailureReason("cadence"))
+        assertEquals(FrameStatus.Reason.FORMAT, FramePlaybackRoutes.forcedQcomFailureReason("source_size"))
+        assertEquals(FrameStatus.Reason.ENGINE, FramePlaybackRoutes.forcedQcomFailureReason("color_changed"))
+        assertEquals(FrameStatus.Reason.ENGINE, FramePlaybackRoutes.forcedQcomFailureReason("worker:-1"))
+
+        assertEquals("auto", FramePlaybackRoutes.Strategy.Auto.logName)
+        assertEquals("forced:qcom", FramePlaybackRoutes.Strategy.Forced(FrameInterpolationMode.QCOM).logName)
+        assertEquals("forced:rife", FramePlaybackRoutes.Strategy.Forced(FrameInterpolationMode.RIFE).logName)
+        assertEquals("unavailable", FramePlaybackRoutes.Strategy.Unavailable.logName)
+    }
+
+    @Test fun `qcom runtime eligibility supports bt601 transitions, rejects hdr, and separates resize from media`() {
+        assertTrue(FrameQcomBridge.supportsQcomColorStandard(1))
+        assertTrue(FrameQcomBridge.supportsQcomColorStandard(2))
+        assertTrue(FrameQcomBridge.supportsQcomColorStandard(4))
+        assertFalse(FrameQcomBridge.supportsQcomColorStandard(6))
+        assertFalse(FrameQcomBridge.supportsQcomColorStandard(null))
+        assertFalse(FrameQcomBridge.supportsQcomColorStandard(0))
+        assertFalse(FrameQcomBridge.supportsQcomColorStandard(99))
+
+        val pcmAudio = FrameMediaPolicy.Audio(
+            output = FrameMediaPolicy.AudioOutput.PCM,
+            offloaded = FrameMediaPolicy.Evidence.NO,
+            tunneled = FrameMediaPolicy.Evidence.NO
+        )
+        fun eval(
+            mode: FrameStatus.Backend = FrameStatus.Backend.QCOM,
+            configuredSource: FrameHostMediaSignals.Values = FrameHostMediaSignals.Values(mime = "video/avc"),
+            input: FrameHostMediaSignals.Values? = null,
+            output: FrameHostMediaSignals.Values = FrameHostMediaSignals.Values(
+                mime = "video/raw",
+                colorStandard = 1,
+                colorTransfer = 3,
+                colorRange = 2
+            ),
+            outputWidth: Int = 1920,
+            outputHeight: Int = 1080,
+            initialStandard: FrameMediaPolicy.Standard = FrameMediaPolicy.Standard.BT709
+        ) = FrameQcomBridge.evaluateRuntimeEligibility(
+            mode = mode,
+            sourceWidth = 1920,
+            sourceHeight = 1080,
+            configuredSource = configuredSource,
+            input = input,
+            output = output,
+            audio = pcmAudio,
+            outputWidth = outputWidth,
+            outputHeight = outputHeight,
+            initialStandard = initialStandard
+        )
+
+        // Ordinary BT.601 PAL and NTSC SDR 8-bit must pass for QCOM.
+        assertEquals(
+            FrameQcomBridge.RuntimeEligibility.Eligible,
+            eval(
+                output = FrameHostMediaSignals.Values("video/raw", colorStandard = 2, colorTransfer = 3, colorRange = 2),
+                initialStandard = FrameMediaPolicy.Standard.BT601
+            )
+        )
+        assertEquals(
+            FrameQcomBridge.RuntimeEligibility.Eligible,
+            eval(
+                output = FrameHostMediaSignals.Values("video/raw", colorStandard = 4, colorTransfer = 3, colorRange = 2),
+                initialStandard = FrameMediaPolicy.Standard.BT601
+            )
+        )
+
+        // configure omits colorStandard; initial was BT.601, runtime output updates to BT.709.
+        val updatedOutput = FrameHostMediaSignals.Values("video/raw", colorStandard = 1, colorTransfer = 3, colorRange = 2)
+        assertEquals(
+            FrameQcomBridge.RuntimeEligibility.Eligible,
+            eval(mode = FrameStatus.Backend.QCOM, output = updatedOutput, initialStandard = FrameMediaPolicy.Standard.BT601)
+        )
+        assertEquals(
+            FrameQcomBridge.RuntimeEligibility.ColorChanged,
+            eval(mode = FrameStatus.Backend.RIFE, output = updatedOutput, initialStandard = FrameMediaPolicy.Standard.BT601)
+        )
+
+        // configure explicitly BT.709 while decoder output reports BT.601 -> still QCOM Eligible.
+        assertEquals(
+            FrameQcomBridge.RuntimeEligibility.Eligible,
+            eval(
+                mode = FrameStatus.Backend.QCOM,
+                configuredSource = FrameHostMediaSignals.Values("video/avc", colorStandard = 1),
+                output = FrameHostMediaSignals.Values("video/raw", colorStandard = 4, colorTransfer = 3, colorRange = 2),
+                initialStandard = FrameMediaPolicy.Standard.BT709
+            )
+        )
+
+        // True HDR, BT.2020, HDR metadata, and 10-bit streams must still fail as MediaRejected on both backends.
+        val hdrCases = listOf(
+            FrameHostMediaSignals.Values("video/hevc") to FrameHostMediaSignals.Values("video/raw", 1, 6, 2),
+            FrameHostMediaSignals.Values("video/hevc") to FrameHostMediaSignals.Values("video/raw", 1, 7, 2),
+            FrameHostMediaSignals.Values("video/hevc") to FrameHostMediaSignals.Values("video/raw", 6, 3, 2),
+            FrameHostMediaSignals.Values("video/avc") to FrameHostMediaSignals.Values("video/raw", 1, 3, 2, hdrStaticInfo = true),
+            FrameHostMediaSignals.Values("video/hevc") to FrameHostMediaSignals.Values("video/raw", 1, 3, 2, hdr10PlusInfo = true),
+            FrameHostMediaSignals.Values("video/hevc", profile = 2) to FrameHostMediaSignals.Values("video/raw", 1, 3, 2)
+        )
+        for ((src, out) in hdrCases) {
+            for (backend in listOf(FrameStatus.Backend.QCOM, FrameStatus.Backend.RIFE)) {
+                assertTrue(
+                    eval(mode = backend, configuredSource = src, output = out) is FrameQcomBridge.RuntimeEligibility.MediaRejected
+                )
+            }
+        }
+
+        // Valid SDR resolution/crop change is SourceSizeChanged, never MediaRejected.
+        assertEquals(
+            FrameQcomBridge.RuntimeEligibility.SourceSizeChanged,
+            eval(outputWidth = 1280, outputHeight = 720)
+        )
+
+        // configure lacks profile; runtime inputFormat supplies Main 8-bit profile=1 for HEVC and AV1.
+        for (mime in listOf("video/hevc", "video/av01")) {
+            assertEquals(
+                FrameQcomBridge.RuntimeEligibility.Eligible,
+                eval(
+                    configuredSource = FrameHostMediaSignals.Values(mime = mime),
+                    input = FrameHostMediaSignals.Values(mime = mime, profile = 1)
+                )
+            )
+            assertEquals(
+                FrameQcomBridge.RuntimeEligibility.MediaRejected(FrameMediaPolicy.Reason.UNSUPPORTED_BIT_DEPTH),
+                eval(
+                    configuredSource = FrameHostMediaSignals.Values(mime = mime),
+                    input = FrameHostMediaSignals.Values(mime = mime, profile = 2)
+                )
+            )
+        }
+    }
 }

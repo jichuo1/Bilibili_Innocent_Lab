@@ -738,7 +738,7 @@ internal class FrameInterpolationFeatureInstaller(
                 holder.onReady = ::schedulePendingTakeover
                 holder.onPreparationChanged = ::schedulePendingTakeover
                 routes = FramePlaybackRoutes(holder, routeStrategy)
-                log("mode.policy", "force=$forceMode configured=$forcedMode strategy=${routeStrategy.javaClass.simpleName}")
+                log("mode.policy", "force=$forceMode configured=$forcedMode strategy=${routeStrategy.logName}")
                 schedulePendingTakeover()
             }
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")

@@ -28,6 +28,7 @@ internal class FrameQcomBridge private constructor(
     private val source: FrameHostMediaSignals.Values,
     private val mode: FrameStatus.Backend,
     private val bypassFrameBudget: Boolean,
+    private val initialStandard: FrameMediaPolicy.Standard,
     private var rifeFactory: ((Int, Int) -> WindowBackend?)?,
     private var playback: Playback?
 ) : FramePlaybackBridge {
@@ -244,7 +245,13 @@ internal class FrameQcomBridge private constructor(
         if (abs(checkNotNull(playback).rate() - 1.0) > 0.01) { fail("speed"); return }
         if (now >= nextPolicyCheck) {
             nextPolicyCheck = now + 1_000_000_000L
-            if (!eligibleNow()) { fail("media", FrameStatus.Reason.MEDIA); return }
+            when (val check = checkRuntimeEligibility()) {
+                RuntimeEligibility.Eligible -> Unit
+                is RuntimeEligibility.MediaRejected -> { fail("media:${check.reason}", FrameStatus.Reason.MEDIA); return }
+                RuntimeEligibility.ColorChanged -> { fail("color_changed"); return }
+                RuntimeEligibility.SourceSizeChanged -> { fail("source_size"); return }
+                RuntimeEligibility.DecoderUnavailable -> { fail("decoder_gone"); return }
+            }
             if (!egl.extentUnchanged()) { fail("window_size"); return }
             if (FrameThermalControl.pauseHeadroom(host.thermalControlEnabled()) { power?.thermalHeadroom(now) } != null) {
                 fail("thermal", FrameStatus.Reason.THERMAL); return
@@ -435,22 +442,27 @@ internal class FrameQcomBridge private constructor(
 
     private fun report() = host.log("$logName.window", "originals=$originals midpoints=$midpoints missed=$missed workNs=$lastWorkNs")
 
-    private fun eligibleNow(): Boolean {
-        val format = decoder.get()?.outputFormat ?: return false
-        val actual = FrameCaptureBridge.values(format).fillFrom(source)
-        val signal = FrameHostMediaSignals.signal(source.fillFrom(actual))
-        val decoded = FrameHostMediaSignals.signal(actual, 8)
-        if (mode == FrameStatus.Backend.QCOM && signal.standard != FrameMediaPolicy.Standard.BT709 ||
-            decoded.standard != signal.standard) return false
+    private fun checkRuntimeEligibility(): RuntimeEligibility {
+        val codec = decoder.get() ?: return RuntimeEligibility.DecoderUnavailable
+        val format = runCatching { codec.outputFormat }.getOrNull() ?: return RuntimeEligibility.DecoderUnavailable
+        val input = runCatching { codec.inputFormat }.getOrNull()?.let(FrameCaptureBridge::values)
+        val output = FrameCaptureBridge.values(format)
         // MediaCodec can expose coded alignment in width/height and the actual picture in crop keys.
         fun extent(size: String, low: String, high: String, fallback: Int): Int =
             if (format.containsKey(low) && format.containsKey(high)) format.getInteger(high) - format.getInteger(low) + 1
             else if (format.containsKey(size)) format.getInteger(size) else fallback
-        if (extent(MediaFormat.KEY_WIDTH, "crop-left", "crop-right", sourceWidth) != sourceWidth ||
-            extent(MediaFormat.KEY_HEIGHT, "crop-top", "crop-bottom", sourceHeight) != sourceHeight) return false
-        return FrameMediaPolicy.evaluate(FrameMediaPolicy.Snapshot(sourceWidth, sourceHeight, signal, decoded,
-            FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8, FrameMediaPolicy.Evidence.NO,
-            FrameMediaPolicy.Evidence.NO, FrameMediaPolicy.Evidence.NO, host.audio())).eligible
+        return evaluateRuntimeEligibility(
+            mode = mode,
+            sourceWidth = sourceWidth,
+            sourceHeight = sourceHeight,
+            configuredSource = source,
+            input = input,
+            output = output,
+            audio = host.audio(),
+            outputWidth = extent(MediaFormat.KEY_WIDTH, "crop-left", "crop-right", sourceWidth),
+            outputHeight = extent(MediaFormat.KEY_HEIGHT, "crop-top", "crop-bottom", sourceHeight),
+            initialStandard = initialStandard
+        )
     }
 
     private fun resetTimeline() {
@@ -569,6 +581,14 @@ internal class FrameQcomBridge private constructor(
         stop()
     }
 
+    internal sealed interface RuntimeEligibility {
+        object Eligible : RuntimeEligibility
+        data class MediaRejected(val reason: FrameMediaPolicy.Reason) : RuntimeEligibility
+        object ColorChanged : RuntimeEligibility
+        object SourceSizeChanged : RuntimeEligibility
+        object DecoderUnavailable : RuntimeEligibility
+    }
+
     companion object {
         private const val MAX_MISSES = 12
         private const val MAX_RETIRE_RETRIES = 3
@@ -577,6 +597,47 @@ internal class FrameQcomBridge private constructor(
         private fun temporary(status: Int) = status == -7 || status == -8 || status == -12
         private val unresolvedOwners = mutableSetOf<FrameQcomBridge>()
         private var nextRetirementWakeNs = 0L
+
+        internal fun supportsQcomColorStandard(colorStandard: Int?): Boolean =
+            colorStandard == MediaFormat.COLOR_STANDARD_BT709 ||
+                colorStandard == MediaFormat.COLOR_STANDARD_BT601_PAL ||
+                colorStandard == MediaFormat.COLOR_STANDARD_BT601_NTSC
+
+        internal fun evaluateRuntimeEligibility(
+            mode: FrameStatus.Backend,
+            sourceWidth: Int,
+            sourceHeight: Int,
+            configuredSource: FrameHostMediaSignals.Values,
+            input: FrameHostMediaSignals.Values?,
+            output: FrameHostMediaSignals.Values,
+            audio: FrameMediaPolicy.Audio,
+            outputWidth: Int,
+            outputHeight: Int,
+            initialStandard: FrameMediaPolicy.Standard
+        ): RuntimeEligibility {
+            val currentSource = input?.let(configuredSource::fillFrom) ?: configuredSource
+            val actual = output.fillFrom(currentSource)
+            val signal = FrameHostMediaSignals.signal(currentSource.fillFrom(actual))
+            val decoded = FrameHostMediaSignals.signal(actual, 8)
+            val decision = FrameMediaPolicy.evaluate(FrameMediaPolicy.Snapshot(
+                sourceWidth, sourceHeight, signal, decoded,
+                FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8, FrameMediaPolicy.Evidence.NO,
+                FrameMediaPolicy.Evidence.NO, FrameMediaPolicy.Evidence.NO, audio
+            ))
+            if (!decision.eligible) return RuntimeEligibility.MediaRejected(decision.reason)
+            if (mode == FrameStatus.Backend.QCOM) {
+                if (FrameHostMediaSignals.converterStandard(signal.standard) == null ||
+                    FrameHostMediaSignals.converterStandard(decoded.standard) == null) {
+                    return RuntimeEligibility.MediaRejected(FrameMediaPolicy.Reason.UNSUPPORTED_COLOR)
+                }
+            } else if (decoded.standard != signal.standard || decoded.standard != initialStandard) {
+                return RuntimeEligibility.ColorChanged
+            }
+            if (outputWidth != sourceWidth || outputHeight != sourceHeight) {
+                return RuntimeEligibility.SourceSizeChanged
+            }
+            return RuntimeEligibility.Eligible
+        }
 
         private fun ownersReady(): Boolean {
             val owners = synchronized(unresolvedOwners) {
@@ -605,13 +666,17 @@ internal class FrameQcomBridge private constructor(
         fun create(codec: MediaCodec, display: Surface, width: Int, height: Int, sourceFps: Float,
                    targetFps: Int, source: FrameHostMediaSignals.Values, host: FrameCaptureBridge.Host,
                    isCurrent: () -> Boolean, attach: (Surface) -> Boolean,
+                   initialColorStandard: Int? = source.colorStandard,
+                   initialStandard: FrameMediaPolicy.Standard = FrameHostMediaSignals.signal(
+                       FrameHostMediaSignals.Values(colorStandard = initialColorStandard)
+                   ).standard,
                    bypassFrameBudget: Boolean = false,
                    onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
             if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
-                abs(sourceFps * 2 - targetFps) > 2.1 || source.colorStandard != MediaFormat.COLOR_STANDARD_BT709 ||
+                abs(sourceFps * 2 - targetFps) > 2.1 || !supportsQcomColorStandard(initialColorStandard) ||
                 !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.QCOM,
-                bypassFrameBudget, null, Playback(display, host, isCurrent, attach, onBackendFailed))
+                bypassFrameBudget, initialStandard, null, Playback(display, host, isCurrent, attach, onBackendFailed))
             return if (bridge.start()) bridge else null
         }
 
@@ -619,12 +684,13 @@ internal class FrameQcomBridge private constructor(
                        targetFps: Int, source: FrameHostMediaSignals.Values, host: FrameCaptureBridge.Host,
                        isCurrent: () -> Boolean, attach: (Surface) -> Boolean,
                        openBackend: (Int, Int) -> WindowBackend?,
+                       initialStandard: FrameMediaPolicy.Standard = FrameHostMediaSignals.signal(source).standard,
                        bypassFrameBudget: Boolean = false,
                        onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
             if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.RIFE,
-                bypassFrameBudget, openBackend, Playback(display, host, isCurrent, attach, onBackendFailed))
+                bypassFrameBudget, initialStandard, openBackend, Playback(display, host, isCurrent, attach, onBackendFailed))
             return if (bridge.start()) bridge else null
         }
     }
