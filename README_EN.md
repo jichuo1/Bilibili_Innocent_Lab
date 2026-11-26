@@ -72,7 +72,7 @@ It keeps the official layout and navigation habits intact while clearing out ads
 | **Android version** | Android 8.1 (API 27) or later |
 | **Environment** | Root + LSPosed recommended; [root-free loading](#root-free-support) is also supported |
 | **Target app** | Official Android Bilibili client (`tv.danmaku.bili`) |
-| **Adapted builds** | Verified across official releases **8.84.0 – 9.20.0**; minor client updates usually adapt automatically, while major refactors may require a module update |
+| **Adapted builds** | Verified across official releases **8.84.0 – 9.21.0**; minor client updates usually adapt automatically, while major refactors may require a module update |
 | **Cloning / twins** | Supported only for system multi-user / app twin / work profiles that keep the package name `tv.danmaku.bili`; see [Cloning and multi-user](#cloning-and-multi-user) |
 | **BiliRoaming extension** | Requires a compatible BiliRoaming APK installed and enabled separately |
 
