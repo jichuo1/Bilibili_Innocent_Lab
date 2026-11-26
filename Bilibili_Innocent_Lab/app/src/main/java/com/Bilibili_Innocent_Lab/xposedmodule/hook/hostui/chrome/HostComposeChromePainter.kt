@@ -516,9 +516,9 @@ internal class HostComposeChromePainter(
             syncTarget()
             source = HostChromeContentSource(content ?: owner, sampleBase(),
                 includeViewContent = content != null, composeWindowBase = bottom == null)
-            viewport = HostChromeViewportSource(requireNotNull(source), compositeView = appearance.material == HostGlassMaterial.PRISM) {
+            viewport = HostChromeViewportSource.create(requireNotNull(source), compositeView = appearance.material == HostGlassMaterial.PRISM) {
                 it(target, 0f, 0f, 72f * owner.resources.displayMetrics.density)
-            }.also { it.sync() }
+            }?.also { it.sync() }
             val active = LumenSurfaceSession(owner.context, colors.palette(), LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false))
             session = active
             if (appearance.material == HostGlassMaterial.PRISM) {

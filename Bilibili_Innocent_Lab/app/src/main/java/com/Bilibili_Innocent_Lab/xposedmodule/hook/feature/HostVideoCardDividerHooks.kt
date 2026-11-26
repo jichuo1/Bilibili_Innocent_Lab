@@ -14,7 +14,9 @@ import java.lang.reflect.Modifier
 /** 仅接入已确认的分隔线绘制入口；不删除 ItemDecoration，不改变布局偏移或卡片阴影。 */
 internal object HostVideoCardDividerHooks {
     fun install(environment: HookEnvironment, id: String, replacesSeparators: (ViewGroup) -> Boolean,
-        cached: HookPoint? = null): HostCardHookCoverage {
+        cached: HookPoint? = null,
+        skipKeys: Set<String> = emptySet(),
+        onKeyInstalled: ((String) -> Unit)? = null): HostCardHookCoverage {
         val loader = environment.classLoader ?: return HostCardHookCoverage.NONE
         fun type(name: String) = KavaMemberLookup.classOrNull(loader, name)
         val recycler = type("androidx.recyclerview.widget.RecyclerView")
@@ -40,6 +42,7 @@ internal object HostVideoCardDividerHooks {
         val states = linkedMapOf<String, String>()
         fun register(key: String, draw: Method?) {
             expected++
+            if (key in skipKeys) { ready++; states[key] = "installed"; return }
             if (draw == null) { states[key] = "missing-entry"; return }
             runCatching {
                 environment.registrar.exact("$id.$key.divider", draw.declaringClass, draw.name, *draw.parameterTypes) {
@@ -50,6 +53,7 @@ internal object HostVideoCardDividerHooks {
                 }
             }.onSuccess {
                 installed++; ready++; states[key] = "installed"
+                onKeyInstalled?.invoke(key)
             }.onFailure {
                 states[key] = "registration-failed"
                 environment.logError("${id}_${key}_divider_error", "[BIL] 卡片分隔线入口注册失败: $it")

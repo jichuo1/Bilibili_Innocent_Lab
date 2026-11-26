@@ -23,8 +23,7 @@ import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.coordinatorlayout.widget.CoordinatorLayout
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import io.github.jichuo1.meguviz.android.extensions.parentOrNull
 import java.util.Collections
 import java.util.WeakHashMap
@@ -81,8 +80,11 @@ internal object HostBottomBarFxController {
             if (lp != null) {
                 if (lp is FrameLayout.LayoutParams) {
                     lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                } else if (lp is CoordinatorLayout.LayoutParams) {
-                    lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                } else if (hasSuperclassNamed(lp, "androidx.coordinatorlayout.widget.CoordinatorLayout\$LayoutParams")) {
+                    runCatching {
+                        KavaMemberLookup.fieldOrNull(lp.javaClass, "gravity", includeSuperclasses = true)
+                            ?.setInt(lp, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+                    }
                 }
                 tabHost.layoutParams = lp
             }
@@ -155,7 +157,7 @@ internal object HostBottomBarFxController {
             dockLayer.dispatchTouch(event, -1)
         }
 
-        container?.let { c ->
+        container.let { c ->
             c.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 HostThreadGuard.run("host.bottom.container.layout") { requestSanitization() }
             }
@@ -356,7 +358,7 @@ internal object HostBottomBarFxController {
                 val cId = child.id
                 val name = resourceName(child, cId)
 
-                if (name.contains("normal") || child is ConstraintLayout) {
+                if (name.contains("normal") || hasSuperclassNamed(child, "androidx.constraintlayout.widget.ConstraintLayout")) {
                     if (child is ViewGroup) fitGarbIcons(child, density, config, colors?.garbAccent != null, fit.heightDp)
                     if (!config.iconOnly && child is ViewGroup && (fit.contentScale < 1f || labelsScaled)) scaleTabLabels(child, fit.contentScale)
                     if (config.iconOnly && child is ViewGroup) {
@@ -523,21 +525,34 @@ internal object HostBottomBarFxController {
                     lp.bottomMargin = 0
                     child.layoutParams = lp
                 }
-                if (lp is ConstraintLayout.LayoutParams &&
-                    (lp.topToTop != ConstraintLayout.LayoutParams.PARENT_ID ||
-                        lp.bottomToBottom != ConstraintLayout.LayoutParams.PARENT_ID ||
-                        lp.topToBottom != ConstraintLayout.LayoutParams.UNSET ||
-                        lp.bottomToTop != ConstraintLayout.LayoutParams.UNSET)) {
-                    lp.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-                    lp.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
-                    lp.topToBottom = ConstraintLayout.LayoutParams.UNSET
-                    lp.bottomToTop = ConstraintLayout.LayoutParams.UNSET
-                    lp.verticalBias = 0.5f
-                    child.layoutParams = lp
+                if (hasSuperclassNamed(lp, "androidx.constraintlayout.widget.ConstraintLayout\$LayoutParams")) {
+                    runCatching {
+                        val lpClass = lp.javaClass
+                        val topToTop = KavaMemberLookup.fieldOrNull(lpClass, "topToTop", includeSuperclasses = true)
+                        val bottomToBottom = KavaMemberLookup.fieldOrNull(lpClass, "bottomToBottom", includeSuperclasses = true)
+                        val topToBottom = KavaMemberLookup.fieldOrNull(lpClass, "topToBottom", includeSuperclasses = true)
+                        val bottomToTop = KavaMemberLookup.fieldOrNull(lpClass, "bottomToTop", includeSuperclasses = true)
+                        val verticalBias = KavaMemberLookup.fieldOrNull(lpClass, "verticalBias", includeSuperclasses = true)
+                        val parentId = 0 // ConstraintLayout.LayoutParams.PARENT_ID
+                        val unset = -1 // ConstraintLayout.LayoutParams.UNSET
+                        if (topToTop != null && bottomToBottom != null && topToBottom != null && bottomToTop != null &&
+                            (topToTop.getInt(lp) != parentId || bottomToBottom.getInt(lp) != parentId ||
+                                topToBottom.getInt(lp) != unset || bottomToTop.getInt(lp) != unset)) {
+                            topToTop.setInt(lp, parentId)
+                            bottomToBottom.setInt(lp, parentId)
+                            topToBottom.setInt(lp, unset)
+                            bottomToTop.setInt(lp, unset)
+                            verticalBias?.setFloat(lp, 0.5f)
+                            child.layoutParams = lp
+                        }
+                    }
                 }
             }
         }
     }
+
+    private fun hasSuperclassNamed(instance: Any, className: String): Boolean =
+        generateSequence<Class<*>>(instance.javaClass) { it.superclass }.any { it.name == className }
     /**
      * 逐帧核对数量角标：深度有界、不分配，只对尚未着色（或被宿主重设过）的角标写入。
      * 宿主的 tab 项结构很浅，限定深度避免任何异常层级让这条逐帧路径变成整树递归。

@@ -120,7 +120,7 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
     }
 
     companion object {
-        private val main = Handler(Looper.getMainLooper())
-        private val worker = Executors.newSingleThreadExecutor { Thread(it, "host-background").apply { isDaemon = true } }
+        private val main by lazy { Handler(Looper.getMainLooper()) }
+        private val worker by lazy { Executors.newSingleThreadExecutor { Thread(it, "host-background").apply { isDaemon = true } } }
     }
 }

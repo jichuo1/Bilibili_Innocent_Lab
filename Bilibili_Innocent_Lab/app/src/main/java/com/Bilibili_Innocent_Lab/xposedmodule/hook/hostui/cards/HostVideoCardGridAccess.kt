@@ -20,14 +20,21 @@ internal class HostVideoCardGridAccess private constructor(
         calculateDecorations.invoke(manager, view, out)
     }
 
-    /** -1 保留宿主布局，0/1 为双列，2 为纵向通栏卡片。 */
+    /** -1 保留宿主布局，0 左列 / 1 右列 / 2 通栏 / 3 中间列。 */
     fun spacingSpan(manager: Any, params: Any): Int {
         if (!linearClass.isInstance(manager) || orientation.invoke(manager) != 1) return -1
         if (!gridClass.isInstance(manager)) return 2
         val count = spanCount.invoke(manager) as? Int ?: return -1
         if (!paramsClass.isInstance(params)) return -1
-        if (spanSize.invoke(params) == count) return 2
-        return doubleColumnSpan(manager, params)
+        val size = spanSize.invoke(params) as? Int ?: return -1
+        if (size == count) return 2
+        if (count !in 2..4 || size != 1) return -1
+        val index = (spanIndex.invoke(params) as? Int)?.takeIf { it in 0 until count } ?: return -1
+        return when (index) {
+            0 -> 0
+            count - 1 -> 1
+            else -> 3
+        }
     }
 
     fun doubleColumnSpan(manager: Any, params: Any): Int {

@@ -59,6 +59,7 @@ internal object HostComposeChromeHooks {
         val backdropReady = family != "top" || !glass || topBackdrop != null && foreground != null &&
             api.backdropLeaves.count { it.modifierIndex == 0 } == 2 && api.backdropImagesReady
         if (family == "top" && (topBackdrop == null || !backdropReady)) return false
+        if (content != null && api.rowPolicy == null) return false
         // Partial registration must never hide native paint before the replacement is available.
         val armed = if (family == "top") HostChromeBackdropGate.installation(
             requireNotNull(topBackdrop).declaringClass, topBackdrop.name, topBackdrop.parameterTypes.map { it.name }
@@ -188,16 +189,18 @@ internal object HostComposeChromeHooks {
                 }
             }
             if (content != null) {
-                environment.registrar.exact("host_chrome.compose.row", api.rowPolicy.declaringClass,
-                    api.rowPolicy.name, *api.rowPolicy.parameterTypes) {
+                val rowPolicy = api.rowPolicy ?: return@runCatching false
+                environment.registrar.exact("host_chrome.compose.row", rowPolicy.declaringClass,
+                    rowPolicy.name, *rowPolicy.parameterTypes) {
                     before {
                         val invocation = scopes.current() ?: return@before
                         if (invocation.layer != HostChromeLayer.BOTTOM_ROW) return@before
-                        invocation.row?.select(api.rowPolicy.name) { Throwable().stackTrace }
+                        invocation.row?.select(rowPolicy.name) { Throwable().stackTrace }
                     }
                 }
                 val contentKey = "host_chrome.compose.scope.bottom_content"
                 val index = HomeChromeComposeLocator.contentComposerIndex(content)
+                val contentListIndex = content.parameterTypes.indexOfFirst { it == List::class.java }
                 environment.registrar.exact(contentKey, content.declaringClass, content.name, *content.parameterTypes) {
                     before {
                         runCatching {
@@ -206,7 +209,9 @@ internal object HostComposeChromeHooks {
                             val view = viewAccess.read(composer) ?: return@runCatching
                             val painter = painter(view)
                             painter.requestBackdropRefresh()
-                            if (java.lang.reflect.Modifier.isStatic(content.modifiers)) painter.updateTabs((argOrNull(0) as? List<*>)?.size ?: 1)
+                            if (java.lang.reflect.Modifier.isStatic(content.modifiers) && contentListIndex >= 0) {
+                                painter.updateTabs((argOrNull(contentListIndex) as? List<*>)?.size ?: 1)
+                            }
                             onObserved()
                             val row = HostChromeRowSelection(content.declaringClass.name, content.name)
                             val entry = HostChromeCompositionScope.Entry(Invocation(painter, HostChromeLayer.BOTTOM_ROW, row))
@@ -228,6 +233,7 @@ internal object HostComposeChromeHooks {
             boundaries.forEach { (boundary, native) ->
                 val key = "host_chrome.compose.scope.$boundary"
                 val index = native.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
+                val listIndex = native.parameterTypes.indexOfFirst { it == List::class.java }
                 environment.registrar.exact(key, native.declaringClass, native.name, *native.parameterTypes) {
                     before {
                         if (!armed.get()) return@before
@@ -236,7 +242,9 @@ internal object HostComposeChromeHooks {
                             val view = viewAccess.read(composer) ?: return@runCatching
                             val painter = painter(view)
                             painter.requestBackdropRefresh()
-                            if (family == "bottom") painter.updateTabs((argOrNull(1) as? List<*>)?.size ?: 1)
+                            if (family == "bottom" && listIndex >= 0) {
+                                painter.updateTabs((argOrNull(listIndex) as? List<*>)?.size ?: 1)
+                            }
                             onObserved()
                             val layer = if (family == "bottom") HostChromeLayer.BOTTOM_OUTER else HostChromeLayer.SURFACE
                             val entry = HostChromeCompositionScope.Entry(Invocation(painter, layer))

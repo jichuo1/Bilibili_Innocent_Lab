@@ -27,6 +27,8 @@ internal object HostComposeTopTabCentering {
     private val roots = HostChromeCompositionScope<Root>()
     private val docks = WeakHashMap<View, Dock>()
 
+    internal fun resolvedSetModifier(loader: ClassLoader): Method? = Access.resolve(loader)?.applyModifier
+
     fun install(environment: HookEnvironment, points: Map<String, HookPoint>, edgeFade: Boolean, onError: (Throwable) -> Unit,
                 onApplied: () -> Unit = {}, onObserved: () -> Unit = {}): Boolean = runCatching {
         val loader = environment.classLoader ?: return false
@@ -299,7 +301,7 @@ internal object HostComposeTopTabCentering {
                 fun type(name: String) = requireNotNull(Lookup.classOrNull(loader, name))
                 fun method(owner: Class<*>, prefix: String, result: Class<*>, vararg args: Class<*>) =
                     Lookup.declaredMethods(owner, makeAccessible = true).single {
-                        it.name.startsWith(prefix) && !it.name.endsWith("\$default") && it.returnType == result && it.parameterTypes.contentEquals(args)
+                        matchesComposeName(it.name, prefix) && it.returnType == result && it.parameterTypes.contentEquals(args)
                     }
                 val mod = type("androidx.compose.ui.Modifier")
                 val alignment = type("androidx.compose.ui.Alignment")
@@ -311,10 +313,9 @@ internal object HostComposeTopTabCentering {
                 val long = Long::class.javaPrimitiveType!!
                 val int = Int::class.javaPrimitiveType!!
                 val bool = Boolean::class.javaPrimitiveType!!
-                val node = type("androidx.compose.ui.node.ComposeUiNode")
                 Access(mod, alignment, f2, scope,
                     method(scope, "subcompose", List::class.java, Any::class.java, f2),
-                    method(alignment, "align-", long, long, long, type("androidx.compose.ui.unit.LayoutDirection")),
+                    method(alignment, "align", long, long, long, type("androidx.compose.ui.unit.LayoutDirection")),
                     method(f2, "invoke", Any::class.java, Any::class.java, Any::class.java),
                     Lookup.declaredMethods(type("androidx.compose.foundation.layout.SizeKt"), makeAccessible = true).filter {
                         Modifier.isStatic(it.modifiers) && it.returnType == mod &&
@@ -327,16 +328,13 @@ internal object HostComposeTopTabCentering {
                                 it.name == "fillMaxWidth\$default" && it.parameterTypes.contentEquals(arrayOf(mod, Float::class.javaPrimitiveType!!, int, Any::class.java)))
                     }.minByOrNull { it.parameterCount } ?: error("Missing local fillMaxWidth"),
                     method(type("androidx.compose.ui.layout.SubcomposeLayoutKt"), "SubcomposeLayout", Void.TYPE, mod, f2, composer, int, int),
-                    // setModifier 是 ComposeUiNode 的稳定接口方法；Updater.set-impl 值类化后
-                    // 签名随代次漂移（issue #44），不再作为拦截点。
-                    Lookup.methods(node, includeSuperclasses = true, makeAccessible = true).single {
-                        it.name == "setModifier" && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(mod))
-                    },
+                    // 绝不直接 Hook ComposeUiNode 接口抽象方法：共享具体 LayoutNode.setModifier(Modifier) 解析逻辑。
+                    HostComposeChromeApi.resolveSetModifier(loader, mod),
                     method(type("androidx.compose.ui.layout.OnGloballyPositionedModifierKt"), "onGloballyPositioned", mod, mod, f1),
                     f1, requireNotNull(Lookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)!!,
                     method(coordinates, "isAttached", bool), method(coordinates, "getParentLayoutCoordinates", coordinates),
-                    method(coordinates, "getSize-", long),
-                    method(coordinates, "localPositionOf-", long, coordinates, long),
+                    method(coordinates, "getSize", long),
+                    method(coordinates, "localPositionOf", long, coordinates, long),
                     requireNotNull(HostComposeCardPositionAccess.resolve(loader)))
             }.getOrNull()
         }

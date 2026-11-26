@@ -279,7 +279,7 @@ internal class HostVideoCardStyle(
             if (custom) homeSpacing.verticalMargin(span, true, rowDecorations.top, density) ?: top else top,
             if (custom) homeSpacing.horizontalMargin(span, false, parent?.paddingRight ?: 0, rowDecorations.right, density) ?: right else right,
             if (custom) homeSpacing.verticalMargin(span, false, rowDecorations.bottom, density) ?: bottom else bottom)
-        if (custom && span in 0..2) onApplied()
+        if (custom && span in 0..3) onApplied()
     }
 
     private fun discover(root: ViewGroup, previousSpacing: HostVideoCardSpacing?, feedback: Boolean): State? {

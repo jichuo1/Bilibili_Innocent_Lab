@@ -59,7 +59,7 @@ class HostRenderingWorkInstrumentedTest {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity {
                 val contentSource = HostChromeContentSource(content, Color.BLACK)
-                val source = HostChromeViewportSource(contentSource) { it(glass, 0f, 0f, 20f) }
+                val source = requireNotNull(HostChromeViewportSource.create(contentSource) { it(glass, 0f, 0f, 20f) })
                 val mapping = ViewSamplingMatrix()
                 val matrix = Matrix()
                 val values = FloatArray(9)
@@ -173,9 +173,9 @@ class HostRenderingWorkInstrumentedTest {
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity {
-                val source = HostChromeViewportSource(HostChromeContentSource(content, Color.BLACK)) { it(glass, 0f, 0f, 10f) }
-                val backgroundOnly = HostChromeViewportSource(HostChromeContentSource(content, Color.BLACK,
-                    includeViewContent = false)) { it(glass, 0f, 0f, 10f) }
+                val source = requireNotNull(HostChromeViewportSource.create(HostChromeContentSource(content, Color.BLACK)) { it(glass, 0f, 0f, 10f) })
+                val backgroundOnly = requireNotNull(HostChromeViewportSource.create(HostChromeContentSource(content, Color.BLACK,
+                    includeViewContent = false)) { it(glass, 0f, 0f, 10f) })
                 try {
                     source.sync(); backgroundOnly.sync()
                     var version = source.contentVersion

@@ -25,8 +25,6 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -607,12 +605,11 @@ internal object HostTopBarFxController {
         density: Float,
         spinnerTravelBase: Int = topPadding
     ) {
-        // 宿主 RecyclerView 属于另一份 ClassLoader，连同其子类按继承链识别。
-        if (view is RecyclerView || generateSequence(view.javaClass as Class<*>) { it.superclass }
-                .any { it.simpleName == "RecyclerView" }) {
+        // 宿主 RecyclerView 属于另一份 ClassLoader，连同其子类统一按继承链识别。
+        if (generateSequence(view.javaClass as Class<*>) { it.superclass }
+                .any { it.name == "androidx.recyclerview.widget.RecyclerView" }) {
             // 胶囊只占用纵向内容流的顶部；直播分区、轮播和横向海报不能被推到自身高度之外。
-            val vertical = if (view is RecyclerView) view.layoutManager?.canScrollVertically() == true
-            else runCatching {
+            val vertical = runCatching {
                 val manager = KavaMemberLookup.inheritedMethodOrNull(view.javaClass, "getLayoutManager")?.invoke(view)
                 manager != null && KavaMemberLookup.inheritedMethodOrNull(manager.javaClass, "canScrollVertically")?.invoke(manager) == true
             }.getOrDefault(false)
@@ -623,10 +620,12 @@ internal object HostTopBarFxController {
                 // setPadding 会保留已布局卡片的旧坐标。冷启动首项可能仍停在 0，
                 // 被误判为滚动了 topPadding，连带撤掉搜索区占位。仅原本在顶部时重建首项锚点。
                 if (wasAtTop) {
-                    if (view is RecyclerView) view.scrollToPosition(0)
-                    else runCatching {
-                        KavaMemberLookup.inheritedMethodOrNull(view.javaClass, "scrollToPosition",
-                            Int::class.javaPrimitiveType!!)?.invoke(view, 0)
+                    runCatching {
+                        KavaMemberLookup.inheritedMethodOrNull(
+                            view.javaClass,
+                            "scrollToPosition",
+                            Int::class.javaPrimitiveType!!
+                        )?.invoke(view, 0)
                     }
                 }
             }

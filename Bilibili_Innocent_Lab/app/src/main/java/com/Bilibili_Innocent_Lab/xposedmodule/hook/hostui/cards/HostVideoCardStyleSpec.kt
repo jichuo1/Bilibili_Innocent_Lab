@@ -32,10 +32,10 @@ internal class HostVideoCardSpacing(
     private val rowOuter = (12 * density).toInt()
     private val rowGap = (5 * density).toInt()
 
-    fun left(span: Int, existingInset: Int = 0): Int = if (span == 2) maxOf(originalLeft, rowOuter - existingInset) else originalLeft + when (span) { 0 -> outer; 1 -> inner; else -> 0 }
-    fun right(span: Int, existingInset: Int = 0): Int = if (span == 2) maxOf(originalRight, rowOuter - existingInset) else originalRight + when (span) { 0 -> inner; 1 -> outer; else -> 0 }
-    fun top(span: Int): Int = if (span == 2) maxOf(originalTop, rowGap) else originalTop + if (span in 0..1) extraTop else 0
-    fun bottom(span: Int): Int = if (span == 2) maxOf(originalBottom, rowGap) else originalBottom + if (span in 0..1) extraBottom else 0
+    fun left(span: Int, existingInset: Int = 0): Int = if (span == 2) maxOf(originalLeft, rowOuter - existingInset) else originalLeft + when (span) { 0 -> outer; 1, 3 -> inner; else -> 0 }
+    fun right(span: Int, existingInset: Int = 0): Int = if (span == 2) maxOf(originalRight, rowOuter - existingInset) else originalRight + when (span) { 0, 3 -> inner; 1 -> outer; else -> 0 }
+    fun top(span: Int): Int = if (span == 2) maxOf(originalTop, rowGap) else originalTop + if (span == 0 || span == 1 || span == 3) extraTop else 0
+    fun bottom(span: Int): Int = if (span == 2) maxOf(originalBottom, rowGap) else originalBottom + if (span == 0 || span == 1 || span == 3) extraBottom else 0
 }
 
 /** 位置变化不属于形状变化；同尺寸复用无需重建背景和阴影轮廓。 */

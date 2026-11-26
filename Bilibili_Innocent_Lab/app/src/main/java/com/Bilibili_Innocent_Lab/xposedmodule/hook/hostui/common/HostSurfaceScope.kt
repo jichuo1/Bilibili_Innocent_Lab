@@ -307,8 +307,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     private fun createViewportSource(): HostChromeViewportSource? {
         val source = contentSource ?: return null
-        if (source.coordinateView !is ViewGroup) return null
-        return HostChromeViewportSource(source, compositeView = appearance.material == HostGlassMaterial.PRISM) { consume ->
+        return HostChromeViewportSource.create(source, compositeView = appearance.material == HostGlassMaterial.PRISM) { consume ->
             for ((view, spec) in surfaces) {
                 val sampling = effectiveOptions(spec.options).sampling
                 if (!spec.options.sampling.enabled) continue
@@ -316,6 +315,6 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
                 val padding = maxOf(blur * 4f, 20f * sampling.refractionStrength) * view.resources.displayMetrics.density + 4f
                 consume(view, spec.insetX, spec.insetY, padding)
             }
-        }.also { it.sync() }
+        }?.also { it.sync() }
     }
 }

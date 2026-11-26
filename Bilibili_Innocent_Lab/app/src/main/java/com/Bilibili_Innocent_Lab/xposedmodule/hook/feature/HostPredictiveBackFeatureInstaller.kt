@@ -281,6 +281,7 @@ internal class HostPredictiveBackFeatureInstaller(
         @Volatile
         private var windowMethodResolved = false
 
+        @Synchronized
         private fun ensureActivityMembers() {
             if (activityMembersResolved) return
             val activityCls = classOf<Activity>()
@@ -289,6 +290,7 @@ internal class HostPredictiveBackFeatureInstaller(
             activityMembersResolved = true
         }
 
+        @Synchronized
         private fun ensureActivityInfoMembers() {
             if (activityInfoMembersResolved) return
             val infoCls = classOf<ActivityInfo>()
@@ -314,6 +316,7 @@ internal class HostPredictiveBackFeatureInstaller(
             return runCatching { (field.get(null) as? Int) ?: fallback }.getOrDefault(fallback)
         }
 
+        @Synchronized
         private fun resolveWindowEnableMethod(): Method? {
             if (!windowMethodResolved) {
                 windowEnableMethod = KavaMemberLookup.methodOrNull(

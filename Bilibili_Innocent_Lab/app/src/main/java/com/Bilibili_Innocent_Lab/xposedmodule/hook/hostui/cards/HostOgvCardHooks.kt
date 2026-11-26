@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAcc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.matchesComposeName
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
@@ -22,6 +23,21 @@ internal object HostOgvCardHooks {
     private val playerNames = setOf("video_container", "video_area", "control_container", "story_fragment_root")
     fun install(environment: HookEnvironment, host: HostVideoCardHostAccess, radiusDp: Int, material: HostCardMaterial = HostCardMaterial.ORIGINAL,
         cachedPoints: Map<String, HookPoint> = emptyMap(),
+        onApplied: () -> Unit): HostCardHookCoverage = install(
+        environment = environment,
+        host = host,
+        radiusDp = radiusDp,
+        material = material,
+        cachedPoints = cachedPoints,
+        skipFamilies = emptySet(),
+        onFamilyInstalled = null,
+        onApplied = onApplied
+    )
+
+    fun install(environment: HookEnvironment, host: HostVideoCardHostAccess, radiusDp: Int, material: HostCardMaterial,
+        cachedPoints: Map<String, HookPoint>,
+        skipFamilies: Set<String>,
+        onFamilyInstalled: ((String) -> Unit)?,
         onApplied: () -> Unit): HostCardHookCoverage = runCatching {
         val loader = environment.classLoader ?: return@runCatching HostCardHookCoverage.NONE
         val resolution = HostOgvCardAdapter.resolve(loader, cachedPoints)
@@ -73,7 +89,9 @@ internal object HostOgvCardHooks {
         var ready = 0
         val states = linkedMapOf<String, String>()
         resolution.families.filter { it.applicable }.forEach { family ->
-            if (family.points.isEmpty()) {
+            if (family.id in skipFamilies) {
+                ready++; states[family.id] = "installed"
+            } else if (family.points.isEmpty()) {
                 states[family.id] = family.reason
             } else {
                 var installed = 0
@@ -82,7 +100,10 @@ internal object HostOgvCardHooks {
                         environment.logError("host_video_cards_ogv_${family.id}_register", "[BIL] OGV卡片入口注册失败: $it")
                     }
                 }
-                if (installed == family.points.size) { ready++; states[family.id] = "installed" }
+                if (installed == family.points.size) {
+                    ready++; states[family.id] = "installed"
+                    onFamilyInstalled?.invoke(family.id)
+                }
                 else states[family.id] = "registration-failed"
             }
         }
@@ -197,20 +218,38 @@ internal object HostOgvCardHooks {
         companion object {
             fun resolve(loader: ClassLoader, material: HostCardMaterial, onApplied: () -> Unit, onError: (Throwable) -> Unit): Api? = runCatching {
                 fun type(name: String) = requireNotNull(KavaMemberLookup.classOrNull(loader, name))
-                fun method(name: String, prefix: String, count: Int) = type(name).declaredMethods.single {
-                    it.name.startsWith(prefix) && it.parameterCount == count && !it.name.endsWith("\$default")
+                fun method(ownerName: String, base: String, result: Class<*>, vararg params: Class<*>) =
+                    type(ownerName).declaredMethods.single {
+                        matchesComposeName(it.name, base) && it.returnType == result && it.parameterTypes.contentEquals(params)
+                    }
+                val modifier = type("androidx.compose.ui.Modifier")
+                val shape = type("androidx.compose.ui.graphics.Shape")
+                val rounded = KavaMemberLookup.classOrNull(loader, "androidx.compose.foundation.shape.RoundedCornerShape")
+                val canvas = type("androidx.compose.ui.graphics.Canvas")
+                val drawScope = type("androidx.compose.ui.graphics.drawscope.DrawScope")
+                val drawContext = type("androidx.compose.ui.graphics.drawscope.DrawContext")
+                val f1 = type("kotlin.jvm.functions.Function1")
+                val float = Float::class.javaPrimitiveType!!
+                val long = Long::class.javaPrimitiveType!!
+                val bool = Boolean::class.javaPrimitiveType!!
+                val empty = requireNotNull(requireNotNull(KavaMemberLookup.fieldOrNull(modifier, "Companion")).get(null))
+                val roundedShapeFactory = type("androidx.compose.foundation.shape.RoundedCornerShapeKt").declaredMethods.single {
+                    matchesComposeName(it.name, "RoundedCornerShape") &&
+                        (it.returnType == rounded || it.returnType == shape) &&
+                        it.parameterTypes.contentEquals(arrayOf(float))
                 }
-                val empty = requireNotNull(requireNotNull(KavaMemberLookup.fieldOrNull(type("androidx.compose.ui.Modifier"), "Companion")).get(null))
-                Api(empty, method("androidx.compose.foundation.shape.RoundedCornerShapeKt", "RoundedCornerShape-", 1),
-                    method("androidx.compose.ui.draw.ShadowKt", "shadow-", 6),
-                    method("androidx.compose.ui.draw.ClipKt", "clip", 2),
-                    method("androidx.compose.ui.draw.DrawModifierKt", "drawBehind", 2),
-                    method("androidx.compose.foundation.layout.PaddingKt", "padding-", 5),
-                    type("kotlin.jvm.functions.Function1"), requireNotNull(requireNotNull(KavaMemberLookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)),
-                    method("androidx.compose.ui.graphics.drawscope.DrawScope", "getSize-", 0),
-                    method("androidx.compose.ui.graphics.drawscope.DrawScope", "getDrawContext", 0),
-                    method("androidx.compose.ui.graphics.drawscope.DrawContext", "getCanvas", 0),
-                    method("androidx.compose.ui.graphics.AndroidCanvas_androidKt", "getNativeCanvas", 1), onError, onApplied,
+                Api(empty,
+                    roundedShapeFactory,
+                    method("androidx.compose.ui.draw.ShadowKt", "shadow", modifier, modifier, float, shape, bool, long, long),
+                    method("androidx.compose.ui.draw.ClipKt", "clip", modifier, modifier, shape),
+                    method("androidx.compose.ui.draw.DrawModifierKt", "drawBehind", modifier, modifier, f1),
+                    method("androidx.compose.foundation.layout.PaddingKt", "padding", modifier, modifier, float, float, float, float),
+                    f1, requireNotNull(requireNotNull(KavaMemberLookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)),
+                    method("androidx.compose.ui.graphics.drawscope.DrawScope", "getSize", long),
+                    method("androidx.compose.ui.graphics.drawscope.DrawScope", "getDrawContext", drawContext),
+                    method("androidx.compose.ui.graphics.drawscope.DrawContext", "getCanvas", canvas),
+                    method("androidx.compose.ui.graphics.AndroidCanvas_androidKt", "getNativeCanvas", Canvas::class.java, canvas),
+                    onError, onApplied,
                     material, if (material.usesSharedField) requireNotNull(HostComposeCardPositionAccess.resolve(loader)) else null)
             }.onFailure(onError).getOrNull()
         }

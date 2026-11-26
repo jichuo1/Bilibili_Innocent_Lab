@@ -209,6 +209,37 @@ private class HostChromeRootFillCases {
         assertNull(fill.transparent(Any()))
     }
 
+    private class SixFieldFill(val color: Long, val brush: Brush?, val alpha: Float, val shape: Shape, val extra1: Int, val extra2: String) : Element
+    private class NativeSixField {
+        companion object {
+            var calls = 0
+            @JvmStatic fun create(empty: Any, color: Long, shape: Shape): Any {
+                calls++
+                return SixFieldFill(color, null, 1f, shape, 0, "ok")
+            }
+        }
+    }
+
+    fun `probed root fill caches native owner regardless of field count and probes only once`() {
+        NativeSixField.calls = 0
+        val probeShape = Shape()
+        val factory = NativeSixField::class.java.getDeclaredMethod(
+            "create", Any::class.java, Long::class.javaPrimitiveType, Shape::class.java
+        ).apply { isAccessible = true }
+        val fill = HostChromeRootFill(Element::class.java, Brush::class.java, Shape::class.java,
+            Function1::class.java, Any(), factory, probeShape)
+        assertEquals("lazy probe waits for first Element check", 0, NativeSixField.calls)
+        val first = SixFieldFill(1L, null, 1f, Shape(), 1, "a")
+        val second = SixFieldFill(2L, Brush(), .5f, Shape(), 2, "b")
+        assertTrue(fill.matches(first))
+        assertTrue(fill.matches(second))
+        assertFalse(fill.matches(Lookalike(0L, null, 1f, Shape())))
+        assertEquals(1, NativeSixField.calls)
+        val cleared = fill.transparent(first) as SixFieldFill
+        assertEquals(0L, cleared.color)
+        assertSame(first.shape, cleared.shape)
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (HostChromeRootFillCases) -> Unit) {
             val s = HostChromeRootFillCases()
@@ -220,6 +251,7 @@ private class HostChromeRootFillCases {
         runIsolated { s -> s.`node caches class ids and unrelated constructors are rejected before probing`() }
         runIsolated { s -> s.`solid and gradient decorations become fresh transparent native fills without mutating originals`() }
         runIsolated { s -> s.`lookalikes and unrelated layout or pointer modifiers cannot become transparent fills`() }
+        runIsolated { s -> s.`probed root fill caches native owner regardless of field count and probes only once`() }
     }
 }
 

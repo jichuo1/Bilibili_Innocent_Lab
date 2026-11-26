@@ -117,7 +117,7 @@ internal class FollowFeedSelection private constructor(
 
     private fun updateChoiceGeometry(width: Int) {
         if (width <= 0) return
-        val params = choice.layoutParams as FrameLayout.LayoutParams
+        val params = choice.layoutParams as? FrameLayout.LayoutParams ?: return
         val outer = dp(FollowFeedStyle.OUTER_DP)
         val side = dp(FollowFeedStyle.OUTER_DP + if (actionPresent)
             FollowFeedStyle.OPTION_HEIGHT_DP + FollowFeedStyle.ACTION_GAP_DP else 0)
@@ -207,9 +207,24 @@ internal class FollowFeedSelection private constructor(
             val id = tabs.resources.getIdentifier("dy_tv_title", "id", tabs.context.packageName)
             val tabViews = (0 until 2).map { strip.getChildAt(it) }
             val labels = tabViews.map { it.findViewById<TextView>(id)?.text?.toString() ?: return null }
-            if (labels != listOf("全部", "视频")) return null
+            if (!isSupportedTabLabels(labels)) return null
             val selected = tabs.javaClass.getMethod("getSelectedTabPosition")
             FollowFeedSelection(tabs, parent, tabViews, labels, selected, session, palette)
         }.getOrNull()
     }
+}
+
+private val SUPPORTED_FOLLOW_TAB_PAIRS = setOf(
+    "全部" to "视频",
+    "全部" to "影片",
+    "全部" to "視頻",
+    "all" to "video",
+    "all" to "videos"
+)
+
+internal fun isSupportedTabLabels(labels: List<String>): Boolean {
+    if (labels.size != 2) return false
+    val first = labels[0].trim().lowercase(java.util.Locale.ROOT)
+    val second = labels[1].trim().lowercase(java.util.Locale.ROOT)
+    return (first to second) in SUPPORTED_FOLLOW_TAB_PAIRS
 }

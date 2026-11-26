@@ -13,14 +13,13 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /** 顶/底栏各自只录制实际取样范围；探针仍读取原生前景，保持原来的对比度补偿语义。 */
-internal class HostChromeViewportSource(
+internal class HostChromeViewportSource private constructor(
     private val source: HostChromeContentSource,
-    private val compositeView: Boolean = false,
+    private val compositeView: Boolean,
+    private val content: ViewGroup,
+    private val proxyOwner: ViewGroup,
     private val regions: (consumer: (View, Float, Float, Float) -> Unit) -> Unit
 ) : LumenVersionedContentSource, AutoCloseable {
-    private val content = source.coordinateView as ViewGroup
-    // Prism's public entry accepts a View source. Keep its proxy outside the captured subtree.
-    private val proxyOwner = if (compositeView) content.rootView as ViewGroup else content
     private val mapping = ViewSamplingMatrix()
     private val matrix = Matrix()
     private val matrixValues = FloatArray(9)
@@ -160,4 +159,16 @@ internal class HostChromeViewportSource(
     }
 
     override fun close() { proxyOwner.overlay.remove(coordinateView) }
+
+    companion object {
+        fun create(
+            source: HostChromeContentSource,
+            compositeView: Boolean = false,
+            regions: (consumer: (View, Float, Float, Float) -> Unit) -> Unit
+        ): HostChromeViewportSource? {
+            val content = source.coordinateView as? ViewGroup ?: return null
+            val proxyOwner = (if (compositeView) content.rootView as? ViewGroup else content) ?: return null
+            return HostChromeViewportSource(source, compositeView, content, proxyOwner, regions)
+        }
+    }
 }

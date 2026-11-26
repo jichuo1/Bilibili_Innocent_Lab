@@ -148,17 +148,25 @@ internal class FollowFeedHostAccess private constructor(
                         it.parameterCount == 0 && it.returnType == result
                 }.singleOrNull()
             val owner = method(module, "M", item) ?: return null
-            val identity = method(item, "a", Long::class.javaPrimitiveType!!) ?: return null
+            val identity = method(item, "a", Long::class.javaPrimitiveType!!)
+                ?: KavaMemberLookup.declaredMethods(item, true) {
+                    !Modifier.isStatic(it.modifiers) && !Modifier.isAbstract(it.modifiers) &&
+                        it.parameterCount == 0 && it.returnType == Long::class.javaPrimitiveType
+                }.singleOrNull() ?: return null
             val localOwner = KavaMemberLookup.declaredFields(module, true) {
                 !Modifier.isStatic(it.modifiers) && it.type == item
             }.singleOrNull()?.takeIf { it.name in setOf("a", "b") } ?: return null
             val localModules = KavaMemberLookup.fieldOrNull(item, "n")?.takeIf {
                 !Modifier.isStatic(it.modifiers) && List::class.java.isAssignableFrom(it.type)
-            } ?: return null
+            } ?: KavaMemberLookup.declaredFields(item, true) {
+                !Modifier.isStatic(it.modifiers) && List::class.java.isAssignableFrom(it.type)
+            }.singleOrNull() ?: return null
             method(item, "b", List::class.java) ?: return null
             val parent = KavaMemberLookup.fieldOrNull(item, "j")?.takeIf {
                 !Modifier.isStatic(it.modifiers) && it.type == item
-            } ?: return null
+            } ?: KavaMemberLookup.declaredFields(item, true) {
+                !Modifier.isStatic(it.modifiers) && it.type == item
+            }.singleOrNull() ?: return null
             val quoted = method(item, "h", Boolean::class.javaPrimitiveType!!) ?: return null
             // O已变成背景开关，不能把它当成本地owner；确认新家族完整的背景ABI。
             method(module, "O", Boolean::class.javaPrimitiveType!!) ?: return null

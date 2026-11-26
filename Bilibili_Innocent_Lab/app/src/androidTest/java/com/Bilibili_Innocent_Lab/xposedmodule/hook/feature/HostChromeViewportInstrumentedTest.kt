@@ -234,9 +234,9 @@ class HostChromeViewportInstrumentedTest {
             val glass = View(owner.context)
             owner.addView(glass)
             owner.layout(0, 0, 480, 900); glass.layout(0, 0, 300, 100)
-            val source = HostChromeViewportSource(HostChromeContentSource(owner, Color.BLACK)) {
+            val source = requireNotNull(HostChromeViewportSource.create(HostChromeContentSource(owner, Color.BLACK)) {
                 it(glass, 0f, 0f, 20f)
-            }
+            })
             try {
                 source.sync()
                 assertEquals(LumenSourceAvailability.PROHIBITED, source.availability)

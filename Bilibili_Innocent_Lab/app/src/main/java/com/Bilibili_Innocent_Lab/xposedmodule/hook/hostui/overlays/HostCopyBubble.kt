@@ -18,6 +18,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.WindowCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.motion.LumenEasing
@@ -58,7 +59,7 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
             val height = bounds?.height()?.takeIf { it > 0 } ?: metrics.heightPixels
             val maxContentWidth = (width * .72).toInt()
             val maxBubbleWidth = maxContentWidth + dp(36)
-            val location = IntArray(2).also(anchor::getLocationOnScreen)
+            val location = IntArray(2).also(anchor::getLocationInWindow)
             val x = HostCopyBubblePlacement.left(location[0], maxBubbleWidth, width, dp(16), dp(8))
             val tailWidth = dp(12).toFloat()
             val radius = 14f * density
@@ -109,11 +110,19 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
             content.setTextIsSelectable(false)
             dialog.show()
             prepareWindow()
-            @Suppress("DEPRECATION")
             dialog.window?.apply {
-                statusBarColor = Color.BLACK
-                navigationBarColor = Color.BLACK
-                decorView.systemUiVisibility = decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                if (Build.VERSION.SDK_INT < 35) {
+                    @Suppress("DEPRECATION")
+                    statusBarColor = Color.BLACK
+                    @Suppress("DEPRECATION")
+                    navigationBarColor = Color.BLACK
+                }
+                if (Build.VERSION.SDK_INT >= 30) {
+                    WindowCompat.getInsetsController(this, decorView).isAppearanceLightStatusBars = false
+                } else {
+                    @Suppress("DEPRECATION")
+                    decorView.systemUiVisibility = decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                }
             }
             enter()
         } catch (error: Throwable) { dialog.dismiss(); throw error }
@@ -135,7 +144,9 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
         animation = AnimatorSet().apply {
             playTogether(ValueAnimator.ofFloat(.9f, 1f).apply {
                 addUpdateListener {
-                    HostThreadGuard.run("host.copy_bubble.frame") { surface.scale = it.animatedValue as Float }
+                    HostThreadGuard.run("host.copy_bubble.frame") {
+                        surface.scale = (it.animatedValue as? Float) ?: return@run
+                    }
                 }
             }, ObjectAnimator.ofFloat(body, View.ALPHA, 0f, 1f), ObjectAnimator.ofFloat(content, View.ALPHA, 0f, 1f))
             duration = 200L
@@ -148,7 +159,9 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
                         duration = 120L
                         interpolator = LumenEasing.standardDecelerate()
                         addUpdateListener {
-                            HostThreadGuard.run("host.copy_bubble.frame") { surface.strokeAlpha = it.animatedValue as Float }
+                            HostThreadGuard.run("host.copy_bubble.frame") {
+                                surface.strokeAlpha = (it.animatedValue as? Float) ?: return@run
+                            }
                         }
                         start()
                     }
@@ -168,14 +181,18 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
             playTogether(ValueAnimator.ofFloat(surface.scale, .92f).apply {
                 duration = 150L
                 addUpdateListener {
-                    HostThreadGuard.run("host.copy_bubble.frame") { surface.scale = it.animatedValue as Float }
+                    HostThreadGuard.run("host.copy_bubble.frame") {
+                        surface.scale = (it.animatedValue as? Float) ?: return@run
+                    }
                 }
             }, ObjectAnimator.ofFloat(body, View.ALPHA, 0f).apply { duration = 150L },
                 ObjectAnimator.ofFloat(content, View.ALPHA, 0f).apply { duration = 150L },
                 ValueAnimator.ofFloat(surface.strokeAlpha, 0f).apply {
                     duration = 100L
                     addUpdateListener {
-                        HostThreadGuard.run("host.copy_bubble.frame") { surface.strokeAlpha = it.animatedValue as Float }
+                        HostThreadGuard.run("host.copy_bubble.frame") {
+                            surface.strokeAlpha = (it.animatedValue as? Float) ?: return@run
+                        }
                     }
                 })
             interpolator = LumenEasing.standardAccelerate()

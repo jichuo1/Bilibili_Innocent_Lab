@@ -13,11 +13,25 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private val points: FollowFeedPoints? = null,
+internal class FollowFeedFeatureInstaller(private val enabled: Boolean, points: FollowFeedPoints? = null,
     private val material: HostCardMaterial = HostCardMaterial.ORIGINAL) : FeatureInstaller {
     override val id = "follow_feed_style"
+    @Volatile private var points: FollowFeedPoints? = points
+    @Volatile private var installed: Boolean = false
+    @Volatile private var initialInstallAttempted: Boolean = false
+    @Volatile private var lastResult: FeatureInstallResult? = null
+    private val installLock = Any()
 
-    override fun install(environment: HookEnvironment): FeatureInstallResult {
+    fun updateAdaptedPoints(newPoints: FollowFeedPoints?): Boolean = synchronized(installLock) {
+        if (!enabled || installed || newPoints == null) return false
+        if (points != null && !initialInstallAttempted) return false
+        points = newPoints
+        true
+    }
+
+    override fun install(environment: HookEnvironment): FeatureInstallResult = synchronized(installLock) {
+        if (installed) return lastResult ?: FeatureInstallResult.Installed(0)
+        initialInstallAttempted = true
         if (!enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-classloader")
@@ -171,7 +185,10 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
         environment.logInfo("follow_feed_installed", "[BIL] 关注页凝光接入完成（卡片=${material.value}，状态栏按需融合，UP 主页=$personalSupported，正文内视频=${host.embeddedVideoSupported}）")
         return FeatureInstallResult.Installed((if (headerPadding == null) 9 else 10) + if (personalSupported) 6 else 0,
             complete = host.embeddedVideoSupported && headerPadding != null &&
-                (!personalExpected || personalSupported))
+                (!personalExpected || personalSupported)).also { result ->
+            installed = true
+            lastResult = result
+        }
     }
 
     companion object {

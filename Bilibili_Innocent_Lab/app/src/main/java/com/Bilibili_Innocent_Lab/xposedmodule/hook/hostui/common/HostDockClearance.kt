@@ -52,10 +52,12 @@ internal object HostDockClearanceReader {
      */
     fun sideDp(container: View): Float = HostThreadGuard.call("host.dock.side", 0f) {
         val insets = ViewCompat.getRootWindowInsets(container) ?: return@call 0f
+        val density = container.resources.displayMetrics.density
+        if (density <= 0f) return@call 0f
         layoutOrigin(container, origin)
         readSides(insets, sides)
         val side = max(sides[0] - reservedLeft(container), sides[1] - reservedRight(container)).coerceAtLeast(0)
-        side / container.resources.displayMetrics.density
+        side / density
     }
 
     /**
@@ -80,9 +82,12 @@ internal object HostDockClearanceReader {
     private fun measure(container: View, liftDp: (HostDockClearance) -> Float): HostDockClearance {
         val insets = ViewCompat.getRootWindowInsets(container) ?: return HostDockClearance()
         val density = container.resources.displayMetrics.density
+        if (density <= 0f) return HostDockClearance()
         layoutOrigin(container, origin)
+        val originX = origin[0]
+        val originY = origin[1]
         // 容器自身的底部内边距同样把底栏抬离窗口底边（宿主用 padding 让导航栏时）。
-        val containerBottom = origin[1] + container.height - container.paddingBottom
+        val containerBottom = originY + container.height - container.paddingBottom
         val reserved = (container.rootView.height - containerBottom).coerceAtLeast(0)
         val vertical = HostDockClearance(reserved / density,
             insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom / density,
@@ -91,8 +96,10 @@ internal object HostDockClearanceReader {
         if (AndroidVersion.isAtLeast(AndroidVersion.S)) {
             HostDockCornerApi31.bottomIntrusion(container, containerBottom - liftDp(vertical) * density, sides)
         }
-        return vertical.copy(sideLeftDp = (sides[0] - reservedLeft(container)).coerceAtLeast(0) / density,
-            sideRightDp = (sides[1] - reservedRight(container)).coerceAtLeast(0) / density)
+        return vertical.copy(
+            sideLeftDp = (sides[0] - reservedLeft(container, originX)).coerceAtLeast(0) / density,
+            sideRightDp = (sides[1] - reservedRight(container, originX)).coerceAtLeast(0) / density
+        )
     }
 
     /** 刘海与侧边导航栏（横屏三键导航）的左右侵入量，像素。 */
@@ -103,11 +110,12 @@ internal object HostDockClearanceReader {
         out[1] = max(cutout.right, bars.right)
     }
 
-    /** 容器自己已让出的左右空间（宿主 fitsSystemWindows 时），不能再叠加一次。依赖 [layoutOrigin] 已写入 [origin]。 */
-    private fun reservedLeft(container: View): Int = (origin[0] + container.paddingLeft).coerceAtLeast(0)
+    /** 容器自己已让出的左右空间（宿主 fitsSystemWindows 时），不能再叠加一次。依赖 [layoutOrigin] 已写入 [originX]。 */
+    private fun reservedLeft(container: View, originX: Int = origin[0]): Int =
+        (originX + container.paddingLeft).coerceAtLeast(0)
 
-    private fun reservedRight(container: View): Int =
-        (container.rootView.width - (origin[0] + container.width - container.paddingRight)).coerceAtLeast(0)
+    private fun reservedRight(container: View, originX: Int = origin[0]): Int =
+        (container.rootView.width - (originX + container.width - container.paddingRight)).coerceAtLeast(0)
 
     /**
      * 容器在窗口中的布局原点。只累加 left/top 与滚动、不含 translation：宿主滑动隐藏底栏

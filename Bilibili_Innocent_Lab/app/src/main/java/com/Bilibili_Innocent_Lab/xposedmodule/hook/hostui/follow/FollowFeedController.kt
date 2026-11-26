@@ -17,6 +17,8 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.RelativeLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
@@ -580,7 +582,7 @@ internal class FollowFeedController(
                     layer.clipBounds = Rect(list.left, list.top, list.right, list.bottom)
                 }
                 if (header != null) {
-                    if (viewport == null) viewport = root.get()?.let { FollowFeedViewport(list, it as ViewGroup) }
+                    if (viewport == null) viewport = (root.get() as? ViewGroup)?.let { FollowFeedViewport.create(list, it) }
                     viewport?.sync(root.get()?.paddingTop ?: 0)
                 }
                 generation++
@@ -667,8 +669,8 @@ internal class FollowFeedController(
                 val viewportBottom = location[1] + list.height
                 val bar = dock?.get()?.takeIf { it.isShown && it.height > 0 }
                 val dockTop = bar?.let { it.getLocationInWindow(location); location[1] }
-                @Suppress("DEPRECATION")
-                val systemBottom = list.rootWindowInsets?.systemWindowInsetBottom ?: 0
+                val systemBottom = ViewCompat.getRootWindowInsets(list)
+                    ?.getInsets(WindowInsetsCompat.Type.systemBars())?.bottom ?: 0
                 val padding = FollowFeedStyle.bottomPadding(originalPadding, viewportBottom, dockTop, systemBottom, dp(FollowFeedStyle.GAP_DP))
                 if (padding != appliedPadding && list.paddingBottom == appliedPadding) {
                     list.setPadding(list.paddingLeft, list.paddingTop, list.paddingRight, padding)

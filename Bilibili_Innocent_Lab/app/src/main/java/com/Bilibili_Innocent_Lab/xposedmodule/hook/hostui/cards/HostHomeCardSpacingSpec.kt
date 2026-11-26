@@ -7,7 +7,7 @@ internal data class HostHomeCardSpacingSpec(val horizontalDp: Int = DEFAULT, val
     fun normalized() = HostHomeCardSpacingSpec(normalize(horizontalDp), normalize(verticalDp))
 
     fun horizontalMargin(span: Int, left: Boolean, padding: Int, decoration: Int, density: Float): Int? {
-        if (horizontalDp < 0 || span !in 0..2) return null
+        if (horizontalDp < 0 || span !in 0..3) return null
         val gap = (horizontalDp * density).toInt()
         val inset = when {
             span == 2 || span == 0 && left || span == 1 && !left -> gap - padding
@@ -18,7 +18,7 @@ internal data class HostHomeCardSpacingSpec(val horizontalDp: Int = DEFAULT, val
     }
 
     fun verticalMargin(span: Int, top: Boolean, decoration: Int, density: Float): Int? {
-        if (verticalDp < 0 || span !in 0..2) return null
+        if (verticalDp < 0 || span !in 0..3) return null
         val gap = (verticalDp * density).toInt()
         return (if (top) gap / 2 else gap - gap / 2) - decoration
     }

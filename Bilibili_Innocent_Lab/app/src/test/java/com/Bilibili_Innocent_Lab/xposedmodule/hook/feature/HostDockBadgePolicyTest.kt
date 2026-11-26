@@ -285,6 +285,20 @@ private class HostHomeCardSpacingSpecCases {
         assertEquals(15, verticalOnly.verticalMargin(2, false, 0, 3f))
     }
 
+    fun threeAndFourColumnTabletMiddleColumnsKeepSymmetricGap() {
+        val spacing = HostHomeCardSpacingSpec(10, 12)
+        val density = 2f // gapH = 20, gapV = 24
+        val leftRight = spacing.horizontalMargin(0, left = false, padding = 8, decoration = 2, density = density)!! + 2
+        val midLeft = spacing.horizontalMargin(3, left = true, padding = 8, decoration = 4, density = density)!! + 4
+        val midRight = spacing.horizontalMargin(3, left = false, padding = 8, decoration = 4, density = density)!! + 4
+        val rightLeft = spacing.horizontalMargin(1, left = true, padding = 8, decoration = 2, density = density)!! + 2
+        assertEquals(20, leftRight + midLeft)
+        assertEquals(20, midRight + leftRight) // middle-to-middle in 4-col grid
+        assertEquals(20, midRight + rightLeft)
+        assertEquals(24, spacing.verticalMargin(3, top = true, decoration = 3, density = density)!! + 3 +
+            spacing.verticalMargin(3, top = false, decoration = 5, density = density)!! + 5)
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (HostHomeCardSpacingSpecCases) -> Unit) {
             val s = HostHomeCardSpacingSpecCases()
@@ -293,6 +307,7 @@ private class HostHomeCardSpacingSpecCases {
         runIsolated { s -> s.defaultsAndUnsupportedLayoutsPreserveOriginalSpacing() }
         runIsolated { s -> s.twoColumnsHaveExactGapIncludingOddPixelsAndNativeDecorations() }
         runIsolated { s -> s.zeroGapOverridesNativeWhitespaceAndAxesRemainIndependent() }
+        runIsolated { s -> s.threeAndFourColumnTabletMiddleColumnsKeepSymmetricGap() }
     }
 }
 

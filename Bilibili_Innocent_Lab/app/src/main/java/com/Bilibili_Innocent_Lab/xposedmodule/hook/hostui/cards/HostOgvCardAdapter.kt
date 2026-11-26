@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ComposeChangedMask
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.lang.reflect.Field
@@ -33,11 +34,18 @@ internal object HostOgvCardAdapter {
         fun rewrite(args: Array<Any?>, supplied: Any, radius: Float) {
             args[modifierIndex] = supplied
             radiusIndex?.let { args[it] = radius }
-            val changed = (14 shl (modifierIndex * 3)) or (radiusIndex?.let { 14 shl (it * 3) } ?: 0)
-            args[changedIndex] = (args[changedIndex] as Int) and changed.inv()
+            (args[changedIndex] as? Int)?.let { flags ->
+                args[changedIndex] = radiusIndex?.let {
+                    ComposeChangedMask.clearSlots(flags, modifierIndex, it)
+                } ?: ComposeChangedMask.clearSlots(flags, modifierIndex)
+            }
             defaultsIndex?.let { index ->
-                val defaults = (1 shl modifierIndex) or (radiusIndex?.let { 1 shl it } ?: 0)
-                args[index] = (args[index] as Int) and defaults.inv()
+                var defaults = 0
+                if (modifierIndex in 0..30) defaults = defaults or (1 shl modifierIndex)
+                if (radiusIndex != null && radiusIndex in 0..30) defaults = defaults or (1 shl radiusIndex)
+                if (defaults != 0) {
+                    (args[index] as? Int)?.let { args[index] = it and defaults.inv() }
+                }
             }
         }
     }

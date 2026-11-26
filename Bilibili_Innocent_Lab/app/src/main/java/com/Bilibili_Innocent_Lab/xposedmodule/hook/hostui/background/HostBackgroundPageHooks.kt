@@ -7,15 +7,18 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsetsController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.commentOwnerActivity
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.matchesComposeName
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 
 internal object HostBackgroundPageHooks {
-    fun install(environment: HookEnvironment, pages: HostBackgroundPages, followFeedPoints: FollowFeedPoints? = null): Int {
+    fun install(environment: HookEnvironment, pages: HostBackgroundPages, followFeedPoints: FollowFeedPoints? = null,
+        includeOpus: Boolean = true): Int {
         val loader = environment.classLoader ?: return 0
         val nativeCount = installNative(environment, pages)
         val fragment = KavaMemberLookup.classOrNull(loader, "androidx.fragment.app.Fragment") ?: return nativeCount
@@ -56,11 +59,12 @@ internal object HostBackgroundPageHooks {
             }
             count++
         }
-        return count + installOpusBackground(environment, followFeedPoints) + installCommentLayers(environment, pages) + installCommentSectionBackground(environment) + installComposeTheme(environment, pages) + installCompose(environment)
+        return count + (if (includeOpus) installOpusBackground(environment, followFeedPoints) else 0) +
+            installCommentLayers(environment, pages) + installCommentSectionBackground(environment) + installComposeTheme(environment, pages) + installCompose(environment)
     }
 
     /** 图文正文和段落间距共用颜色入口；保留引用底色、按压态及所有 ItemOffsets。 */
-    private fun installOpusBackground(environment: HookEnvironment, followFeedPoints: FollowFeedPoints?): Int {
+    internal fun installOpusBackground(environment: HookEnvironment, followFeedPoints: FollowFeedPoints?): Int {
         val loader = environment.classLoader ?: return 0
         val access = HostOpusBackgroundAccess.resolve(loader, followFeedPoints) ?: return 0
         val color = access.color
@@ -84,14 +88,17 @@ internal object HostBackgroundPageHooks {
         val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView") ?: return 0
         val decoration = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$ItemDecoration") ?: return 0
         val comment = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.data.model.CommentItem") ?: return 0
-        val header = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.data.model.r") ?: return 0
-        // 从内容层字段取得当前版本的装饰器类型，不绑定混淆后的装饰器类名。
+        val header = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.data.model.r")
+        val commentPackage = comment.name.substringBeforeLast('.', "")
+        val commentSuper = comment.superclass?.takeIf { it != Any::class.java }
+        // 从内容层字段取得当前版本的装饰器类型，不绑定混淆后的装饰器类名；r 改名时退回同签名结构匹配。
         val type = layer.declaredFields.map { it.type }.distinct().singleOrNull { decoration.isAssignableFrom(it) } ?: return 0
         val methods = type.declaredMethods.filter {
             val parameters = it.parameterTypes
             java.lang.reflect.Modifier.isPrivate(it.modifiers) && it.returnType == Void.TYPE && parameters.size == 5 &&
                 parameters[0] == Canvas::class.java && parameters[1] == recycler && parameters[2] == View::class.java &&
-                parameters[3] == parameters[4] && parameters[3].isAssignableFrom(comment) && parameters[4].isAssignableFrom(header)
+                parameters[3] == parameters[4] && parameters[3].isAssignableFrom(comment) &&
+                (header == null || parameters[4].isAssignableFrom(header))
         }
         for (method in methods) {
             environment.registrar.exact("host_background.comment_section.${method.name}", type, method.name, *method.parameterTypes) {
@@ -100,45 +107,76 @@ internal object HostBackgroundPageHooks {
                     if (HostBackgroundPages.kind(list) != HostBackgroundPagePolicy.Kind.COMMENT) return@before
                     // 仅主评论 → 相关回复标题的分区：宿主直接画 10dp Bg3 矩形，间距由 getItemOffsets 保留。
                     // 相同形状的细线助手在该分区不执行；其他行的细线、楼中楼圆角与高亮仍走宿主绘制。
-                    if (comment.isInstance(argOrNull(3)) && header.isInstance(argOrNull(4))) result = null
+                    val prev = argOrNull(3) ?: return@before
+                    val next = argOrNull(4) ?: return@before
+                    if (!comment.isInstance(prev)) return@before
+                    val isSectionHeader = if (header != null) {
+                        header.isInstance(next)
+                    } else {
+                        !comment.isInstance(next) &&
+                            ((commentPackage.isNotEmpty() && next.javaClass.name.startsWith("$commentPackage.")) ||
+                                (commentSuper != null && commentSuper.isInstance(next)))
+                    }
+                    if (isSectionHeader) result = null
                 }
             }
         }
         return methods.size
     }
 
-    private fun installComposeTheme(environment: HookEnvironment, pages: HostBackgroundPages): Int = runCatching {
-        if (!pages.requiresNight) return@runCatching 0
-        val loader = environment.classLoader ?: return@runCatching 0
-        val access = CommentComposeViewAccess.resolve(loader) ?: return@runCatching 0
-        val owner = KavaMemberLookup.classOrNull(loader, "com.bilibili.compose.theme.BiliThemeKt") ?: return@runCatching 0
-        val strategy = KavaMemberLookup.classOrNull(loader, "com.bilibili.compose.theme.ThemeStrategy") ?: return@runCatching 0
-        // 安装发生在 Application.attach；这里只解析字段，不能触发依赖 Foundation 的主题枚举初始化。
-        val night = KavaMemberLookup.fieldOrNull(strategy, "ForceNight") ?: return@runCatching 0
-        val method = owner.declaredMethods.singleOrNull { it.name == "BiliTheme" && it.parameterCount == 6 && it.parameterTypes[0] == strategy } ?: return@runCatching 0
+    private fun installComposeTheme(environment: HookEnvironment, pages: HostBackgroundPages): Int {
+        if (!pages.requiresNight) return 0
+        val loader = environment.classLoader ?: return 0
+        val access = CommentComposeViewAccess.resolve(loader) ?: return 0
+        val composer = KavaMemberLookup.classOrNull(loader, "androidx.compose.runtime.Composer")
         val activities = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
-        environment.registrar.exact("host_background.compose_night", method.declaringClass, method.name, *method.parameterTypes) {
-            before {
-                val defaults = argOrNull(5) as? Int ?: return@before
-                if (defaults and 1 == 0 && (argOrNull(0) as? Enum<*>)?.name != "FollowApp") return@before
-                val composer = argOrNull(3) ?: return@before
-                val view = runCatching { access.read(composer) }.getOrNull() ?: return@before
-                if (HostBackgroundPages.protectedAncestor(view)) return@before
-                val activity = commentOwnerActivity(view.context) ?: return@before
-                if (activity.packageName != "tv.danmaku.bili") return@before
-                if (!activities.getOrPut(activity.javaClass) {
-                        HostBackgroundPagePolicy.nativeActivity(generateSequence(activity.javaClass as Class<*>?) { it.superclass }.map { it.name }.toList(), activity.packageName)
-                    }) return@before
-                // FollowApp 的 Compose 状态流可能仍缓存日间色；显式指定夜空页面主题，不写宿主偏好。
-                args[0] = night.get(null) ?: return@before
-                args[4] = (argOrNull(4) as? Int ?: 0) and 14.inv()
-                args[5] = defaults and 1.inv()
+        val packages = listOf(
+            "com.bilibili.compose.theme" to "host_background.compose_night",
+            "kntr.common.bilitheme" to "host_background.compose_night.kntr"
+        )
+        var registered = 0
+        for ((pkg, hookId) in packages) {
+            registered += runCatching {
+                val owner = KavaMemberLookup.classOrNull(loader, "$pkg.BiliThemeKt") ?: return@runCatching 0
+                val strategy = KavaMemberLookup.classOrNull(loader, "$pkg.ThemeStrategy") ?: return@runCatching 0
+                // 安装发生在 Application.attach；这里只解析字段，不能触发依赖 Foundation 的主题枚举初始化。
+                val night = KavaMemberLookup.fieldOrNull(strategy, "ForceNight") ?: return@runCatching 0
+                val method = owner.declaredMethods.singleOrNull {
+                    it.name == "BiliTheme" && it.parameterCount == 6 && it.parameterTypes[0] == strategy
+                } ?: owner.declaredMethods.singleOrNull {
+                    it.name == "BiliTheme" && !it.name.endsWith("\$default") && it.parameterCount >= 4 &&
+                        it.parameterTypes[0] == strategy &&
+                        (composer == null || composer in it.parameterTypes) &&
+                        it.parameterTypes.takeLast(2) == listOf(Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!)
+                } ?: return@runCatching 0
+                val composerIdx = if (composer != null) method.parameterTypes.indexOf(composer).takeIf { it >= 0 } ?: 3 else 3
+                val changedIdx = method.parameterCount - 2
+                val defaultsIdx = method.parameterCount - 1
+                environment.registrar.exact(hookId, method.declaringClass, method.name, *method.parameterTypes) {
+                    before {
+                        val defaults = argOrNull(defaultsIdx) as? Int ?: return@before
+                        if (defaults and 1 == 0 && (argOrNull(0) as? Enum<*>)?.name != "FollowApp") return@before
+                        val composerArg = argOrNull(composerIdx) ?: return@before
+                        val view = runCatching { access.read(composerArg) }.getOrNull() ?: return@before
+                        if (HostBackgroundPages.protectedAncestor(view)) return@before
+                        val activity = commentOwnerActivity(view.context) ?: return@before
+                        if (activity.packageName != "tv.danmaku.bili") return@before
+                        if (!activities.getOrPut(activity.javaClass) {
+                                HostBackgroundPagePolicy.nativeActivity(generateSequence(activity.javaClass as Class<*>?) { it.superclass }.map { it.name }.toList(), activity.packageName)
+                            }) return@before
+                        // FollowApp 的 Compose 状态流可能仍缓存日间色；显式指定夜空页面主题，不写宿主偏好。
+                        args[0] = night.get(null) ?: return@before
+                        args[changedIdx] = (argOrNull(changedIdx) as? Int ?: 0) and 14.inv()
+                        args[defaultsIdx] = defaults and 1.inv()
+                    }
+                }
+                1
+            }.getOrElse {
+                environment.logError("host_background_compose_night_error", "[BIL] Compose 夜空主题接入失败($pkg): $it")
+                0
             }
         }
-        1
-    }.getOrElse {
-        environment.logError("host_background_compose_night_error", "[BIL] Compose 夜空主题接入失败: $it")
-        0
+        return registered
     }
 
     private fun installCommentLayers(environment: HookEnvironment, pages: HostBackgroundPages): Int {
@@ -196,12 +234,30 @@ internal object HostBackgroundPageHooks {
                             return@run
                         }
                         // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
-                        if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
-                        if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isStatusBarContrastEnforced = false
+                        if (Build.VERSION.SDK_INT < 35) {
+                            @Suppress("DEPRECATION")
+                            if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
+                            @Suppress("DEPRECATION")
+                            if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            window.isStatusBarContrastEnforced = false
+                            window.isNavigationBarContrastEnforced = false
+                        }
                         // 窗口原点涵盖状态栏和原生工具栏，避免窗口白底透出；夜空预设的系统栏文字保持可读。
-                        if (pages.requiresNight) root.systemUiVisibility = root.systemUiVisibility and
-                            (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
+                        if (pages.requiresNight) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                window.insetsController?.setSystemBarsAppearance(
+                                    0,
+                                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                                )
+                            } else {
+                                @Suppress("DEPRECATION")
+                                root.systemUiVisibility = root.systemUiVisibility and
+                                    (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
+                            }
+                        }
                         pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
                     }
                 }
@@ -215,12 +271,21 @@ internal object HostBackgroundPageHooks {
         val loader = environment.classLoader ?: return@runCatching 0
         val view = KavaMemberLookup.classOrNull(loader, "androidx.compose.ui.platform.AndroidComposeView") ?: return@runCatching 0
         val scope = KavaMemberLookup.classOrNull(loader, "androidx.compose.ui.node.LayoutNodeDrawScope") ?: return@runCatching 0
-        val colors = KavaMemberLookup.classOrNull(loader, "com.bilibili.compose.theme.BiliColors") ?: return@runCatching 0
-        val bg = colors.declaredMethods.singleOrNull {
-            it.name.startsWith("getBg1-") && it.parameterCount == 0 && it.returnType == Long::class.javaPrimitiveType
-        } ?: return@runCatching 0
+        val colorSources = listOf(
+            "com.bilibili.compose.theme.BiliColors" to "host_background.compose_color",
+            "kntr.common.bilitheme.BiliColors" to "host_background.compose_color.kntr"
+        ).mapNotNull { (className, hookId) ->
+            runCatching {
+                val colorsClass = KavaMemberLookup.classOrNull(loader, className) ?: return@runCatching null
+                val method = colorsClass.declaredMethods.singleOrNull {
+                    matchesComposeName(it.name, "getBg1") && it.parameterCount == 0 && it.returnType == Long::class.javaPrimitiveType
+                } ?: return@runCatching null
+                hookId to method
+            }.getOrNull()
+        }
+        if (colorSources.isEmpty()) return@runCatching 0
         val draw = scope.declaredMethods.singleOrNull {
-            it.name.startsWith("drawRect-") && it.parameterCount == 7 &&
+            matchesComposeName(it.name, "drawRect") && it.parameterCount == 7 &&
                 it.parameterTypes.take(3).all { p -> p == Long::class.javaPrimitiveType }
         } ?: return@runCatching 0
         val dispatch = KavaMemberLookup.methodOrNull(view, "dispatchDraw", Canvas::class.java) ?: return@runCatching 0
@@ -228,8 +293,12 @@ internal object HostBackgroundPageHooks {
         val fillTypes = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
         data class DrawPage(val width: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
         val scopes = ThreadLocal.withInitial { java.util.ArrayDeque<DrawPage>() }
-        environment.registrar.exact("host_background.compose_color", bg.declaringClass, bg.name, *bg.parameterTypes) {
-            after { if (!hasThrowable) (result as? Long)?.let { backgroundColors.add(it) } }
+        var installedCount = 0
+        for ((hookId, bg) in colorSources) {
+            environment.registrar.exact(hookId, bg.declaringClass, bg.name, *bg.parameterTypes) {
+                after { if (!hasThrowable) (result as? Long)?.let { backgroundColors.add(it) } }
+            }
+            installedCount++
         }
         environment.registrar.exact("host_background.compose_scope", dispatch.declaringClass, dispatch.name, *dispatch.parameterTypes) {
             before {
@@ -267,7 +336,7 @@ internal object HostBackgroundPageHooks {
                 if (HostBackgroundPagePolicy.pageRectangle(Float.fromBits((packed ushr 32).toInt()), height, page.width)) result = null
             }
         }
-        3
+        return installedCount + 2
     }.getOrElse {
         environment.logError("host_background_compose_error", "[BIL] Compose 页面背景接入失败: $it")
         0

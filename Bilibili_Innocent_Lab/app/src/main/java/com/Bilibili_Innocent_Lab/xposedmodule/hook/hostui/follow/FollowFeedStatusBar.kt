@@ -40,7 +40,9 @@ internal class FollowFeedStatusBar(
         if (top != inset) {
             inset = top
             height = top + (FollowFeedStyle.STATUS_FADE_DP * page.resources.displayMetrics.density).roundToInt()
-            band.layoutParams = (band.layoutParams as FrameLayout.LayoutParams).apply { height = this@FollowFeedStatusBar.height }
+            band.layoutParams = band.layoutParams?.apply {
+                height = this@FollowFeedStatusBar.height
+            } ?: FrameLayout.LayoutParams(-1, height, Gravity.TOP)
             band.translationY = -top.toFloat()
             pause()
         }
@@ -88,8 +90,11 @@ internal class FollowFeedStatusBar(
 }
 
 /** 上延一个状态栏高度并补等量内边距：起点位置与原生刷新行程保持不变。 */
-internal class FollowFeedViewport(private val list: ViewGroup, private val page: ViewGroup) : AutoCloseable {
-    private val params = list.layoutParams as FrameLayout.LayoutParams
+internal class FollowFeedViewport private constructor(
+    private val list: ViewGroup,
+    private val page: ViewGroup,
+    private val params: ViewGroup.MarginLayoutParams
+) : AutoCloseable {
     private val originalMargin = params.topMargin
     private val originalPadding = list.paddingTop
     private val edits = FollowFeedViewEdits()
@@ -121,5 +126,10 @@ internal class FollowFeedViewport(private val list: ViewGroup, private val page:
         if (list.paddingTop == originalPadding + extension)
             list.setPadding(list.paddingLeft, originalPadding, list.paddingRight, list.paddingBottom)
         edits.restore()
+    }
+
+    companion object {
+        fun create(list: ViewGroup, page: ViewGroup): FollowFeedViewport? =
+            (list.layoutParams as? ViewGroup.MarginLayoutParams)?.let { FollowFeedViewport(list, page, it) }
     }
 }

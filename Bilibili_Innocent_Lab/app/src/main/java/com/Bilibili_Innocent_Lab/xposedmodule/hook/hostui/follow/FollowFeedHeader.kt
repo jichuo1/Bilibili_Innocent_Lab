@@ -1,13 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import android.graphics.drawable.ColorDrawable
-import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowInsets
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.lumen.coacervation.engine.model.LumenPalette
 import kotlin.math.roundToInt
 
@@ -18,10 +18,10 @@ internal class FollowFeedHeader private constructor(
     private val appBar: View,
     private val plate: View,
     private val publish: View,
+    private val originalParent: ViewGroup,
     private val selection: FollowFeedSelection,
     palette: LumenPalette
 ) : AutoCloseable {
-    private val originalParent = publish.parent as ViewGroup
     private val originalIndex = originalParent.indexOfChild(publish)
     private val originalParams = publish.layoutParams
     private val originalAppVisibility = appBar.visibility
@@ -58,15 +58,13 @@ internal class FollowFeedHeader private constructor(
     }
 
     private fun safePadding(): Int {
-        val insets = page.rootWindowInsets
-        @Suppress("DEPRECATION")
-        val top = if (Build.VERSION.SDK_INT >= 30 && insets != null) {
-            val bars = insets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
-            bars.top
-        } else insets?.systemWindowInsetTop ?: run {
-            val id = page.resources.getIdentifier("status_bar_height", "dimen", "android")
-            if (id == 0) 0 else page.resources.getDimensionPixelSize(id)
-        }
+        val top = ViewCompat.getRootWindowInsets(page)
+            ?.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
+            ?.top
+            ?: run {
+                val id = page.resources.getIdentifier("status_bar_height", "dimen", "android")
+                if (id == 0) 0 else page.resources.getDimensionPixelSize(id)
+            }
         page.getLocationInWindow(location)
         return FollowFeedStyle.contentTopPadding(top, location[1])
     }
@@ -124,9 +122,12 @@ internal class FollowFeedHeader private constructor(
                     val title = app.findViewById<View>(titleId) as? TextView ?: return null
                     val tabs = app.findViewById<View>(tabsId) ?: return null
                     // 有其他一级标签或未知标题的宿主继续使用原导航，不强行隐藏。
-                    if (title.text.toString() != "关注" || tabs.visibility == View.VISIBLE ||
-                        publish.visibility != View.VISIBLE || publish.parent !is ViewGroup) return null
-                    return runCatching { FollowFeedHeader(page, outer, app, plate, publish, selection, palette) }.getOrNull()
+                    val publishParent = publish.parent as? ViewGroup ?: return null
+                    if (!isSupportedHeaderTitle(title.text?.toString()) || tabs.visibility == View.VISIBLE ||
+                        publish.visibility != View.VISIBLE) return null
+                    return runCatching {
+                        FollowFeedHeader(page, outer, app, plate, publish, publishParent, selection, palette)
+                    }.getOrNull()
                 }
                 ancestor = outer.parent as? ViewGroup
             }
@@ -134,3 +135,8 @@ internal class FollowFeedHeader private constructor(
         }
     }
 }
+
+private val SUPPORTED_FOLLOW_HEADER_TITLES = setOf("关注", "關注", "追蹤", "following", "follow")
+
+internal fun isSupportedHeaderTitle(title: String?): Boolean =
+    title?.trim()?.lowercase(java.util.Locale.ROOT) in SUPPORTED_FOLLOW_HEADER_TITLES

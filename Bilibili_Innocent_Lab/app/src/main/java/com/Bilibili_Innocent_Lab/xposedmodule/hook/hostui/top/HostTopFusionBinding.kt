@@ -3,11 +3,16 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.view.ViewCompat
+import android.view.Window
+import android.view.WindowInsetsController
+import androidx.core.view.WindowCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.model.LumenPalette
@@ -50,8 +55,10 @@ internal class HostTopFusionBinding private constructor(
     /** 渐隐收口当前对齐到的"内容静止顶边"屏幕 y。 */
     private var restTop = Int.MIN_VALUE
 
-    /** 内容上延的固定位移量 = 观测到的容器最大屏幕顶边。 */
+    /** 内容上延的固定位移量 = 当前窗口尺寸下观测到的容器顶边。 */
     private var contentOffset = 0
+    private var lastContainerHeight = 0
+    private var lastWindowHeight = 0
     private var listPosition: HostTopListPosition? = null
     private var dockingProgress = 1f
 
@@ -157,7 +164,17 @@ internal class HostTopFusionBinding private constructor(
             restoreStatusBar()
             return true
         }
-        val top = screenTopOf(container) ?: return true
+        val top = windowTopOf(container) ?: return true
+        val containerHeight = container.height
+        val windowHeight = container.rootView?.height ?: 0
+        val resized = (lastContainerHeight != 0 && containerHeight != lastContainerHeight) ||
+            (lastWindowHeight != 0 && windowHeight != lastWindowHeight)
+        if (containerHeight > 0) lastContainerHeight = containerHeight
+        if (windowHeight > 0) lastWindowHeight = windowHeight
+        if (resized) {
+            bandTop = Int.MIN_VALUE
+            restTop = Int.MIN_VALUE
+        }
         if (top != bandTop) {
             val first = bandTop == Int.MIN_VALUE
             bandTop = top
@@ -175,7 +192,7 @@ internal class HostTopFusionBinding private constructor(
             band.updateFade(contentRestTop)
             backdrop?.onVisualMovement()
         }
-        if (top > contentOffset) {
+        if (if (resized) top != contentOffset else top > contentOffset) {
             contentOffset = top
             val lp = pager?.layoutParams
             if (lp is ViewGroup.MarginLayoutParams && lp.topMargin != -top) {
@@ -207,10 +224,11 @@ internal class HostTopFusionBinding private constructor(
         band.updateDocking(dockingProgress, top)
         // 装扮图上的原生状态栏前景由宿主管理；滚动后背景变成模块玻璃，要切回材质的前景深浅。
         if (preserveHostArtwork && dockingProgress < .5f) {
-            ViewCompat.getWindowInsetsController(container)?.let { controller ->
-                if (originalLightStatus == null) originalLightStatus = controller.isAppearanceLightStatusBars
+            val currentLight = readLightStatusBars()
+            if (currentLight != null) {
+                if (originalLightStatus == null) originalLightStatus = currentLight
                 val light = !materialDark
-                if (controller.isAppearanceLightStatusBars != light) controller.isAppearanceLightStatusBars = light
+                if (currentLight != light) writeLightStatusBars(light)
                 appliedLightStatus = light
             }
         } else restoreStatusBar()
@@ -219,13 +237,41 @@ internal class HostTopFusionBinding private constructor(
 
     private fun restoreStatusBar() {
         val original = originalLightStatus ?: return
-        ViewCompat.getWindowInsetsController(container)?.let { controller ->
-            // 宿主切页后已设置自己的前景时不覆盖；只恢复本绑定仍持有的状态。
-            if (controller.isAppearanceLightStatusBars == appliedLightStatus)
-                controller.isAppearanceLightStatusBars = original
-        }
+        // 宿主切页后已设置自己的前景时不覆盖；只恢复本绑定仍持有的状态。
+        if (readLightStatusBars() == appliedLightStatus) writeLightStatusBars(original)
         originalLightStatus = null
         appliedLightStatus = null
+    }
+
+    private fun readLightStatusBars(): Boolean? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = container.windowInsetsController ?: return null
+            return (controller.systemBarsAppearance and WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS) != 0
+        }
+        val window = resolveWindow(container.context) ?: return null
+        return WindowCompat.getInsetsController(window, container).isAppearanceLightStatusBars
+    }
+
+    private fun writeLightStatusBars(light: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = container.windowInsetsController ?: return
+            controller.setSystemBarsAppearance(
+                if (light) WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS else 0,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+            )
+            return
+        }
+        val window = resolveWindow(container.context) ?: return
+        WindowCompat.getInsetsController(window, container).isAppearanceLightStatusBars = light
+    }
+
+    private fun resolveWindow(context: Context): Window? {
+        var current: Context? = context
+        while (current is ContextWrapper) {
+            if (current is Activity) return current.window
+            current = current.baseContext
+        }
+        return (current as? Activity)?.window
     }
 
     /** 深浅色/主题切换后刷新融合带的色罩（采样纹理只带 alpha 曲线，不受影响）。 */
@@ -240,9 +286,9 @@ internal class HostTopFusionBinding private constructor(
         )
     }
 
-    private fun screenTopOf(view: View): Int? {
+    private fun windowTopOf(view: View): Int? {
         if (!view.isAttachedToWindow) return null
-        view.getLocationOnScreen(location)
+        view.getLocationInWindow(location)
         return location[1]
     }
 

@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostComposeChromeHooks
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostHomeLifecycleHooks
@@ -79,8 +80,8 @@ internal class HostTopBarFxFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "missing:missing-view-created-point")
             return FeatureInstallResult.Skipped("missing-view-created-point")
         }
-        val composeExpected = environment.classLoader?.let {
-            KavaMemberLookup.classOrNull(it, "tv.danmaku.bili.khome.widget.topbar.HomeTopTabKt") != null
+        val composeExpected = chromePoints.isNotEmpty() || environment.classLoader?.let {
+            HomeChromeAdapter.applicable(it) && KavaMemberLookup.hasClass(it, "androidx.compose.ui.node.ComposeUiNode")
         } == true
         if (!firstHit.get()) {
             environment.reportStatus(CHANNEL_STATUS, "installed:legacy=${count - if (compose) 1 else 0},compose=$compose")

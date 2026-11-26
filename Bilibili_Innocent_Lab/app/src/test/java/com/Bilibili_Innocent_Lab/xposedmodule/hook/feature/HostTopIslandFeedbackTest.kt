@@ -452,6 +452,17 @@ private class HostVideoCardStyleSpecCases {
         assertEquals(0, spacing.left(2, 40))
     }
 
+    fun tabletMiddleColumnAppliesSymmetricInnerGuttersWithoutOverwritingOriginalInsets() {
+        val spacing = HostVideoCardSpacing(3, 4, 5, 6, 2f)
+        assertEquals(3 + 14, spacing.left(3))
+        assertEquals(5 + 14, spacing.right(3))
+        assertEquals(4 + 10, spacing.top(3))
+        assertEquals(6 + 24, spacing.bottom(3))
+        // Adjacent columns: col0 right + mid left == mid right + col1 left == 28px (2x inner).
+        assertEquals(28, (spacing.right(0) - 5) + (spacing.left(3) - 3))
+        assertEquals(28, (spacing.right(3) - 5) + (spacing.left(1) - 3))
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (HostVideoCardStyleSpecCases) -> Unit) {
             val s = HostVideoCardStyleSpecCases()
@@ -461,6 +472,7 @@ private class HostVideoCardStyleSpecCases {
         runIsolated { s -> s.recycledCardCanSwitchColumnsWithoutAccumulatingSpacing() }
         runIsolated { s -> s.scrollingAndRebindingSameSizeDoNotRebuildGeometry() }
         runIsolated { s -> s.fullWidthRowsKeepGuttersWithoutAccumulatingOrReducingHostSpacing() }
+        runIsolated { s -> s.tabletMiddleColumnAppliesSymmetricInnerGuttersWithoutOverwritingOriginalInsets() }
     }
 }
 

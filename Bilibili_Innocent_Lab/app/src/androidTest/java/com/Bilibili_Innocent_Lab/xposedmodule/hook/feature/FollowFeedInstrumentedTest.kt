@@ -510,7 +510,7 @@ class FollowFeedInstrumentedTest {
             val rest = parent.top + list.top + child.top
             val bottom = parent.top + list.bottom
             repeat(5) {
-                val viewport = FollowFeedViewport(list, page)
+                val viewport = requireNotNull(FollowFeedViewport.create(list, page))
                 viewport.sync(inset); viewport.sync(inset)
                 layout()
                 assertEquals(rest, parent.top + list.top + child.top)
@@ -524,7 +524,7 @@ class FollowFeedInstrumentedTest {
                 assertTrue(page.clipChildren)
                 assertTrue(list.clipToPadding)
             }
-            val viewport = FollowFeedViewport(list, page)
+            val viewport = requireNotNull(FollowFeedViewport.create(list, page))
             viewport.sync(inset)
             list.setPadding(7, 300, 9, 48) // 后续业务写入不能被恢复覆盖。
             viewport.close()

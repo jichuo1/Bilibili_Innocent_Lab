@@ -8,13 +8,16 @@ import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 
+internal fun matchesComposeName(name: String, base: String): Boolean =
+    !name.endsWith("\$default") && (name == base || name.startsWith("$base-"))
+
 /** Host-loader public Compose ABI only. No module Compose object crosses this boundary. */
 internal class HostComposeChromeApi private constructor(
     val modifier: Class<*>, val applyModifier: Method, private val getModifier: Method,
     private val empty: Any, private val fold: Method, private val then: Method, private val fill: HostChromeRootFill,
     private val wholeArea: Any?,
     val backdropLeaves: List<BackdropLeaf>, val backdropImagesReady: Boolean,
-    private val behind: Method, private val withContent: Method, private val drawContent: Method, val rowPolicy: Method, private val height: Method, private val padding: Method, private val f1: Class<*>, private val f2: Class<*>, private val unit: Any,
+    private val behind: Method, private val withContent: Method, private val drawContent: Method, val rowPolicy: Method?, private val height: Method, private val padding: Method, private val f1: Class<*>, private val f2: Class<*>, private val unit: Any,
     private val size: Method, private val context: Method, private val canvas: Method, private val native: Method,
     private val position: HostComposeCardPositionAccess
 ) {
@@ -55,7 +58,7 @@ internal class HostComposeChromeApi private constructor(
         }
         val withoutFill = if (painter.glass) fold.invoke(base, empty, function(f2, "HostChromeRootFill") { args ->
             val accumulated = requireNotNull(args?.getOrNull(0))
-            val element = requireNotNull(args?.getOrNull(1))
+            val element = requireNotNull(args.getOrNull(1))
             if (fill.matches(element)) accumulated
             else requireNotNull(then.invoke(accumulated, element))
         })!! else base
@@ -92,52 +95,112 @@ internal class HostComposeChromeApi private constructor(
         }
 
     companion object {
+        internal fun resolveSetModifier(loader: ClassLoader, modifier: Class<*>): Method {
+            val node = requireNotNull(Lookup.classOrNull(loader, "androidx.compose.ui.node.ComposeUiNode"))
+            val implClass = Lookup.classOrNull(loader, "androidx.compose.ui.node.LayoutNode") ?: run {
+                val companionClass = Lookup.classOrNull(loader, "androidx.compose.ui.node.ComposeUiNode\$Companion")
+                    ?: requireNotNull(Lookup.fieldOrNull(node, "Companion")?.type)
+                val companionField = Lookup.fieldOrNull(node, "Companion")
+                    ?: requireNotNull(Lookup.declaredFields(node, makeAccessible = true).singleOrNull { it.type == companionClass })
+                val companion = requireNotNull(companionField.get(null))
+                val function0 = Lookup.classOrNull(loader, "kotlin.jvm.functions.Function0")
+                val getConstructor = Lookup.methodOrNull(companion.javaClass, "getConstructor")
+                    ?: Lookup.declaredMethods(companion.javaClass, makeAccessible = true).singleOrNull {
+                        it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
+                            (function0 != null && function0.isAssignableFrom(it.returnType) ||
+                                it.returnType.name == "kotlin.jvm.functions.Function0")
+                    } ?: error("Missing host Compose ABI ${companion.javaClass.name}.getConstructor")
+                val constructorFn = requireNotNull(getConstructor.invoke(companion))
+                val invoke = Lookup.methodOrNull(getConstructor.returnType, "invoke")
+                    ?: Lookup.methods(constructorFn.javaClass, includeSuperclasses = true, makeAccessible = true).firstOrNull {
+                        it.name == "invoke" && it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
+                            !it.isBridge && !it.isSynthetic
+                    } ?: Lookup.methods(constructorFn.javaClass, includeSuperclasses = true, makeAccessible = true).first {
+                        it.name == "invoke" && it.parameterCount == 0 && !Modifier.isStatic(it.modifiers)
+                    }
+                val temp = requireNotNull(invoke.invoke(constructorFn))
+                temp.javaClass
+            }
+            require(!implClass.isInterface && !Modifier.isAbstract(implClass.modifiers) && node.isAssignableFrom(implClass)) {
+                "Invalid ComposeUiNode implementation: ${implClass.name}"
+            }
+            return Lookup.methods(implClass, includeSuperclasses = true, makeAccessible = true).singleOrNull {
+                it.name == "setModifier" && !Modifier.isAbstract(it.modifiers) && !Modifier.isStatic(it.modifiers) &&
+                    it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(modifier))
+            } ?: error("Missing concrete host Compose ABI ${implClass.name}.setModifier")
+        }
+
         fun resolve(loader: ClassLoader, onError: (Throwable) -> Unit = {}): HostComposeChromeApi? = runCatching {
             fun type(name: String) = requireNotNull(Lookup.classOrNull(loader, name))
             fun exact(owner: Class<*>, prefix: String, result: Class<*>, vararg p: Class<*>) =
                 Lookup.declaredMethods(owner, makeAccessible = true).singleOrNull {
-                    it.name.startsWith(prefix) && !it.name.endsWith("\$default") &&
+                    matchesComposeName(it.name, prefix) &&
                         it.returnType == result && it.parameterTypes.contentEquals(p)
                 } ?: error("Missing or ambiguous host Compose ABI ${owner.name}.$prefix/${p.size}")
             val modifier = type("androidx.compose.ui.Modifier")
             val f1 = type("kotlin.jvm.functions.Function1")
             val empty = requireNotNull(Lookup.fieldOrNull(modifier, "Companion")).get(null)!!
             val shape = type("androidx.compose.ui.graphics.Shape")
+            val rectShapeKt = Lookup.classOrNull(loader, "androidx.compose.ui.graphics.RectangleShapeKt")
+            val probeShape = rectShapeKt?.let { kt ->
+                Lookup.declaredMethods(kt, makeAccessible = true).singleOrNull {
+                    matchesComposeName(it.name, "getRectangleShape") && Modifier.isStatic(it.modifiers) &&
+                        it.parameterCount == 0 && shape.isAssignableFrom(it.returnType)
+                }?.invoke(null) ?: Lookup.fieldOrNull(kt, "RectangleShape")?.get(null)
+            }
             // 颜色背景工厂带值类哈希后缀（9.18/9.19 实证为 background-bw27NRU），
             // 裸 "background-" 前缀在重打包宿主上落空；后缀随 Compose 代次可能变化，
-            // 只认前缀 + 精确参数面，$default 变体由 exact 排除。
-            val fill = HostChromeRootFill(modifier, type("androidx.compose.ui.graphics.Brush"),
-                shape, f1, empty, exact(type("androidx.compose.foundation.BackgroundKt"), "background", modifier, modifier, Long::class.javaPrimitiveType!!, shape))
+            // 只认前缀 + 精确参数面，$default 变体由 matchesComposeName 排除。
+            val fill = HostChromeRootFill(
+                modifier,
+                type("androidx.compose.ui.graphics.Brush"),
+                shape,
+                f1,
+                empty,
+                exact(type("androidx.compose.foundation.BackgroundKt"), "background", modifier, modifier, Long::class.javaPrimitiveType!!, shape),
+                probeShape
+            )
             val f2 = type("kotlin.jvm.functions.Function2")
             val composer = type("androidx.compose.runtime.Composer")
             val obj = Any::class.java
-            val wholeArea = Lookup.declaredMethods(type("androidx.compose.foundation.layout.SizeKt"), makeAccessible = true)
-                .singleOrNull { it.name == "fillMaxSize\$default" && Modifier.isStatic(it.modifiers) &&
-                    it.returnType == modifier && it.parameterTypes.toList() == listOf(modifier,
-                        Float::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, obj) }
-                ?.invoke(null, empty, 0f, 1, null)
+            val sizeKt = type("androidx.compose.foundation.layout.SizeKt")
+            val sizeKtMethods = Lookup.declaredMethods(sizeKt, makeAccessible = true)
+            val wholeArea = sizeKtMethods.singleOrNull {
+                it.name == "fillMaxSize\$default" && Modifier.isStatic(it.modifiers) &&
+                    it.returnType == modifier && it.parameterTypes.toList() == listOf(
+                    modifier, Float::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, obj
+                )
+            }?.invoke(null, empty, 0f, 1, null) ?: sizeKtMethods.singleOrNull {
+                matchesComposeName(it.name, "fillMaxSize") && Modifier.isStatic(it.modifiers) &&
+                    it.returnType == modifier && it.parameterTypes.contentEquals(arrayOf(modifier, Float::class.javaPrimitiveType!!))
+            }?.invoke(null, empty, 1f)
             val node = type("androidx.compose.ui.node.ComposeUiNode")
-            // Modifier 应用拦截点：setModifier 是 ComposeUiNode 的稳定接口方法，
-            // Companion 的 setModifier lambda 必然经它落到 LayoutNode（9.18/9.19 实证）。
-            // 不再解析 Updater.set-impl——值类化后其签名随代次漂移，且泛型/特化重载
-            // 在 R8 合并后可能只剩一份，精确匹配不可靠。
-            val applyModifier = Lookup.methods(node, includeSuperclasses = true, makeAccessible = true).singleOrNull {
-                it.name == "setModifier" && it.returnType == Void.TYPE &&
-                    it.parameterTypes.contentEquals(arrayOf(modifier))
-            } ?: error("Missing host Compose ABI ${node.name}.setModifier")
+            // 绝不直接 Hook ComposeUiNode 接口抽象方法：始终定位具体 LayoutNode.setModifier(Modifier)。
+            val applyModifier = resolveSetModifier(loader, modifier)
             val drawScope = type("androidx.compose.ui.graphics.drawscope.DrawScope")
             val drawContext = type("androidx.compose.ui.graphics.drawscope.DrawContext")
             val hostCanvas = type("androidx.compose.ui.graphics.Canvas")
             val image = Lookup.classOrNull(loader, "kntr.base.imageloader.BiliImageKt")
+            val imageRequest = Lookup.classOrNull(loader, "kntr.base.imageloader.ImmutableImageRequest")
             val imageLeaf = image?.let {
                 Lookup.declaredMethods(it, makeAccessible = true).filter { method ->
+                    val p = method.parameterTypes
                     Modifier.isStatic(method.modifiers) && method.name == "BiliImage" && method.returnType == Void.TYPE &&
-                        method.parameterTypes.map { p -> p.name } == listOf(
-                            "kntr.base.imageloader.ImmutableImageRequest", modifier.name, "java.lang.String",
-                            "androidx.lifecycle.Lifecycle", f1.name, f1.name, f1.name, f1.name,
-                            f2.name, "kotlin.jvm.functions.Function4", composer.name, "int", "int")
+                        p.size >= 4 && imageRequest != null && p[0] == imageRequest &&
+                        p[1] == modifier && composer in p
                 }.singleOrNull()?.let { method -> BackdropLeaf(method, 1) }
             }
+            val rowPolicy = runCatching {
+                exact(
+                    type("androidx.compose.foundation.layout.RowKt"),
+                    "rowMeasurePolicy",
+                    type("androidx.compose.ui.layout.MeasurePolicy"),
+                    type("androidx.compose.foundation.layout.Arrangement\$Horizontal"),
+                    type("androidx.compose.ui.Alignment\$Vertical"),
+                    composer,
+                    Int::class.javaPrimitiveType!!
+                )
+            }.getOrNull()
             HostComposeChromeApi(modifier, applyModifier, exact(node, "getModifier", modifier),
                 empty,
                 exact(modifier, "foldIn", obj, obj, f2), exact(modifier, "then", modifier, modifier), fill, wholeArea,
@@ -149,13 +212,12 @@ internal class HostComposeChromeApi private constructor(
                 exact(type("androidx.compose.ui.draw.DrawModifierKt"), "drawBehind", modifier, modifier, f1),
                 exact(type("androidx.compose.ui.draw.DrawModifierKt"), "drawWithContent", modifier, modifier, f1),
                 exact(type("androidx.compose.ui.graphics.drawscope.ContentDrawScope"), "drawContent", Void.TYPE),
-                exact(type("androidx.compose.foundation.layout.RowKt"), "rowMeasurePolicy", type("androidx.compose.ui.layout.MeasurePolicy"),
-                    type("androidx.compose.foundation.layout.Arrangement\$Horizontal"), type("androidx.compose.ui.Alignment\$Vertical"), composer, Int::class.javaPrimitiveType!!),
-                exact(type("androidx.compose.foundation.layout.SizeKt"), "height-", modifier, modifier, Float::class.javaPrimitiveType!!),
-                exact(type("androidx.compose.foundation.layout.PaddingKt"), "padding-", modifier, modifier,
+                rowPolicy,
+                exact(sizeKt, "height", modifier, modifier, Float::class.javaPrimitiveType!!),
+                exact(type("androidx.compose.foundation.layout.PaddingKt"), "padding", modifier, modifier,
                     Float::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!), f1, f2,
                 requireNotNull(Lookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)!!,
-                exact(drawScope, "getSize-", Long::class.javaPrimitiveType!!),
+                exact(drawScope, "getSize", Long::class.javaPrimitiveType!!),
                 exact(drawScope, "getDrawContext", drawContext), exact(drawContext, "getCanvas", hostCanvas),
                 exact(type("androidx.compose.ui.graphics.AndroidCanvas_androidKt"), "getNativeCanvas", Canvas::class.java, hostCanvas),
                 requireNotNull(HostComposeCardPositionAccess.resolve(loader)))

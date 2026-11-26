@@ -29,15 +29,85 @@ internal class HostVideoCardStyleFeatureInstaller(
     override val id: String = ID,
     private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
     private val material: HostCardMaterial = HostCardMaterial.ORIGINAL,
-    private val cardSurfaces: Map<String, HookPoint> = emptyMap(),
-    private val followFeedPoints: FollowFeedPoints? = null
+    cardSurfaces: Map<String, HookPoint> = emptyMap(),
+    followFeedPoints: FollowFeedPoints? = null
 ) : FeatureInstaller {
     private var backgroundEnvironment: HookEnvironment? = null
     private var pageHookCount = 0
+    private val installLock = Any()
+    @Volatile private var currentCardSurfaces: Map<String, HookPoint> = cardSurfaces
+    @Volatile private var currentFollowFeedPoints: FollowFeedPoints? = followFeedPoints
+    @Volatile private var baseAttempted = false
+    @Volatile private var baseInstalled = false
+    @Volatile private var installedOpusBackground = false
+    @Volatile private var cardCoreHooks = 0
+    @Volatile private var cardGridReady = false
+    @Volatile private var cardSpacingHooks = 0
+    @Volatile private var cardOgvCoverage = HostCardHookCoverage.NONE
+    @Volatile private var cardDividerCoverage = HostCardHookCoverage.NONE
+    @Volatile private var backgroundBaseHooks = 0
+    @Volatile private var backgroundThemeHooks = 0
+    @Volatile private var backgroundThemeReady = true
+    private val installedOgvFamilies = hashSetOf<String>()
+    private val installedDividerKeys = hashSetOf<String>()
+    private var cachedStyleHost: HostVideoCardHostAccess? = null
+    private var cachedStyle: HostVideoCardStyle? = null
+    private var cachedFirstHit: AtomicBoolean? = null
 
-    override fun install(environment: HookEnvironment): FeatureInstallResult {
+    fun updateAdaptedPoints(
+        newCardSurfaces: Map<String, HookPoint>,
+        newFollowPoints: FollowFeedPoints?
+    ): Boolean = synchronized(installLock) {
+        if (!enabled && !backgroundConfig.enabled) return false
+        if (baseAttempted && !baseInstalled) return false
+        var updated = false
+        if (enabled && newCardSurfaces.isNotEmpty()) {
+            val merged = LinkedHashMap(currentCardSurfaces)
+            for ((key, point) in newCardSurfaces) {
+                val alreadyInstalled = if (key == PEGASUS_DIVIDER_KEY) {
+                    PEGASUS_DIVIDER_FAMILY in installedDividerKeys
+                } else {
+                    key in installedOgvFamilies
+                }
+                if (!alreadyInstalled && merged[key] != point) {
+                    merged[key] = point
+                    updated = true
+                }
+            }
+            if (updated) currentCardSurfaces = merged
+        }
+        if (backgroundConfig.enabled && !installedOpusBackground &&
+            newFollowPoints != null && newFollowPoints != currentFollowFeedPoints
+        ) {
+            currentFollowFeedPoints = newFollowPoints
+            updated = true
+        }
+        updated
+    }
+
+    private fun hasPendingCardRetry(): Boolean = synchronized(installLock) {
+        enabled && baseInstalled && currentCardSurfaces.any { (key, _) ->
+            if (key == PEGASUS_DIVIDER_KEY) PEGASUS_DIVIDER_FAMILY !in installedDividerKeys
+            else key !in installedOgvFamilies
+        }
+    }
+
+    private fun hasPendingBackgroundRetry(): Boolean = synchronized(installLock) {
+        backgroundConfig.enabled && baseInstalled && !installedOpusBackground && currentFollowFeedPoints != null
+    }
+
+    override fun install(environment: HookEnvironment): FeatureInstallResult = synchronized(installLock) {
         if (!enabled && !backgroundConfig.enabled && !homeSpacing.enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
+        if (baseInstalled) {
+            val cardResult = installIncrementalCardSurfaces(environment)
+            installIncrementalBackgroundSurfaces(environment)
+            return FeatureInstallResult.Installed(
+                cardCoreHooks + pageHookCount + cardDividerCoverage.hooks + cardOgvCoverage.hooks,
+                complete = (cardResult as? FeatureInstallResult.Installed)?.complete ?: false
+            )
+        }
+        baseAttempted = true
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-classloader")
         val adapter = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$Adapter")
             ?: return FeatureInstallResult.Skipped("missing-recycler-adapter")
@@ -72,17 +142,30 @@ internal class HostVideoCardStyleFeatureInstaller(
                 environment.logError("${id}_runtime_error", "[BIL] 视频列表美化失败，保留宿主内容: $it")
             }
         })
+        cachedStyleHost = styleHost
+        cachedStyle = style
+        cachedFirstHit = firstHit
         return runCatching {
             val ogvHooks = if (enabled) HostOgvCardHooks.install(environment, styleHost,
-                HostVideoCardStyleSpec.normalizeRadius(radiusDp), material = material, cachedPoints = cardSurfaces) {
+                HostVideoCardStyleSpec.normalizeRadius(radiusDp), material = material,
+                cachedPoints = currentCardSurfaces, skipFamilies = installedOgvFamilies.toSet(),
+                onFamilyInstalled = { installedOgvFamilies += it }) {
                 if (firstHit.compareAndSet(false, true)) {
                     environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
                     environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
                 }
             } else HostCardHookCoverage.NONE
             val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
-            if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages, followFeedPoints)
-            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators, cardSurfaces["pegasus_divider"]) else HostCardHookCoverage.NONE
+            if (backgroundConfig.enabled) {
+                val bgEnv = backgroundEnvironment ?: environment
+                val basePageHooks = HostBackgroundPageHooks.install(bgEnv, pages, currentFollowFeedPoints, includeOpus = false)
+                val opusHooks = HostBackgroundPageHooks.installOpusBackground(bgEnv, currentFollowFeedPoints)
+                if (opusHooks > 0) installedOpusBackground = true
+                pageHookCount = basePageHooks + opusHooks
+            }
+            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators,
+                currentCardSurfaces[PEGASUS_DIVIDER_KEY], skipKeys = installedDividerKeys.toSet(),
+                onKeyInstalled = { installedDividerKeys += it }) else HostCardHookCoverage.NONE
             var scrollHooks = 0
             if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
                 val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
@@ -128,12 +211,18 @@ internal class HostVideoCardStyleFeatureInstaller(
                     style.bind(root, feedback = styleHost.isDislikeHolder(bound))
                 }
             }
+            baseInstalled = true
+            cardCoreHooks = (if (grid != null) 3 else 1) + scrollHooks + spacingHooks
+            cardGridReady = grid != null
+            cardSpacingHooks = spacingHooks
+            cardOgvCoverage = ogvHooks
+            cardDividerCoverage = dividerHooks
             val complete = (!(enabled || homeSpacing.enabled) || grid != null) &&
                 (!homeSpacing.enabled || spacingHooks > 0) && ogvHooks.complete && dividerHooks.complete
             val layers = "grid=${grid != null},spacing=$spacingHooks,ogv=${ogvHooks.label},divider=${dividerHooks.label}"
             environment.reportStatus("${ID}_layers", "$layers;ogv-families=${ogvHooks.states};divider-families=${dividerHooks.states}")
             environment.logInfo("${id}_installed", "[BIL] 视频列表美化${if (complete) "完整" else "部分"}安装（$layers）")
-            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks.hooks + pageHookCount + spacingHooks + ogvHooks.hooks,
+            FeatureInstallResult.Installed(cardCoreHooks + dividerHooks.hooks + pageHookCount + ogvHooks.hooks,
                 complete = complete)
         }.getOrElse {
             environment.logError("${id}_error", "[BIL] 视频列表美化安装失败: $it")
@@ -141,9 +230,89 @@ internal class HostVideoCardStyleFeatureInstaller(
         }
     }
 
+    private fun installIncrementalCardSurfaces(environment: HookEnvironment): FeatureInstallResult = synchronized(installLock) {
+        val styleHost = cachedStyleHost ?: return FeatureInstallResult.Installed(cardCoreHooks, complete = false)
+        val style = cachedStyle ?: return FeatureInstallResult.Installed(cardCoreHooks, complete = false)
+        val firstHit = cachedFirstHit ?: AtomicBoolean(false)
+        if (enabled) {
+            val hasNewOgv = currentCardSurfaces.any { (key, _) ->
+                key != PEGASUS_DIVIDER_KEY && key !in installedOgvFamilies
+            }
+            if (hasNewOgv) {
+                val nextOgv = HostOgvCardHooks.install(
+                    environment, styleHost, HostVideoCardStyleSpec.normalizeRadius(radiusDp),
+                    material = material, cachedPoints = currentCardSurfaces,
+                    skipFamilies = installedOgvFamilies.toSet(),
+                    onFamilyInstalled = { installedOgvFamilies += it }
+                ) {
+                    if (firstHit.compareAndSet(false, true)) {
+                        environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
+                        environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
+                    }
+                }
+                cardOgvCoverage = HostCardHookCoverage(
+                    hooks = cardOgvCoverage.hooks + nextOgv.hooks,
+                    expected = nextOgv.expected,
+                    ready = nextOgv.ready,
+                    states = cardOgvCoverage.states + nextOgv.states
+                )
+            }
+            val hasNewDivider = PEGASUS_DIVIDER_FAMILY !in installedDividerKeys &&
+                currentCardSurfaces[PEGASUS_DIVIDER_KEY] != null
+            if (hasNewDivider) {
+                val nextDivider = HostVideoCardDividerHooks.install(
+                    environment, id, style::replacesSeparators,
+                    currentCardSurfaces[PEGASUS_DIVIDER_KEY],
+                    skipKeys = installedDividerKeys.toSet(),
+                    onKeyInstalled = { installedDividerKeys += it }
+                )
+                cardDividerCoverage = HostCardHookCoverage(
+                    hooks = cardDividerCoverage.hooks + nextDivider.hooks,
+                    expected = nextDivider.expected,
+                    ready = nextDivider.ready,
+                    states = cardDividerCoverage.states + nextDivider.states
+                )
+            }
+        }
+        val complete = (!(enabled || homeSpacing.enabled) || cardGridReady) &&
+            (!homeSpacing.enabled || cardSpacingHooks > 0) &&
+            cardOgvCoverage.complete && cardDividerCoverage.complete
+        FeatureInstallResult.Installed(
+            cardCoreHooks + pageHookCount + cardDividerCoverage.hooks + cardOgvCoverage.hooks,
+            complete = complete
+        )
+    }
+
+    private fun installIncrementalBackgroundSurfaces(environment: HookEnvironment): FeatureInstallResult = synchronized(installLock) {
+        if (backgroundConfig.enabled && !installedOpusBackground && currentFollowFeedPoints != null) {
+            val opusHooks = HostBackgroundPageHooks.installOpusBackground(
+                backgroundEnvironment ?: environment, currentFollowFeedPoints
+            )
+            if (opusHooks > 0) {
+                installedOpusBackground = true
+                pageHookCount += opusHooks
+            }
+        }
+        FeatureInstallResult.Installed(
+            backgroundBaseHooks + backgroundThemeHooks + pageHookCount,
+            complete = backgroundThemeReady
+        )
+    }
+
+    private class SharedSurfaceInstaller(
+        override val id: String,
+        val delegate: HostVideoCardStyleFeatureInstaller,
+        private val action: (HookEnvironment) -> FeatureInstallResult
+    ) : FeatureInstaller {
+        override fun install(environment: HookEnvironment): FeatureInstallResult = action(environment)
+    }
+
     companion object {
         const val ID = "host_video_cards"
         const val BACKGROUND_ID = "host_background"
+        private const val PEGASUS_DIVIDER_KEY = "pegasus_divider"
+        private const val PEGASUS_DIVIDER_FAMILY = "pegasus"
+        private val STATIC_DIVIDER_KEYS = setOf("native", "feed", "playlist_under", "playlist_over", "playset", "androidx")
 
         /** 两项诊断仍独立，实际 bind Hook、卡片识别、主题读取和列表监听只安装一套。 */
         fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig,
@@ -154,22 +323,48 @@ internal class HostVideoCardStyleFeatureInstaller(
                 material = if (enabled) material else HostCardMaterial.ORIGINAL, cardSurfaces = cardSurfaces,
                 followFeedPoints = followFeedPoints)
             var result: FeatureInstallResult? = null
-            fun install(environment: HookEnvironment): FeatureInstallResult = result ?: delegate.install(environment).also { result = it }
+            var cardInitialDone = false
+            var backgroundInitialDone = false
+            var themeInstalled = false
+            var themeReady = !backgroundConfig.preset.isCelestial
+            fun installBase(environment: HookEnvironment): FeatureInstallResult =
+                result ?: delegate.install(environment).also { result = it }
             return listOf(
-                FunctionalFeatureInstaller(ID) { environment ->
-                    if (enabled || homeSpacing.enabled) install(environment) else FeatureInstallResult.Skipped("disabled")
+                SharedSurfaceInstaller(ID, delegate) { environment ->
+                    when {
+                        !enabled && !homeSpacing.enabled -> FeatureInstallResult.Skipped("disabled")
+                        !cardInitialDone -> {
+                            cardInitialDone = true
+                            installBase(environment)
+                        }
+                        else -> delegate.installIncrementalCardSurfaces(environment)
+                    }
                 },
-                FunctionalFeatureInstaller(BACKGROUND_ID) { environment ->
+                SharedSurfaceInstaller(BACKGROUND_ID, delegate) { environment ->
                     delegate.backgroundEnvironment = environment
                     if (!backgroundConfig.enabled) FeatureInstallResult.Skipped("disabled")
-                    else {
-                        val themeHooks = HostBackgroundTheme.install(environment, backgroundConfig.preset)
-                        val themeReady = !backgroundConfig.preset.isCelestial || themeHooks == 2
-                        when (val shared = install(environment)) {
+                    else if (backgroundInitialDone) {
+                        delegate.installIncrementalBackgroundSurfaces(environment)
+                    } else {
+                        backgroundInitialDone = true
+                        val themeHooks = if (!themeInstalled) {
+                            themeInstalled = true
+                            HostBackgroundTheme.install(environment, backgroundConfig.preset).also { hooks ->
+                                themeReady = !backgroundConfig.preset.isCelestial || hooks == 2
+                            }
+                        } else 0
+                        delegate.backgroundThemeHooks = themeHooks
+                        delegate.backgroundThemeReady = themeReady
+                        when (val shared = installBase(environment)) {
                             // 背景覆盖同一个 bind Hook；不依赖卡片的 GridLayoutManager 测量点。
-                            is FeatureInstallResult.Installed -> FeatureInstallResult.Installed(
-                                (if (backgroundConfig.preset == HostBackgroundPreset.CUSTOM) 1 else 2) + themeHooks + delegate.pageHookCount,
-                                complete = themeReady)
+                            is FeatureInstallResult.Installed -> {
+                                val baseHooks = if (backgroundConfig.preset == HostBackgroundPreset.CUSTOM) 1 else 2
+                                delegate.backgroundBaseHooks = baseHooks
+                                FeatureInstallResult.Installed(
+                                    baseHooks + themeHooks + delegate.pageHookCount,
+                                    complete = themeReady
+                                )
+                            }
                             is FeatureInstallResult.Skipped -> if ((enabled || homeSpacing.enabled) && shared.reason == "registration-failed") {
                                 // 卡片测量点失败时，背景仍可独立使用 bind；保持原有故障隔离。
                                 when (val fallback = HostVideoCardStyleFeatureInstaller(false, radiusDp, backgroundConfig, BACKGROUND_ID,
@@ -184,6 +379,24 @@ internal class HostVideoCardStyleFeatureInstaller(
                     }
                 }
             )
+        }
+
+        internal fun updateAdaptedPoints(
+            installers: List<FeatureInstaller>,
+            newCardSurfaces: Map<String, HookPoint>,
+            newFollowPoints: FollowFeedPoints?
+        ): List<FeatureInstaller> {
+            val sharedInstallers = installers.filterIsInstance<SharedSurfaceInstaller>()
+            val delegate = sharedInstallers.firstOrNull()?.delegate ?: return emptyList()
+            if (!delegate.updateAdaptedPoints(newCardSurfaces, newFollowPoints)) return emptyList()
+            return buildList {
+                if (delegate.hasPendingCardRetry()) {
+                    sharedInstallers.firstOrNull { it.id == ID }?.let(::add)
+                }
+                if (delegate.hasPendingBackgroundRetry()) {
+                    sharedInstallers.firstOrNull { it.id == BACKGROUND_ID }?.let(::add)
+                }
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarFxConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarFxController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostComposeChromeHooks
@@ -89,8 +90,8 @@ internal class HostBottomBarFxFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "missing:missing-bottom-bar-points")
             return FeatureInstallResult.Skipped("missing-bottom-bar-points")
         }
-        val composeExpected = environment.classLoader?.let {
-            KavaMemberLookup.classOrNull(it, "tv.danmaku.bili.khome.widget.topbar.HomeTopTabKt") != null
+        val composeExpected = chromePoints.isNotEmpty() || environment.classLoader?.let {
+            HomeChromeAdapter.applicable(it) && KavaMemberLookup.hasClass(it, "androidx.compose.ui.node.ComposeUiNode")
         } == true
         if (!firstHit.get()) {
             environment.reportStatus(CHANNEL_STATUS, "installed:legacy=${count - if (compose) 1 else 0},compose=$compose")
