@@ -16,6 +16,16 @@ class DexAssistCandidateSelectorTest {
         assertEquals("leaf", selected?.name)
     }
 
+    fun `recursive interface bridge is discarded in favor of unique leaf`() {
+        val candidates = InheritedLeafImplementation::class.java.declaredMethods.filter {
+            it.parameterTypes.contentEquals(arrayOf(String::class.java))
+        }
+
+        val selected = DexAssistCandidateSelector.selectUniqueLeaf(candidates)
+
+        assertEquals("leaf", selected?.name)
+    }
+
     fun `multiple owners fail closed`() {
         val candidates = listOf(
             LeafImplementation::class.java.getDeclaredMethod("leaf", String::class.java),
@@ -58,6 +68,13 @@ class DexAssistCandidateSelectorTest {
         fun leaf(value: String): String = value
     }
 
+    private interface ChildContract : Contract
+
+    private class InheritedLeafImplementation : ChildContract {
+        override fun bridge(value: String): String = value
+        fun leaf(value: String): String = value
+    }
+
     private class OtherImplementation {
         fun leaf(value: String): String = value
     }
@@ -80,6 +97,7 @@ class DexAssistCandidateSelectorTest {
             block(s)
         }
         runIsolated { s -> s.`interface bridge is discarded in favor of unique leaf`() }
+        runIsolated { s -> s.`recursive interface bridge is discarded in favor of unique leaf`() }
         runIsolated { s -> s.`multiple owners fail closed`() }
         runIsolated { s -> s.`single owner group keeps every verified entry in stable order`() }
         runIsolated { s -> s.`mapper candidates spread over multiple owners fail closed`() }

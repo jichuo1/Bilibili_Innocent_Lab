@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
+import FlatWave1WeChatWrapper
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import org.junit.Assert.*
 import org.junit.Test
@@ -47,6 +48,16 @@ class WeChatShareDiscoveryTest {
         assertFalse(WeChatShareCompatAccess.refreshCache(true, true, false, true, false))
     }
 
+    fun flattenedModernWrapperInRootPackageIsDiscoveredByConstructorAndReturnAbi() {
+        val flatModernInit = FlatWave1WeChatWrapper::class.java.getMethod("m")
+        val discovered = requireNotNull(WeChatShareCompatAccess.discover(loader,
+            DexAssistResult.Candidates(listOf(legacyInit, flatModernInit))))
+        assertEquals("FlatWave1WeChatWrapper", discovered.modernOwner)
+        assertEquals("m", discovered.modernInitialize)
+        assertTrue(discovered.usesLegacyConstructors)
+        assertNotNull(WeChatShareCompatAccess.resolve(loader, discovered))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (WeChatShareDiscoveryTest) -> Unit) {
@@ -57,5 +68,6 @@ class WeChatShareDiscoveryTest {
         runIsolated { s -> s.nonShareCallersAloneCannotProduceWrappers() }
         runIsolated { s -> s.missingModernWrapperFailsClosedWhenWxCallersExist() }
         runIsolated { s -> s.gatesNeverScanWhenDisabledDirectOrAlreadyAttempted() }
+        runIsolated { s -> s.flattenedModernWrapperInRootPackageIsDiscoveredByConstructorAndReturnAbi() }
     }
 }

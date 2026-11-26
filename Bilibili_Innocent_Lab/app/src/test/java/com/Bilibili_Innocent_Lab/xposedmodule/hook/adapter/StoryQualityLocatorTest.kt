@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import FlatStoryQualityFacade
+import FlatStoryQualityWithInteger
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
@@ -91,6 +92,22 @@ class StoryQualityLocatorTest {
         assertEquals(flatResource, resolved.resourceSelection)
         assertFalse(locate(listOf(flatPolicy, resource)).semanticComplete)
         assertNull(StoryQualityPoints.fromJson(points.copy(resourceSelectionMethod = null).toJson()))
+
+        val flatWithIntOwner = FlatStoryQualityWithInteger::class.java
+        val flatInt = flatWithIntOwner.getDeclaredMethod("integerDefault")
+        val flatIntPolicy = flatWithIntOwner.getDeclaredMethod("policy")
+        val flatIntResource = flatWithIntOwner.getDeclaredMethod("resource", MediaResource::class.java)
+        val combined = complete().copy(
+            integerDefaultMethod = point(flatInt),
+            policyMethod = point(flatIntPolicy),
+            resourceSelectionMethod = point(flatIntResource),
+            matchPreferenceMethod = point(match)
+        )
+        assertTrue(combined.isStructurallyValid())
+        assertTrue(combined.semanticComplete)
+        assertEquals(combined, StoryQualityPoints.fromJson(combined.toJson()))
+        val resolvedCombined = requireNotNull(StoryQualityLocator.resolve(loader, combined))
+        assertEquals(flatInt, resolvedCombined.integerDefault)
     }
 
     fun `ambiguous policies and resource from another owner remain incomplete`() {

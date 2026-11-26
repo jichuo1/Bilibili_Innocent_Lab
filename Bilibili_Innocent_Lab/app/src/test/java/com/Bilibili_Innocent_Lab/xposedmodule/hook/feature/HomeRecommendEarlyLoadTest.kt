@@ -4,6 +4,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.earlyload.RecyclerFixtures
 import com.bilibili.pegasus.widget.LoadMoreListenerFixtures
 import d571
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import kotlin.coroutines.Continuation
+import op2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -12,6 +18,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import w32
+import zag1
 
 class HomeRecommendEarlyLoadTest {
     private val loader = requireNotNull(javaClass.classLoader)
@@ -40,13 +47,143 @@ class HomeRecommendEarlyLoadTest {
 
     private fun small(@Suppress("UNUSED_PARAMETER") position: Int) = 1
 
+    private class TemplatePegasusFragment
+    private class TemplateInitFeeds919(
+        @Suppress("UNUSED_PARAMETER") fragment: TemplatePegasusFragment,
+        @Suppress("UNUSED_PARAMETER") listener: d571,
+        @Suppress("UNUSED_PARAMETER") cont: Continuation<*>
+    )
+    private class TemplateInitFeeds921(
+        @Suppress("UNUSED_PARAMETER") fragment: TemplatePegasusFragment,
+        @Suppress("UNUSED_PARAMETER") listener: zag1,
+        @Suppress("UNUSED_PARAMETER") cont: Continuation<*>
+    )
+    private class TemplateInitFeedsAmbiguous {
+        @Suppress("UNUSED_PARAMETER")
+        constructor(fragment: TemplatePegasusFragment, listener: d571, cont: Continuation<*>)
+        @Suppress("UNUSED_PARAMETER")
+        constructor(fragment: TemplatePegasusFragment, listener: zag1, cont: Continuation<*>)
+    }
+    private class TemplateInitFeedsWrongShape(
+        @Suppress("UNUSED_PARAMETER") fragment: TemplatePegasusFragment,
+        @Suppress("UNUSED_PARAMETER") listener: LoadMoreListenerFixtures.OtherList,
+        @Suppress("UNUSED_PARAMETER") cont: Continuation<*>
+    )
+
+    private class ContinuationRenamingClassLoader(
+        parent: ClassLoader,
+        private val templates: Map<String, Class<*>>,
+        private val replacements: Map<String, String>
+    ) : ClassLoader(parent) {
+        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
+            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
+            val loaded = findLoadedClass(name) ?: run {
+                val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
+                    .use { it.readBytes() }
+                val rewritten = rewriteConstantPool(raw, replacements)
+                defineClass(name, rewritten, 0, rewritten.size)
+            }
+            if (resolve) resolveClass(loaded)
+            loaded
+        }
+
+        private fun rewriteConstantPool(raw: ByteArray, replacements: Map<String, String>): ByteArray {
+            val input = DataInputStream(ByteArrayInputStream(raw))
+            val out = ByteArrayOutputStream()
+            val output = DataOutputStream(out)
+            output.writeInt(input.readInt())
+            output.writeShort(input.readUnsignedShort())
+            output.writeShort(input.readUnsignedShort())
+            val count = input.readUnsignedShort()
+            output.writeShort(count)
+            var index = 1
+            while (index < count) {
+                val tag = input.readUnsignedByte()
+                output.writeByte(tag)
+                if (tag == 1) {
+                    var value = input.readUTF()
+                    replacements.entries.sortedByDescending { it.key.length }.forEach { (k, v) ->
+                        value = value.replace(k, v)
+                    }
+                    output.writeUTF(value)
+                } else {
+                    val length = when (tag) {
+                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
+                        5, 6 -> 8
+                        7, 8, 16, 19, 20 -> 2
+                        15 -> 3
+                        else -> error("Unsupported CP tag: $tag")
+                    }
+                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
+                    if (tag == 5 || tag == 6) index++
+                }
+                index++
+            }
+            output.write(input.readBytes())
+            output.flush()
+            return out.toByteArray()
+        }
+    }
+
+    private fun resolveRelocated(initFeedsName: String, loader: ClassLoader = this.loader) =
+        PegasusLoadMoreShape.resolveRelocatedListener(
+            loader = loader,
+            scrollListener = RecyclerFixtures.RecyclerView.OnScrollListener::class.java,
+            childAttachListener = RecyclerFixtures.RecyclerView.OnChildAttachStateChangeListener::class.java,
+            function0 = RecyclerFixtures.Function0::class.java,
+            pegasusFragmentName = TemplatePegasusFragment::class.java.name,
+            initFeedsContinuationName = initFeedsName
+        )
+
     fun `accepts only the verified relocated listener and callback shape`() {
-        val callback = w32()
-        val listener = d571(callback)
-        val access = requireNotNull(shape(listener.javaClass))
-        assertSame(callback, access.callback.get(listener))
-        assertTrue(access.enabled.getBoolean(listener))
+        // 无 PegasusFragment$initFeeds$5 续体证据时，所有根包监听器一律拒绝。
+        assertNull(shape(d571::class.java))
+        assertNull(shape(zag1::class.java))
         assertNull(shape(RecyclerFixtures.ForeignLoadMoreListener::class.java))
+
+        val callback919 = w32()
+        val listener919 = d571(callback919)
+        val verified919 = requireNotNull(resolveRelocated(TemplateInitFeeds919::class.java.name))
+        assertSame(d571::class.java, verified919)
+        val access919 = requireNotNull(shape(listener919.javaClass, verified919))
+        assertSame(callback919, access919.callback.get(listener919))
+        assertTrue(access919.enabled.getBoolean(listener919))
+        assertNull(shape(zag1::class.java, verified919))
+        assertNull(shape(RecyclerFixtures.ForeignLoadMoreListener::class.java, verified919))
+
+        val callback921 = op2()
+        val listener921 = zag1(callback921)
+        val verified921 = requireNotNull(resolveRelocated(TemplateInitFeeds921::class.java.name))
+        assertSame(zag1::class.java, verified921)
+        val access921 = requireNotNull(shape(listener921.javaClass, verified921))
+        assertSame(callback921, access921.callback.get(listener921))
+        assertTrue(access921.enabled.getBoolean(listener921))
+        assertNull(shape(d571::class.java, verified921))
+    }
+
+    fun `relocated listener discovery fails closed on ambiguity or drifted shapes and works through default continuation names`() {
+        assertNull(resolveRelocated("com.bilibili.pegasus.MissingInitFeeds"))
+        assertNull(resolveRelocated(TemplateInitFeedsAmbiguous::class.java.name))
+        assertNull(resolveRelocated(TemplateInitFeedsWrongShape::class.java.name))
+
+        val defaultContinuationLoader = ContinuationRenamingClassLoader(
+            parent = loader,
+            templates = mapOf(
+                PegasusLoadMoreShape.PEGASUS_FRAGMENT to TemplatePegasusFragment::class.java,
+                PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION to TemplateInitFeeds921::class.java
+            ),
+            replacements = mapOf(
+                TemplatePegasusFragment::class.java.name.replace('.', '/') to
+                    PegasusLoadMoreShape.PEGASUS_FRAGMENT.replace('.', '/'),
+                TemplateInitFeeds921::class.java.name.replace('.', '/') to
+                    PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION.replace('.', '/')
+            )
+        )
+        val access = requireNotNull(HomeRecommendEarlyLoadFeatureInstaller.RecyclerAccess.resolve(defaultContinuationLoader, names))
+        assertSame(zag1::class.java, access.relocatedListener)
+        val watcher = HomeRecommendEarlyLoadFeatureInstaller.LoadMoreWatcher(access, environment(classLoader = defaultContinuationLoader))
+        assertNotNull(watcher.shapeOf(zag1::class.java))
+        assertNull(watcher.shapeOf(d571::class.java))
     }
 
     // ---- 行数判定 ----
@@ -92,11 +229,12 @@ class HomeRecommendEarlyLoadTest {
 
     // ---- 监听器结构识别 ----
 
-    private fun shape(type: Class<*>) = PegasusLoadMoreShape.of(
+    private fun shape(type: Class<*>, verifiedRelocatedListener: Class<*>? = null) = PegasusLoadMoreShape.of(
         type,
         RecyclerFixtures.RecyclerView.OnScrollListener::class.java,
         RecyclerFixtures.RecyclerView.OnChildAttachStateChangeListener::class.java,
-        RecyclerFixtures.Function0::class.java
+        RecyclerFixtures.Function0::class.java,
+        verifiedRelocatedListener
     )
 
     fun `the home load more listener is recognised by structure and its fields are readable`() {
@@ -201,6 +339,7 @@ class HomeRecommendEarlyLoadTest {
             block(s)
         }
         runIsolated { s -> s.`accepts only the verified relocated listener and callback shape`() }
+        runIsolated { s -> s.`relocated listener discovery fails closed on ambiguity or drifted shapes and works through default continuation names`() }
         runIsolated { s -> s.`the lead is counted in rows of the current column count`() }
         runIsolated { s -> s.`invalid positions or counts never trigger`() }
         runIsolated { s -> s.`the gate requests once per list length and reopens after growth or refresh`() }

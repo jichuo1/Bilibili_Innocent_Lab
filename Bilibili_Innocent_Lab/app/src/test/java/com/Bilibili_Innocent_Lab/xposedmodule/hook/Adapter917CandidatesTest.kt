@@ -103,20 +103,48 @@ class Adapter917CandidatesTest {
             VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9200100)?.defaultQualityMethod?.className)
     }
 
+    fun `921 verified media owners resolve per build and never leak across builds`() {
+        val builds = mapOf(
+            9210100 to ("jg72" to "t612"),
+            9210200 to ("dd72" to "l212"),
+        )
+        builds.forEach { (version, owners) ->
+            val loader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
+                mapOf(owners.first to Network::class.java, owners.second to Quality::class.java))
+            assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(loader, version)?.className)
+            assertEquals(Quality::class.java.name,
+                VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = version)?.defaultQualityMethod?.className)
+        }
+        val crossLoader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
+            mapOf(
+                "jg72" to Network919::class.java, "t612" to Quality919::class.java,
+                "dd72" to Network::class.java, "l212" to Quality::class.java
+            ))
+        assertEquals(Network919::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9210100)?.className)
+        assertEquals(Quality919::class.java.name,
+            VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9210100)?.defaultQualityMethod?.className)
+        assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9210200)?.className)
+        assertEquals(Quality::class.java.name,
+            VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9210200)?.defaultQualityMethod?.className)
+    }
+
     /**
-     * 9.20 走已验真分支：owner 只按登记名查一次，类缺失或签名不符都直接返回 null、不回候选表。
+     * 9.20/9.21 走已验真分支：owner 只按登记名查一次，类缺失或签名不符都直接返回 null、不回候选表。
      * 两种失败都必须记 MISSING，不能因为旧候选表里没有这些短名就记成「宿主无此结构」。
      */
     fun `verified owner failure is reported missing not not applicable`() {
         val plan = AdaptPlan(1L, setOf(PointFamily.BLOCK_UPDATE, PointFamily.PLAYER_QUALITY), emptySet())
         val located = VersionAdapterTest().result().copy(blockUpdate = null, playerQuality = null)
         // 类在但 ABI 漂移，和 owner 短名整体漂移（类都加载不到）都要算适配失败。
-        val drifted = listOf(
-            VerifiedOnlyLoader(mapOf("lr72" to WrongNetwork::class.java, "mg12" to WrongQuality::class.java)),
-            VerifiedOnlyLoader(emptyMap())
+        val cases = listOf(
+            9200100 to VerifiedOnlyLoader(mapOf("lr72" to WrongNetwork::class.java, "mg12" to WrongQuality::class.java)),
+            9200100 to VerifiedOnlyLoader(emptyMap()),
+            9210100 to VerifiedOnlyLoader(mapOf("jg72" to WrongNetwork::class.java, "t612" to WrongQuality::class.java)),
+            9210200 to VerifiedOnlyLoader(mapOf("dd72" to WrongNetwork::class.java, "l212" to WrongQuality::class.java)),
+            9210200 to VerifiedOnlyLoader(emptyMap()),
         )
-        for (loader in drifted) {
-            val withVersion = VersionAdapter.buildDiagnostics(loader, plan, null, located, "", 9200100)
+        for ((versionCode, loader) in cases) {
+            val withVersion = VersionAdapter.buildDiagnostics(loader, plan, null, located, "", versionCode)
                 .associateBy { it.id }
             assertEquals(AdaptState.MISSING, withVersion.getValue("update.block").state)
             assertEquals(AdaptState.MISSING, withVersion.getValue("player.default_quality").state)
@@ -126,8 +154,8 @@ class Adapter917CandidatesTest {
                 .associateBy { it.id }
             assertEquals(AdaptState.NOT_APPLICABLE, withoutVersion.getValue("update.block").state)
             assertEquals(AdaptState.NOT_APPLICABLE, withoutVersion.getValue("player.default_quality").state)
-            assertNull(VersionAdapter.locateBlockUpdate(loader, 9200100))
-            assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = 9200100)?.defaultQualityMethod)
+            assertNull(VersionAdapter.locateBlockUpdate(loader, versionCode))
+            assertNull(VersionAdapter.locateDefaultVideoQuality(loader, hostVersionCode = versionCode)?.defaultQualityMethod)
         }
     }
 
@@ -143,6 +171,7 @@ class Adapter917CandidatesTest {
         runIsolated { s -> s.`network bridge keeps the existing unique leaf selection`() }
         runIsolated { s -> s.`verified media owners are used only for their APK build codes`() }
         runIsolated { s -> s.`920 verified media owners resolve per build and never leak across builds`() }
+        runIsolated { s -> s.`921 verified media owners resolve per build and never leak across builds`() }
         runIsolated { s -> s.`verified owner failure is reported missing not not applicable`() }
     }
 }

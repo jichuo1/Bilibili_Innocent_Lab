@@ -50,6 +50,12 @@ class ViewProgressReply(
     val failBuild: Boolean = false
 ) {
     fun getVideoGuide() = guideRaw
+    fun toByteArray(): ByteArray = java.io.ByteArrayOutputStream().also { out ->
+        java.io.DataOutputStream(out).use { s ->
+            s.writeInt(guideRaw.fields.size)
+            guideRaw.fields.forEach(s::writeUTF)
+        }
+    }.toByteArray()
     class Builder(private val original: ViewProgressReply) {
         private var guide = original.guideRaw
         fun setVideoGuide(value: VideoGuide) = apply { guide = value }
@@ -58,5 +64,13 @@ class ViewProgressReply(
             return ViewProgressReply(guide, original.normalData)
         }
     }
-    companion object { @JvmStatic fun newBuilder(original: ViewProgressReply) = Builder(original) }
+    companion object {
+        @JvmStatic fun newBuilder(original: ViewProgressReply) = Builder(original)
+        @JvmStatic fun parseFrom(bytes: ByteArray): ViewProgressReply =
+            java.io.DataInputStream(java.io.ByteArrayInputStream(bytes)).use { s ->
+                val count = s.readInt()
+                val fields = List(count) { s.readUTF() }.toSet()
+                ViewProgressReply(VideoGuide(fields))
+            }
+    }
 }

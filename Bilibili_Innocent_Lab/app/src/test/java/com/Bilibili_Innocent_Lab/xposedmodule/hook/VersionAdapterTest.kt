@@ -82,6 +82,7 @@ class VersionAdapterTest {
     }
 
     private val repackDex = "dex-v1:38:" + "a".repeat(64)
+    private val repackProtocol = "protocol-v1:1:0123456789abcdef01234567"
     private val repackOld = "tv.danmaku.bili|9090300|9.9.3|1000|100|${VersionAdapterContract.RULE_VERSION}"
     private val repackNew = "tv.danmaku.bili|9090300|9.9.3|2000|200|${VersionAdapterContract.RULE_VERSION}"
 
@@ -89,7 +90,7 @@ class VersionAdapterTest {
         val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
         val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
         assertNull(VersionAdapter.StartupCacheSnapshot(identity, previous.ts, previous).usableCache(false))
-        val rebound = requireNotNull(VersionAdapter.rebindRepackedCache(previous, identity, previous.ts, repackDex))
+        val rebound = requireNotNull(VersionAdapter.rebindRepackedCache(previous, identity, previous.ts, repackDex, repackProtocol))
         assertEquals(previous.copy(hostFingerprint = repackNew), rebound)
         assertEquals(rebound, VersionAdapter.StartupCacheSnapshot(identity, previous.ts, rebound).usableCache(false))
         assertNull(VersionAdapter.StartupCacheSnapshot(identity, previous.ts + 1, rebound).usableCache(false))
@@ -99,8 +100,8 @@ class VersionAdapterTest {
         val previous = result().copy(hostFingerprint = repackOld, dexSourceFingerprint = repackDex)
         val identity = VersionAdapter.HostIdentity(previous.biliVersionCode, repackNew)
         for (dex in listOf(null, "unavailable", repackDex.replace('a', 'b'), "dex-v1:0:" + "a".repeat(64)))
-            assertNull(VersionAdapter.rebindRepackedCache(previous, identity, 0, dex))
-        assertNull(VersionAdapter.rebindRepackedCache(previous.copy(dexSourceFingerprint = "unavailable"), identity, 0, repackDex))
+            assertNull(VersionAdapter.rebindRepackedCache(previous, identity, 0, dex, repackProtocol))
+        assertNull(VersionAdapter.rebindRepackedCache(previous.copy(dexSourceFingerprint = "unavailable"), identity, 0, repackDex, repackProtocol))
     }
 
     fun `repack cannot bypass version rule reset or structural validity`() {
@@ -110,10 +111,10 @@ class VersionAdapterTest {
             repackNew.substringBeforeLast('|') + "|${VersionAdapterContract.RULE_VERSION + 1}",
             repackNew.replace("9090300", "9090301"), repackOld, "runtime-no-context|rules=79",
             repackNew.replace("|2000|", "|0|")))
-            assertNull(VersionAdapter.rebindRepackedCache(previous, identity.copy(fingerprint = fingerprint), 0, repackDex))
-        assertNull(VersionAdapter.rebindRepackedCache(previous, identity.copy(versionCode = 0), 0, repackDex))
-        assertNull(VersionAdapter.rebindRepackedCache(previous, identity, previous.ts + 1, repackDex))
-        assertNull(VersionAdapter.rebindRepackedCache(previous.copy(commentLow = VersionAdapter.HookPoint("", "")), identity, 0, repackDex))
+            assertNull(VersionAdapter.rebindRepackedCache(previous, identity.copy(fingerprint = fingerprint), 0, repackDex, repackProtocol))
+        assertNull(VersionAdapter.rebindRepackedCache(previous, identity.copy(versionCode = 0), 0, repackDex, repackProtocol))
+        assertNull(VersionAdapter.rebindRepackedCache(previous, identity, previous.ts + 1, repackDex, repackProtocol))
+        assertNull(VersionAdapter.rebindRepackedCache(previous.copy(commentLow = VersionAdapter.HookPoint("", "")), identity, 0, repackDex, repackProtocol))
     }
 
     fun `speed menu optional cache and failure history are bound to host and reset`() {
@@ -121,7 +122,11 @@ class VersionAdapterTest {
             adapter = VersionAdapter.HookPoint("com.bilibili.playerbizcommonv2.widget.speed.RenamedAdapter", "populate", listOf("float")))
         val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter.DIAGNOSTIC
         val failed = VersionAdapter.AdaptDiagnostic(id, VersionAdapter.AdaptState.MISSING, "no_match")
-        val stored = result().copy(playerSpeedMenu = point, diagnostics = listOf(failed))
+        val stored = result().copy(
+            playerSpeedMenu = point,
+            diagnostics = listOf(failed),
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
+        )
         assertEquals(point, VersionAdapter.AdaptResult.fromJson(stored.toJson())?.playerSpeedMenu)
         assertNull(VersionAdapter.AdaptResult.fromJson(result().toJson())?.playerSpeedMenu)
         assertNull(VersionAdapter.AdaptResult.fromJson(stored.toJson().put("player_speed_menu",
@@ -141,7 +146,11 @@ class VersionAdapterTest {
             "com.bilibili.bplus.followinglist.home.Q", "current")
         val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter.DIAGNOSTIC
         val failed = VersionAdapter.AdaptDiagnostic(id, VersionAdapter.AdaptState.MISSING, "no_match")
-        val stored = result().copy(followFeedStyle = point, diagnostics = listOf(failed))
+        val stored = result().copy(
+            followFeedStyle = point,
+            diagnostics = listOf(failed),
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
+        )
         assertEquals(point, VersionAdapter.AdaptResult.fromJson(stored.toJson())?.followFeedStyle)
         assertNull(VersionAdapter.AdaptResult.fromJson(result().toJson())?.followFeedStyle)
         assertNull(VersionAdapter.AdaptResult.fromJson(stored.toJson().put("follow_feed_style", point.copy(modelFamily = "guess").toJson())))
@@ -1055,7 +1064,8 @@ class VersionAdapterTest {
                 "home.banner",
                 VersionAdapter.AdaptState.NOT_APPLICABLE
             )
-        )
+        ),
+        domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
     )
 
     fun `round trips schema fingerprint and diagnostics`() {

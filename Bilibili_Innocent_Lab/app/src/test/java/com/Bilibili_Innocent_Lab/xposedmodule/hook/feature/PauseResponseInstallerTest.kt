@@ -24,6 +24,16 @@ class PauseResponseInstallerTest {
     private fun points(java: Class<*> = JavaPauseMoss::class.java, kotlin: Class<*>? = KotlinPauseMoss::class.java) =
         PauseResponseAdapter.resolve(PauseReply::class.java, PauseReq::class.java, java, kotlin)
 
+    fun `4-param legacy KViewMoss resolves and registers via default ProtoBuf`() {
+        val registrar = PlayerPortTestRegistrar()
+        val legacyPoints = points(kotlin = LegacyKotlinPauseMoss::class.java)
+        assertNotNull(legacyPoints.kotlin)
+        assertEquals(4, legacyPoints.kotlin!!.parameterCount)
+        val coverage = PauseResponseAdapter.install(environment(registrar), legacyPoints)
+        assertEquals(PauseResponseAdapter.Coverage(3, 3, kotlinInstalled = true), coverage)
+        assertTrue("paused.response.kmoss.play_pause" in registrar.hooks)
+    }
+
     fun `sync async and Kotlin responses each have their own registration`() {
         val registrar = PlayerPortTestRegistrar()
         val coverage = PauseResponseAdapter.install(environment(registrar), points())
@@ -55,10 +65,14 @@ class PauseResponseInstallerTest {
         }
         val families = setOf("ad-api", "theseus")
         assertTrue(PauseRequestCoverage.covered(loader, 9190400, families, kotlinInstalled = false).isEmpty())
-        assertTrue(PauseRequestCoverage.covered(loader, 9190300, families, kotlinInstalled = true).isEmpty())
+        assertTrue(PauseRequestCoverage.covered(loader, 9190300, setOf("other"), kotlinInstalled = true).isEmpty())
+        val emptyLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = throw ClassNotFoundException(name)
+        }
+        assertTrue(PauseRequestCoverage.covered(emptyLoader, 9190300, families, kotlinInstalled = true).isEmpty())
         assertTrue(PauseRequestCoverage.covered(javaClass.classLoader!!, 9190400, families, kotlinInstalled = true).isEmpty())
-        // 9.20 三构建与 9.19 共用 b#c 请求入口（远端 dexq 验真）；无宿主 ABI 证据时同样不得宣称覆盖。
-        for (version in listOf(9200100, 9200200, 9200300)) {
+        // 9.20/9.21 构建与 9.19 共用 b#c 请求入口（远端 dexq 验真）；无宿主 ABI 证据时同样不得宣称覆盖。
+        for (version in listOf(9200100, 9200200, 9200300, 9210100, 9210200)) {
             assertTrue(PauseRequestCoverage.covered(loader, version, families, kotlinInstalled = false).isEmpty())
             assertTrue(PauseRequestCoverage.covered(javaClass.classLoader!!, version, families, kotlinInstalled = true).isEmpty())
         }
@@ -68,10 +82,61 @@ class PauseResponseInstallerTest {
         val ad = "kntr.app.ad.biz.videodetail.pausedpage."
         for (version in listOf(9180100, 9180200, 9180300))
             assertEquals(ad + "a", PauseRequestCoverage.apiOwnerName(version))
-        for (version in listOf(9190200, 9190400, 9200100, 9200200, 9200300))
+        for (version in listOf(9190200, 9190400, 9200100, 9200200, 9200300, 9210100, 9210200))
             assertEquals(ad + "b", PauseRequestCoverage.apiOwnerName(version))
         assertNull(PauseRequestCoverage.apiOwnerName(9190300))
+        assertNull(PauseRequestCoverage.apiOwnerName(9210300))
         assertNull(PauseRequestCoverage.apiOwnerName(null))
+    }
+
+    fun `future 921+ builds resolve unique 16-param AdPausedPageApi structurally and fail closed on ambiguity or missing ABI`() {
+        val pkg = "kntr.app.ad.biz.videodetail.pausedpage."
+        val mossPkg = "${PauseResponseAdapter.PACKAGE}."
+        fun buildLoader(
+            extraAmbiguous: Boolean = false,
+            hideReceiveLambda: Boolean = false
+        ): ClassLoader {
+            val baseTemplates = mapOf(
+                "${pkg}KTabType" to TemplateKTabType::class.java,
+                "${pkg}d" to TemplateApiOwner::class.java,
+                "${pkg}AdPausedPageApi\$requestPausedPage\$awaitResponse\$2\$1" to TemplateLambda::class.java,
+                "${pkg}AdPausedPageApi\$receivePausedPageResult\$2" to TemplateLambda::class.java,
+                "${pkg}AdPausedPageApi\$requestPausedPage\$1" to TemplateCont::class.java,
+                "${mossPkg}KTabType" to TemplateKTabType::class.java,
+                "${mossPkg}KPlayPauseReq" to TemplateKPlayPauseReq::class.java,
+                "${mossPkg}KPlayPauseReply" to TemplateKPlayPauseReply::class.java,
+                "${mossPkg}KPauseBar" to TemplateKPauseBar::class.java,
+                "${mossPkg}KPlayPauseReply\$IData" to TemplateKIData::class.java,
+                PauseResponseAdapter.KOTLIN_MOSS to TemplateKViewMoss::class.java
+            ).let { map ->
+                val withAmbiguity = if (extraAmbiguous) map + ("${pkg}e" to TemplateApiOwner::class.java) else map
+                if (hideReceiveLambda) withAmbiguity - "${pkg}AdPausedPageApi\$receivePausedPageResult\$2" else withAmbiguity
+            }
+            val replacements = mapOf(
+                TemplateBaseLambda::class.java.name.replace('.', '/') to "kotlin/coroutines/jvm/internal/SuspendLambda",
+                TemplateBaseCont::class.java.name.replace('.', '/') to "kotlin/coroutines/jvm/internal/ContinuationImpl",
+                TemplateBaseFunction2::class.java.name.replace('.', '/') to "kotlin/jvm/functions/Function2",
+                TemplateBaseContinuation::class.java.name.replace('.', '/') to "kotlin/coroutines/Continuation",
+                TemplateKTabType::class.java.name.replace('.', '/') to "${mossPkg}KTabType".replace('.', '/'),
+                TemplateKPlayPauseReq::class.java.name.replace('.', '/') to "${mossPkg}KPlayPauseReq".replace('.', '/'),
+                TemplateKPlayPauseReply::class.java.name.replace('.', '/') to "${mossPkg}KPlayPauseReply".replace('.', '/'),
+                TemplateKPauseBar::class.java.name.replace('.', '/') to "${mossPkg}KPauseBar".replace('.', '/'),
+                TemplateKIData::class.java.name.replace('.', '/') to "${mossPkg}KPlayPauseReply\$IData".replace('.', '/')
+            )
+            val hidden = if (hideReceiveLambda) setOf("${pkg}AdPausedPageApi\$receivePausedPageResult\$2") else emptySet()
+            return StructuralRenamingClassLoader(javaClass.classLoader!!, baseTemplates, replacements, hidden)
+        }
+
+        val valid = buildLoader()
+        assertTrue(PauseRequestCoverage.hasVerifiedApiEntry(valid, 9210000))
+        assertEquals(setOf("ad-api"), PauseRequestCoverage.covered(valid, 9210000, setOf("ad-api"), kotlinInstalled = true))
+
+        val ambiguous = buildLoader(extraAmbiguous = true)
+        assertFalse(PauseRequestCoverage.hasVerifiedApiEntry(ambiguous, 9210000))
+        assertTrue(PauseRequestCoverage.covered(ambiguous, 9210000, setOf("ad-api"), kotlinInstalled = true).isEmpty())
+
+        val incomplete = buildLoader(hideReceiveLambda = true)
+        assertTrue(PauseRequestCoverage.covered(incomplete, 9210000, setOf("ad-api"), kotlinInstalled = true).isEmpty())
     }
 
     fun `sync cleans only ads and copies bar extra fields and Java unknown fields`() {
@@ -196,6 +261,100 @@ class PauseResponseInstallerTest {
         assertTrue(registrar.hooks.keys.none { it.startsWith("paused.request") || it == "paused.legacy_callback" })
     }
 
+    fun `9190300 and 9180000 builds also resolve unique 16-param AdPausedPageApi structurally and fail closed on ambiguity`() {
+        fun buildLoader(extraAmbiguous: Boolean = false): ClassLoader {
+            val baseTemplates = linkedMapOf<String, Class<*>>(
+                "kotlin.coroutines.jvm.internal.SuspendLambda" to TemplateBaseLambda::class.java,
+                "kotlin.coroutines.jvm.internal.ContinuationImpl" to TemplateBaseCont::class.java,
+                "kotlin.jvm.functions.Function2" to TemplateBaseFunction2::class.java,
+                "kotlin.coroutines.Continuation" to TemplateBaseContinuation::class.java,
+                "com.bapis.bilibili.app.viewunite.v1.KTabType" to TemplateKTabType::class.java,
+                "com.bapis.bilibili.app.viewunite.v1.KPlayPauseReq" to TemplateKPlayPauseReq::class.java,
+                "com.bapis.bilibili.app.viewunite.v1.KPauseBar" to TemplateKPauseBar::class.java,
+                "com.bapis.bilibili.app.viewunite.v1.KPlayPauseReply\$IData" to TemplateKIData::class.java,
+                "com.bapis.bilibili.app.viewunite.v1.KPlayPauseReply" to TemplateKPlayPauseReply::class.java,
+                "com.bapis.bilibili.app.viewunite.v1.KViewMoss" to TemplateKViewMoss::class.java,
+                "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$awaitResponse\$2\$1" to TemplateLambda::class.java,
+                "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$receivePausedPageResult\$2" to TemplateLambda::class.java,
+                "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$1" to TemplateCont::class.java,
+                "kntr.app.ad.biz.videodetail.pausedpage.z" to TemplateApiOwner::class.java
+            )
+            if (extraAmbiguous) {
+                baseTemplates["kntr.app.ad.biz.videodetail.pausedpage.y"] = TemplateApiOwner::class.java
+            }
+            val replacements = mapOf(
+                TemplateBaseLambda::class.java.name.replace('.', '/') to "kotlin/coroutines/jvm/internal/SuspendLambda",
+                TemplateBaseCont::class.java.name.replace('.', '/') to "kotlin/coroutines/jvm/internal/ContinuationImpl",
+                TemplateBaseFunction2::class.java.name.replace('.', '/') to "kotlin/jvm/functions/Function2",
+                TemplateBaseContinuation::class.java.name.replace('.', '/') to "kotlin/coroutines/Continuation",
+                TemplateKTabType::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KTabType",
+                TemplateKPlayPauseReq::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReq",
+                TemplateKPauseBar::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPauseBar",
+                TemplateKIData::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReply\$IData",
+                TemplateKPlayPauseReply::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReply",
+                TemplateKViewMoss::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KViewMoss"
+            )
+            return StructuralRenamingClassLoader(javaClass.classLoader, baseTemplates, replacements)
+        }
+        val adFamilies = setOf("ad-api")
+        val uniqueLoader = buildLoader(extraAmbiguous = false)
+        assertEquals(adFamilies, PauseRequestCoverage.covered(uniqueLoader, 9190300, adFamilies, kotlinInstalled = true))
+        assertEquals(adFamilies, PauseRequestCoverage.covered(uniqueLoader, 9180000, adFamilies, kotlinInstalled = true))
+        val ambiguousLoader = buildLoader(extraAmbiguous = true)
+        assertTrue(PauseRequestCoverage.covered(ambiguousLoader, 9190300, adFamilies, kotlinInstalled = true).isEmpty())
+    }
+
+    fun `paused ad installer retries kmp grpc wire idempotently without re-registering java hooks`() {
+        val templates = mapOf(
+            "com.bapis.bilibili.app.viewunite.v1.PlayPauseReq" to PauseReq::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.PlayPauseReply" to PauseReply::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.PlayPauseReply\$Builder" to PauseReply.Builder::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.PlayPauseReply\$Companion" to PauseReply.Companion::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.ViewMoss" to JavaPauseMoss::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KViewMoss" to MissingAsyncPauseMoss::class.java,
+            "kntr.base.moss.MossInterceptor" to MissingAsyncPauseMoss::class.java
+        )
+        val replacements = mapOf(
+            PauseReq::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/PlayPauseReq",
+            PauseReply::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/PlayPauseReply",
+            PauseReply.Builder::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/PlayPauseReply\$Builder",
+            PauseReply.Companion::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/PlayPauseReply\$Companion",
+            JavaPauseMoss::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/ViewMoss"
+        )
+        val wireLoader = StructuralRenamingClassLoader(javaClass.classLoader, templates, replacements)
+        val registrar = PlayerPortTestRegistrar()
+        val env = HookEnvironment("tv.danmaku.bili", wireLoader, HookPointRegistry(wireLoader), registrar,
+            { _, _ -> }, { _, _ -> }, { k, v -> statuses[k] = v },
+            runtimeEvidence = { _, stage, _ -> stages += stage })
+        var adaptedWirePoint: VersionAdapter.HookPoint? = null
+        val installer = PausedAdFeatureInstaller(
+            enabled = true,
+            points = null,
+            hostVersionCode = 9210100,
+            kmpGrpcWireEngineProvider = { adaptedWirePoint }
+        )
+        val first = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(2, first.hookCount)
+        assertFalse(first.complete)
+        assertTrue(installer.requiresAdaptationRetry)
+        assertEquals("partial:2/3", statuses["adskip_response_status"])
+        assertEquals(2, registrar.registrationAttempts.size)
+
+        val wireMethod = kmpfixture.modern.GrpcEngine::class.java.declaredMethods.single { it.name == "a" }
+        adaptedWirePoint = VersionAdapter.HookPoint(
+            wireMethod.declaringClass.name,
+            wireMethod.name,
+            wireMethod.parameterTypes.map(Class<*>::getName)
+        )
+        val retry = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(3, retry.hookCount)
+        assertTrue(retry.complete)
+        assertFalse(installer.requiresAdaptationRetry)
+        assertEquals(3, registrar.registrationAttempts.size)
+        assertTrue("kmp.grpc.wire.channel" in registrar.hooks.keys)
+        assertEquals("success", statuses["adskip_response_status"])
+    }
+
     private fun collecting(replies: MutableList<Any?>) = object : MossResponseHandler {
         override fun onNext(reply: Any?) { replies += reply }
         override fun onError(error: Throwable) = Unit
@@ -243,6 +402,10 @@ class PauseResponseInstallerTest {
         fun playPause(request: Any, serializer: SerializationStrategy<*>, deserializer: DeserializationStrategy<*>,
             handler: MossResponseHandler, protoBuf: ProtoBuf) = Unit
     }
+    class LegacyKotlinPauseMoss {
+        fun playPause(request: Any, serializer: SerializationStrategy<*>, deserializer: DeserializationStrategy<*>,
+            handler: MossResponseHandler) = Unit
+    }
     interface OtherHandler { fun onNext(reply: Any?) }
     class AmbiguousKotlinPauseMoss {
         fun playPause(request: Any, serializer: SerializationStrategy<*>, deserializer: DeserializationStrategy<*>,
@@ -259,20 +422,169 @@ class PauseResponseInstallerTest {
             KotlinPause(PauseReply.parseFrom(bytes))
     }
 
+    open class TemplateBaseLambda
+    open class TemplateBaseCont
+    interface TemplateBaseFunction2
+    interface TemplateBaseContinuation
+    class TemplateKTabType
+    class TemplateKPlayPauseReq
+    class TemplateKPauseBar
+    interface TemplateKIData
+    class TemplateKPlayPauseReply {
+        fun getBar(): TemplateKPauseBar = TemplateKPauseBar()
+        fun getData(): TemplateKIData = object : TemplateKIData {}
+    }
+    class TemplateKViewMoss {
+        fun playPause(req: TemplateKPlayPauseReq, cont: TemplateBaseContinuation): Any = Unit
+    }
+    class TemplateLambda : TemplateBaseLambda() {
+        fun invokeSuspend(arg: Any?): Any? = arg
+    }
+    class TemplateCont : TemplateBaseCont() {
+        fun invokeSuspend(arg: Any?): Any? = arg
+    }
+    class TemplateApiOwner {
+        @Suppress("UNUSED_PARAMETER")
+        fun f(
+            a1: Long, a2: Long, a3: TemplateKTabType, a4: String, a5: Int,
+            a6: Long, a7: Long, a8: Int, a9: Int, a10: Boolean,
+            a11: List<*>, a12: Int, a13: String, a14: String,
+            a15: TemplateBaseFunction2, a16: TemplateBaseCont
+        ): Any = Unit
+    }
+
+    private class StructuralRenamingClassLoader(
+        parent: ClassLoader,
+        private val templates: Map<String, Class<*>>,
+        private val replacements: Map<String, String>,
+        private val hidden: Set<String> = emptySet()
+    ) : ClassLoader(parent) {
+        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
+            if (name in hidden) throw ClassNotFoundException(name)
+            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
+            val loaded = findLoadedClass(name) ?: run {
+                val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
+                    .use { it.readBytes() }
+                val selfInternal = template.name.replace('.', '/')
+                val targetInternal = name.replace('.', '/')
+                val fullMap = replacements + (selfInternal to targetInternal)
+                val rewritten = rewrite(raw, fullMap)
+                defineClass(name, rewritten, 0, rewritten.size)
+            }
+            if (resolve) resolveClass(loaded)
+            loaded
+        }
+
+        private fun rewrite(raw: ByteArray, replacements: Map<String, String>): ByteArray {
+            val input = DataInputStream(ByteArrayInputStream(raw))
+            val outBuffer = ByteArrayOutputStream()
+            val output = DataOutputStream(outBuffer)
+            output.writeInt(input.readInt())
+            output.writeShort(input.readUnsignedShort())
+            output.writeShort(input.readUnsignedShort())
+            val count = input.readUnsignedShort()
+            output.writeShort(count)
+            var index = 1
+            while (index < count) {
+                val tag = input.readUnsignedByte()
+                output.writeByte(tag)
+                if (tag == 1) {
+                    var value = input.readUTF()
+                    replacements.entries.sortedByDescending { it.key.length }.forEach { (k, v) ->
+                        value = value.replace(k, v)
+                    }
+                    output.writeUTF(value)
+                } else {
+                    val length = when (tag) {
+                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
+                        5, 6 -> 8
+                        7, 8, 16, 19, 20 -> 2
+                        15 -> 3
+                        else -> error("Unsupported CP tag: $tag")
+                    }
+                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
+                    if (tag == 5 || tag == 6) index++
+                }
+                index++
+            }
+            output.write(input.readBytes())
+            output.flush()
+            return outBuffer.toByteArray()
+        }
+    }
+
+    class TemplateIntraClassAmbiguousApiOwner {
+        @Suppress("UNUSED_PARAMETER")
+        fun f(
+            a1: Long, a2: Long, a3: TemplateKTabType, a4: String, a5: Int,
+            a6: Long, a7: Long, a8: Int, a9: Int, a10: Boolean,
+            a11: List<*>, a12: Int, a13: String, a14: String,
+            a15: TemplateBaseFunction2, a16: TemplateBaseCont
+        ): Any = Unit
+
+        @Suppress("UNUSED_PARAMETER")
+        fun g(
+            a1: Long, a2: Long, a3: TemplateKTabType, a4: String, a5: Int,
+            a6: Long, a7: Long, a8: Int, a9: Int, a10: Boolean,
+            a11: List<*>, a12: Int, a13: String, a14: String,
+            a15: TemplateBaseFunction2, a16: TemplateBaseCont
+        ): Any = Unit
+    }
+
+    fun `intra-class 2-method 16-param ambiguity fails closed even when another class has a single entry`() {
+        val templates = linkedMapOf<String, Class<*>>(
+            "kotlin.coroutines.jvm.internal.SuspendLambda" to TemplateBaseLambda::class.java,
+            "kotlin.coroutines.jvm.internal.ContinuationImpl" to TemplateBaseCont::class.java,
+            "kotlin.jvm.functions.Function2" to TemplateBaseFunction2::class.java,
+            "kotlin.coroutines.Continuation" to TemplateBaseContinuation::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KTabType" to TemplateKTabType::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KPlayPauseReq" to TemplateKPlayPauseReq::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KPauseBar" to TemplateKPauseBar::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KPlayPauseReply\$IData" to TemplateKIData::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KPlayPauseReply" to TemplateKPlayPauseReply::class.java,
+            "com.bapis.bilibili.app.viewunite.v1.KViewMoss" to TemplateKViewMoss::class.java,
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$awaitResponse\$2\$1" to TemplateLambda::class.java,
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$receivePausedPageResult\$2" to TemplateLambda::class.java,
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$1" to TemplateCont::class.java,
+            "kntr.app.ad.biz.videodetail.pausedpage.a" to TemplateIntraClassAmbiguousApiOwner::class.java,
+            "kntr.app.ad.biz.videodetail.pausedpage.z" to TemplateApiOwner::class.java
+        )
+        val replacements = mapOf(
+            TemplateBaseLambda::class.java.name.replace('.', '/') to "kotlin/coroutines/jvm/internal/SuspendLambda",
+            TemplateBaseCont::class.java.name.replace('.', '/') to "kotlin/coroutines/jvm/internal/ContinuationImpl",
+            TemplateBaseFunction2::class.java.name.replace('.', '/') to "kotlin/jvm/functions/Function2",
+            TemplateBaseContinuation::class.java.name.replace('.', '/') to "kotlin/coroutines/Continuation",
+            TemplateKTabType::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KTabType",
+            TemplateKPlayPauseReq::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReq",
+            TemplateKPauseBar::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPauseBar",
+            TemplateKIData::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReply\$IData",
+            TemplateKPlayPauseReply::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReply",
+            TemplateKViewMoss::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KViewMoss"
+        )
+        val loader = StructuralRenamingClassLoader(javaClass.classLoader, templates, replacements)
+        assertFalse(PauseRequestCoverage.hasVerifiedApiEntry(loader, hostVersionCode = 9210100))
+        assertTrue(PauseRequestCoverage.covered(loader, 9210100, setOf("ad-api"), kotlinInstalled = true).isEmpty())
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (PauseResponseInstallerTest) -> Unit) {
             val s = PauseResponseInstallerTest()
             block(s)
         }
+        runIsolated { s -> s.`4-param legacy KViewMoss resolves and registers via default ProtoBuf`() }
         runIsolated { s -> s.`sync async and Kotlin responses each have their own registration`() }
         runIsolated { s -> s.`absent methods ambiguous callbacks and registration failures remain in the denominator`() }
         runIsolated { s -> s.`request routes require the audited host ABI and the registered Kotlin boundary`() }
         runIsolated { s -> s.`request entry owner is pinned per verified build and unknown builds stay closed`() }
+        runIsolated { s -> s.`future 921+ builds resolve unique 16-param AdPausedPageApi structurally and fail closed on ambiguity or missing ABI`() }
         runIsolated { s -> s.`sync cleans only ads and copies bar extra fields and Java unknown fields`() }
         runIsolated { s -> s.`async keeps callback errors completion and delegate exceptions unchanged`() }
         runIsolated { s -> s.`Kotlin bridge rewrites only a successful copy and preserves a bar only reply identity`() }
         runIsolated { s -> s.`failed Kotlin write or changed bar readback passes the original and never claims applied`() }
         runIsolated { s -> s.`identified requests remain untouched and an incomplete response layer cannot turn green`() }
+        runIsolated { s -> s.`9190300 and 9180000 builds also resolve unique 16-param AdPausedPageApi structurally and fail closed on ambiguity`() }
+        runIsolated { s -> s.`paused ad installer retries kmp grpc wire idempotently without re-registering java hooks`() }
+        runIsolated { s -> s.`intra-class 2-method 16-param ambiguity fails closed even when another class has a single entry`() }
     }
 }

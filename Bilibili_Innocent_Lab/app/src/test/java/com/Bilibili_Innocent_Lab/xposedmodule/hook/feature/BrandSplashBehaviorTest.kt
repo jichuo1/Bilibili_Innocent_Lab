@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import FlatWave1BrandStorage
 import android.app.Application
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import org.junit.Assert.*
@@ -216,6 +217,22 @@ class BrandSplashBehaviorTest {
         assertEquals(1, brandSplashBitmapSampleSize(2048, 2048))
     }
 
+    fun compactPageAbiAndStorageResolveByStructureAcrossObfuscatedNames() {
+        assertNotNull(brandSplashPageAbi(listOf("x9a0", "kotlin.jvm.functions.Function0",
+            "androidx.compose.ui.Modifier", "kotlin.jvm.functions.Function0",
+            "androidx.compose.runtime.Composer", "int")))
+        assertNull(brandSplashPageAbi(listOf("int", "kotlin.jvm.functions.Function0",
+            "androidx.compose.ui.Modifier", "kotlin.jvm.functions.Function0",
+            "androidx.compose.runtime.Composer", "int")))
+
+        val renamedStorageLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> =
+                if (name == BrandSplashStorageAccess.STORAGE) FlatWave1BrandStorage::class.java
+                else super.loadClass(name, resolve)
+        }
+        assertNotNull(BrandSplashStorageAccess.resolve(renamedStorageLoader))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (BrandSplashBehaviorTest) -> Unit) {
@@ -239,5 +256,6 @@ class BrandSplashBehaviorTest {
         runIsolated { s -> s.equivalentWriteResumesRotationFromTheImageThatActuallyExited() }
         runIsolated { s -> s.equivalentWriteRetriesAnEmptyCacheButDoesNotDecodeAnIdleImageAgain() }
         runIsolated { s -> s.bitmapSamplingKeepsNarrowAndRoundedUpDimensionsWithinThePixelBudget() }
+        runIsolated { s -> s.compactPageAbiAndStorageResolveByStructureAcrossObfuscatedNames() }
     }
 }

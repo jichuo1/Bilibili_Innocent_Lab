@@ -71,11 +71,12 @@ class PageBoundaryAdapterTest {
         assertFalse(PageBoundaryPoints(endPageMerger = VersionAdapter.HookPoint("java.lang.String", "x", emptyList())).isValid())
     }
 
-    fun relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedRootOwners() {
-        val relocated = PageBoundaryPoints(searchDelivery = "pl22", searchState = "v642")
+    fun relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedOrForeignOwners() {
+        val relocated = PageBoundaryPoints(searchDelivery = "fnc2", searchState = "ode2")
         assertEquals(relocated, PageBoundaryPoints.fromJson(relocated.toJson()))
         assertNull(PageBoundaryAdapter.locate(loader, relocated, null, emptySet()))
-        assertFalse(PageBoundaryPoints(searchDelivery = "v642", searchState = "pl22").isValid())
+        assertFalse(PageBoundaryPoints(searchDelivery = "java.lang.String", searchState = "ode2").isValid())
+        assertFalse(PageBoundaryPoints(searchDelivery = "fnc2", searchState = "foreign.pkg.State").isValid())
     }
 
     @org.junit.Test
@@ -88,6 +89,6 @@ class PageBoundaryAdapterTest {
         runIsolated { s -> s.erasedListDecoysAndMultipleOwnersNeverBecomeHooks() }
         runIsolated { s -> s.disabledAndPreviouslyAttemptedQueriesNeverLoadNativeOrOpenAnUnplannedSession() }
         runIsolated { s -> s.storedNamesAreRevalidatedAndMalformedCacheCannotExpandThePackageScope() }
-        runIsolated { s -> s.relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedRootOwners() }
+        runIsolated { s -> s.relocatedSearchNamesAreRecognizedWithoutAcceptingUnrelatedOrForeignOwners() }
     }
 }

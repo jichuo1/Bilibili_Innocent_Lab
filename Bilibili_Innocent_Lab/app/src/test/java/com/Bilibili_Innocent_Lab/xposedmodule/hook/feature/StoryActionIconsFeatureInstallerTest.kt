@@ -6,8 +6,13 @@ import com.bilibili.video.story.action.widget.StoryLikeWidget
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.StoryActionIconsDraft
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.util.IdentityHashMap
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess
 import com.bilibili.video.story.action.LegacyToggle
@@ -122,16 +127,147 @@ class StoryActionIconsFeatureInstallerTest {
         assertTrue(LegacyStoryDanmakuAccess.resolve(unavailable, LegacyToggle::class.java) == null)
     }
 
+    private interface TemplateRootPlayer
+
+    @Suppress("unused")
+    private class TemplateStoryController921 {
+        var toggle: LegacyToggle? = null
+        protected fun getMDanmakuToggle(): LegacyToggle? = toggle
+        protected fun setMDanmakuToggle(value: LegacyToggle?) { toggle = value }
+        protected fun getMPlayer(): TemplateRootPlayer? = null
+        fun S0(@Suppress("UNUSED_PARAMETER") player: TemplateRootPlayer?, @Suppress("UNUSED_PARAMETER") index: Int) = Unit
+    }
+
+    @Suppress("unused")
+    private class TemplateStoryControllerMulti {
+        var toggle: LegacyToggle? = null
+        protected fun getMDanmakuToggle(): LegacyToggle? = toggle
+        protected fun setMDanmakuToggle(value: LegacyToggle?) { toggle = value }
+        protected fun getMPlayer(): TemplateRootPlayer? = null
+        fun K0(@Suppress("UNUSED_PARAMETER") player: TemplateRootPlayer?, @Suppress("UNUSED_PARAMETER") index: Int) = Unit
+        fun S0(@Suppress("UNUSED_PARAMETER") player: TemplateRootPlayer?, @Suppress("UNUSED_PARAMETER") index: Int) = Unit
+    }
+
+    private class StoryRenamingClassLoader(
+        parent: ClassLoader,
+        controllerTemplate: Class<*>,
+        playerClassName: String
+    ) : ClassLoader(parent) {
+        private val templates = mapOf(
+            LegacyStoryDanmakuAccess.OWNER to controllerTemplate,
+            playerClassName to TemplateRootPlayer::class.java
+        )
+        private val replacements = mapOf(
+            controllerTemplate.name.replace('.', '/') to LegacyStoryDanmakuAccess.OWNER.replace('.', '/'),
+            TemplateRootPlayer::class.java.name.replace('.', '/') to playerClassName.replace('.', '/')
+        )
+
+        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
+            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
+            val loaded = findLoadedClass(name) ?: run {
+                val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
+                    .use { it.readBytes() }
+                val rewritten = rewrite(raw)
+                defineClass(name, rewritten, 0, rewritten.size)
+            }
+            if (resolve) resolveClass(loaded)
+            loaded
+        }
+
+        private fun rewrite(raw: ByteArray): ByteArray {
+            val input = DataInputStream(ByteArrayInputStream(raw))
+            val out = ByteArrayOutputStream()
+            val output = DataOutputStream(out)
+            output.writeInt(input.readInt())
+            output.writeShort(input.readUnsignedShort())
+            output.writeShort(input.readUnsignedShort())
+            val count = input.readUnsignedShort()
+            output.writeShort(count)
+            var index = 1
+            while (index < count) {
+                val tag = input.readUnsignedByte()
+                output.writeByte(tag)
+                if (tag == 1) {
+                    var value = input.readUTF()
+                    replacements.entries.sortedByDescending { it.key.length }.forEach { (k, v) ->
+                        value = value.replace(k, v)
+                    }
+                    output.writeUTF(value)
+                } else {
+                    val length = when (tag) {
+                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
+                        5, 6 -> 8
+                        7, 8, 16, 19, 20 -> 2
+                        15 -> 3
+                        else -> error("Unsupported CP tag: $tag")
+                    }
+                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
+                    if (tag == 5 || tag == 6) index++
+                }
+                index++
+            }
+            output.write(input.readBytes())
+            output.flush()
+            return out.toByteArray()
+        }
+    }
+
+    fun `legacy toggle resolves root package players on 920 and 921 while preserving 919 K0 tiebreak and failing closed on ambiguity`() {
+        val resolved921_2 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
+            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "uxt0"),
+            LegacyToggle::class.java
+        ))
+        assertEquals("S0", resolved921_2.bind.name)
+
+        val resolved921_1 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
+            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "avt0"),
+            LegacyToggle::class.java
+        ))
+        assertEquals("S0", resolved921_1.bind.name)
+
+        val resolved920 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
+            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "icu0"),
+            LegacyToggle::class.java
+        ))
+        assertEquals("S0", resolved920.bind.name)
+
+        val resolved919 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
+            StoryRenamingClassLoader(loader, TemplateStoryControllerMulti::class.java, "iwr0"),
+            LegacyToggle::class.java
+        ))
+        assertEquals("K0", resolved919.bind.name)
+
+        assertNull(LegacyStoryDanmakuAccess.resolve(
+            StoryRenamingClassLoader(loader, TemplateStoryControllerMulti::class.java, "uxt0"),
+            LegacyToggle::class.java
+        ))
+        assertNull(LegacyStoryDanmakuAccess.resolve(
+            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "com.example.other.FakePlayer"),
+            LegacyToggle::class.java
+        ))
+    }
+
     fun `legacy setter hides only its toggle and defers one reconciliation per controller`() {
         val registrar = PlayerPortTestRegistrar()
         val posted = mutableListOf<() -> Unit>()
-        val result = legacyInstaller(posted).install(environment(registrar))
+        val postTargets = mutableListOf<Any>()
+        val installer = StoryActionIconsFeatureInstaller(
+            setOf(StoryActionIcon.DANMAKU_TOGGLE),
+            boxOf = { boxes.getOrPut(it) { FakeBox() } },
+            postToView = { target, block ->
+                postTargets += target
+                posted += block
+            },
+            legacyResolver = { LegacyStoryDanmakuAccess.resolve(it, LegacyToggle::class.java) }
+        )
+        val result = installer.install(environment(registrar))
         assertTrue(result is FeatureInstallResult.Installed && result.complete)
         val controller = StoryAbsController()
         val first = LegacyToggle()
         registrar.invoke("story_action_icons.legacy_danmaku.setter", controller, arrayOf(first)) { controller.toggle = first; Unit }
         assertTrue(boxes.getValue(first).gone)
         assertFalse(boxes.containsKey(controller))
+        org.junit.Assert.assertSame(first, postTargets.single())
         val second = LegacyToggle()
         registrar.invoke("story_action_icons.legacy_danmaku.setter", controller, arrayOf(second)) { controller.toggle = second; Unit }
         assertTrue(boxes.getValue(second).gone)
@@ -223,6 +359,7 @@ class StoryActionIconsFeatureInstallerTest {
         runIsolated { s -> s.`onStart and post construction collapse only the enabled icons`() }
         runIsolated { s -> s.`missing widgets and drifted shapes are reported instead of guessed`() }
         runIsolated { s -> s.`legacy toggle requires exact accessor types and a unique player binding signature`() }
+        runIsolated { s -> s.`legacy toggle resolves root package players on 920 and 921 while preserving 919 K0 tiebreak and failing closed on ambiguity`() }
         runIsolated { s -> s.`legacy setter hides only its toggle and defers one reconciliation per controller`() }
         runIsolated { s -> s.`legacy player binding reapplies geometry after host reuse without touching the controller`() }
         runIsolated { s -> s.`legacy partial registration stays inactive and retry does not duplicate hooks`() }

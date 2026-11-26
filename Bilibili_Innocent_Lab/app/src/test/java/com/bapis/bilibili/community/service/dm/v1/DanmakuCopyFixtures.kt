@@ -22,6 +22,17 @@ class DmSegMobileReply(
 ) {
     fun getElemsList() = elems
     fun getColorfulSrcList() = colorful
+    fun toByteArray(): ByteArray = java.io.ByteArrayOutputStream().also { out ->
+        java.io.DataOutputStream(out).use { s ->
+            s.writeInt(elems.size)
+            elems.forEach { e ->
+                s.writeInt(e.getWeight())
+                s.writeInt(e.getColorfulValue())
+            }
+            s.writeInt(colorful.size)
+            colorful.forEach { c -> s.writeInt(c.getTypeValue()) }
+        }
+    }.toByteArray()
     class Builder(private val original: DmSegMobileReply) {
         private var elems = original.elems
         private var colorful = original.colorful
@@ -42,5 +53,13 @@ class DmSegMobileReply(
         private val DEFAULT = DmSegMobileReply()
         @JvmStatic fun getDefaultInstance() = DEFAULT
         @JvmStatic fun newBuilder(original: DmSegMobileReply) = Builder(original)
+        @JvmStatic fun parseFrom(bytes: ByteArray): DmSegMobileReply =
+            java.io.DataInputStream(java.io.ByteArrayInputStream(bytes)).use { s ->
+                val eCount = s.readInt()
+                val e = List(eCount) { DanmakuElem(s.readInt(), s.readInt()) }
+                val cCount = s.readInt()
+                val c = List(cCount) { DmColorful(s.readInt()) }
+                DmSegMobileReply(e, c)
+            }
     }
 }

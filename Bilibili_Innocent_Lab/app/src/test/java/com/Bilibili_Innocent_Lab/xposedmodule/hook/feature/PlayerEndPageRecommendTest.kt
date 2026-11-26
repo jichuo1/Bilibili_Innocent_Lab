@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import FlatWave1EndPageMerger
+import FlatWave1EndPageService
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import org.junit.Assert.*
 import org.junit.Before
@@ -183,6 +185,25 @@ class PlayerEndPageRecommendTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
+    fun `flattened root merger resolves from arbitrary service field without fixed class or method names`() {
+        val mergeMethod = FlatWave1EndPageMerger::class.java.getDeclaredMethod("b", List::class.java, List::class.java)
+        val mappedLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
+                PlayerEndPageRecommendLocator.REPLY -> Reply::class.java
+                PlayerEndPageRecommendLocator.SERVICE -> FlatWave1EndPageService::class.java
+                else -> super.loadClass(name, resolve)
+            }
+        }
+        assertTrue(PlayerEndPageRecommendLocator.mergerOwnerSupported("FlatWave1EndPageMerger"))
+        assertTrue(PlayerEndPageRecommendLocator.mergerAbi(mergeMethod, mappedLoader))
+        val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint(
+            "FlatWave1EndPageMerger", "b", listOf("java.util.List", "java.util.List")
+        )
+        assertEquals(mergeMethod, PlayerEndPageRecommendLocator.cachedMerger(mappedLoader, point))
+        val directAccess = PlayerEndPageRecommendLocator.resolve(mappedLoader, null)!!
+        assertEquals(mergeMethod, directAccess.mergedList)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (PlayerEndPageRecommendTest) -> Unit) {
@@ -203,5 +224,6 @@ class PlayerEndPageRecommendTest {
         runIsolated { s -> s.`missing copy machinery preserves independent getter protection with partial coverage`() }
         runIsolated { s -> s.`one failed registration remains in the five-path denominator`() }
         runIsolated { s -> s.`disabled other process absent and incorrect structures install no unsafe hook`() }
+        runIsolated { s -> s.`flattened root merger resolves from arbitrary service field without fixed class or method names`() }
     }
 }

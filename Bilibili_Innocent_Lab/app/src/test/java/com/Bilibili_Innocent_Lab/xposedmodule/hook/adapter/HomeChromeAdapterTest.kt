@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.AdaptDiagnostic
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.AdaptState
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
 import org.json.JSONObject
@@ -84,6 +87,84 @@ class HomeChromeAdapterTest {
         assertEquals("top_backdrop", HomeChromeAdapter.families[DexAssistQuery.HOME_CHROME_TOP_BACKDROP])
     }
 
+    fun arbitraryFlattenedRootOwnersRespectNestingPolicy() {
+        assertTrue(HomeChromeAdapter.acceptsOwner("top", "zn40"))
+        assertTrue(HomeChromeAdapter.acceptsOwner("top_backdrop", "cmq0"))
+        assertTrue(HomeChromeAdapter.acceptsOwner("bottom", "clq0"))
+        assertFalse(HomeChromeAdapter.acceptsOwner("bottom", "clq0\$1"))
+        assertTrue(HomeChromeAdapter.acceptsOwner("top_content", "en40"))
+        assertTrue(HomeChromeAdapter.acceptsOwner("top_content", "h330\$1"))
+        assertTrue(HomeChromeAdapter.acceptsOwner("bottom_content", "r0o0\$2"))
+        assertFalse(HomeChromeAdapter.acceptsOwner("top_backdrop", "foreign.pkg.cmq0"))
+    }
+
+    fun retryableChromeAndSemanticsFailuresStopColdStartLoopsWhilePiggybackRetrying() {
+        val loader = object : ClassLoader(null) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "tv.danmaku.bili.khome.vm.HomeFrameViewModel") return Any::class.java
+                throw ClassNotFoundException(name)
+            }
+        }
+        val requiredQueries = setOf(
+            DexAssistQuery.HOME_CHROME_TOP,
+            DexAssistQuery.HOME_CHROME_TOP_CONTENT,
+            DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS
+        )
+        for (reason in listOf("query_failed", "previous_attempt_unfinished", "no-dex-source")) {
+            val diagnostics = requiredQueries.map { query ->
+                AdaptDiagnostic(HomeChromeAdapter.diagnostic(query), AdaptState.NOT_APPLICABLE, reason)
+            } + AdaptDiagnostic(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC, AdaptState.NOT_APPLICABLE, reason)
+
+            val coldChromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+                diagnostics.any { it.id == HomeChromeAdapter.diagnostic(query) && AdaptAssistGate.isAttemptedInCache(it) }
+            }
+            val coldSemanticsAttempted = diagnostics.any {
+                it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+            }
+            assertTrue(
+                reason,
+                HomeChromeAdapter.planned(loader, emptyMap(), false, coldChromeAttempted, topTabCentering = true).isEmpty()
+            )
+            assertFalse(
+                reason,
+                HomeChromeAdapter.semanticsNeedsQuery(loader, null, true, coldSemanticsAttempted, true)
+            )
+
+            // 当其它新开功能或换版真正进入 adapt() 时，非确定性失败仍保留在 in-round 待重查集合内。
+            val inRoundChromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+                diagnostics.any { it.id == HomeChromeAdapter.diagnostic(query) && AdaptAssistGate.isConclusiveMissing(it) }
+            }
+            val inRoundSemanticsAttempted = diagnostics.any {
+                it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && AdaptAssistGate.isConclusiveMissing(it)
+            }
+            assertEquals(
+                reason,
+                requiredQueries,
+                HomeChromeAdapter.planned(loader, emptyMap(), false, inRoundChromeAttempted, topTabCentering = true)
+            )
+            assertTrue(
+                reason,
+                HomeChromeAdapter.semanticsNeedsQuery(loader, null, true, inRoundSemanticsAttempted, true)
+            )
+        }
+
+        // 功能此前关闭写成的 disabled-or-absent 不算已尝试：后续首次启用仍须触发一次补扫。
+        val disabledDiagnostics = requiredQueries.map { query ->
+            AdaptDiagnostic(HomeChromeAdapter.diagnostic(query), AdaptState.NOT_APPLICABLE, "disabled-or-absent")
+        } + AdaptDiagnostic(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "disabled-or-absent")
+        val disabledAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+            disabledDiagnostics.any { it.id == HomeChromeAdapter.diagnostic(query) && AdaptAssistGate.isAttemptedInCache(it) }
+        }
+        val disabledSemanticsAttempted = disabledDiagnostics.any {
+            it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+        }
+        assertEquals(
+            requiredQueries,
+            HomeChromeAdapter.planned(loader, emptyMap(), false, disabledAttempted, topTabCentering = true)
+        )
+        assertTrue(HomeChromeAdapter.semanticsNeedsQuery(loader, null, true, disabledSemanticsAttempted, true))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HomeChromeAdapterTest) -> Unit) {
@@ -98,5 +179,7 @@ class HomeChromeAdapterTest {
         runIsolated { s -> s.centeringWithoutGlassPlansOnlyItsThreeSemanticBoundaries() }
         runIsolated { s -> s.contentBridgeCacheRetainsItsTwoParameterAbi() }
         runIsolated { s -> s.secondRowBackdropIsOptionalInOldCachesAndRetainedInNewCaches() }
+        runIsolated { s -> s.arbitraryFlattenedRootOwnersRespectNestingPolicy() }
+        runIsolated { s -> s.retryableChromeAndSemanticsFailuresStopColdStartLoopsWhilePiggybackRetrying() }
     }
 }

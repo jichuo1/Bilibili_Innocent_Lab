@@ -111,5 +111,19 @@ class FollowFeedAdapterTest {
         runIsolated { s -> s.directMembersAndSingleAssistedOwnerAreRevalidatedThroughFullModelAndHomeAbi() }
         runIsolated { s -> s.discoveredDecorationsResolveDriftedSubclassesByShapeAndStayFailClosedOnAmbiguity() }
         runIsolated { s -> s.multipleOwnersWrongQueryAbiAndForeignHomeAreRejected() }
+        runIsolated { s -> s.cachedPointsResolveStaticOpusAccessEvenWhenDirectIsHidden() }
+    }
+
+    fun cachedPointsResolveStaticOpusAccessEvenWhenDirectIsHidden() {
+        val loader = FollowFeed916AdapterTest::class.java.classLoader!!
+        // Verify HostOpusBackgroundAccess.resolve accepts cached FollowFeedPoints directly (for DEX-adapted hosts).
+        val cachedDirect = requireNotNull(FollowFeedAdapter.direct(loader))
+        val hiddenDirectLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "gv1.c") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+        assertNotNull(FollowFeedAdapter.resolve(hiddenDirectLoader, cached))
     }
 }

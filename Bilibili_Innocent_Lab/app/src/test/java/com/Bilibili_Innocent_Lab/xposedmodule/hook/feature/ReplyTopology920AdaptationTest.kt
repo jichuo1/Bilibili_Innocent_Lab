@@ -354,8 +354,8 @@ class ReplyTopology920AdaptationTest {
     }
 
     @Test
-    fun `ReplyTopologyComposeMenu installs across 920 build obfuscations and skips ambiguous entries`() {
-        for (entryName in listOf("cko1", "clo1", "wmo1")) {
+    fun `ReplyTopologyComposeMenu installs across 920 and 921 build obfuscations and skips ambiguous entries`() {
+        for (entryName in listOf("cko1", "clo1", "wmo1", "gao1", "c9o1")) {
             val loader = composeHostClassLoader(entryName)
             RecordingRegistrar().use { registrar ->
                 val env = HookEnvironment(
@@ -391,12 +391,14 @@ class ReplyTopology920AdaptationTest {
     }
 
     @Test
-    fun `VersionAdapter resolves 919 and 920 mappers strictly per build and reports missing cleanly`() {
+    fun `VersionAdapter resolves 919 to 921 mappers strictly per build and reports missing cleanly`() {
         val builds = mapOf(
             9190400 to ("rg40" to "tev"),
             9200100 to ("w360" to "caw"),
             9200200 to ("v260" to "m9w"),
-            9200300 to ("l260" to "z8w")
+            9200300 to ("l260" to "z8w"),
+            9210100 to ("ot50" to "y1w"),
+            9210200 to ("kt50" to "b4w")
         )
         builds.forEach { (versionCode, pair) ->
             val loader = mapperHostClassLoader(listOf(pair))
@@ -415,15 +417,17 @@ class ReplyTopology920AdaptationTest {
         val driftedLoader = mapperHostClassLoader(emptyList())
         val plan = AdaptPlan(1L, setOf(PointFamily.COMMENT_TOPOLOGY), emptySet())
         val located = VersionAdapterTest().result().copy(commentTopology = null)
-        val diag9203 = VersionAdapter.buildDiagnostics(
-            driftedLoader,
-            plan,
-            null,
-            located,
-            "unresolved:reply-mapper-methods",
-            hostVersionCode = 9200300
-        ).associateBy { it.id }
-        assertEquals(AdaptState.MISSING, diag9203.getValue("comment.topology").state)
+        for (missingVersion in listOf(9200300, 9210200)) {
+            val diag = VersionAdapter.buildDiagnostics(
+                driftedLoader,
+                plan,
+                null,
+                located,
+                "unresolved:reply-mapper-methods",
+                hostVersionCode = missingVersion
+            ).associateBy { it.id }
+            assertEquals(AdaptState.MISSING, diag.getValue("comment.topology").state)
+        }
     }
 
     @Test

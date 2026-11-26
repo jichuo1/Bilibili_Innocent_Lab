@@ -185,6 +185,57 @@ class AdaptAssistGateTest {
         assertNull(empty.blockUpdate); assertNull(empty.commentTopology); assertFalse(empty.hasAssistedQuality)
     }
 
+    fun retryableAndConclusiveDetailsDistinguishTransientErrorsFromMissing() {
+        for (detail in listOf(
+            "no-dex-source", "native_unavailable", "query_failed", "too_many_archives",
+            "previous_attempt_unfinished", "no_code_path", "crashed_or_killed",
+            "block-update:native_unavailable", "comment-topology:no-dex-source"
+        )) {
+            assertTrue(detail, AdaptAssistGate.isRetryableDetail(detail))
+            assertFalse(detail, AdaptAssistGate.isConclusiveMissing(AdaptDiagnostic("dex.assist.test", AdaptState.MISSING, detail)))
+        }
+        for (detail in listOf(
+            "no_match", "too_many_matches", "unavailable-or-ambiguous:2", "ambiguous:0",
+            "feature-disabled:cached-attempt-preserved", "cached-attempt-preserved", ""
+        )) {
+            assertFalse(detail, AdaptAssistGate.isRetryableDetail(detail))
+            assertTrue(detail, AdaptAssistGate.isConclusiveMissing(AdaptDiagnostic("dex.assist.test", AdaptState.MISSING, detail)))
+            assertFalse(detail, AdaptAssistGate.isConclusiveMissing(AdaptDiagnostic("dex.assist.test", AdaptState.FOUND, detail)))
+            assertFalse(detail, AdaptAssistGate.isConclusiveMissing(AdaptDiagnostic("dex.assist.test", AdaptState.NOT_APPLICABLE, detail)))
+        }
+    }
+
+    fun cacheAttemptedGateStopsColdStartRetryLoopsOnRetryableFailuresAcrossStates() {
+        val conclusive = AdaptDiagnostic("home.chrome.top_content", AdaptState.MISSING, "no-safe-boundary")
+        assertTrue(AdaptAssistGate.isConclusiveMissing(conclusive))
+        assertTrue(AdaptAssistGate.isAttemptedInCache(conclusive))
+
+        for (detail in listOf(
+            "no-dex-source", "native_unavailable", "query_failed", "too_many_archives",
+            "previous_attempt_unfinished", "no_code_path", "crashed_or_killed",
+            "block-update:native_unavailable", "comment-topology:no-dex-source"
+        )) {
+            val missing = AdaptDiagnostic("dex.assist.test", AdaptState.MISSING, detail)
+            val notApplicable = AdaptDiagnostic("home.chrome.top_content", AdaptState.NOT_APPLICABLE, detail)
+            assertFalse(detail, AdaptAssistGate.isConclusiveMissing(missing))
+            assertTrue(detail, AdaptAssistGate.isAttemptedInCache(missing))
+            assertFalse(detail, AdaptAssistGate.isConclusiveMissing(notApplicable))
+            assertTrue(detail, AdaptAssistGate.isAttemptedInCache(notApplicable))
+        }
+
+        for (nonAttemptedDetail in listOf(
+            "feature-disabled", "disabled", "disabled-or-absent", "not-required",
+            "not-applicable-host", "quick-locate", "plan-not-requested", "block-update:feature-disabled"
+        )) {
+            val diag = AdaptDiagnostic("home.chrome.top_content", AdaptState.NOT_APPLICABLE, nonAttemptedDetail)
+            assertFalse(nonAttemptedDetail, AdaptAssistGate.isConclusiveMissing(diag))
+            assertFalse(nonAttemptedDetail, AdaptAssistGate.isAttemptedInCache(diag))
+        }
+
+        assertFalse(AdaptAssistGate.isAttemptedInCache(AdaptDiagnostic("dex.assist.test", AdaptState.FOUND, "verified")))
+        assertFalse(AdaptAssistGate.isAttemptedInCache(AdaptDiagnostic("dex.assist.test", AdaptState.NOT_REQUESTED, "startup-not-requested")))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (AdaptAssistGateTest) -> Unit) {
@@ -203,6 +254,8 @@ class AdaptAssistGateTest {
         runIsolated { s -> s.cachedAssistedPointsAndConfirmedMissingResultsSatisfyTheCacheOnNextStart() }
         runIsolated { s -> s.defaultQualityOnlyCountsTheAssistedImplementationNotTheLegacyWrapper() }
         runIsolated { s -> s.missingCacheMeansEveryFamilyIsUnrequestedAndNothingIsCarried() }
+        runIsolated { s -> s.retryableAndConclusiveDetailsDistinguishTransientErrorsFromMissing() }
+        runIsolated { s -> s.cacheAttemptedGateStopsColdStartRetryLoopsOnRetryableFailuresAcrossStates() }
     
         AdaptPlanCacheCases().verifyAllCases()
         CommentEmojiAdapterCases().verifyAllCases()
@@ -221,7 +274,8 @@ private class AdaptPlanCacheCases {
     private fun fullyCovered(base: AdaptResult = VersionAdapterTest().result()): AdaptResult = base.copy(
         coverage = AdaptCoverage(PointFamily.entries.associateWith {
             if (base.hasPoint(it)) Attempt.FOUND else Attempt.CONCLUSIVE_MISSING
-        })
+        }),
+        domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
     )
 
     private fun snapshot(cached: AdaptResult?, resetTs: Long = 0L) = StartupCacheSnapshot(
@@ -281,7 +335,7 @@ private class AdaptPlanCacheCases {
 
     fun `schema remains compatible while merged rules invalidate old caches`() {
         assertEquals(62, VersionAdapterContract.SCHEMA_VERSION)
-        assertEquals(93, VersionAdapterContract.RULE_VERSION)
+        assertEquals(99, VersionAdapterContract.RULE_VERSION)
         assertEquals(62, JSONObject(fullyCovered().toJson().toString()).getInt("sv"))
     }
 

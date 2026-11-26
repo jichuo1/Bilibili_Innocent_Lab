@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
+import FlatWave1Divider
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.*
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostCardHookAdapterTest.*
@@ -57,6 +58,18 @@ class HostCardSemanticAdapterTest {
         val session = DexAssistSession(DexAssistEngine { DexAssistResult.Candidates(listOf(wrong, lazy, method)) }, listOf("base.apk"), loader, setOf(query))
         val points = HostCardSemanticAdapter.locate(loader, emptyMap(), session, setOf(query))
         assertEquals(point(method), points["pegasus_divider"])
+        val hcardsLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
+                "com.bilibili.ogv.operation3.module.operablecard.a" -> throw ClassNotFoundException(name)
+                HostOgvCardAdapter.HCARDS -> CardModel::class.java
+                else -> super.loadClass(name, resolve)
+            }
+        }
+        assertTrue(HostCardSemanticAdapter.applicable(hcardsLoader, DexAssistQuery.OGV_DOUBLE_CARD))
+
+        val flatDivider = FlatWave1Divider::class.java.declaredMethods.single { it.name == "onDrawOver" }
+        assertTrue(HostVideoCardDividerHooks.verifiedPegasus(loader, flatDivider))
+        assertEquals(flatDivider, HostVideoCardDividerHooks.pegasusBoundary(loader, point(flatDivider)))
     }
 
     @org.junit.Test

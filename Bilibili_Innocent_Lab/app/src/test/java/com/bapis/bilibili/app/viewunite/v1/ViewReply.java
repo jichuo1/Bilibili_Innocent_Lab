@@ -64,6 +64,38 @@ public class ViewReply {
         return new Builder(original);
     }
 
+    public byte[] toByteArray() {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream s = new java.io.DataOutputStream(out)) {
+            s.writeBoolean(owner != null);
+            if (owner != null) {
+                s.writeUTF(owner.getName() != null ? owner.getName() : "");
+                s.writeBoolean(owner.hasVip());
+            }
+            s.writeBoolean(failBuild);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.toByteArray();
+    }
+
+    public static ViewReply parseFrom(byte[] bytes) {
+        try (java.io.DataInputStream s = new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            Owner owner = null;
+            if (s.readBoolean()) {
+                String name = s.readUTF();
+                com.bapis.bilibili.app.viewunite.common.Vip vip = s.readBoolean()
+                    ? new com.bapis.bilibili.app.viewunite.common.Vip("vip")
+                    : null;
+                owner = new Owner(name, vip);
+            }
+            boolean failBuild = s.readBoolean();
+            return new ViewReply(null, owner, failBuild);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     public static final class Builder {
 
         private Tab tab;

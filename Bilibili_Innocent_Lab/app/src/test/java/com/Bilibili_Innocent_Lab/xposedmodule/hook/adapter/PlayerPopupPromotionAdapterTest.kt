@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
+import FlatWave1AdvertFloat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter.Family
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
@@ -161,6 +162,12 @@ class PlayerPopupPromotionAdapterTest {
         assertEquals(points, PlayerPopupPromotionAdapter.merge(PlayerPopupPromotionPoints(guidePoint), PlayerPopupPromotionPoints(advertFloat = floatPoint)))
         assertNull(PlayerPopupPromotionAdapter.resolveFreeDataGuide(loader, guidePoint.copy(methodName = "missing")))
         assertNull(PlayerPopupPromotionAdapter.resolveAdvertFloat(loader, floatPoint.copy(paramClassNames = listOf("int"))))
+
+        val flatFloat = FlatWave1AdvertFloat::class.java.declaredMethods.single { it.name == "a" }
+        assertTrue(PlayerPopupPromotionAdapter.verifiedAdvertFloat(flatFloat))
+        val flatPoints = PlayerPopupPromotionPoints(advertFloat = PlayerPopupPromotionAdapter.point(flatFloat))
+        assertEquals(flatPoints, PlayerPopupPromotionPoints.fromJson(flatPoints.toJson()))
+        assertEquals(flatFloat, PlayerPopupPromotionAdapter.resolveAdvertFloat(loader, flatPoints.advertFloat))
     }
 
     @org.junit.Test

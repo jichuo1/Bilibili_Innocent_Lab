@@ -149,7 +149,8 @@ class FollowFeed916AdapterTest {
         val missing = Host(localField = "a", hideOpus = true, newer = rebuilt)
         assertTrue(missing.loadClass(rebuilt.painter)
             .isAssignableFrom(missing.loadClass("com.bilibili.bplus.followinglist.opus.t")))
-        assertNull(HostOpusBackgroundAccess.resolve(missing))
+        // Static color (9.16+) no longer drops opus background support when R8 flattens the opus leaf outside the legacy table.
+        assertNotNull(HostOpusBackgroundAccess.resolve(missing))
     }
 
     fun `local quote test does not mistake the top owner or boolean O for the local item`() {
@@ -176,10 +177,10 @@ class FollowFeed916AdapterTest {
         assertFalse(access.accepts(null, null))
     }
 
-    fun `unknown local ownership and absent opus painter remain unavailable`() {
+    fun `unknown local ownership remains unavailable while static opus color tolerates flattened opus leaf`() {
         assertNull(FollowFeedAdapter.direct(Host(localField = "unknown")))
         assertNull(HostOpusBackgroundAccess.resolve(Host(localField = "unknown")))
-        assertNull(HostOpusBackgroundAccess.resolve(Host(hideOpus = true)))
+        assertNotNull(HostOpusBackgroundAccess.resolve(Host(hideOpus = true)))
     }
 
     fun `917 painter home personal separator and opus preserve the same ownership contract`() {
@@ -244,7 +245,9 @@ class FollowFeed916AdapterTest {
         assertTrue(access.accepts(null, module))
         item.javaClass.getField("j").set(item, loader.item())
         assertFalse(access.accepts(null, module))
-        assertNull(HostOpusBackgroundAccess.resolve(Host(localField = "a", build300 = true, hideOpus = true)))
+        assertEquals("com.bilibili.bplus.followinglist.opus.p",
+            FollowFeedAdapter.opusDecorationCandidates(FollowFeedAdapter.direct(Host(localField = "a", build300 = true))!!).first())
+        assertNotNull(HostOpusBackgroundAccess.resolve(Host(localField = "a", build300 = true, hideOpus = true)))
     }
 
     fun `9170300 cached 9170100 names are refreshed and the older build keeps its own names`() {
@@ -275,7 +278,7 @@ class FollowFeed916AdapterTest {
         runIsolated { s -> s.`new host decorations stay with the verified homepage and model generation`() }
         runIsolated { s -> s.`local quote test does not mistake the top owner or boolean O for the local item`() }
         runIsolated { s -> s.`static opus color accepts ordinary modules and preserves quoted or unknown modules`() }
-        runIsolated { s -> s.`unknown local ownership and absent opus painter remain unavailable`() }
+        runIsolated { s -> s.`unknown local ownership remains unavailable while static opus color tolerates flattened opus leaf`() }
         runIsolated { s -> s.`917 painter home personal separator and opus preserve the same ownership contract`() }
         runIsolated { s -> s.`917 direct resolution replaces old names without mixing the two generations`() }
         runIsolated { s -> s.`same named T decoration cannot change an older painter generation`() }

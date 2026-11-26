@@ -29,6 +29,42 @@ public final class ListReply extends MessageLiteStub {
         return new Builder(source);
     }
 
+    public byte[] toByteArray() {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream s = new java.io.DataOutputStream(out)) {
+            s.writeInt(pools.size());
+            for (PoolReply pool : pools) {
+                s.writeUTF(pool.getPoolName());
+                s.writeInt(pool.getModulesList().size());
+                for (ModuleReply module : pool.getModulesList()) {
+                    s.writeUTF(module.getModuleName());
+                }
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.toByteArray();
+    }
+
+    public static ListReply parseFrom(byte[] bytes) {
+        try (java.io.DataInputStream s = new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            int poolCount = s.readInt();
+            List<PoolReply> parsed = new ArrayList<>(poolCount);
+            for (int i = 0; i < poolCount; i++) {
+                String name = s.readUTF();
+                int modCount = s.readInt();
+                List<ModuleReply> mods = new ArrayList<>(modCount);
+                for (int j = 0; j < modCount; j++) {
+                    mods.add(new ModuleReply(s.readUTF()));
+                }
+                parsed.add(new PoolReply(name, mods));
+            }
+            return new ListReply(parsed);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     @Override
     protected BuilderStub newConcreteBuilder() {
         return new Builder(this);

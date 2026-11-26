@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import FlatPlayerSpeedFactory
 import FlatPlayerSpeedOption
+import FlatSpeedMenuAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.*
 import com.bilibili.lib.media.resource.MediaResource
@@ -77,8 +78,20 @@ class PlayerSpeedMenuAdapterTest {
             relatedClasses = mapOf(factory to listOf(FlatPlayerSpeedOption::class.java)))))
         assertEquals(points, PlayerSpeedMenuPoints.fromJson(points.toJson()))
         assertEquals(factory, PlayerSpeedMenuAdapter.resolve(loader, points)?.factory?.factoryMethod)
+        val fourParamFlattened = points.copy(factory = points.factory!!.copy(paramClassNames =
+            listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int")))
+        assertEquals(fourParamFlattened, PlayerSpeedMenuPoints.fromJson(fourParamFlattened.toJson()))
         assertNull(PlayerSpeedMenuPoints.fromJson(points.copy(factory = points.factory!!.copy(paramClassNames =
-            listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int"))).toJson()))
+            listOf(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.String", "int"))).toJson()))
+    }
+
+    fun `root package flattened speed adapter is accepted by structure and revalidated from cache`() {
+        val flatMethod = FlatSpeedMenuAdapter::class.java.getDeclaredMethod("a", Float::class.javaPrimitiveType)
+        assertTrue(PlayerSpeedMenuAdapter.adapterAbi(flatMethod))
+        val selected = requireNotNull(PlayerSpeedMenuAdapter.select(loader, DexAssistResult.Candidates(listOf(flatMethod))))
+        val restored = requireNotNull(PlayerSpeedMenuPoints.fromJson(selected.toJson()))
+        assertEquals(selected, restored)
+        assertEquals(flatMethod, PlayerSpeedMenuAdapter.resolve(loader, restored)?.adapter?.populateMethod)
     }
 
     @org.junit.Test
@@ -92,5 +105,6 @@ class PlayerSpeedMenuAdapterTest {
         runIsolated { s -> s.`ambiguous oversized and unavailable results fail closed`() }
         runIsolated { s -> s.`cache rejects foreign owners wildcard signatures and incomplete factory models`() }
         runIsolated { s -> s.`root package three parameter factory requires its linked option model`() }
+        runIsolated { s -> s.`root package flattened speed adapter is accepted by structure and revalidated from cache`() }
     }
 }

@@ -11,12 +11,30 @@ import org.junit.Test
 
 class SearchHomeRecommendTest {
     fun flattenedRootDeliveryOwnersAreAcceptedByShapeNotName() {
-        // 9.19 起投递 owner 扁平到根包且逐构建改名；准入只看包形态，唯一性由 delivery() 全图验真决定。
+        // 9.19 起投递/状态 owner 扁平到根包且逐构建改名；准入只看包形态，唯一性由全图验真决定。
         assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("pl22"))
         assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("fnc2"))
         assertTrue(SearchHomeRecommendLocator.acceptsDeliveryOwner("com.bilibili.search2.discover.r"))
         assertFalse(SearchHomeRecommendLocator.acceptsDeliveryOwner("com.bilibili.live.room.History"))
         assertFalse(SearchHomeRecommendLocator.acceptsDeliveryOwner(""))
+        assertTrue(SearchHomeRecommendLocator.acceptsStateOwner("v642"))
+        assertTrue(SearchHomeRecommendLocator.acceptsStateOwner("ode2"))
+        assertTrue(SearchHomeRecommendLocator.acceptsStateOwner("com.bilibili.search2.main.data.i"))
+        assertFalse(SearchHomeRecommendLocator.acceptsStateOwner("com.other.State"))
+        assertFalse(SearchHomeRecommendLocator.acceptsStateOwner(""))
+
+        val trap = object : ClassLoader(defaultLocateLoader()) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if ('$' in name && name.startsWith(SearchHomeRecommendLocator.DISCOVER)) error("nested scan touched $name")
+                return super.loadClass(name, resolve)
+            }
+        }
+        val cached = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryPoints(
+            searchDelivery = q::class.java.name,
+            searchState = i::class.java.name
+        )
+        assertTrue(SearchHomeRecommendLocator.fastCachedDelivery(trap, cached))
+        assertTrue(SearchHomeRecommendLocator.fastCachedState(trap, cached))
     }
 
     private class Harness(enabled: Boolean = true, val registrar: PlayerPortTestRegistrar = PlayerPortTestRegistrar(),

@@ -86,6 +86,30 @@ public class ViewReply {
         return new Builder(original);
     }
 
+    public byte[] toByteArray() {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream s = new java.io.DataOutputStream(out)) {
+            s.writeInt(present.size());
+            for (String item : present) s.writeUTF(item);
+            s.writeBoolean(failBuild);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.toByteArray();
+    }
+
+    public static ViewReply parseFrom(byte[] bytes) {
+        try (java.io.DataInputStream s = new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            int count = s.readInt();
+            Set<String> present = new LinkedHashSet<>();
+            for (int i = 0; i < count; i++) present.add(s.readUTF());
+            boolean failBuild = s.readBoolean();
+            return new ViewReply(present, failBuild);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     public static final class Builder {
 
         private final Set<String> present;

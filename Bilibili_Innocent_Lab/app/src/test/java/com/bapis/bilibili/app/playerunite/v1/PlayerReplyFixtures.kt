@@ -8,9 +8,47 @@ class PlayViewUniteReply(private var configuration: PlayArcConf = PlayArcConf.ge
     fun hasVodInfo() = video
     fun getPlayArcConf() = configuration
     private fun setPlayArcConf(value: PlayArcConf) { configuration = value }
+    fun toByteArray(): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(out).use {
+            it.writeBoolean(video)
+            val entries = configuration.getArcConfsMap()
+            it.writeInt(entries.size)
+            entries.forEach { (k, v) ->
+                it.writeInt(k)
+                it.writeBoolean(v.getDisabled())
+                it.writeBoolean(v.getIsSupport())
+            }
+        }
+        return out.toByteArray()
+    }
+    class Builder(source: PlayViewUniteReply) {
+        private var conf = source.configuration
+        private val video = source.video
+        private val payload = source.videoPayload
+        fun setPlayArcConf(value: PlayArcConf): Builder { conf = value; return this }
+        fun build() = PlayViewUniteReply(conf, video, payload)
+    }
     companion object {
         private val DEFAULT = PlayViewUniteReply(video = false)
         @JvmStatic fun getDefaultInstance() = DEFAULT
+        @JvmStatic fun newBuilder(source: PlayViewUniteReply) = Builder(source)
+        @JvmStatic fun parseFrom(bytes: ByteArray): PlayViewUniteReply =
+            java.io.DataInputStream(java.io.ByteArrayInputStream(bytes)).use { input ->
+                val video = input.readBoolean()
+                val count = input.readInt()
+                val confBuilder = PlayArcConf.newBuilder(PlayArcConf.getDefaultInstance())
+                repeat(count) {
+                    val key = input.readInt()
+                    val disabled = input.readBoolean()
+                    val supported = input.readBoolean()
+                    val arc = com.bapis.bilibili.playershared.ArcConf.newBuilder(
+                        com.bapis.bilibili.playershared.ArcConf.getDefaultInstance()
+                    ).setDisabled(disabled).setIsSupport(supported).build()
+                    confBuilder.putArcConfs(key, arc)
+                }
+                PlayViewUniteReply(confBuilder.build(), video)
+            }
     }
 }
 class PlayViewUniteReq(
