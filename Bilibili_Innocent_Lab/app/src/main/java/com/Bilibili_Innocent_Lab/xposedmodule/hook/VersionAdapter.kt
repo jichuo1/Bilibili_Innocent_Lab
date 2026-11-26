@@ -1,104 +1,105 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook
 
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeSemanticsPoint
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostComposeSemanticsAccess
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryPoints
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.View
-import android.widget.TextView
 import android.widget.Toast
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.Theseus2LongPressPoint
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AiPlaylistDirectorAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailRelateGameAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowUpRecommendAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareClasses
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionProfile
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPoint
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentQuickReplyAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCacheStore
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomain
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomainCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateObserver
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SyncLocatorRun
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.withoutDomains
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.GuestPlayerCoreAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PausedAdDexAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptResultCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptResultMerger
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptResultValidator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AiPlaylistDirectorAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CloudKeyFreezeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentQuickReplyAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailRelateGameAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailSpecialTagAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DexFeatureFlags
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DexFeatureRefreshContext
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DexFeatureRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowUpRecommendAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.GuestPlayerCoreAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.NormalQualityLocator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PrivacyChannelAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PauseRequestCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PageBoundaryPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PausedAdDexAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PrivacyChannelAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.ProtocolFingerprintBuilder
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerClasses
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StandardDexFeatureAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SyncLocatorRun
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentPoints
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityPoints
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.AtomicJsonCache
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.Theseus2LongPressPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareClasses
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionProfile
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistAttemptGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistCandidateSelector
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexSourceFingerprint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.CommentLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.CommentTopologyLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.CommentTopologyLocator.CommentTopologyLocateOutcome
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.HomeRecommendFeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.LocatorReflectUtils.label
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.LocatorReflectUtils.toHookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.MediaQualityAndPlayerLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.MineAndHomeUiLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.locators.VideoRelateLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.withoutDomains
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PauseRequestCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeSemanticsPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostComposeSemanticsAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
-import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isFinal
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isPublic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.lang.reflect.Field
-import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Method
-import java.lang.reflect.Type
-import java.lang.reflect.WildcardType
-import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -119,35 +120,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object VersionAdapter {
 
-    private const val PREF_FILE = "innocent_lab_version_adapter"
-    private const val KEY_ADAPTED_VERSION = "adapted_bili_version"
-    private const val KEY_ADAPT_RESULT = "adapt_result"
-    private const val KEY_RESET_TS = RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP
-
-    @Volatile
-    private var lastCacheStatus = "not-read"
-
     private val adaptationRunning = AtomicBoolean(false)
 
     private val dexAuditRunning = AtomicBoolean(false)
-
-    /**
-     * 二级缓存文件（B 站自身 cache 目录，loadApp 阶段无 Context 也可同步读；
-     * 模块 prefs 在部分设备（官方 LSPosed 无 DirectAccessService）不可用时，
-     * 此文件承担「适配完成后快路径」的载体）。
-     */
-    private fun cacheFile(): java.io.File = TargetAppStorage.cacheFile("innocent_lab_adapt.json")
-
-    /** DexMeguviz 查询进行中的标记，见 [DexAssistAttemptGuard]。 */
-    private fun dexAssistMarkerFile(context: Context? = null): java.io.File =
-        TargetAppStorage.cacheFile("innocent_lab_dex_assist.pending", context)
-
-    private fun writeCache(result: AdaptResult): Boolean {
-        val payload = result.toJson().toString()
-        return AtomicJsonCache.write(cacheFile(), payload) { candidate ->
-            runCatching { AdaptResult.fromJson(JSONObject(candidate)) != null }.getOrDefault(false)
-        }
-    }
 
     /** 适配状态回调（toast 提示用） */
     interface AdaptCallback {
@@ -232,12 +207,10 @@ object VersionAdapter {
     internal const val DEX_ASSIST_BLOCK_UPDATE_ID = AdaptAssistGate.BLOCK_UPDATE_ID
     internal const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = AdaptAssistGate.COMMENT_TOPOLOGY_ID
     internal const val DEX_ASSIST_PLAYER_QUALITY_ID = AdaptAssistGate.PLAYER_QUALITY_ID
-    private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
+    private const val DEX_SOURCE_UNAVAILABLE = AdaptCacheStore.DEX_SOURCE_UNAVAILABLE
 
     /** 计划没有要求该家族：诊断里的「未请求」，既不是 FOUND 也不是 MISSING，更不是为了补全诊断而重新探测。 */
     internal const val PLAN_NOT_REQUESTED = "plan:not-requested"
-    private val DEX_SOURCE_FINGERPRINT_PATTERN =
-        Regex("^dex-v1:[1-9][0-9]*:[0-9a-f]{64}$")
 
     enum class AdaptState {
         FOUND,
@@ -1992,6 +1965,11 @@ object VersionAdapter {
         /** Phase 2 按功能域拆分的规则版本映射（缺失时按各域基线 0 对待，与旧缓存向后兼容）。 */
         val domainRuleVersions: Map<String, Int> = emptyMap()
     ) {
+        /** 按诊断 ID 的 O(1) 惰性只读索引（重复 ID 时与历史 `lastOrNull` 语义一致）。 */
+        val diagnosticsById: Map<String, AdaptDiagnostic> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            if (diagnostics.isEmpty()) emptyMap() else diagnostics.associateBy(AdaptDiagnostic::id)
+        }
+
         /** 该家族此刻是否带有定位结果（暂停页含四个子点，任一有值即算）。 */
         internal fun hasPoint(family: PointFamily): Boolean = when (family) {
             PointFamily.COMMENT_LOW -> commentLow != null
@@ -2025,91 +2003,10 @@ object VersionAdapter {
             PointFamily.SPLASH_ADS -> splashAds != null
         }
 
-        fun toJson(): JSONObject = JSONObject().apply {
-            check(startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED }) {
-                "Partial startup adaptation cannot be persisted"
-            }
-            put("sv", SCHEMA_VERSION)
-            put("v", biliVersionCode)
-            put("ts", ts)
-            commentLow?.let { put("low", it.toJson()) }
-            commentHigh?.let { put("high", it.toJson()) }
-            mineEntry?.let { put("mine", it.toJson()) }
-            put("pause", pause.toJson())
-            banner?.let { put("banner", it.toJson()) }
-            homeTopBar?.let { put("home_top", it.toJson()) }
-            mineVip?.let { put("mine_vip", it.toJson()) }
-            blockUpdate?.let { put("block_update", it.toJson()) }
-            dynamicTabs?.let { put("dynamic_tabs", it.toJson()) }
-            fullNumbers?.let { put("full_numbers", it.toJson()) }
-            playerPortrait?.let { put("player_portrait", it.toJson()) }
-            playerInteractiveOverlays?.let { put("player_interactive_overlays", it.toJson()) }
-            pgcAutoActivityPopup?.let { put("pgc_auto_activity_popup", it.toJson()) }
-            playerStatusBar?.let { put("player_status_bar", it.toJson()) }
-            homeRecommendFeed?.let { put("home_recommend_feed", it.toJson()) }
-            videoRelate?.let { put("video_relate", it.toJson()) }
-            homeTabs?.let { put("home_tabs", it.toJson()) }
-            homeComponents?.let { put("home_components", it.toJson()) }
-            mineComponents?.let { put("mine_components", it.toJson()) }
-            mineAccountMine?.let { put("mine_account_mine", it.toJson()) }
-            storyFeed?.let { put("story_feed", it.toJson()) }
-            bottomBar?.let { put("bottom_bar", it.toJson()) }
-            playerQuality?.let { put("player_quality", it.toJson()) }
-            teenagersMode?.let { put("teenagers_mode", it.toJson()) }
-            commentPurify?.let { put("comment_purify", it.toJson()) }
-            commentFilter?.let { put("comment_filter", it.toJson()) }
-            commentTopology?.let { put("comment_topology", it.toJson()) }
-            commentSection?.let { put("comment_section", it.toJson()) }
-            splashAds?.let { put("splash_ads", it.toJson()) }
-            sponsorPlayer?.let { put("sponsor_player", it.toJson()) }
-            playerSpeedSession?.let { put("player_speed_session", it.toJson()) }
-            playerSpeedCalculator?.let { put("player_speed_calculator", it.toJson()) }
-            weChatShare?.let { put("wechat_share", it.toJson()) }
-            commentClassicStyle?.let { put("comment_classic", it.toJson()) }
-            playerPopupPromotion?.let { put("player_popup_promotion", it.toJson()) }
-            brandSplashDecoder?.let { put("brand_splash_decoder", it.toJson()) }
-            followFeedStyle?.let { put("follow_feed_style", it.toJson()) }
-            playerSpeedMenu?.let { put("player_speed_menu", it.toJson()) }
-            pageBoundaries?.let { put("page_boundaries", it.toJson()) }
-            if (homeChrome.isNotEmpty()) put("home_chrome", HomeChromeAdapter.toJson(homeChrome))
-            homeChromeSemantics?.let { put("home_chrome_semantics", it.toJson()) }
-            systemEnvironment?.let { put("system_environment", it.toJson()) }
-            commentComposeMenu?.let { put("comment_compose_menu", it.toJson()) }
-            kmpGrpcWireEngine?.let { put("kmp_grpc_wire_engine", it.toJson()) }
-            brandSplashKntrDraw?.let { put("brand_splash_kntr_draw", it) }
-            brandSplashKntrExit?.let { put("brand_splash_kntr_exit", it) }
-            brandSplashKntrPage?.let { put("brand_splash_kntr_page", it.toJson()) }
-            cloudKeyFreezeContract?.let { put("cloud_key_freeze_contract", it) }
-            privacyIgnetHttp?.let { put("privacy_ignet_http", it.toJson()) }
-            privacyKNeuron?.let { put("privacy_kneuron", it) }
-            guestPlayerCore?.let { put("guest_player_core", it) }
-            detailSpecialTagMapper?.let { put("detail_special_tag_mapper", it.toJson()) }
-            aiPlaylistDirector?.let { put("ai_playlist_director", it) }
-            if (followUpRecommendBodies.isNotEmpty()) {
-                put("follow_up_recommend_bodies", FollowUpRecommendAdapter.toJson(followUpRecommendBodies))
-            }
-            detailRelateGameComponent?.let { put("detail_relate_game_component", it) }
-            if (commentReplyButtonOwners.isNotEmpty()) {
-                put("comment_reply_button_owners", CommentReplyButtonAdapter.toJson(commentReplyButtonOwners))
-            }
-            homeRecommendEarlyLoadListener?.let { put("home_recommend_early_load_listener", it) }
-            legacyStoryDanmakuBind?.let { put("legacy_story_danmaku_bind", it.toJson()) }
-            playerSpeedTheseus2LongPress?.let { put("player_speed_theseus2_long_press", it.toJson()) }
-            coverage?.let { put("cov", it.toJson()) }
-            if (domainRuleVersions.isNotEmpty()) {
-                put("drv", JSONObject().apply {
-                    domainRuleVersions.toSortedMap().forEach { (k, v) -> put(k, v) }
-                })
-            }
-            put("fp", hostFingerprint)
-            put("protocol_fp", protocolFingerprint)
-            put("dex_fp", dexSourceFingerprint)
-            put("diag", JSONArray().apply { diagnostics.forEach { put(it.toJson()) } })
-        }
+        fun toJson(): JSONObject = AdaptResultCodec.toJson(this)
 
         fun isUsableWith(expectedFingerprint: String): Boolean =
-            startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED } &&
-                hostFingerprint == expectedFingerprint && isStructurallyValid()
+            AdaptResultValidator.isUsableWith(this, expectedFingerprint)
 
         fun diagnosticSummary(): String = diagnostics
             .groupingBy { it.state }
@@ -2120,730 +2017,20 @@ object VersionAdapter {
                 }
             }
 
-        private fun HookPoint.isValid(): Boolean =
-            className.isNotBlank() && methodName.isNotBlank() &&
-                paramClassNames?.all { it.isNotBlank() } != false
-
-        private fun isCoreMetadataValid(): Boolean =
-            startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED } &&
-                biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
-                (dexSourceFingerprint == DEX_SOURCE_UNAVAILABLE ||
-                    dexSourceFingerprint.matches(DEX_SOURCE_FINGERPRINT_PATTERN)) &&
-                protocolFingerprint.matches(PROTOCOL_FINGERPRINT_PATTERN)
-
-        private fun isPlayerAndUiPointsValid(): Boolean {
-            if (!pause.requestMethods.all { it.isValid() }) return false
-            if (pause.legacyCallback?.isValid() == false || pause.panelShow?.isValid() == false ||
-                pause.countdown?.isValid() == false
-            ) return false
-            pause.apiEntry?.let {
-                if (!it.isValid() || it.viewField != null ||
-                    !PauseRequestCoverage.allowedApiOwnerName(it.className)
-                ) return false
-            }
-            playerPortrait?.visibilityMethods?.let { methods ->
-                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
-            }
-            if (pgcAutoActivityPopup?.isValid() == false) return false
-            playerInteractiveOverlays?.let { value ->
-                val familiesValid = value.families.all { family ->
-                    family.replyClassName.isNotBlank() &&
-                        family.guideGetter?.isValid() != false &&
-                        family.guideClears.all { it.isValid() } &&
-                        family.guideClears.none {
-                            it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
-                        } &&
-                        family.guideDefault?.isValid() != false &&
-                        family.dmGetter?.isValid() != false &&
-                        family.dmClears.all { it.isValid() } &&
-                        family.dmDefault?.isValid() != false &&
-                        (family.dmGetter != null || family.dmClears.isEmpty())
-                }
-                if (!familiesValid || !value.mossExecutes.all { it.isValid() } ||
-                    !value.mossAsync.all { it.isValid() } ||
-                    value.commandGetter?.isValid() == false ||
-                    value.commandClear?.isValid() == false ||
-                    value.commandDefault?.isValid() == false ||
-                    value.commandActivityMetaClear?.isValid() == false ||
-                    (value.families.isEmpty() && value.commandClear == null)
-                ) return false
-            }
-            playerStatusBar?.onCreateMethods?.let { methods ->
-                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
-            }
-            playerQuality?.let { value ->
-                if ((value.defaultQualityMethod == null && value.story == null && value.normalAutoSwitch == null) ||
-                    value.defaultQualityMethod?.isValid() == false ||
-                    !value.capabilitySignals.all { it in PLAYER_QUALITY_CAPABILITY_SIGNALS } ||
-                    value.story?.isStructurallyValid() == false
-                ) return false
-                value.normalAutoSwitch?.let {
-                    if (!it.isValid() || it.viewField != null || it.paramClassNames != emptyList<String>() ||
-                        !NormalQualityLocator.allowedAutoSwitchOwner(it.className)
-                    ) return false
-                }
-            }
-            teenagersMode?.onCreateMethods?.let { methods ->
-                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
-            }
-            return true
-        }
-
-        private fun HomeRecommendFeedPoints.isFeedPointsValid(): Boolean =
-            responseItemGetters.isNotEmpty() && responseItemGetters.all { it.isValid() } &&
-                holderTypeGetter.isValid() && bizTypeGetter?.isValid() != false &&
-                adInfoGetter?.isValid() != false && cardGotoGetter?.isValid() != false &&
-                goToGetter?.isValid() != false && uriGetter?.isValid() != false &&
-                paramGetter?.isValid() != false && titleGetter?.isValid() != false &&
-                subtitleGetter?.isValid() != false && descGetter?.isValid() != false &&
-                playerArgsGetter?.isValid() != false && cardTypeGetter?.isValid() != false &&
-                playerArgsDurationGetter?.isValid() != false && argsGetter?.isValid() != false &&
-                argsTidGetter?.isValid() != false && argsTnameGetter?.isValid() != false &&
-                dislikeReasonSetter?.isValid() != false && dislikeRecordSetter?.isValid() != false &&
-                dislikeAnchorGetter?.isValid() != false && dislikeTypeGetter?.isValid() != false &&
-                argsRidGetter?.isValid() != false && feedbackItemExtendGetter?.isValid() != false &&
-                feedbackItemIdGetter?.isValid() != false && feedbackDialogFragmentCreate?.isValid() != false &&
-                feedbackGroupItemsGetter?.isValid() != false && feedbackGroupStyleGetter?.isValid() != false &&
-                feedbackGroupTitleGetter?.isValid() != false && feedbackGroupCopy?.isValid() != false &&
-                feedbackItemConstructor?.isValid() != false && feedbackItemTitleGetter?.isValid() != false &&
-                feedbackItemTypeGetter?.isValid() != false && feedbackItemOnClickGetter?.isValid() != false &&
-                argsUpIdGetter?.isValid() != false && argsUpNameGetter?.isValid() != false &&
-                // UP 读取链也挂在 argsGetter 下面；外层缺了内层就作废。
-                (argsGetter != null || (argsUpIdGetter == null && argsUpNameGetter == null)) &&
-                // rid/tid 是两级分区，都挂在 argsGetter 这条链下面；外层缺了内层就作废。
-                (argsGetter != null || argsRidGetter == null) &&
-                // 占位卡回指原卡是读分区的唯一路径；缺了就把两个 setter 一起作废，
-                // 否则安装器会以为能读分区，实际每次都拿 null，静默变成"从不命中"。
-                (dislikeAnchorGetter != null || (dislikeReasonSetter == null && dislikeRecordSetter == null)) &&
-                // tid 读取是两级链，缺内层就整维度作废——留着外层会让安装器
-                // 以为能读分区，实际每张卡都拿 null，静默变成"从不命中"。
-                (argsGetter != null || argsTidGetter == null) &&
-                intentHandlerOnCreate?.isValid() != false &&
-                if (playerArgsGetter == null) {
-                    playerArgsDurationField.isNullOrBlank() && playerArgsDurationGetter == null
-                } else {
-                    !playerArgsDurationField.isNullOrBlank() || playerArgsDurationGetter != null
-                }
-
-        private fun VideoRelatePoints.isRelatePointsValid(): Boolean =
-            responseItemGetters.isNotEmpty() && responseItemGetters.all { it.isValid() } &&
-                (cardCaseGetters.isNotEmpty() || gotoGetters.isNotEmpty() ||
-                    cardTypeGetters.isNotEmpty() || relateCardTypeGetters.isNotEmpty() ||
-                    fromSourceTypeGetters.isNotEmpty() || fromSourceTypeChains.isNotEmpty() ||
-                    relateCardTypeValueGetters.isNotEmpty() || directDurationGetters.isNotEmpty() ||
-                    durationChains.isNotEmpty() || reasonChains.isNotEmpty() ||
-                    commercialEvidenceChains.isNotEmpty()) &&
-                cardCaseGetters.all { it.isValid() } && gotoGetters.all { it.isValid() } &&
-                cardTypeGetters.all { it.isValid() } && relateCardTypeGetters.all { it.isValid() } &&
-                fromSourceTypeGetters.all { it.isValid() } &&
-                fromSourceTypeChains.all { it.itemGetter.isValid() && it.sourceTypeGetter.isValid() } &&
-                relateCardTypeValueGetters.all { it.isValid() } && directDurationGetters.all { it.isValid() } &&
-                durationChains.all { it.itemGetter.isValid() && it.durationGetter.isValid() } &&
-                reasonChains.all { it.steps.size in 1..3 && it.steps.all { s -> s.isValid() } } &&
-                commercialEvidenceChains.all { it.steps.size in 1..2 && it.steps.all { s -> s.isValid() } } &&
-                (authorNameChains + authorMidChains + tagNameChains + publishTextChains)
-                    .all { it.steps.size in 1..3 && it.steps.all { s -> s.isValid() } } &&
-                detailRelateService?.let { service ->
-                    service.componentFactory.isValid() && service.typeField?.isNotBlank() != false &&
-                        service.typeGetter?.isValid() != false && service.titleGetter?.isValid() != false
-                } != false
-
-        private fun isFeedAndMinePointsValid(): Boolean {
-            banner?.let {
-                if (it.bannerClassName.isBlank() || !it.lifecycleMethods.all { m -> m.isValid() }) return false
-            }
-            homeTopBar?.let { value ->
-                if (value.gameMenu?.let { p -> p.isValid() && !p.viewField.isNullOrBlank() } == false) return false
-                // Compose 层按元素字段判定 action，不需要 viewField。
-                if (value.composeGameMenu?.isValid() == false) return false
-                if (value.baseOnViewCreated?.let { p -> p.isValid() && !p.viewField.isNullOrBlank() } == false) return false
-                if (!value.defaultWordMethods.all { it.isValid() }) return false
-                if (value.kotlinDefaultWords?.let { it.isValid() && it.paramClassNames?.size in 4..5 } == false) return false
-            }
-            mineEntry?.let { mine ->
-                if (mine.groupListField.isBlank() || !mine.buildMethods.all { it.isValid() } ||
-                    !mine.clickMethod.isValid()
-                ) return false
-            }
-            mineVip?.let { value ->
-                if (!value.onResume.isValid() || value.onResume.viewField.isNullOrBlank() ||
-                    value.bindingField.isBlank() || !value.rootGetter.isValid()
-                ) return false
-            }
-            dynamicTabs?.let { value ->
-                if (!value.listGetter.isValid() || !value.addTab.isValid() || !value.tabCustomViewGetter.isValid() ||
-                    value.mediatorTabClassName.isBlank() || value.itemClassName.isBlank() ||
-                    value.itemTitleField.isBlank() || value.itemNameField.isBlank()
-                ) return false
-            }
-            fullNumbers?.formatterMethods?.let { methods ->
-                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
-            }
-            if (homeRecommendFeed?.isFeedPointsValid() == false) return false
-            if (videoRelate?.isRelatePointsValid() == false) return false
-            homeTabs?.let { value ->
-                if (!value.buildMethod.isValid() || value.resourceClassName.isBlank() ||
-                    value.idField.isBlank() || value.titleField.isBlank() || value.uriField.isBlank()
-                ) return false
-            }
-            homeComponents?.let { value ->
-                if (!value.onViewCreated.isValid() || !value.parentFragmentGetter.isValid()) return false
-            }
-            mineComponents?.let { value ->
-                val getterPathValid = value.itemListGetters.isNotEmpty() && value.itemTitleGetters.isNotEmpty() &&
-                    value.itemListGetters.all { it.isValid() } && value.itemTitleGetters.all { it.isValid() }
-                val legacyPathValid = value.legacyBuildMethods.isNotEmpty() &&
-                    value.legacyBuildMethods.all { it.isValid() } &&
-                    !value.legacyGroupListField.isNullOrBlank() && !value.legacyGroupClassName.isNullOrBlank() &&
-                    !value.legacyItemListField.isNullOrBlank() && !value.legacyItemClassName.isNullOrBlank() &&
-                    !value.legacyItemTitleField.isNullOrBlank()
-                if (!getterPathValid && !legacyPathValid) return false
-            }
-            storyFeed?.let { value ->
-                if ((value.responseItemGetters.isEmpty() && value.pagerListMethods.isEmpty()) ||
-                    !value.responseItemGetters.all { it.isValid() } || !value.pagerListMethods.all { it.isValid() } ||
-                    (value.adGetter == null && value.liveGetter == null && value.gameGetter == null &&
-                        value.bangumiGetter == null && value.courseGetter == null && value.musicGetter == null &&
-                        value.cartInfoGetter == null && value.dramaPromptGetter == null &&
-                        value.seasonInfoGetter == null) ||
-                    value.adGetter?.isValid() == false || value.liveGetter?.isValid() == false ||
-                    value.gameGetter?.isValid() == false || value.bangumiGetter?.isValid() == false ||
-                    value.courseGetter?.isValid() == false || value.musicGetter?.isValid() == false ||
-                    value.cartInfoGetter?.isValid() == false || value.dramaPromptGetter?.isValid() == false ||
-                    value.seasonInfoGetter?.isValid() == false || value.seasonTypeGetter?.isValid() == false ||
-                    (value.seasonInfoGetter == null) != (value.seasonTypeGetter == null)
-                ) return false
-            }
-            bottomBar?.let { value ->
-                if (!value.tabsGetter.isValid() || !value.bindTabMethod.isValid() ||
-                    value.itemClassName.isBlank() || value.itemStringFields.isEmpty() ||
-                    !value.itemStringFields.all { it.isNotBlank() }
-                ) return false
-            }
-            return true
-        }
-
-        private fun isCommentAndSplashPointsValid(): Boolean {
-            if (commentLow?.isValid() == false || commentHigh?.isValid() == false ||
-                blockUpdate?.isValid() == false
-            ) return false
-            commentPurify?.let { value ->
-                if ((value.urlMapGetters.isEmpty() && value.emptyPageGetters.isEmpty() &&
-                        value.voteWidgetMethods.isEmpty() && value.follow == null &&
-                        value.qoe == null && value.operations.isEmpty() &&
-                        value.quickReplyDialogMethods.isEmpty() && value.urlSchemaGetters.isEmpty()) ||
-                    !value.urlMapGetters.all { it.isValid() } || !value.urlSchemaGetters.all { it.isValid() } ||
-                    !value.emptyPageGetters.all { it.contentGetter.isValid() && it.defaultInstanceGetter.isValid() } ||
-                    !value.voteWidgetMethods.all { it.isValid() } ||
-                    !value.quickReplyDialogMethods.all { it.isValid() }
-                ) return false
-                value.follow?.let { follow ->
-                    if ((follow.widgetStateMethods.isEmpty() && follow.headerBindMethods.isEmpty()) ||
-                        !follow.widgetStateMethods.all { it.isValid() } ||
-                        !follow.headerBindMethods.all { it.isValid() } ||
-                        (follow.headerBindMethods.isNotEmpty() && follow.followButtonClassName.isNullOrBlank())
-                    ) return false
-                }
-                value.qoe?.let { qoe ->
-                    if (!qoe.presenceGetter.isValid() || !qoe.contentGetter.isValid() ||
-                        !qoe.defaultInstanceGetter.isValid()
-                    ) return false
-                }
-                if (!value.operations.all {
-                        it.presenceGetter.isValid() && it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
-                    }
-                ) return false
-            }
-            commentFilter?.let { value ->
-                if (value.replyListGetters.isEmpty() || !value.replyListGetters.all { it.isValid() } ||
-                    value.contentGetter?.isValid() == false || value.messageGetter?.isValid() == false ||
-                    value.memberGetter?.isValid() == false || value.levelGetter?.isValid() == false ||
-                    value.memberV2Getter?.isValid() == false || value.memberV2BasicGetter?.isValid() == false ||
-                    value.memberV2LevelGetter?.isValid() == false || value.atNameCountGetter?.isValid() == false ||
-                    value.atNameMapGetter?.isValid() == false || value.memberNameGetter?.isValid() == false ||
-                    value.memberMidGetter?.isValid() == false || value.memberV2NameGetter?.isValid() == false ||
-                    value.memberV2MidGetter?.isValid() == false || !value.topReplyGetters.all { it.isValid() } ||
-                    value.replyDefaultInstanceGetter?.isValid() == false
-                ) return false
-            }
-            commentTopology?.let { value ->
-                if (value.mapperMethods.isEmpty() || value.mapperMethods.size > CommentTopologyPoints.MAX_MAPPER_METHODS ||
-                    !value.mapperMethods.all { it.isValid() } || value.replyMossClassName.isBlank() ||
-                    !value.hasRequiredMethods() || !value.methods.values.all { it.isValid() }
-                ) return false
-            }
-            commentSection?.let { value ->
-                val ctorsValid = value.listConstructors.isNotEmpty() && value.listConstructors.all { p ->
-                    p.className.isNotBlank() && p.paramClassNames.isNotEmpty() &&
-                        p.paramClassNames.all { it.isNotBlank() } && p.listParameterIndex in p.paramClassNames.indices
-                }
-                if (!ctorsValid || !value.locatableTagGetter.isValid()) return false
-            }
-            splashAds?.listGetters?.let { getters ->
-                if (getters.isEmpty() || !getters.all { it.isValid() } ||
-                    !splashAds.itemSignalGetters.all { it.role in SPLASH_SIGNAL_METHOD_NAMES && it.getter.isValid() }
-                ) return false
-            }
-            return true
-        }
-
-        private fun isDexAssistPointsValid(): Boolean {
-            brandSplashDecoder?.let {
-                if (!it.isValid() || it.viewField != null || it.paramClassNames != listOf(BrandSplashDecoderAdapter.INFO)) return false
-            }
-            if (playerSpeedMenu?.isStructurallyValid() == false || pageBoundaries?.isValid() == false ||
-                !HomeChromeAdapter.validCache(homeChrome) || systemEnvironment?.isStructurallyValid() == false ||
-                homeChromeSemantics?.isStructurallyValid() == false || commentComposeMenu?.isStructurallyValid() == false
-            ) return false
-            kmpGrpcWireEngine?.let {
-                if (!it.isValid() || it.viewField != null || it.paramClassNames?.size !in 4..6) return false
-            }
-            if (brandSplashKntrDraw?.let(BrandSplashKntrAdapter::allowedOwnerName) == false ||
-                brandSplashKntrExit?.let(BrandSplashKntrAdapter::allowedOwnerName) == false
-            ) return false
-            brandSplashKntrPage?.let {
-                if (!it.isValid() || it.viewField != null || it.paramClassNames?.size !in 6..7 ||
-                    !BrandSplashKntrAdapter.allowedOwnerName(it.className)
-                ) return false
-            }
-            if (cloudKeyFreezeContract?.let(CloudKeyFreezeAdapter::allowedOwnerName) == false ||
-                privacyKNeuron?.let(PrivacyChannelAdapter::allowedKNeuronOwnerName) == false ||
-                guestPlayerCore?.let(GuestPlayerCoreAdapter::allowedOwnerName) == false ||
-                homeRecommendEarlyLoadListener?.let(HomeRecommendEarlyLoadAdapter::allowedClassName) == false ||
-                aiPlaylistDirector?.let(AiPlaylistDirectorAdapter::allowedOwnerName) == false ||
-                !FollowUpRecommendAdapter.validCache(followUpRecommendBodies) ||
-                detailRelateGameComponent?.let(DetailRelateGameAdapter::allowedComponentName) == false ||
-                legacyStoryDanmakuBind?.let(::isValidLegacyStoryDanmakuBind) == false
-            ) return false
-            privacyIgnetHttp?.let {
-                if (!it.isValid() || it.viewField != null || !it.paramClassNames.isNullOrEmpty() ||
-                    !PrivacyChannelAdapter.allowedIgnetOwnerName(it.className)
-                ) return false
-            }
-            detailSpecialTagMapper?.let {
-                if (!it.isValid() || it.viewField != null ||
-                    it.paramClassNames != listOf(DetailUnitedPresentationPurifyPolicy.SPECIAL_TAG_CLASS) ||
-                    !DetailSpecialTagAdapter.allowedOwnerName(it.className)
-                ) return false
-            }
-            if (!CommentReplyButtonAdapter.validCache(commentReplyButtonOwners)) return false
-            playerSpeedTheseus2LongPress?.let {
-                if (!PlayerSpeedLocator.allowedTheseus2Owner(it.launchClass) ||
-                    !PlayerSpeedLocator.allowedTheseus2Owner(it.portClass) ||
-                    it.portMethod.isBlank() || it.portMethod == "<init>" || it.portMethod == "<clinit>"
-                ) return false
-            }
-            return true
-        }
-
-        private fun isCoverageAndDiagnosticsValid(): Boolean {
-            // 声称「找到」的家族必须真的带着点；否则这份覆盖范围不可信，整份缓存按无效处理（重新适配）。
-            coverage?.let { cov ->
-                if (!cov.attempted.all { cov.attempt(it) != AdaptAssistGate.Attempt.FOUND || hasPoint(it) }) return false
-            }
-            if (!domainRuleVersions.all { (key, version) ->
-                    key in VersionAdapterContract.DOMAIN_RULE_VERSIONS && version >= 0
-                }
-            ) return false
-            return diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
-        }
-
         private fun isStructurallyValid(): Boolean =
-            isCoreMetadataValid() &&
-                isPlayerAndUiPointsValid() &&
-                isFeedAndMinePointsValid() &&
-                isCommentAndSplashPointsValid() &&
-                isDexAssistPointsValid() &&
-                isCoverageAndDiagnosticsValid()
+            AdaptResultValidator.isStructurallyValid(this)
 
         companion object {
-            private fun JSONObject.strictStringOrNull(key: String): String? =
-                if (isNull(key)) null else opt(key) as? String
-
-            private fun isValidLegacyStoryDanmakuBind(point: HookPoint): Boolean =
-                point.className.isNotBlank() &&
-                    point.methodName.isNotBlank() &&
-                    point.paramClassNames?.all { it.isNotBlank() } != false &&
-                    point.className == LegacyStoryDanmakuAdapter.OWNER &&
-                    point.viewField == null &&
-                    point.paramClassNames?.size == 2 &&
-                    point.paramClassNames[1] == "int" &&
-                    point.paramClassNames[0].isNotBlank()
-
-            fun fromJson(o: JSONObject): AdaptResult? {
-                if (o.optInt("sv", 0) != SCHEMA_VERSION) return null
-                val diagnosticsArray = o.optJSONArray("diag") ?: return null
-                val diagnostics = (0 until diagnosticsArray.length()).map { index ->
-                    AdaptDiagnostic.fromJson(diagnosticsArray.getJSONObject(index)) ?: return null
-                }
-                val drvObj: JSONObject? = if (o.has("drv")) {
-                    if (o.isNull("drv")) return null
-                    o.optJSONObject("drv") ?: return null
-                } else {
-                    null
-                }
-                val domainRuleVersions: Map<String, Int> = if (drvObj == null) {
-                    emptyMap()
-                } else {
-                    val parsed = linkedMapOf<String, Int>()
-                    val keys = drvObj.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        if (key !in VersionAdapterContract.DOMAIN_RULE_VERSIONS) continue
-                        val version = when (val raw = drvObj.get(key)) {
-                            is Int -> raw
-                            is Long -> if (raw in 0L..Int.MAX_VALUE.toLong()) raw.toInt() else return null
-                            else -> return null
-                        }
-                        if (version < 0) return null
-                        parsed[key] = version
-                    }
-                    parsed
-                }
-                return AdaptResult(
-                    biliVersionCode = o.getInt("v"),
-                    ts = o.optLong("ts", 0L),
-                    commentLow = if (o.has("low")) HookPoint.fromJson(o.getJSONObject("low")) else null,
-                    commentHigh = if (o.has("high")) HookPoint.fromJson(o.getJSONObject("high")) else null,
-                    mineEntry = o.optJSONObject("mine")?.let(MineEntryPoint::fromJson),
-                    pause = o.optJSONObject("pause")?.let(PausePoints::fromJson)
-                        ?: PausePoints(emptyList(), null, null, null),
-                    banner = o.optJSONObject("banner")?.let(BannerPoint::fromJson),
-                    homeTopBar = o.optJSONObject("home_top")?.let(HomeTopBarPoints::fromJson),
-                    mineVip = o.optJSONObject("mine_vip")?.let(MineVipPoint::fromJson),
-                    blockUpdate = o.optJSONObject("block_update")?.let(HookPoint::fromJson),
-                    dynamicTabs = o.optJSONObject("dynamic_tabs")?.let(DynamicTabsPoint::fromJson),
-                    fullNumbers = o.optJSONObject("full_numbers")?.let(FullNumberPoints::fromJson),
-                    playerPortrait = o.optJSONObject("player_portrait")
-                        ?.let(PlayerPortraitPoints::fromJson),
-                    playerInteractiveOverlays = o.optJSONObject("player_interactive_overlays")
-                        ?.let(PlayerInteractiveOverlayPoints::fromJson),
-                    pgcAutoActivityPopup = o.optJSONObject("pgc_auto_activity_popup")
-                        ?.let(PgcAutoActivityPopupPoints::fromJson),
-                    playerStatusBar = o.optJSONObject("player_status_bar")
-                        ?.let(PlayerStatusBarPoints::fromJson),
-                    homeRecommendFeed = o.optJSONObject("home_recommend_feed")
-                        ?.let(HomeRecommendFeedPoints::fromJson),
-                    videoRelate = o.optJSONObject("video_relate")
-                        ?.let(VideoRelatePoints::fromJson),
-                    homeTabs = o.optJSONObject("home_tabs")?.let(HomeTabPoints::fromJson),
-                    homeComponents = o.optJSONObject("home_components")
-                        ?.let(HomeComponentPoints::fromJson),
-                    mineComponents = o.optJSONObject("mine_components")
-                        ?.let(MineComponentPoints::fromJson),
-                    mineAccountMine = o.optJSONObject("mine_account_mine")
-                        ?.let(MineAccountMinePoints::fromJson),
-                    storyFeed = o.optJSONObject("story_feed")?.let(StoryFeedPoints::fromJson),
-                    bottomBar = o.optJSONObject("bottom_bar")?.let(BottomBarPoints::fromJson),
-                    playerQuality = o.optJSONObject("player_quality")
-                        ?.let(PlayerQualityPoints::fromJson),
-                    teenagersMode = o.optJSONObject("teenagers_mode")
-                        ?.let(TeenagersModePoints::fromJson),
-                    commentPurify = o.optJSONObject("comment_purify")
-                        ?.let(CommentPurifyPoints::fromJson),
-                    commentFilter = o.optJSONObject("comment_filter")
-                        ?.let(CommentFilterPoints::fromJson),
-                    commentTopology = o.optJSONObject("comment_topology")
-                        ?.let(CommentTopologyPoints::fromJson),
-                    commentSection = o.optJSONObject("comment_section")
-                        ?.let(CommentSectionPoints::fromJson),
-                    splashAds = o.optJSONObject("splash_ads")?.let(SplashAdPoints::fromJson),
-                    hostFingerprint = o.optString("fp"),
-                    protocolFingerprint = o.optString("protocol_fp"),
-                    diagnostics = diagnostics,
-                    dexSourceFingerprint = o.getString("dex_fp"),
-                    sponsorPlayer = o.optJSONObject("sponsor_player")?.let(SponsorPlayerClasses::fromJson),
-                    playerSpeedSession = if (o.has("player_speed_session"))
-                        PlayerSpeedSessionClasses.fromJson(o.getJSONObject("player_speed_session")) ?: return null else null,
-                    playerSpeedCalculator = if (o.has("player_speed_calculator"))
-                        LongPressCalculatorPoint.fromJson(o.getJSONObject("player_speed_calculator")) ?: return null else null,
-                    weChatShare = if (o.has("wechat_share"))
-                        WeChatShareClasses.fromJson(o.getJSONObject("wechat_share")) ?: return null else null,
-                    commentClassicStyle = if (o.has("comment_classic"))
-                        CommentClassicStylePoints.fromJson(o.getJSONObject("comment_classic")) ?: return null else null,
-                    playerPopupPromotion = if (o.has("player_popup_promotion"))
-                        PlayerPopupPromotionPoints.fromJson(o.getJSONObject("player_popup_promotion")) ?: return null else null,
-                    brandSplashDecoder = if (o.has("brand_splash_decoder")) {
-                        if (o.isNull("brand_splash_decoder")) return null
-                        val rawObj = o.optJSONObject("brand_splash_decoder") ?: return null
-                        HookPoint.fromJson(rawObj).also { point ->
-                            if (point.viewField != null || point.paramClassNames != listOf(BrandSplashDecoderAdapter.INFO)) return null
-                        }
-                    } else null,
-                    followFeedStyle = if (o.has("follow_feed_style"))
-                        FollowFeedPoints.fromJson(o.getJSONObject("follow_feed_style")) ?: return null else null,
-                    playerSpeedMenu = if (o.has("player_speed_menu"))
-                        PlayerSpeedMenuPoints.fromJson(o.getJSONObject("player_speed_menu")) ?: return null else null,
-                    pageBoundaries = if (o.has("page_boundaries"))
-                        PageBoundaryPoints.fromJson(o.getJSONObject("page_boundaries")) ?: return null else null,
-                    homeChrome = if (o.has("home_chrome"))
-                        HomeChromeAdapter.fromJson(o.getJSONObject("home_chrome")) ?: return null else emptyMap(),
-                    homeChromeSemantics = if (o.has("home_chrome_semantics"))
-                        HomeChromeSemanticsPoint.fromJson(o.getJSONObject("home_chrome_semantics")) ?: return null else null,
-                    systemEnvironment = if (o.has("system_environment"))
-                        SystemEnvironmentPoints.fromJson(o.getJSONObject("system_environment")) ?: return null else null,
-                    commentComposeMenu = if (o.has("comment_compose_menu"))
-                        CommentComposeMenuPoints.fromJson(o.getJSONObject("comment_compose_menu")) ?: return null else null,
-                    kmpGrpcWireEngine = if (o.has("kmp_grpc_wire_engine")) {
-                        if (o.isNull("kmp_grpc_wire_engine")) return null
-                        val rawObj = o.optJSONObject("kmp_grpc_wire_engine") ?: return null
-                        HookPoint.fromJson(rawObj).also { point ->
-                            if (point.viewField != null || point.paramClassNames?.size !in 4..6) return null
-                        }
-                    } else null,
-                    brandSplashKntrDraw = if (o.has("brand_splash_kntr_draw"))
-                        o.strictStringOrNull("brand_splash_kntr_draw")
-                            ?.takeIf(BrandSplashKntrAdapter::allowedOwnerName) ?: return null else null,
-                    brandSplashKntrExit = if (o.has("brand_splash_kntr_exit"))
-                        o.strictStringOrNull("brand_splash_kntr_exit")
-                            ?.takeIf(BrandSplashKntrAdapter::allowedOwnerName) ?: return null else null,
-                    brandSplashKntrPage = if (o.has("brand_splash_kntr_page")) {
-                        if (o.isNull("brand_splash_kntr_page")) return null
-                        val rawObj = o.optJSONObject("brand_splash_kntr_page") ?: return null
-                        HookPoint.fromJson(rawObj).also { point ->
-                            if (point.viewField != null || point.paramClassNames?.size !in 6..7 ||
-                                !BrandSplashKntrAdapter.allowedOwnerName(point.className)) return null
-                        }
-                    } else null,
-                    cloudKeyFreezeContract = if (o.has("cloud_key_freeze_contract"))
-                        o.strictStringOrNull("cloud_key_freeze_contract")
-                            ?.takeIf(CloudKeyFreezeAdapter::allowedOwnerName) ?: return null else null,
-                    privacyIgnetHttp = if (o.has("privacy_ignet_http")) {
-                        if (o.isNull("privacy_ignet_http")) return null
-                        val rawObj = o.optJSONObject("privacy_ignet_http") ?: return null
-                        HookPoint.fromJson(rawObj).also { point ->
-                            if (point.viewField != null || !point.paramClassNames.isNullOrEmpty() ||
-                                !PrivacyChannelAdapter.allowedIgnetOwnerName(point.className)) return null
-                        }
-                    } else null,
-                    privacyKNeuron = if (o.has("privacy_kneuron"))
-                        o.strictStringOrNull("privacy_kneuron")
-                            ?.takeIf(PrivacyChannelAdapter::allowedKNeuronOwnerName) ?: return null else null,
-                    guestPlayerCore = if (o.has("guest_player_core"))
-                        o.strictStringOrNull("guest_player_core")
-                            ?.takeIf(GuestPlayerCoreAdapter::allowedOwnerName) ?: return null else null,
-                    detailSpecialTagMapper = if (o.has("detail_special_tag_mapper")) {
-                        if (o.isNull("detail_special_tag_mapper")) return null
-                        val rawObj = o.optJSONObject("detail_special_tag_mapper") ?: return null
-                        HookPoint.fromJson(rawObj).also { point ->
-                            if (point.viewField != null ||
-                                point.paramClassNames != listOf(DetailUnitedPresentationPurifyPolicy.SPECIAL_TAG_CLASS) ||
-                                !DetailSpecialTagAdapter.allowedOwnerName(point.className)) return null
-                        }
-                    } else null,
-                    aiPlaylistDirector = if (o.has("ai_playlist_director"))
-                        o.strictStringOrNull("ai_playlist_director")
-                            ?.takeIf(AiPlaylistDirectorAdapter::allowedOwnerName) ?: return null else null,
-                    followUpRecommendBodies = if (o.has("follow_up_recommend_bodies")) {
-                        if (o.isNull("follow_up_recommend_bodies")) return null
-                        o.optJSONObject("follow_up_recommend_bodies")
-                            ?.let(FollowUpRecommendAdapter::fromJson) ?: return null
-                    } else emptyMap(),
-                    detailRelateGameComponent = if (o.has("detail_relate_game_component"))
-                        o.strictStringOrNull("detail_relate_game_component")
-                            ?.takeIf(DetailRelateGameAdapter::allowedComponentName) ?: return null else null,
-                    commentReplyButtonOwners = if (o.has("comment_reply_button_owners")) {
-                        if (o.isNull("comment_reply_button_owners")) return null
-                        o.optJSONObject("comment_reply_button_owners")
-                            ?.let(CommentReplyButtonAdapter::fromJson) ?: return null
-                    } else emptyMap(),
-                    homeRecommendEarlyLoadListener = if (o.has("home_recommend_early_load_listener"))
-                        o.strictStringOrNull("home_recommend_early_load_listener")
-                            ?.takeIf(HomeRecommendEarlyLoadAdapter::allowedClassName) ?: return null else null,
-                    legacyStoryDanmakuBind = if (o.has("legacy_story_danmaku_bind")) {
-                        if (o.isNull("legacy_story_danmaku_bind")) return null
-                        val rawObj = o.optJSONObject("legacy_story_danmaku_bind") ?: return null
-                        HookPoint.fromJson(rawObj).also { point ->
-                            if (!isValidLegacyStoryDanmakuBind(point)) return null
-                        }
-                    } else null,
-                    playerSpeedTheseus2LongPress = if (o.has("player_speed_theseus2_long_press")) {
-                        if (o.isNull("player_speed_theseus2_long_press")) return null
-                        o.optJSONObject("player_speed_theseus2_long_press")
-                            ?.let(Theseus2LongPressPoint::fromJson) ?: return null
-                    } else null,
-                    // 旧缓存没有 cov：覆盖范围未知（null），不会被当成覆盖完整。
-                    coverage = o.optJSONObject("cov")?.let(AdaptCoverage::fromJson),
-                    domainRuleVersions = domainRuleVersions
-                ).takeIf { it.isStructurallyValid() }
-            }
+            fun fromJson(o: JSONObject): AdaptResult? = AdaptResultCodec.fromJson(o)
         }
     }
 
-    /** 内置候选（已适配版本的已知 hook 点；新版本靠特征匹配自动修正） */
-    private val COMMENT_LOW_CANDIDATES = listOf(
-        "com.bilibili.app.comment3.ui.holder.t0",
-        // 8.63.0 及同类早期版本：评论 holder 是 h0（含 CommentItem 字段的 ViewHolder）；
-        // 绑定方法为内部 CommentContentRichTextHandler 的 G(...)，走高路径更精确，
-        // 此低路径仅作为「类存在即成功」的兜底候选（仍以特征方法名自动定位）
-        "com.bilibili.app.comment3.ui.holder.h0"
-    )
-
-    private val COMMENT_HIGH_CANDIDATES = listOf(
-        "com.bilibili.app.comment3.ui.nextholderexp3.handle.CommentNextExperiment3ContentRichTextHandler",
-        // nextholder 管线（9.13.0 实测生效族）：DeviceDecision 开关
-        // `comment.next_appearance` 命中时 adapter.a.onCreateViewHolder 选 il.* 族；
-        // 绑定方法 b(Zk.Q)/c(Zk.Q)，字段 h 存 CommentItem——与 exp3 结构同构，
-        // 特征定位可覆盖。
-        "com.bilibili.app.comment3.ui.nextholder.handle.CommentNextContentRichTextHandler",
-        // 8.63.0 及同类早期版本：非混淆 handler（绑定方法 G(CommentItem, jv.u, v0, r, int)，
-        // 字段 h 存 CommentItem——特征定位自动覆盖，候选仅提供类名入口）
-        "com.bilibili.app.comment3.ui.holder.handle.CommentContentRichTextHandler"
-    )
-
-    /**
-     * "不感兴趣"执行后替换原卡的占位卡。
-     *
-     * 2026-09-12 真机实测：三点面板有**两条**派发链——广告卡在
-     * `com.bilibili.ad.adview.pegasus.holders.threepoint.v5.ThreePointV5Kt$showV5MoreMenu$1`，
-     * 普通卡那条被 R8 重打包成 `st0.o#b`（类名与方法名全混淆，没法按名定位）。
-     * 之前只挂了广告卡那条，普通卡点了永不触发。
-     *
-     * 两条链最终都构造这个占位卡，且类名、setter 名、参数类型全部未混淆，
-     * 所以落点收敛到这里：一个类覆盖两条链，也不依赖 R8 是否保留某个合成 lambda 名。
-     */
-    private const val HOME_DISLIKE_ITEM_CLASS = "com.bilibili.pegasus.data.card.DislikeItemData"
-    private const val HOME_DISLIKE_REASON_CLASS =
-        "com.bilibili.app.comm.list.common.data.DislikeReason"
-    private const val HOME_DISLIKE_RECORD_CLASS =
-        "com.bilibili.pegasus.data.card.DislikeRequestRecord"
-    private const val HOME_PEGASUS_DATA_CLASS = "com.bilibili.pegasus.data.base.BasePegasusData"
-
-    /**
-     * 三点面板的被点项模型，在**未混淆**的共享弹窗模块 `kntr.app.pegasus.feedbackdialog` 里。
-     *
-     * 广告卡与普通卡两条派发链用的是同一个弹窗、同一个模型，所以被点项的 `extend`
-     * 只能也只该从这里读——落到占位卡之后它已经被工厂丢掉了。
-     */
-    private const val HOME_FEEDBACK_ITEM_CLASS =
-        "kntr.app.pegasus.feedbackdialog.model.FeedbackItem"
-
-    /** 手机上的三点面板；类名未混淆，两条派发链在手机上都到这里。 */
-    private const val HOME_FEEDBACK_DIALOG_CLASS =
-        "com.bilibili.pegasus.feedbackdialog.FeedbackDialogFragmentV5"
-
-    /** 面板的**分组**模型；外层 List 装的是它，不是项。 */
-    private const val HOME_FEEDBACK_GROUP_CLASS =
-        "kntr.app.pegasus.feedbackdialog.model.Feedback"
-
-    private const val HOME_MENU_ITEM_CLASS =
-        "com.bilibili.lib.homepage.startdust.menu.a"
-
-    /**
-     * 新 Compose 顶栏右上角项列表的收集 lambda（9.11.0(9110400) 实测存在）。
-     *
-     * **这是少见的"可以按名写死"的例外**：R8 把外层组件混淆成了
-     * `tv.danmaku.bili.home.components.topbar.k`（由本类 `this$0` 字段类型确认），
-     * 但 Kotlin 合成 lambda 的类描述符保留了原始外层类名，所以这个名字本身是稳定的。
-     * 即便如此，方法仍按签名过滤而不按名字，缺失时整层降级、不影响老路径。
-     */
-    private const val HOME_TOP_RIGHT_LAMBDA_CLASS =
-        "tv.danmaku.bili.home.components.topbar.TopRightComponent\$initTopRight\$1\$1"
-    private val HOME_BASE_FRAGMENT_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment"
-    )
-    private val HOME_MAIN_FRAGMENT_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.MainFragment"
-    )
-    private val HOME_DEFAULT_WORD_CLASS_CANDIDATES = setOf(
-        // 8.90.2
-        "com.bilibili.app.comm.list.common.api.d",
-        // 9.1.0–9.9.0
-        "com.bilibili.app.comm.list.common.api.b"
-    )
-    private val HOME_TOP_BAR_CANDIDATES = listOf(HOME_MENU_ITEM_CLASS, HOME_TOP_RIGHT_LAMBDA_CLASS) +
-        HOME_BASE_FRAGMENT_CANDIDATES + HOME_MAIN_FRAGMENT_CANDIDATES
-    private const val MINE_FRAGMENT_CLASS =
-        "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
-    private const val MINE_VIP_MANAGER_CLASS =
-        "tv.danmaku.bili.ui.main2.mine.modularvip.MineVipModuleManager"
-    private const val BILI_UPGRADE_INFO_CLASS =
-        "tv.danmaku.bili.update.model.BiliUpgradeInfo"
-    private const val DYNAMIC_MEDIATOR_FRAGMENT_CLASS =
-        "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
-    private const val DYNAMIC_MEDIATOR_TAB_CLASS =
-        "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
-    // 已按包装层、真实调用与方法体逐构建验真；9.19–9.21 的根包短名只在对应版本上使用。
-    private val VERIFIED_MEDIA_OWNERS = mapOf(
-        9180100 to ("zy1.c" to "qA1.g"),
-        9180200 to ("yy1.c" to "pA1.h"),
-        9180300 to ("zy1.c" to "qA1.h"),
-        9190200 to ("gwx1" to "rnr1"),
-        9190400 to ("gwx1" to "rnr1"),
-        // 9.20.0：block update 真实网络实现为 *72#a(Context)BiliUpgradeInfo（152 条指令，
-        // virtual），同签名的 *811/b911（30/33 条）仍是缓存/回退包装层，不选；默认画质
-        // *12#a()I 方法体含 'quality settings:' 日志（远端 dexq 字符串引用唯一命中）。
-        9200100 to ("lr72" to "mg12"),
-        9200200 to ("rt72" to "oh12"),
-        9200300 to ("jv72" to "wj12"),
-        // 9.21.0 双构建远端 dexq 验真：block update 为 *72#a(Context)BiliUpgradeInfo（306 条指令，
-        // 含 'Do sync http request.'），ep01/ps01（54 条）为缓存包装层；默认画质 t612/l212#a()I
-        // （55 条指令，含 'quality settings:'）。
-        9210100 to ("jg72" to "t612"),
-        9210200 to ("dd72" to "l212"),
-    )
-
-    private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
-        // 9.17.0(9170100)：FORCE_NETWORK、UpdateApk 写入及包装层调用链已核；Bx1.a 只做缓存回退。
-        "Bx1.c",
-        // 9.16.0(9160200)：专用网络日志、FORCE_NETWORK 与 UpdateApk 写入已核；不选缓存包装层。
-        "Gs1.c",
-        // 双 9.15.0：专用网络日志全局唯一；同包 a 仍是缓存/回退包装器。
-        "rs1.c", "ss1.c",
-        // 9.14.0(9140200)：更新链搬到 Dr1.*。Dr1.c#a(Context) 的方法体常量
-        // 'Do sync http request.' / 'fawkes.update.info.supplier' /
-        // 'Nothing to update, clean caches.' 的偏移（0000 / 0002 / 00ed）与 9.13.0 的
-        // ar1.c 逐字节位置相同，是网络边界；同签名的 Dr1.a 是缓存/回退包装层，
-        // 沿用"包装层不进候选"的纪律。30 个不同 SHA 的宿主样本里，没有一个旧宿主
-        // 满足 Dr1.c 的新入口签名（碰撞矩阵 Temp/host-compat/intake-9.14.0-9140200）。
-        "Dr1.c",
-        // 9.13.0(9130300)：ar1.c 执行 FORCE_NETWORK 请求并写 UpdateApk 缓存；
-        // 同签名的 ar1.a 只是缓存/回退包装层，不作为网络 Hook 边界。
-        "ar1.c",
-        // 9.11.0 → 9.1.0/9.1.1；再到 8.99.0 → 8.84.0。每个 owner 仍须通过
-        // 精确 (Context) -> BiliUpgradeInfo 签名和叶子实现筛选，类名存在本身不算命中。
-        //
-        // 9.12.0(9120100)：更新链搬到 gr1.*。`gr1.c` 的方法体包含
-        // `Do sync http request.`、`fawkes.update.info.supplier`、强制网络请求和
-        // UpdateApk 写缓存；同签名的 `gr1.a` 只是包装层，先请求缓存/回退再转发，
-        // 不能作为网络边界。因此只加入 `gr1.c`，不把同包包装器放进候选表。
-        "gr1.c",
-        //
-        // 9.11.0(9110400)：mq1.* 整族消失，搬到 qq1.*。三个同签名候选里
-        // **qq1.c 才是网络边界**——它的方法体常量与 9110200 的 mq1.c 逐字相同
-        // （'Do sync http request.' / 'fawkes.update.info.supplier' /
-        // 'Http request result %s, saved to file cache.' / 'Nothing to update, clean caches.'）。
-        // qq1.a 与抽象的 qq1.d 方法体**没有任何字符串常量**，与旧 mq1.a（缓存聚合器）
-        // 同形，所以**刻意不进候选**——沿用"缓存聚合器不能替代网络边界"那条纪律。
-        // 判定方式是按 const-string 提取方法体常量，并先在 9110200 上复现过
-        // mq1.c/mq1.a 的已知分工作为对照组（脚本 Temp/dexstrings.py）。
-        // 前置安全性已逐版核对：25 个存档宿主里 qq1.c 要么无类、要么类在但无此签名，
-        // 只有 9110400 命中，旧宿主会被签名过滤自然回退。
-        "qq1.c",
-        // 9.11.0(9110200) 的网络边界；同签名 mq1.a 是缓存聚合器，不能替代。
-        "mq1.c",
-        "Ip1.c", "Ro1.c", "Sn1.c", "Wm1.c", "wm1.c", "dl1.c",
-        "Uj1.c", "Ch1.c", "kh1.c", "ih1.c",
-        "Xg1.c", "Lg1.c", "Kg1.c", "od1.c", "Sb1.c",
-        "xb1.c", "Pa1.c", "si6.c", "oe6.c", "vd6.c",
-        "id6.c", "wc6.c", "xc6.c", "aa6.c", "o56.c"
-    )
-    private const val KNTR_NUMBER_FORMAT_CLASS =
-        "kntr.base.localization.NumberFormat_androidKt"
-    private val FULL_NUMBER_CLASS_CANDIDATES = listOf(
-        "com.bilibili.base.util.NumberFormat",
-        "com.bilibili.n9.util.NumberFormat",
-        "com.bilibili.lib.utils.NumberFormat",
-        KNTR_NUMBER_FORMAT_CLASS
-    )
-    private val PLAYER_PORTRAIT_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.gemini.player.widget.story.GeminiPlayerFullStoryWidget"
-    )
     /**
      * 播放器互动层的 `clear*` 白名单唯一来源。安装器与策略层都从这里读，禁止再复制一份，
      * 否则"golden test 锁着一份、运行时用另一份"的假保障会重新出现（2026-09-04 补记）。
      */
-    internal const val PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR = "clearVideoPoint"
+    internal const val PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR =
+        AdaptResultValidator.PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
 
     /**
      * 一个互动层协议家族：Moss / Reply / Guide 三个稳定类名，外加**显式**的 `clear*` 名单。
@@ -2865,357 +2052,19 @@ object VersionAdapter {
         val diagnosticFamilyId: String = "unknown"
     )
 
-    internal val PLAYER_INTERACTIVE_MOSS_FAMILIES = listOf(
-        PlayerInteractiveFamilySpec(
-            diagnosticFamilyId = "legacy",
-            mossClassName = "com.bapis.bilibili.app.view.v1.ViewMoss",
-            replyClassName = "com.bapis.bilibili.app.view.v1.ViewProgressReply",
-            guideClassName = "com.bapis.bilibili.app.view.v1.VideoGuide",
-            clearNames = listOf(
-                "clearAttention",
-                "clearCommandDms",
-                "clearContractCard",
-                "clearOperationCard",
-                "clearOperationCardNew",
-                "clearCardsSecond"
-            )
-        ),
-        PlayerInteractiveFamilySpec(
-            diagnosticFamilyId = "unified",
-            mossClassName = "com.bapis.bilibili.app.viewunite.v1.ViewMoss",
-            replyClassName = "com.bapis.bilibili.app.viewunite.v1.ViewProgressReply",
-            guideClassName = "com.bapis.bilibili.app.viewunite.v1.VideoGuide",
-            // 章节点 clearVideoPoint 必须保留，永远不进名单。
-            clearNames = listOf(
-                "clearContractCard",
-                "clearMaterial",
-                "clearRightMaterial"
-            ),
-            dmClassName = "com.bapis.bilibili.app.viewunite.v1.DmResource",
-            dmClearNames = listOf(
-                "clearAttention",
-                "clearCards",
-                "clearCommandDms"
-            )
-        )
-    )
-    internal const val PLAYER_INTERACTIVE_DM_MOSS_CLASS =
-        "com.bapis.bilibili.community.service.dm.v1.DMMoss"
-    internal const val PLAYER_INTERACTIVE_DM_REPLY_CLASS =
-        "com.bapis.bilibili.community.service.dm.v1.DmViewReply"
-    internal const val PLAYER_INTERACTIVE_DM_COMMAND_CLASS =
-        "com.bapis.bilibili.community.service.dm.v1.Command"
-    internal const val PLAYER_INTERACTIVE_DM_REPLY_CLEAR = "clearCommand"
-
-    /**
-     * `DmViewReply.activityMeta`（field 18，repeated string）。每条是一段 JSON，形如
-     * `{"id":10011,"start":0,"end":5,"picture":{"mime":"image","resource":"<png url>"}}`，
-     * 图里烘焙着「云视听小电视 / 开电视 看B站TV版 / 同步播出」整块横幅——**文案不在协议里，在图里**，
-     * 所以任何按文案搜协议的探针都搜不到。2026-09-04 由 Reqable HAR 实证定位。
-     */
-    internal const val PLAYER_INTERACTIVE_DM_ACTIVITY_META_CLEAR = "clearActivityMeta"
-    private const val PLAYER_INTERACTIVE_DEFAULT_INSTANCE_GETTER = "getDefaultInstance"
-    private val PLAYER_INTERACTIVE_CANDIDATE_CLASSES =
-        PLAYER_INTERACTIVE_MOSS_FAMILIES.flatMap {
-            listOf(it.mossClassName, it.replyClassName, it.guideClassName)
-        } + listOf(
-            PLAYER_INTERACTIVE_DM_MOSS_CLASS,
-            PLAYER_INTERACTIVE_DM_REPLY_CLASS,
-            PLAYER_INTERACTIVE_DM_COMMAND_CLASS
-        )
-    private val PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES = listOf(
-        "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
-    )
-    private const val HOME_VERTICAL_INTENT_HANDLER_CLASS =
-        "tv.danmaku.bili.ui.intent.IntentHandlerActivity"
-    private val PEGASUS_RESPONSE_CLASS_CANDIDATES = listOf(
-        "com.bilibili.pegasus.data.base.PegasusResponse"
-    )
-    private const val PEGASUS_HOLDER_DATA_CLASS = "com.bilibili.pegasus.PegasusHolderData"
-    private val BASE_PEGASUS_DATA_CLASS_CANDIDATES = listOf(
-        "com.bilibili.pegasus.data.base.BasePegasusData"
-    )
-    private val VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.app.viewunite.common.Relates",
-        "com.bapis.bilibili.app.viewunite.v1.Relates",
-        "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply",
-        "com.bapis.bilibili.app.view.v1.RelatesFeedReply",
-        "com.bapis.bilibili.app.view.v1.ViewReply",
-        "com.bapis.bilibili.app.view.v1.PlayerRelatesReply"
-    )
-    private const val DETAIL_RELATE_SERVICE_CLASS =
-        "com.bilibili.ship.theseus.united.page.intro.module.relate.DetailRelateService"
-    private const val DETAIL_RELATE_SERVICE_PACKAGE =
-        "com.bilibili.ship.theseus.united.page.intro.module.relate"
-    private val DETAIL_RELATE_TYPE_MEMBER_NAMES = setOf("type", "goto", "cardType")
-    private val DETAIL_RELATE_TYPE_GETTER_NAMES = setOf(
-        "getType",
-        "getGoto",
-        "getCardType"
-    )
-    private val VIDEO_RELATE_KNOWN_TYPE_NAMES = setOf(
-        "AV",
-        "BANGUMI",
-        "RESOURCE",
-        "GAME",
-        "CM",
-        "LIVE",
-        "BANGUMI_AV",
-        "AI_CARD",
-        "BANGUMI_UGC",
-        "SPECIAL",
-        "COURSE",
-        "MINI_PROGRAM",
-        "HISTORY_AV"
-    )
-    private val VIDEO_RELATE_ITEM_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.app.viewunite.common.RelateCard",
-        "com.bapis.bilibili.app.view.v1.Relate"
-    )
-    private val HOME_FRAGMENT_V2_CLASS_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.HomeFragmentV2"
-    )
-    // 主路径取 HomeFragmentV2 构建方法的泛型实参；这里只是泛型不可读时的兜底。
-    // 9.17.0(9170300) 的 Tab 模型由 resource.z 重排为 resource.y，字段布局不变；z 变成无字符串字段的 lambda，
-    // 会被 locateHomeTabs 的字符串字段数量检查拒绝。
-    private val HOME_TAB_RESOURCE_CLASS_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.resource.y",
-        "tv.danmaku.bili.ui.main2.resource.z"
-    )
-    private const val HOST_FRAGMENT_CLASS = "androidx.fragment.app.Fragment"
-    private val MINE_MENU_GROUP_CLASS_CANDIDATES = listOf(
-        "com.bilibili.lib.homepage.mine.MenuGroupV2",
-        "com.bilibili.lib.homepage.mine.MenuGroup"
-    )
-    private val MINE_MENU_ITEM_CLASS_CANDIDATES = listOf(
-        "com.bilibili.lib.homepage.mine.MenuGroupV2\$Item",
-        "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
-    )
-    private const val STORY_FEED_RESPONSE_CLASS =
-        "com.bilibili.video.story.api.StoryFeedResponse"
-    private const val STORY_DETAIL_CLASS = "com.bilibili.video.story.StoryDetail"
-    private const val STORY_PAGER_PLAYER_CLASS =
-        "com.bilibili.video.story.player.StoryPagerPlayer"
-    private val THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES = listOf(
-        "com.bilibili.ship.theseus.united.page.tab.TheseusTabPagerService"
-    )
-    private val SPLASH_RESPONSE_CLASS_CANDIDATES = listOf(
-        "tv.danmaku.bili.splash.ad.model.SplashListResponse",
-        "tv.danmaku.bili.splash.ad.model.SplashShowResponse",
-        "tv.danmaku.bili.ui.splash.SplashData",
-        "tv.danmaku.bili.ui.splash.ad.model.SplashData",
-        "tv.danmaku.bili.ui.splash.ShowSplashData",
-        "tv.danmaku.bili.ui.splash.ad.model.SplashShowData"
-    )
-    private val SPLASH_LIST_GETTER_NAMES = setOf(
-        "getSplashList",
-        "getStrategyList",
-        "getShowList",
-        "getAdList"
-    )
-    private val SPLASH_SIGNAL_METHOD_NAMES = mapOf(
-        "is_ad" to setOf("getIsAd", "isAd"),
-        "is_ad_loc" to setOf("getIsAdLoc", "isAdLoc"),
-        "cm_mark" to setOf("getCmMark"),
-        "ad_cb" to setOf("getAdCb"),
-        "uri" to setOf("getUri"),
-        "card_type" to setOf("getCardType"),
-        "server_type" to setOf("getServerType")
-    )
-    private val SPLASH_ITEM_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.app.splash.v1.SplashItem",
-        "tv.danmaku.bili.splash.ad.model.SplashItem",
-        "tv.danmaku.bili.ui.splash.ad.model.SplashItem"
-    )
-    private val BOTTOM_TAB_HOST_CLASS_CANDIDATES = listOf(
-        "com.bilibili.lib.homepage.widget.TabHost"
-    )
-    private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
-        // 9.17.0(9170100)：quality settings 日志、登录/能力限制和绕过稳定包装层的直接调用已核。
-        "tz1.h",
-        // 9.16.0(9160200)：完整 a()I 保留 Wi-Fi 偏好、登录/能力限制和 quality settings 日志。
-        "xu1.h",
-        // 双 9.15.0：quality settings: + 登录/能力限制，完整 a()I body 已核。
-        "iu1.h", "ju1.h",
-        // 9.14.0(9140200)：实现搬到 ut1.h#a()I。方法体同时含 'quality settings:'
-        // （偏移 0x25）与 ' defaultQuality:32 isLogin:'（0x27），与 9.13.0 的 Rs1.j 位置相同；
-        // 全类只有这一个 static a()I，owner 内唯一性天然成立。同版本里
-        // PlayerSettingHelper#getSettingsQuality 也带偏好键但只读偏好，仍是反例，不选。
-        "ut1.h",
-        // 9.13.0(9130300)：Rs1.j#a()I 读取画质偏好、应用登录/能力限制，
-        // 并记录 quality settings；不是只读偏好的 getSettingsQuality。
-        "Rs1.j",
-        // 新版 dex 可能保留旧混淆类，因此按新→旧探测；每个 owner 内仍要求唯一的
-        // 无参 Int 入口。8.84.0–9.12.0 均由
-        // "quality settings:" / 画质偏好键的离线方法体语义交叉核验。
-        // 9.11.0 的稳定 getDefaultQuality 仅转发 es1.i.a；getSettingsQuality 只读偏好。
-        //
-        // 9.12.0(9120100)：实现搬到 `Xs1.j#a()I`。方法体同时读取
-        // `pref_player_mediaSource_quality_wifi_key`、执行登录/能力限制并记录
-        // `quality settings:`，与旧版本的默认画质入口语义一致；同包其它方法不作为
-        // 候选，避免把预测/分辨率计算链误挂成默认值 Hook。
-        "Xs1.j",
-        //
-        // 9.11.0(9110400)：es1.i 消失，实现搬到 is1.h。判定依据是方法体常量与
-        // 9110200 的 es1.i#a()I **逐字相同**（'quality settings:' +
-        // 'pref_player_mediaSource_quality_wifi_key' + ' defaultQuality:32 isLogin:' …），
-        // 且 is1.h 全类**只有** `static a()I` 这一个方法，owner 内唯一性天然成立。
-        // ⚠️ 同版本里 PlayerSettingHelper#getSettingsQuality 也带偏好键但**只读偏好**，
-        // 是审计语义侧的反例，绝不能选它——所以判据要求**两个标记同时命中**。
-        // 前置安全性已逐版核对：25 个存档宿主里 is1.h 只在 9110400 带无参 Int 入口。
-        "is1.h",
-        "es1.i",
-        "Ar1.l", "Jq1.l", "Kp1.l", "Oo1.i", "oo1.g", "Vm1.i",
-        "Kl1.j", "tj1.g", "bj1.i", "Zi1.h",
-        "Oi1.f", "Ci1.f", "Bi1.f", "Ze1.h", "Dd1.h",
-        "hd1.h", "zc1.h", "dm6.h", "zh6.h", "gh6.h",
-        "tg6.h", "hg6.h",
-        // 8.84.0–8.87.0 的稳定公开入口；放在最后，避免新版残留包装器抢先命中。
-        PLAYER_QUALITY_LEGACY_HELPER_CLASS
-    )
-    /**
-     * 8.84.0–8.87.0 的真实实现；8.88.0 起只是转发到混淆实现的包装层，但类名与 `getDefaultQuality()`
-     * 一直保留。模块落后宿主、混淆候选全部落空时，候选表会"成功"落到它上面——只挂住经它转发的调用。
-     * 因此命中它时仍要跑 DexMeguviz 兜底，并在合并缓存时让兜底结果优先（见 [usesLegacyQualityHelper]）。
-     */
-    private const val PLAYER_QUALITY_LEGACY_HELPER_CLASS =
-        "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
+    internal val PLAYER_INTERACTIVE_MOSS_FAMILIES = MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_MOSS_FAMILIES
+    internal const val PLAYER_INTERACTIVE_DM_MOSS_CLASS = MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_DM_MOSS_CLASS
+    internal const val PLAYER_INTERACTIVE_DM_REPLY_CLASS = MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_DM_REPLY_CLASS
+    internal const val PLAYER_INTERACTIVE_DM_COMMAND_CLASS = MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_DM_COMMAND_CLASS
+    internal const val PLAYER_INTERACTIVE_DM_REPLY_CLEAR = MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_DM_REPLY_CLEAR
+    internal const val PLAYER_INTERACTIVE_DM_ACTIVITY_META_CLEAR =
+        MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_DM_ACTIVITY_META_CLEAR
 
     internal fun PlayerQualityPoints.usesLegacyQualityHelper(): Boolean =
-        defaultQualityMethod?.className == PLAYER_QUALITY_LEGACY_HELPER_CLASS
-
-    private val PLAYER_QUALITY_CAPABILITY_SIGNALS = setOf(
-        "stream_quality",
-        "vip_entitlement",
-        "codec"
-    )
-    private val PLAYER_SHARED_CLASS_CANDIDATES = mapOf(
-        "stream_info" to listOf(
-            "com.bapis.bilibili.playershared.StreamInfo"
-        ),
-        "dash_video" to listOf(
-            "com.bapis.bilibili.playershared.DashVideo"
-        ),
-        "video_vod" to listOf(
-            "com.bapis.bilibili.playershared.VideoVod"
-        ),
-        "vod_info" to listOf(
-            "com.bapis.bilibili.playershared.VodInfo"
-        )
-    )
-    private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
-        "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
-        "com.bilibili.app.preferences.TeenagersModeDialogActivity",
-        "tv.danmaku.bili.ui.teenagersmode.TeenagersModeDialogActivity"
-    )
-    private val COMMENT_CONTENT_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.Content"
-    )
-
-    /**
-     * 搜索链接的载体消息。
-     *
-     * 2026-09-15 抓包定死的形状（`Reply/MainList` 响应，字段号即 wire 协议）：
-     * `MainListReply.replies(2) → ReplyInfo.content(12) → Content.urls(5)
-     * → map value → Url.app_url_schema(4) = bilibili://search?from=appcommentline_search…`。
-     * 同一条 `Url` 还带 `title(1)`＝被链接的关键词、`prefix_icon(3)`＝搜索小图标、
-     * `pc_url(13)`＝网页版地址。
-     *
-     * 31 个本地宿主逐版核对：类名恒为 `com.bapis...reply.v1.Url`（`com.bapis` 不混淆），
-     * `Url` 恒有 14 个字段号；Wave 3 已移除不存在的 jadx 重定位伪包候选。
-     */
-    private val COMMENT_URL_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.Url"
-    )
-    private val COMMENT_EMPTY_PAGE_OWNER_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
-        "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply"
-    )
-    private val COMMENT_VOTE_WIDGET_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.comment.ext.widgets.CmtVoteWidget",
-        "com.bilibili.app.comment.ext.widgets.CmtMountWidget",
-        "com.bilibili.app.comment3.ui.widget.CommentVoteView"
-    )
-    private val COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget"
-    )
-    private val COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView"
-    )
-    private val COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES = listOf(
-        "com.bilibili.relation.widget.FollowButton"
-    )
-    private val COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.MainListReply"
-    )
-    private val COMMENT_REPLY_INFO_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.ReplyInfo"
-    )
-    private val PROTOCOL_FINGERPRINT_PATTERN =
-        Regex("protocol-v1:[0-9]+:[0-9a-f]{24}")
-    private val REBIND_PROTOCOL_FINGERPRINT_PATTERN =
-        Regex("^protocol-v1:[1-9][0-9]*:[0-9a-f]{24}$")
-
-    /** [buildProtocolStructureFingerprint] 的六个证据来源，对应的定位家族。 */
-    private val PROTOCOL_FINGERPRINT_FAMILIES = listOf(
-        PointFamily.HOME_RECOMMEND_FEED, PointFamily.VIDEO_RELATE, PointFamily.COMMENT_FILTER,
-        PointFamily.PLAYER_QUALITY, PointFamily.SPLASH_ADS, PointFamily.MINE_ACCOUNT_MINE
-    )
-    private const val COMMENT_ITEM_CLASS = "com.bilibili.app.comment3.data.model.CommentItem"
-    private const val COMMENT_REPLY_MAPPER_PACKAGE =
-        "com.bilibili.app.comment3.data.source.v1"
-    private data class VerifiedCommentReplyMapper(
-        val ownerClassName: String,
-        val methodName: String,
-        val fifthParamClassName: String
-    )
-
-    // 9.19–9.21 的五参 ReplyInfo -> CommentItem 根包混淆映射器逐构建验真，禁止跨构建串用。
-    private val VERIFIED_COMMENT_REPLY_MAPPERS: Map<Int, VerifiedCommentReplyMapper> = mapOf(
-        9190200 to VerifiedCommentReplyMapper("rg40", "B", "tev"),
-        9190400 to VerifiedCommentReplyMapper("rg40", "B", "tev"),
-        9200100 to VerifiedCommentReplyMapper("w360", "B", "caw"),
-        9200200 to VerifiedCommentReplyMapper("v260", "B", "m9w"),
-        9200300 to VerifiedCommentReplyMapper("l260", "B", "z8w"),
-        9210100 to VerifiedCommentReplyMapper("ot50", "B", "y1w"),
-        9210200 to VerifiedCommentReplyMapper("kt50", "B", "b4w")
-    )
-
-    /**
-     * `ReplyInfo -> CommentItem` 的旧映射落在同一个包的 Kotlin file facade 上，但类名随每次
-     * 混淆漂移，实测：8.63.0–8.96.0=e、8.97.0=c、8.98.0/8.99.0=d、9.1.0–9.2.0=c、
-     * 9.3.0–9.5.0=d、9.6.0=b、9.7.0–9.9.0=c、9.10.0=b。写死名单必然过期——9.6.0 与 9.10.0 已各
-     * 静默失效一次，因此改为在稳定包内按有界字母表列出候选，真正的判定仍由
-     * [locateCommentTopologyWithDiagnostic] 的结构过滤完成
-     *（static + 非 abstract + 非 synthetic + 首参 ReplyInfo + 返回 CommentItem）。
-     *
-     * 该包历史上最多 13 个单字母类（9.10.0 为 a..j），a..z 足以覆盖；若宿主改用多字母混淆名，
-     * 先由 [DexAssistQuery.COMMENT_REPLY_MAPPER] 兜底，兜底也落空时诊断会在
-     * `reply-mapper-methods` 阶段报 MISSING，属于可观测的有界失败，不会静默。
-     *
-     * 这里**不**再枚举 jadx 重定位包（`com.bilibili.p4439app.*`）。它是反编译器改名产物，运行时
-     * 从不存在；单点写 3 个候选无所谓，展开成 26 个就变成 26 次必失败的 `loadClass`，而
-     * `quickLocate` 在 loadApp 快路径上跑，这类浪费不该进去（失败结果虽然被
-     * `KavaMemberLookup` 负缓存，但每进程仍要真实走一遍多 dex 查找）。
-     */
-    private val COMMENT_REPLY_MAPPER_CLASS_CANDIDATES: List<String> =
-        ('a'..'z').map { letter -> "$COMMENT_REPLY_MAPPER_PACKAGE.$letter" }
-    private val FEED_PAGINATION_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.pagination.FeedPagination"
-    )
-    private val COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES = (4..40).flatMap { index ->
-        listOf(
-            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index",
-            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index\$2"
-        )
-    }
-
-    private fun prefs(context: Context) = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+        MediaQualityAndPlayerLocator.usesLegacyQualityHelper(this)
 
     /** 当前 B 站 versionCode（读自身包信息，隔离环境对自身可见） */
-    fun biliVersionCode(context: Context): Int = runCatching {
-        context.packageManager.getPackageInfo("tv.danmaku.bili", 0).versionCode
-    }.getOrDefault(0)
+    fun biliVersionCode(context: Context): Int = AdaptCacheStore.biliVersionCode(context)
 
     internal data class HostIdentity(val versionCode: Int, val fingerprint: String)
 
@@ -3231,8 +2080,6 @@ object VersionAdapter {
         val ruleVersion: Int
     )
 
-    private val SPLITS_FINGERPRINT_SEGMENT = Regex("^splits=[0-9a-f]{16}$")
-
     internal fun buildHostFingerprint(
         versionCode: Long,
         versionName: String,
@@ -3240,59 +2087,17 @@ object VersionAdapter {
         baseLastModified: Long,
         splits: Collection<SplitFileMeta> = emptyList(),
         ruleVersion: Int = ADAPTER_RULE_VERSION
-    ): String {
-        if (splits.isEmpty()) {
-            return listOf(
-                "tv.danmaku.bili",
-                versionCode.toString(),
-                versionName,
-                baseLength.toString(),
-                baseLastModified.toString(),
-                ruleVersion.toString()
-            ).joinToString("|")
-        }
-        val canonicalSplits = splits
-            .sortedWith(compareBy<SplitFileMeta>({ it.name }, { it.length }, { it.lastModified }))
-            .joinToString("\n") { "${it.name}:${it.length}:${it.lastModified}" }
-        val splitsHash = MessageDigest.getInstance("SHA-256")
-            .digest(canonicalSplits.toByteArray(Charsets.UTF_8))
-            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
-            .take(16)
-        return listOf(
-            "tv.danmaku.bili",
-            versionCode.toString(),
-            versionName,
-            baseLength.toString(),
-            baseLastModified.toString(),
-            "splits=$splitsHash",
-            ruleVersion.toString()
-        ).joinToString("|")
-    }
+    ): String = ProtocolFingerprintBuilder.buildHostFingerprint(
+        versionCode = versionCode,
+        versionName = versionName,
+        baseLength = baseLength,
+        baseLastModified = baseLastModified,
+        splits = splits,
+        ruleVersion = ruleVersion
+    )
 
-    internal fun parseHostFingerprint(fingerprint: String): ParsedHostFingerprint? {
-        val parts = fingerprint.split('|')
-        if (parts.size != 6 && parts.size != 7) return null
-        if (parts[0] != "tv.danmaku.bili") return null
-        val versionCode = parts[1].toLongOrNull() ?: return null
-        val baseLength = parts[3].toLongOrNull()?.takeIf { it > 0L } ?: return null
-        val baseLastModified = parts[4].toLongOrNull()?.takeIf { it > 0L } ?: return null
-        val splitsHash = if (parts.size == 7) {
-            if (!parts[5].matches(SPLITS_FINGERPRINT_SEGMENT)) return null
-            parts[5].removePrefix("splits=")
-        } else {
-            null
-        }
-        val ruleVersion = parts.last().toIntOrNull() ?: return null
-        return ParsedHostFingerprint(
-            packageName = parts[0],
-            versionCode = versionCode,
-            versionName = parts[2],
-            baseLength = baseLength,
-            baseLastModified = baseLastModified,
-            splitsHash = splitsHash,
-            ruleVersion = ruleVersion
-        )
-    }
+    internal fun parseHostFingerprint(fingerprint: String): ParsedHostFingerprint? =
+        ProtocolFingerprintBuilder.parseHostFingerprint(fingerprint)
 
     /** 启动时对适配缓存的处置：沿用 / 静默补适配（新增计划家族或局部域规则升级） / 完整适配。 */
     internal enum class AdaptDecision { REUSE, SUPPLEMENT_SILENTLY, ADAPT }
@@ -3302,41 +2107,15 @@ object VersionAdapter {
         refreshRequested: Boolean,
         coverageMissing: Set<PointFamily>,
         staleDomains: Set<AdaptDomain> = emptySet()
-    ): AdaptDecision = when {
-        usable == null || refreshRequested -> AdaptDecision.ADAPT
-        coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() -> AdaptDecision.SUPPLEMENT_SILENTLY
-        else -> AdaptDecision.REUSE
-    }
+    ): AdaptDecision = AdaptResultMerger.adaptDecision(
+        usable = usable,
+        refreshRequested = refreshRequested,
+        coverageMissing = coverageMissing,
+        staleDomains = staleDomains
+    )
 
-    internal fun verifyProtocolFingerprint(loader: ClassLoader, previous: AdaptResult): String? {
-        val computed = buildProtocolStructureFingerprint(
-            loader,
-            previous.homeRecommendFeed,
-            previous.videoRelate,
-            previous.commentFilter,
-            previous.playerQuality,
-            previous.splashAds,
-            previous.mineAccountMine
-        )
-        if (computed.evidenceCount <= 0) return null
-        var liveVerified = computed.liveResolvedCount
-        previous.mineAccountMine?.let { mine ->
-            val owner = KavaMemberLookup.classOrNull(loader, mine.accountMineClass) ?: return null
-            var cur: Class<*>? = owner
-            var hasSectionField = false
-            while (cur != null && !hasSectionField) {
-                hasSectionField = KavaMemberLookup.declaredFields(cur, true) { field ->
-                    !field.isStatic && field.name == mine.sectionListV2Field
-                }.isNotEmpty()
-                cur = cur.superclass
-            }
-            if (!hasSectionField || mine.buildMethods.any { resolveProtocolMethod(loader, it) == null }) {
-                return null
-            }
-            liveVerified++
-        }
-        return computed.value.takeIf { liveVerified > 0 }
-    }
+    internal fun verifyProtocolFingerprint(loader: ClassLoader, previous: AdaptResult): String? =
+        ProtocolFingerprintBuilder.verifyProtocolFingerprint(loader, previous)
 
     /** Only called on the adaptation worker after verifying both DEX source and live protocol structure; never an admission cache. */
     internal fun rebindRepackedCache(
@@ -3345,22 +2124,13 @@ object VersionAdapter {
         resetTimestamp: Long,
         actualDex: String?,
         actualProtocol: String?
-    ): AdaptResult? {
-        if (previous.hostFingerprint == identity.fingerprint || previous.ts < resetTimestamp.coerceAtLeast(0L) ||
-            identity.versionCode <= 0 || previous.biliVersionCode != identity.versionCode ||
-            !previous.isUsableWith(previous.hostFingerprint)) return null
-        val prev = parseHostFingerprint(previous.hostFingerprint) ?: return null
-        val curr = parseHostFingerprint(identity.fingerprint) ?: return null
-        if (prev.versionCode != identity.versionCode.toLong() || curr.versionCode != identity.versionCode.toLong() ||
-            prev.versionName != curr.versionName || prev.ruleVersion != ADAPTER_RULE_VERSION ||
-            curr.ruleVersion != ADAPTER_RULE_VERSION) return null
-        if (actualDex == null || !actualDex.matches(DEX_SOURCE_FINGERPRINT_PATTERN) ||
-            previous.dexSourceFingerprint != actualDex) return null
-        if (actualProtocol == null || !actualProtocol.matches(REBIND_PROTOCOL_FINGERPRINT_PATTERN) ||
-            previous.protocolFingerprint != actualProtocol) return null
-        // Preserve the original timestamp so a manual reset cannot be bypassed by renewing old results.
-        return previous.copy(hostFingerprint = identity.fingerprint)
-    }
+    ): AdaptResult? = ProtocolFingerprintBuilder.rebindRepackedCache(
+        previous = previous,
+        identity = identity,
+        resetTimestamp = resetTimestamp,
+        actualDex = actualDex,
+        actualProtocol = actualProtocol
+    )
 
     /** 只在同一次 attach 安装栈内复用；不持有 Context，不作为进程级永久缓存。 */
     internal data class StartupCacheSnapshot(
@@ -3391,70 +2161,21 @@ object VersionAdapter {
             val value = usableCache(highCandidateExists = false) ?: return false
             val stale = AdaptDomainCatalog.staleDomains(value.domainRuleVersions)
             val active = if (stale.isEmpty()) value else value.withoutDomains(stale)
-            return active.diagnostics.any { it.id == id && AdaptAssistGate.isAttemptedInCache(it) }
+            return active.diagnosticsById[id]?.let(AdaptAssistGate::isAttemptedInCache) == true
         }
     }
 
     @Suppress("DEPRECATION")
-    private fun readHostIdentity(context: Context): HostIdentity = runCatching {
-        val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
-        val versionCode = info.versionCodeCompat
-        val appInfo = info.applicationInfo
-        val basePath = appInfo?.sourceDir?.takeIf(String::isNotBlank)
-            ?: appInfo?.publicSourceDir?.takeIf(String::isNotBlank).orEmpty()
-        val source = File(basePath)
-        val rawSplits = appInfo?.splitSourceDirs?.takeIf { it.isNotEmpty() }
-            ?: appInfo?.splitPublicSourceDirs.orEmpty()
-        val splits = rawSplits
-            .asSequence()
-            .filter { !it.isNullOrBlank() }
-            .map { path ->
-                val splitFile = File(path)
-                SplitFileMeta(splitFile.name, splitFile.length(), splitFile.lastModified())
-            }
-            .toList()
-        val fingerprint = buildHostFingerprint(
-            versionCode = versionCode,
-            versionName = info.versionName.orEmpty(),
-            baseLength = source.length(),
-            baseLastModified = source.lastModified(),
-            splits = splits
-        )
-        HostIdentity(versionCode.toInt(), fingerprint)
-    }.getOrElse {
-        val versionCode = biliVersionCode(context)
-        HostIdentity(versionCode, "tv.danmaku.bili|$versionCode|rules=$ADAPTER_RULE_VERSION")
-    }
+    private fun readHostIdentity(context: Context): HostIdentity =
+        ProtocolFingerprintBuilder.readHostIdentity(context)
 
-    private fun buildHostFingerprint(context: Context): String = readHostIdentity(context).fingerprint
+    private fun buildHostFingerprint(context: Context): String =
+        ProtocolFingerprintBuilder.buildHostFingerprint(context)
 
-    internal fun readStartupCache(context: Context, resetTimestamp: Long): StartupCacheSnapshot {
-        val identity = readHostIdentity(context)
-        val resetTs = resetTimestamp.coerceAtLeast(0L)
-        return StartupCacheSnapshot(identity, resetTs, loadCached(context, resetTs, identity))
-    }
+    internal fun readStartupCache(context: Context, resetTimestamp: Long): StartupCacheSnapshot =
+        AdaptCacheStore.readStartupCache(context, resetTimestamp)
 
-    fun cacheStatus(): String = lastCacheStatus
-
-    /** 只读枚举 file → prefs 中的缓存候选，不修改 [lastCacheStatus] 也不因旧文件遮蔽 prefs 新缓存。 */
-    private fun readRawCacheCandidates(context: Context?, resetTimestamp: Long): List<AdaptResult> {
-        val resetTs = resetTimestamp.coerceAtLeast(0L)
-        val candidates = ArrayList<AdaptResult>(2)
-        runCatching {
-            val f = cacheFile()
-            if (f.exists()) AdaptResult.fromJson(JSONObject(f.readText()))?.takeIf { it.ts >= resetTs }?.let(candidates::add)
-        }
-        if (context != null) {
-            runCatching {
-                val p = prefs(context)
-                val v = p.getInt(KEY_ADAPTED_VERSION, 0)
-                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return@runCatching
-                val r = AdaptResult.fromJson(JSONObject(json)) ?: return@runCatching
-                if (r.biliVersionCode == v && r.ts >= resetTs) candidates.add(r)
-            }
-        }
-        return candidates
-    }
+    fun cacheStatus(): String = AdaptCacheStore.cacheStatus()
 
     /**
      * 读缓存适配结果（二级文件缓存优先；手动重置标记/版本不符返回 null）。
@@ -3462,66 +2183,7 @@ object VersionAdapter {
      * Yuki prefs，以免不可读文件把明确的重置请求静默变成 0。
      */
     fun loadCached(context: Context?, resetTimestamp: Long): AdaptResult? =
-        loadCached(context, resetTimestamp, context?.let(::readHostIdentity))
-
-    private fun loadCached(
-        context: Context?,
-        resetTimestamp: Long,
-        identity: HostIdentity?
-    ): AdaptResult? {
-        val resetTs = resetTimestamp.coerceAtLeast(0L)
-        val expectedFingerprint = identity?.fingerprint
-
-        fun accepted(result: AdaptResult, source: String): AdaptResult? {
-            if (result.ts < resetTs) {
-                lastCacheStatus = "$source-stale-reset"
-                return null
-            }
-            if (expectedFingerprint != null && !result.isUsableWith(expectedFingerprint)) {
-                lastCacheStatus = "$source-fingerprint-mismatch"
-                return null
-            }
-            val versionCode = identity?.versionCode ?: 0
-            if (versionCode != 0 && result.biliVersionCode != versionCode) {
-                lastCacheStatus = "$source-version-mismatch"
-                return null
-            }
-            lastCacheStatus = "$source-hit"
-            return result
-        }
-
-        // 文件缓存（loadApp 阶段可读）
-        val fileResult = runCatching {
-            val f = cacheFile()
-            if (!f.exists()) return@runCatching null
-            AdaptResult.fromJson(JSONObject(f.readText()))
-                ?: run {
-                    lastCacheStatus = "file-invalid"
-                    null
-                }
-        }.onFailure {
-            lastCacheStatus = "file-read-failed:${it.javaClass.simpleName}"
-        }.getOrNull()
-        fileResult?.let { accepted(it, "file") }?.let { return it }
-
-        // prefs 缓存（兜底；同样检查手动重置标记）
-        if (context != null) {
-            runCatching {
-                val p = prefs(context)
-                val v = p.getInt(KEY_ADAPTED_VERSION, 0)
-                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return@runCatching null
-                val r = AdaptResult.fromJson(JSONObject(json)) ?: return@runCatching null
-                if (r.biliVersionCode == v) r else null
-            }.onFailure {
-                lastCacheStatus = "prefs-read-failed:${it.javaClass.simpleName}"
-            }.getOrNull()?.let { accepted(it, "prefs") }?.let { return it }
-        }
-        if (!lastCacheStatus.contains("invalid") && !lastCacheStatus.contains("mismatch") &&
-            !lastCacheStatus.contains("failed") && !lastCacheStatus.contains("stale")) {
-            lastCacheStatus = "miss"
-        }
-        return null
-    }
+        AdaptCacheStore.loadCached(context, resetTimestamp)
 
     /**
      * 以实时结构定位为主，只用已经过宿主指纹校验的缓存补齐缺失点。
@@ -3532,231 +2194,27 @@ object VersionAdapter {
     internal fun mergeRuntimeWithCached(
         runtime: AdaptResult?,
         cached: AdaptResult?
-    ): AdaptResult? {
-        val activeCached = cached?.let {
-            val stale = AdaptDomainCatalog.staleDomains(it.domainRuleVersions)
-            if (stale.isEmpty()) it else it.withoutDomains(stale)
-        }
-        return mergeRuntimeWithCleanedCached(runtime, activeCached)
-    }
+    ): AdaptResult? = AdaptResultMerger.mergeRuntimeWithCached(runtime, cached)
 
-    private fun mergeRuntimeWithCleanedCached(
-        runtime: AdaptResult?,
-        cached: AdaptResult?
-    ): AdaptResult? {
-        if (runtime == null) return cached
-        if (cached == null) return runtime
-        val mergedDiagnostics = (runtime.diagnostics.map { it.id } + cached.diagnostics.map { it.id })
-            .distinct()
-            .mapNotNull { id ->
-                val live = runtime.diagnostics.firstOrNull { it.id == id }
-                val stored = cached.diagnostics.firstOrNull { it.id == id }
-                when {
-                    live == null -> stored
-                    stored == null -> live
-                    // 本进程的计划没有要求该家族：不能用「未请求」盖掉缓存里真实尝试过的结论（找到/确认缺失）。
-                    live.state == AdaptState.NOT_APPLICABLE && live.detail == PLAN_NOT_REQUESTED -> stored
-                    live.state == AdaptState.NOT_REQUESTED -> live
-                    stored.state == AdaptState.FOUND && live.state != AdaptState.FOUND -> stored
-                    id.startsWith(DEX_ASSIST_ID_PREFIX) &&
-                        stored.state == AdaptState.FOUND -> stored
-                    id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
-                        runtime.homeTopBar?.kotlinDefaultWords == null &&
-                        stored.state == AdaptState.MISSING -> stored
-                    id in quickLocateMissingRetainedDiagnosticIds &&
-                        stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
-                        live.detail == "quick-locate" -> stored
-                    else -> live
-                }
-            }
-        return runtime.copy(
-            biliVersionCode = cached.biliVersionCode,
-            ts = cached.ts,
-            commentLow = runtime.commentLow ?: cached.commentLow,
-            commentHigh = runtime.commentHigh ?: cached.commentHigh,
-            mineEntry = runtime.mineEntry ?: cached.mineEntry,
-            pause = PausePoints(
-                requestMethods = (runtime.pause.requestMethods + cached.pause.requestMethods)
-                    .distinct(),
-                legacyCallback = runtime.pause.legacyCallback ?: cached.pause.legacyCallback,
-                panelShow = runtime.pause.panelShow ?: cached.pause.panelShow,
-                countdown = runtime.pause.countdown ?: cached.pause.countdown,
-                apiEntry = runtime.pause.apiEntry ?: cached.pause.apiEntry
-            ),
-            banner = runtime.banner ?: cached.banner,
-            homeTopBar = runtime.homeTopBar?.let { live ->
-                live.copy(kotlinDefaultWords = live.kotlinDefaultWords ?: cached.homeTopBar?.kotlinDefaultWords)
-            } ?: cached.homeTopBar,
-            mineVip = runtime.mineVip ?: cached.mineVip,
-            blockUpdate = runtime.blockUpdate ?: cached.blockUpdate,
-            dynamicTabs = runtime.dynamicTabs ?: cached.dynamicTabs,
-            fullNumbers = runtime.fullNumbers ?: cached.fullNumbers,
-            playerPortrait = runtime.playerPortrait ?: cached.playerPortrait,
-            playerInteractiveOverlays = runtime.playerInteractiveOverlays
-                ?: cached.playerInteractiveOverlays,
-            pgcAutoActivityPopup = runtime.pgcAutoActivityPopup ?: cached.pgcAutoActivityPopup,
-            playerStatusBar = runtime.playerStatusBar ?: cached.playerStatusBar,
-            homeRecommendFeed = runtime.homeRecommendFeed ?: cached.homeRecommendFeed,
-            videoRelate = runtime.videoRelate ?: cached.videoRelate,
-            homeTabs = runtime.homeTabs ?: cached.homeTabs,
-            homeComponents = runtime.homeComponents ?: cached.homeComponents,
-            mineComponents = runtime.mineComponents ?: cached.mineComponents,
-            mineAccountMine = runtime.mineAccountMine ?: cached.mineAccountMine,
-            storyFeed = runtime.storyFeed ?: cached.storyFeed,
-            bottomBar = runtime.bottomBar ?: cached.bottomBar,
-            // 实时定位只落到稳定包装层、而后台 DexMeguviz 已找到真实实现时，用缓存里的实现。
-            playerQuality = mergePlayerQuality(runtime.playerQuality, cached.playerQuality),
-            teenagersMode = runtime.teenagersMode ?: cached.teenagersMode,
-            commentPurify = mergeCommentPurify(runtime.commentPurify, cached.commentPurify),
-            commentFilter = runtime.commentFilter ?: cached.commentFilter,
-            commentTopology = runtime.commentTopology ?: cached.commentTopology,
-            commentSection = runtime.commentSection ?: cached.commentSection,
-            splashAds = runtime.splashAds ?: cached.splashAds,
-            hostFingerprint = cached.hostFingerprint,
-            diagnostics = mergedDiagnostics,
-            dexSourceFingerprint = cached.dexSourceFingerprint,
-            sponsorPlayer = runtime.sponsorPlayer ?: cached.sponsorPlayer,
-            playerSpeedSession = runtime.playerSpeedSession ?: cached.playerSpeedSession,
-            playerSpeedCalculator = runtime.playerSpeedCalculator ?: cached.playerSpeedCalculator,
-            weChatShare = runtime.weChatShare ?: cached.weChatShare,
-            commentClassicStyle = CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle),
-            playerPopupPromotion = PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion),
-            brandSplashDecoder = runtime.brandSplashDecoder ?: cached.brandSplashDecoder,
-            followFeedStyle = runtime.followFeedStyle ?: cached.followFeedStyle,
-            playerSpeedMenu = runtime.playerSpeedMenu ?: cached.playerSpeedMenu,
-            pageBoundaries = runtime.pageBoundaries ?: cached.pageBoundaries,
-            homeChrome = cached.homeChrome + runtime.homeChrome,
-            homeChromeSemantics = runtime.homeChromeSemantics ?: cached.homeChromeSemantics,
-            systemEnvironment = SystemEnvironmentAdapter.merge(runtime.systemEnvironment, cached.systemEnvironment),
-            commentComposeMenu = CommentComposeMenuAdapter.merge(runtime.commentComposeMenu, cached.commentComposeMenu),
-            kmpGrpcWireEngine = runtime.kmpGrpcWireEngine ?: cached.kmpGrpcWireEngine,
-            brandSplashKntrDraw = runtime.brandSplashKntrDraw ?: cached.brandSplashKntrDraw,
-            brandSplashKntrExit = runtime.brandSplashKntrExit ?: cached.brandSplashKntrExit,
-            brandSplashKntrPage = runtime.brandSplashKntrPage ?: cached.brandSplashKntrPage,
-            cloudKeyFreezeContract = runtime.cloudKeyFreezeContract ?: cached.cloudKeyFreezeContract,
-            privacyIgnetHttp = runtime.privacyIgnetHttp ?: cached.privacyIgnetHttp,
-            privacyKNeuron = runtime.privacyKNeuron ?: cached.privacyKNeuron,
-            guestPlayerCore = runtime.guestPlayerCore ?: cached.guestPlayerCore,
-            detailSpecialTagMapper = runtime.detailSpecialTagMapper ?: cached.detailSpecialTagMapper,
-            commentReplyButtonOwners = cached.commentReplyButtonOwners + runtime.commentReplyButtonOwners,
-            homeRecommendEarlyLoadListener = runtime.homeRecommendEarlyLoadListener ?: cached.homeRecommendEarlyLoadListener,
-            aiPlaylistDirector = runtime.aiPlaylistDirector ?: cached.aiPlaylistDirector,
-            followUpRecommendBodies = cached.followUpRecommendBodies + runtime.followUpRecommendBodies,
-            detailRelateGameComponent = runtime.detailRelateGameComponent ?: cached.detailRelateGameComponent,
-            legacyStoryDanmakuBind = runtime.legacyStoryDanmakuBind ?: cached.legacyStoryDanmakuBind,
-            playerSpeedTheseus2LongPress = runtime.playerSpeedTheseus2LongPress ?: cached.playerSpeedTheseus2LongPress,
-            coverage = AdaptCoverage.merge(runtime.coverage, cached.coverage),
-            domainRuleVersions = cached.domainRuleVersions
-        ).applyStartupExclusions()
-    }
+    internal fun AdaptResult.applyStartupExclusions(): AdaptResult =
+        AdaptResultMerger.applyStartupExclusions(this)
 
-    internal fun AdaptResult.applyStartupExclusions(): AdaptResult {
-        if (startupExcluded.isEmpty()) return this
-        fun requested(family: StartupAdapterPlan.Family) = family.name !in startupExcluded
-        return copy(
-            dynamicTabs = dynamicTabs.takeIf { requested(StartupAdapterPlan.Family.DYNAMIC_TABS) },
-            fullNumbers = fullNumbers.takeIf { requested(StartupAdapterPlan.Family.FULL_NUMBERS) },
-            playerPortrait = playerPortrait.takeIf { requested(StartupAdapterPlan.Family.PLAYER_PORTRAIT) },
-            playerInteractiveOverlays = playerInteractiveOverlays.takeIf { requested(StartupAdapterPlan.Family.PLAYER_INTERACTIVE) },
-            pgcAutoActivityPopup = pgcAutoActivityPopup.takeIf { requested(StartupAdapterPlan.Family.PGC_POPUP) },
-            playerStatusBar = playerStatusBar.takeIf { requested(StartupAdapterPlan.Family.PLAYER_STATUS_BAR) },
-            playerQuality = playerQuality.takeIf { requested(StartupAdapterPlan.Family.PLAYER_QUALITY) },
-            teenagersMode = teenagersMode.takeIf { requested(StartupAdapterPlan.Family.TEENAGERS) },
-            commentPurify = commentPurify.takeIf { requested(StartupAdapterPlan.Family.COMMENT_PURIFY) },
-            commentFilter = commentFilter.takeIf { requested(StartupAdapterPlan.Family.COMMENT_FILTER) },
-            commentTopology = commentTopology.takeIf { requested(StartupAdapterPlan.Family.COMMENT_TOPOLOGY) },
-            commentSection = commentSection.takeIf { requested(StartupAdapterPlan.Family.COMMENT_SECTION) },
-            splashAds = splashAds.takeIf { requested(StartupAdapterPlan.Family.SPLASH) },
-            videoRelate = videoRelate.takeIf { requested(StartupAdapterPlan.Family.VIDEO_RELATE) },
-            diagnostics = diagnostics.map { diagnostic ->
-                val family = StartupAdapterPlan.diagnosticFamily(diagnostic.id)
-                if (diagnostic.id == "protocol.structure" || family?.name in startupExcluded)
-                    diagnostic.copy(state = AdaptState.NOT_REQUESTED, detail = "startup-not-requested")
-                else diagnostic
-            }
-        )
-    }
+    internal fun mergePlayerQuality(live: PlayerQualityPoints?, cached: PlayerQualityPoints?): PlayerQualityPoints? =
+        AdaptResultMerger.mergePlayerQuality(live, cached)
 
-    internal fun mergePlayerQuality(live: PlayerQualityPoints?, cached: PlayerQualityPoints?): PlayerQualityPoints? {
-        live ?: return cached
-        cached ?: return live
-        val global = if (live.usesLegacyQualityHelper() && cached.defaultQualityMethod != null && !cached.usesLegacyQualityHelper())
-            cached.defaultQualityMethod else live.defaultQualityMethod ?: cached.defaultQualityMethod
-        return PlayerQualityPoints(global, (live.capabilitySignals + cached.capabilitySignals).distinct(),
-            StoryQualityLocator.merge(live.story, cached.story),
-            live.normalAutoSwitch ?: cached.normalAutoSwitch)
-    }
-
-    internal fun mergeCommentPurify(live: CommentPurifyPoints?, cached: CommentPurifyPoints?): CommentPurifyPoints? = when {
-        live == null -> cached
-        cached == null -> live
-        else -> live.copy(
-            quickReplyDialogMethods = live.quickReplyDialogMethods.ifEmpty { cached.quickReplyDialogMethods }
-        )
-    }
-
-    private val quickLocateMissingRetainedDiagnosticIds: Set<String> by lazy {
-        buildSet {
-            PlayerPopupPromotionAdapter.Family.entries.forEach { add(it.diagnostic) }
-            add(BrandSplashDecoderAdapter.DIAGNOSTIC)
-            add(BrandSplashKntrAdapter.DIAGNOSTIC)
-            add(BrandSplashKntrAdapter.DIAGNOSTIC_EXIT)
-            add(BrandSplashKntrAdapter.DIAGNOSTIC_PAGE)
-            add(CommentQuickReplyAdapter.DIAGNOSTIC)
-            add(PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN)
-            add(PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API)
-            add(HomeTabResourceAdapter.DIAGNOSTIC)
-            add(CloudKeyFreezeAdapter.DIAGNOSTIC)
-            add(PrivacyChannelAdapter.DIAGNOSTIC_IGNET)
-            add(PrivacyChannelAdapter.DIAGNOSTIC_KNEURON)
-            add(GuestPlayerCoreAdapter.DIAGNOSTIC)
-            add(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC)
-            add(AiPlaylistDirectorAdapter.DIAGNOSTIC)
-            add(FollowUpRecommendAdapter.DIAGNOSTIC)
-            add(DetailRelateGameAdapter.DIAGNOSTIC)
-            add(LegacyStoryDanmakuAdapter.DIAGNOSTIC)
-            add(PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC)
-            add(NormalQualityLocator.DIAGNOSTIC)
-            add(DetailSpecialTagAdapter.DIAGNOSTIC)
-            add(CommentReplyButtonAdapter.DIAGNOSTIC)
-            add(FollowFeedAdapter.DIAGNOSTIC)
-            add(StoryQualityLocator.DIAGNOSTIC)
-            add(PlayerSpeedMenuAdapter.DIAGNOSTIC)
-            PageBoundaryAdapter.queries.forEach { add(PageBoundaryAdapter.diagnostic(it)) }
-            SystemEnvironmentAdapter.Family.entries.forEach { add(it.diagnostic) }
-            add(CommentComposeMenuAdapter.DIAGNOSTIC)
-            add(KmpGrpcWireAdapter.DIAGNOSTIC)
-            add(SponsorPlayerLocator.DIAGNOSTIC)
-            add(DEX_ASSIST_BLOCK_UPDATE_ID)
-            add(DEX_ASSIST_PLAYER_QUALITY_ID)
-            add(DEX_ASSIST_COMMENT_TOPOLOGY_ID)
-        }
-    }
+    internal fun mergeCommentPurify(live: CommentPurifyPoints?, cached: CommentPurifyPoints?): CommentPurifyPoints? =
+        AdaptResultMerger.mergeCommentPurify(live, cached)
 
     /** 缓存是否覆盖当前版本 */
-    fun isCached(context: Context, resetTimestamp: Long): Boolean {
-        val cached = loadCached(context, resetTimestamp) ?: return false
-        return cached.biliVersionCode == biliVersionCode(context)
-    }
+    fun isCached(context: Context, resetTimestamp: Long): Boolean =
+        AdaptCacheStore.isCached(context, resetTimestamp)
 
     /**
      * 手动重适配：写重置标记 + 清除记录（B 站下次启动即重新定位）。
      * reset_ts 写入模块私有权威设置后，由 RemoteHookConfigStore 发布到 API 102 配置组。
      */
-    fun clearCache(context: Context, modulePrefs: SharedPreferences?) {
-        runCatching {
-            modulePrefs?.edit()?.putLong(KEY_RESET_TS, System.currentTimeMillis())?.apply()
-        }
-        runCatching {
-            prefs(context).edit()
-                .remove(KEY_ADAPTED_VERSION)
-                .remove(KEY_ADAPT_RESULT)
-                .apply()
-        }
-        runCatching { cacheFile().delete() }
-        // 手动重适配也给上次没查完的 DexMeguviz 一次重试机会。
-        runCatching { dexAssistMarkerFile(context).delete() }
-    }
+    fun clearCache(context: Context, modulePrefs: SharedPreferences?) =
+        AdaptCacheStore.clearCache(context, modulePrefs)
 
     /**
      * 后台校验缓存里的 DEX 内容指纹是否仍与宿主一致。
@@ -3794,8 +2252,11 @@ object VersionAdapter {
                 // 逃逸异常都按杀进程处理，原先 try/finally 无 catch 会直接带走宿主。
                 HostThreadGuard.run("adapter.dex_audit") {
                     // prefs 命中但文件缺失时补写；exists 和原子写入也属于 I/O，不能留在 attach。
-                    runCatching { if (!cacheFile().exists()) writeCache(cached) }
-                        .onFailure { ModernHookLog.error("[BIL] 后台适配缓存维护失败", it) }
+                    runCatching {
+                        if (!AdaptCacheStore.cacheFile().exists()) {
+                            AdaptCacheStore.writeCache(cached)
+                        }
+                    }.onFailure { ModernHookLog.error("[BIL] 后台适配缓存维护失败", it) }
                     if (expected == DEX_SOURCE_UNAVAILABLE) return@run
                     val actual = inspectHostDexSource(context)?.value
                     when (actual) {
@@ -3921,6 +2382,44 @@ object VersionAdapter {
             if (commentQuickReplyEnabled) add(PointFamily.COMMENT_PURIFY)
             if (pausedAdEnabled) add(PointFamily.PAUSE)
         })
+        val featureFlags = DexFeatureFlags(
+            kotlinDefaultWordsEnabled = kotlinDefaultWordsEnabled,
+            sponsorBlockEnabled = sponsorBlockEnabled,
+            commentClassicStyleEnabled = commentClassicStyleEnabled,
+            playerPopupPromotionEnabled = playerPopupPromotionEnabled,
+            brandSplashCustomEnabled = brandSplashCustomEnabled,
+            followFeedStyleEnabled = followFeedStyleEnabled,
+            playerQualityEnabled = playerQualityEnabled,
+            playerSpeedMenuEnabled = playerSpeedMenuEnabled,
+            playerSpeedSessionEnabled = playerSpeedSessionEnabled,
+            playerSpeedCalculatorEnabled = playerSpeedCalculatorEnabled,
+            weChatShareEnabled = weChatShareEnabled,
+            searchHomeRecommendEnabled = searchHomeRecommendEnabled,
+            playerEndPageRecommendEnabled = playerEndPageRecommendEnabled,
+            homeChromeEnabled = homeChromeEnabled,
+            homeChromeIconOnly = homeChromeIconOnly,
+            homeTopTabCenteringEnabled = homeTopTabCenteringEnabled,
+            systemEnvironmentEnabled = systemEnvironmentEnabled,
+            blockUpdateEnabled = blockUpdateEnabled,
+            commentTopologyEnabled = commentTopologyEnabled,
+            kmpGrpcWireEnabled = kmpGrpcWireEnabled,
+            cloudKeyFreezeEnabled = cloudKeyFreezeEnabled,
+            incognitoPrivacyEnabled = incognitoPrivacyEnabled,
+            detailSpecialTagEnabled = detailSpecialTagEnabled,
+            commentReplyButtonEnabled = commentReplyButtonEnabled,
+            guestBrowsingEnabled = guestBrowsingEnabled,
+            homeRecommendEarlyLoadEnabled = homeRecommendEarlyLoadEnabled,
+            commentQuickReplyEnabled = commentQuickReplyEnabled,
+            pausedAdEnabled = pausedAdEnabled,
+            brandSplashSkipEnabled = brandSplashSkipEnabled,
+            aiDeclaredVideoEnabled = aiDeclaredVideoEnabled,
+            followUpRecommendEnabled = followUpRecommendEnabled,
+            detailRelateGameEnabled = detailRelateGameEnabled,
+            storyDanmakuToggleHidden = storyDanmakuToggleHidden,
+            playerSpeedLongPressEnabled = playerSpeedLongPressEnabled,
+            splashAutoNightEnabled = splashAutoNightEnabled,
+            homeTabsRequested = adaptPlan.needs(PointFamily.HOME_TABS)
+        )
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
             startupCache
@@ -3931,7 +2430,7 @@ object VersionAdapter {
         // 快路径有效性：版本匹配 且（high 已定位 或 当前版本无 high 候选类）。
         // 防止旧缓存（sv 同但 high 缺失——如 8.63.0 早期 low-only 结果）被快路径
         // 复用而跳过重定位（曾有 01:04 prefs 旧结果导致 9.8.0 一直 low-only 的回归）。
-        val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
+        val highCandidateExists = CommentLocator.COMMENT_HIGH_CANDIDATES.any {
             KavaMemberLookup.hasClass(classLoader, it)
         }
         // 先保留同指纹/版本/reset 的有效快照；按域版本剔除失效域，其余域在增量补适配时继续沿用。
@@ -3955,24 +2454,21 @@ object VersionAdapter {
             dexSource: DexSourceFingerprint.Result?
         ): AdaptResult? {
             val prev = HistorySnapshot.of(history)
-            val historyDiagnostics = history?.diagnostics.orEmpty()
+            val historyDiagnosticsById = history?.diagnosticsById.orEmpty()
             fun wasConclusiveMissing(id: String): Boolean =
-                historyDiagnostics.any { it.id == id && AdaptAssistGate.isConclusiveMissing(it) }
+                historyDiagnosticsById[id]?.let(AdaptAssistGate::isConclusiveMissing) == true
             val semanticsAttempted = wasConclusiveMissing(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC)
             val chromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
                 wasConclusiveMissing(HomeChromeAdapter.diagnostic(query))
             }
             val pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
-                val diagId = PageBoundaryAdapter.diagnostic(query)
-                historyDiagnostics.any {
-                    it.id == diagId &&
-                        (it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it))
-                }
+                historyDiagnosticsById[PageBoundaryAdapter.diagnostic(query)]?.let {
+                    it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it)
+                } == true
             }
-            val speedMenuAttempted = historyDiagnostics.any {
-                it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC &&
-                    (it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it))
-            }
+            val speedMenuAttempted = historyDiagnosticsById[PlayerSpeedMenuAdapter.DIAGNOSTIC]?.let {
+                it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it)
+            } == true
             val speedSessionAttempted = wasConclusiveMissing(PlayerSpeedSessionLocator.DIAGNOSTIC)
             val speedCalculatorAttempted = wasConclusiveMissing(PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC)
             val weChatShareAttempted = wasConclusiveMissing(WeChatShareCompatAccess.DIAGNOSTIC)
@@ -4052,303 +2548,11 @@ object VersionAdapter {
                 splashAutoNightEnabled = splashAutoNightEnabled
             )
         }
-        fun requiresFeatureRefresh(value: AdaptResult): Boolean = KavaMemberLookup.withLookupBatch(classLoader) {
-            val valueChromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
-                value.diagnostics.any {
-                    it.id == HomeChromeAdapter.diagnostic(query) && AdaptAssistGate.isAttemptedInCache(it)
-                }
-            }
-            val valueSemanticsAttempted = value.diagnostics.any {
-                it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-            }
-            val valuePageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
-                value.diagnostics.any {
-                    it.id == PageBoundaryAdapter.diagnostic(query) &&
-                        (it.state == AdaptState.FOUND || AdaptAssistGate.isAttemptedInCache(it))
-                }
-            }
-            if (PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
-                    searchHomeRecommendEnabled, playerEndPageRecommendEnabled, valuePageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()) {
-                return@withLookupBatch true
-            }
-            val popupRefresh = playerPopupPromotionEnabled &&
-                PlayerPopupPromotionAdapter.missing(classLoader, value.playerPopupPromotion).any { family ->
-                    value.diagnostics.none { it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it) }
-                }
-            if (popupRefresh) return@withLookupBatch true
-            val classicRefresh = commentClassicStyleEnabled &&
-                CommentClassicStyleLocator.missing(classLoader, value.commentClassicStyle).isNotEmpty() &&
-                value.diagnostics.none { it.id == CommentClassicStyleLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-            if (classicRefresh) return@withLookupBatch true
-            if (sponsorBlockEnabled && SponsorPlayerLocator.refreshCache(sponsorBlockEnabled, SponsorPlayerLocator.applicable(classLoader),
-                    SponsorPlayerLocator.direct(classLoader) != null,
-                    value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
-                    value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
-                    { PlayerSpeedSessionLocator.applicable(classLoader) },
-                    { PlayerSpeedSessionLocator.modern(classLoader) != null },
-                    { value.playerSpeedSession?.let { PlayerSpeedSessionLocator.resolve(classLoader, it) } != null },
-                    { value.diagnostics.any { it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) } })) {
-                return@withLookupBatch true
-            }
-            if (PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
-                    { PlayerSpeedLocator.calculatorApplicable(classLoader) },
-                    { PlayerSpeedLocator.theseus2LongPressCalculator(classLoader, vc) != null },
-                    { value.playerSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(classLoader, it) } != null },
-                    { value.diagnostics.any { it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) } })) {
-                return@withLookupBatch true
-            }
-            if (WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
-                    { WeChatShareCompatAccess.applicable(classLoader) },
-                    { WeChatShareCompatAccess.locate(classLoader, vc)?.let { it.wrappers.size == it.expectedWrappers } == true },
-                    {
-                        value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) }
-                            ?.let { it.wrappers.size == it.expectedWrappers } == true
-                    },
-                    { value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) } })) {
-                return@withLookupBatch true
-            }
-            if (systemEnvironmentEnabled &&
-                SystemEnvironmentAdapter.missing(classLoader, value.systemEnvironment).any { family ->
-                    value.diagnostics.none { it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it) }
-                }) {
-                return@withLookupBatch true
-            }
-            if (PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
-                    value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC &&
-                        (it.state == AdaptState.FOUND || AdaptAssistGate.isAttemptedInCache(it)) })) {
-                return@withLookupBatch true
-            }
-            if (StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
-                    value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }).isNotEmpty()) {
-                return@withLookupBatch true
-            }
-            if (NormalQualityLocator.needsQuery(
-                    classLoader,
-                    value.playerQuality?.defaultQualityMethod,
-                    value.playerQuality?.normalAutoSwitch,
-                    playerQualityEnabled,
-                    value.diagnostics.any { it.id == NormalQualityLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-                )) {
-                return@withLookupBatch true
-            }
-            if (DetailSpecialTagAdapter.needsQuery(
-                    classLoader,
-                    value.detailSpecialTagMapper,
-                    detailSpecialTagEnabled,
-                    value.diagnostics.any { it.id == DetailSpecialTagAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-                )) {
-                return@withLookupBatch true
-            }
-            if (CommentReplyButtonAdapter.needsQuery(
-                    classLoader,
-                    value.commentReplyButtonOwners,
-                    commentReplyButtonEnabled,
-                    value.diagnostics.any { it.id == CommentReplyButtonAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-                )) {
-                return@withLookupBatch true
-            }
-            if (FollowFeedAdapter.needsQuery(classLoader, value.followFeedStyle, followFeedStyleEnabled,
-                    value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
-                    value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (BrandSplashKntrAdapter.needsQuery(classLoader, value.brandSplashKntrDraw, brandSplashCustomEnabled,
-                    value.diagnostics.any { it.id == BrandSplashKntrAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (BrandSplashKntrAdapter.needsExitQuery(
-                    classLoader,
-                    value.brandSplashKntrExit,
-                    brandSplashCustomEnabled || brandSplashSkipEnabled,
-                    value.diagnostics.any {
-                        it.id == BrandSplashKntrAdapter.DIAGNOSTIC_EXIT && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (BrandSplashKntrAdapter.needsPageQuery(
-                    classLoader,
-                    value.brandSplashKntrPage,
-                    brandSplashCustomEnabled || splashAutoNightEnabled,
-                    value.diagnostics.any {
-                        it.id == BrandSplashKntrAdapter.DIAGNOSTIC_PAGE && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            val quickReplyAttempted = value.diagnostics.any {
-                it.id == CommentQuickReplyAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-            }
-            val cachedQuickReply = value.commentPurify?.quickReplyDialogMethods.orEmpty()
-            if (commentQuickReplyEnabled && !quickReplyAttempted &&
-                CommentQuickReplyAdapter.applicable(classLoader) &&
-                CommentQuickReplyAdapter.resolve(classLoader, cachedQuickReply).isEmpty() &&
-                CommentQuickReplyAdapter.needsQuery(
-                    classLoader,
-                    locateCommentQuickReplyDirect(classLoader),
-                    cachedQuickReply,
-                    commentQuickReplyEnabled,
-                    quickReplyAttempted
-                )
-            ) {
-                return@withLookupBatch true
-            }
-            if (PausedAdDexAdapter.needsCountdownQuery(
-                    classLoader,
-                    direct = null,
-                    cached = value.pause.countdown,
-                    enabled = pausedAdEnabled,
-                    attempted = value.diagnostics.any {
-                        it.id == PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (PausedAdDexAdapter.needsRequestApiQuery(
-                    classLoader,
-                    vc,
-                    value.pause.apiEntry,
-                    pausedAdEnabled,
-                    value.diagnostics.any {
-                        it.id == PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            val homeTabsAttempted = value.diagnostics.any {
-                it.id == HomeTabResourceAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-            }
-            if (adaptPlan.needs(PointFamily.HOME_TABS) && !homeTabsAttempted &&
-                HomeTabResourceAdapter.applicable(classLoader) &&
-                HomeTabResourceAdapter.resolve(classLoader, value.homeTabs) == null &&
-                HomeTabResourceAdapter.needsQuery(
-                    classLoader,
-                    directFound = locateHomeTabs(classLoader) != null,
-                    cached = value.homeTabs,
-                    enabled = true,
-                    attempted = homeTabsAttempted
-                )
-            ) {
-                return@withLookupBatch true
-            }
-            if (CloudKeyFreezeAdapter.needsQuery(classLoader, value.cloudKeyFreezeContract, cloudKeyFreezeEnabled,
-                    value.diagnostics.any { it.id == CloudKeyFreezeAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (PrivacyChannelAdapter.needsIgnetQuery(classLoader, value.privacyIgnetHttp, incognitoPrivacyEnabled || guestBrowsingEnabled,
-                    value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_IGNET && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (PrivacyChannelAdapter.needsKNeuronQuery(classLoader, value.privacyKNeuron, incognitoPrivacyEnabled,
-                    value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_KNEURON && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (GuestPlayerCoreAdapter.needsQuery(classLoader, value.guestPlayerCore, guestBrowsingEnabled,
-                    value.diagnostics.any { it.id == GuestPlayerCoreAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return@withLookupBatch true
-            }
-            if (HomeRecommendEarlyLoadAdapter.needsQuery(
-                    classLoader,
-                    value.homeRecommendEarlyLoadListener,
-                    homeRecommendEarlyLoadEnabled,
-                    value.diagnostics.any {
-                        it.id == HomeRecommendEarlyLoadAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (AiPlaylistDirectorAdapter.needsQuery(
-                    classLoader,
-                    value.aiPlaylistDirector,
-                    aiDeclaredVideoEnabled,
-                    value.diagnostics.any {
-                        it.id == AiPlaylistDirectorAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (FollowUpRecommendAdapter.needsQuery(
-                    classLoader,
-                    value.followUpRecommendBodies,
-                    followUpRecommendEnabled,
-                    value.diagnostics.any {
-                        it.id == FollowUpRecommendAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (DetailRelateGameAdapter.needsQuery(
-                    classLoader,
-                    value.detailRelateGameComponent,
-                    detailRelateGameEnabled,
-                    value.diagnostics.any {
-                        it.id == DetailRelateGameAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (LegacyStoryDanmakuAdapter.needsQuery(
-                    classLoader,
-                    value.legacyStoryDanmakuBind,
-                    storyDanmakuToggleHidden,
-                    value.diagnostics.any {
-                        it.id == LegacyStoryDanmakuAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (PlayerSpeedLocator.theseus2LongPressNeedsQuery(
-                    classLoader,
-                    value.playerSpeedTheseus2LongPress,
-                    playerSpeedLongPressEnabled,
-                    value.diagnostics.any {
-                        it.id == PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
-                    }
-                )) {
-                return@withLookupBatch true
-            }
-            if (HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, valueChromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty()) {
-                return@withLookupBatch true
-            }
-            if (HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, valueSemanticsAttempted, homeChromeIconOnly)) {
-                return@withLookupBatch true
-            }
-            if (CommentComposeMenuAdapter.needsQuery(
-                    classLoader,
-                    value.commentComposeMenu,
-                    commentTopologyEnabled,
-                    value.diagnostics.any { it.id == CommentComposeMenuAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-                )) {
-                return@withLookupBatch true
-            }
-            if (KmpGrpcWireAdapter.needsQuery(
-                    classLoader,
-                    value.kmpGrpcWireEngine,
-                    kmpGrpcWireEnabled || commentTopologyEnabled,
-                    value.diagnostics.any { it.id == KmpGrpcWireAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-                )) {
-                return@withLookupBatch true
-            }
-            if (assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)) {
-                return@withLookupBatch true
-            }
-            if (kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
-                    enabled = true,
-                    applicable = KotlinDefaultWordsLocator.applicable(classLoader),
-                    directFound = KotlinDefaultWordsLocator.direct(classLoader) != null,
-                    cachedFound = value.homeTopBar?.kotlinDefaultWords != null,
-                    attempted = value.diagnostics.any { it.id == KotlinDefaultWordsLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-                )) {
-                return@withLookupBatch true
-            }
-            false
-        }
+        fun requiresFeatureRefresh(value: AdaptResult): Boolean =
+            DexFeatureRegistry.requiresFeatureRefresh(
+                DexFeatureRefreshContext(classLoader, vc, featureFlags),
+                value
+            )
         val refreshRequested = usable?.let(::requiresFeatureRefresh) ?: false
         val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() }
         if (cached != null) {
@@ -4364,7 +2568,7 @@ object VersionAdapter {
         val silentSupplement = adaptDecision(usable, refreshRequested, coverageMissing, staleDomains) == AdaptDecision.SUPPLEMENT_SILENTLY
         ModernHookLog.info(
             "[BIL] 版本适配启动 vc=$vc cached=${startup.cached != null} " +
-                "cacheStatus=$lastCacheStatus plan=$adaptPlan " +
+                "cacheStatus=${AdaptCacheStore.cacheStatus()} plan=$adaptPlan " +
                 "missing=${coverageMissing.size} stale=${staleDomains.size} silent=$silentSupplement"
         )
         // 是否弹提示推迟到工作线程检查全模式 DEX/协议内容重绑定后再决定。
@@ -4382,7 +2586,7 @@ object VersionAdapter {
                     var adaptHistory: AdaptResult? = popupHistory
                     val dexSource by lazy(LazyThreadSafetyMode.NONE) { inspectHostDexSource(context) }
                     val repacked = if (startup.cached == null) {
-                        readRawCacheCandidates(context, resetTimestamp).firstNotNullOfOrNull { previous ->
+                        AdaptCacheStore.readRawCacheCandidates(context, resetTimestamp).firstNotNullOfOrNull { previous ->
                             val actualProtocol = verifyProtocolFingerprint(classLoader, previous)
                             rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value, actualProtocol)
                         }?.let { candidate ->
@@ -4407,7 +2611,7 @@ object VersionAdapter {
                                 reboundCoverageMissing.isEmpty()
                             ) {
                                 runSilent = true
-                                lastCacheStatus = "dex-content-rebound"
+                                AdaptCacheStore.recordCacheStatus("dex-content-rebound")
                                 ModernHookLog.info(
                                     "[BIL] 宿主 DEX 与协议指纹一致，静默复用适配缓存 dex=${candidate.dexSourceFingerprint}"
                                 )
@@ -4420,7 +2624,7 @@ object VersionAdapter {
                                     reboundCoverageMissing,
                                     reboundStale
                                 ) == AdaptDecision.SUPPLEMENT_SILENTLY
-                                lastCacheStatus = "dex-content-rebound-incremental"
+                                AdaptCacheStore.recordCacheStatus("dex-content-rebound-incremental")
                                 ModernHookLog.info(
                                     "[BIL] 宿主 DEX 与协议指纹一致，按增量历史补适配 stale=${reboundStale.size} missing=${reboundCoverageMissing.size} silent=$runSilent"
                                 )
@@ -4439,15 +2643,15 @@ object VersionAdapter {
                     }
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
-                        val fileWritten = writeCache(adapted)
+                        val fileWritten = AdaptCacheStore.writeCache(adapted)
                         if (!fileWritten) {
                             ModernHookLog.error("[BIL] 版本适配文件缓存写入失败")
                         }
                         // 写 prefs 缓存（模块 App 侧可读，供 UI 展示适配状态）
                         val prefsWritten = runCatching {
-                            prefs(context).edit()
-                                .putInt(KEY_ADAPTED_VERSION, adapted.biliVersionCode)
-                                .putString(KEY_ADAPT_RESULT, adapted.toJson().toString())
+                            AdaptCacheStore.prefs(context).edit()
+                                .putInt(AdaptCacheStore.KEY_ADAPTED_VERSION, adapted.biliVersionCode)
+                                .putString(AdaptCacheStore.KEY_ADAPT_RESULT, adapted.toJson().toString())
                                 .apply()
                             true
                         }.onFailure { throwable ->
@@ -4617,7 +2821,7 @@ object VersionAdapter {
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null) return@withLookupBatch null
         val protocolFingerprint = StartupTrace.measure("adapter.protocol") {
-            buildProtocolStructureFingerprint(
+            ProtocolFingerprintBuilder.buildProtocolStructureFingerprint(
                 loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
                 splashAds, mineAccountMine
             )
@@ -4689,7 +2893,7 @@ object VersionAdapter {
         ).applyStartupExclusions()
     }
 
-    private val EMPTY_PAUSE_POINTS = PausePoints(emptyList(), null, null, null)
+    private val EMPTY_PAUSE_POINTS = MediaQualityAndPlayerLocator.EMPTY_PAUSE_POINTS
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
      * 成员定位在内存中完成；NPatch 的原版 APK 来源只在后台工作线程准备只读快照。
@@ -4968,7 +3172,7 @@ object VersionAdapter {
         val dexAssist = dexSource?.let { source ->
             DexAssistSession(
                 engine = DexAssistAttemptGuard(
-                    marker = dexAssistMarkerFile(context),
+                    marker = AdaptCacheStore.dexAssistMarkerFile(context),
                     key = "$resolvedHostFingerprint|drv=${VersionAdapterContract.domainRulesSignature()}",
                     delegate = DexMeguvizAssistEngine
                 ),
@@ -5212,147 +3416,112 @@ object VersionAdapter {
             previousClassic
         }
         val popup = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.locate(loader, dexAssist, true, previousPopup, popupPlanned) else previousPopup
-        val follow = FollowFeedAdapter.locate(loader, dexAssist, followFeedStyleEnabled, previousFollow, followPlanned)
-        val followFound = followFeedStyleEnabled && FollowFeedAdapter.resolve(loader, follow) != null
-        val followDiagnostic = AdaptDiagnostic(FollowFeedAdapter.DIAGNOSTIC,
-            if (followFound) AdaptState.FOUND else if (followFeedStyleEnabled || previouslyMissingFollow) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
-            when {
-                !followFeedStyleEnabled -> if (previouslyMissingFollow) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                FollowFeedAdapter.direct(loader) != null -> "direct"
-                followFound -> "verified"
-                !followPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> failedDexReason(
-                    listOf(DexAssistQuery.FOLLOW_FEED_STYLE, DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
-                ) ?: when (val outcome = dexAssist.result(DexAssistQuery.FOLLOW_FEED_STYLE)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            })
-        val brand = BrandSplashDecoderAdapter.locate(loader, dexAssist, brandSplashCustomEnabled, previousBrand, brandPlanned)
-        val brandFound = brandSplashCustomEnabled && BrandSplashDecoderAdapter.resolve(loader, brand) != null
-        val brandDiagnostic = AdaptDiagnostic(BrandSplashDecoderAdapter.DIAGNOSTIC,
-            if (brandFound) AdaptState.FOUND else if (brandSplashCustomEnabled || previouslyMissingBrand) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
-            when {
-                !brandSplashCustomEnabled -> if (previouslyMissingBrand) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                BrandSplashDecoderAdapter.direct(loader) != null -> "direct"
-                brandFound -> "verified"
-                !brandPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(BrandSplashDecoderAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            })
-        val brandKntrDraw = BrandSplashKntrAdapter.locate(
-            loader, dexAssist, brandSplashCustomEnabled, previousBrandKntr, brandKntrPlanned
-        )
-        val brandKntrReady = brandSplashCustomEnabled && (BrandSplashKntrAdapter.direct(loader) != null ||
-            BrandSplashKntrAdapter.resolve(loader, brandKntrDraw) != null)
-        val brandKntrDiagnostic = AdaptDiagnostic(
-            BrandSplashKntrAdapter.DIAGNOSTIC,
-            when {
-                brandKntrReady -> AdaptState.FOUND
-                brandSplashCustomEnabled && BrandSplashKntrAdapter.applicable(loader) &&
-                    (brandKntrPlanned || previouslyMissingBrandKntr) -> AdaptState.MISSING
-                !brandSplashCustomEnabled && previouslyMissingBrandKntr -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val followOutcome = StandardDexFeatureAdapter.locateAndDiagnoseDirectOrVerified(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = FollowFeedAdapter.DIAGNOSTIC,
+            enabled = followFeedStyleEnabled,
+            planned = followPlanned,
+            previouslyMissing = previouslyMissingFollow,
+            query = DexAssistQuery.FOLLOW_FEED_STYLE,
+            plannedFailureOverride = failedDexReason(
+                listOf(DexAssistQuery.FOLLOW_FEED_STYLE, DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
+            ),
+            directFoundCheck = { FollowFeedAdapter.direct(it) != null },
+            locateBlock = {
+                FollowFeedAdapter.locate(loader, dexAssist, followFeedStyleEnabled, previousFollow, followPlanned)
             },
-            when {
-                !brandSplashCustomEnabled -> if (previouslyMissingBrandKntr) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntr) "cached-attempt-preserved" else "not-applicable-host"
-                BrandSplashKntrAdapter.direct(loader) != null -> "direct"
-                brandKntrReady -> "verified"
-                !brandKntrPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(BrandSplashKntrAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { FollowFeedAdapter.resolve(loader, it) != null },
+            candidateFailureDetail = { "unavailable-or-ambiguous:${it.methods.size}" }
         )
+        val follow = followOutcome.value
+        val followDiagnostic = followOutcome.diagnostic
+        val brandOutcome = StandardDexFeatureAdapter.locateAndDiagnoseDirectOrVerified(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = BrandSplashDecoderAdapter.DIAGNOSTIC,
+            enabled = brandSplashCustomEnabled,
+            planned = brandPlanned,
+            previouslyMissing = previouslyMissingBrand,
+            query = BrandSplashDecoderAdapter.query,
+            directFoundCheck = { BrandSplashDecoderAdapter.direct(it) != null },
+            locateBlock = {
+                BrandSplashDecoderAdapter.locate(loader, dexAssist, brandSplashCustomEnabled, previousBrand, brandPlanned)
+            },
+            readyCheck = { BrandSplashDecoderAdapter.resolve(loader, it) != null }
+        )
+        val brand = brandOutcome.value
+        val brandDiagnostic = brandOutcome.diagnostic
+        val brandKntrOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = BrandSplashKntrAdapter.DIAGNOSTIC,
+            enabled = brandSplashCustomEnabled,
+            planned = brandKntrPlanned,
+            previouslyMissing = previouslyMissingBrandKntr,
+            query = BrandSplashKntrAdapter.query,
+            applicableCheck = BrandSplashKntrAdapter::applicable,
+            directFoundCheck = { BrandSplashKntrAdapter.direct(it) != null },
+            locateBlock = {
+                BrandSplashKntrAdapter.locate(loader, dexAssist, brandSplashCustomEnabled, previousBrandKntr, brandKntrPlanned)
+            },
+            readyCheck = { BrandSplashKntrAdapter.resolve(loader, it) != null }
+        )
+        val brandKntrDraw = brandKntrOutcome.value
+        val brandKntrDiagnostic = brandKntrOutcome.diagnostic
         val brandKntrExitEnabled = brandSplashCustomEnabled || brandSplashSkipEnabled
-        val brandKntrExit = BrandSplashKntrAdapter.locateExit(
-            loader, dexAssist, brandKntrExitEnabled, previousBrandKntrExit, brandKntrExitPlanned
-        )
-        val brandKntrExitReady = brandKntrExitEnabled && (BrandSplashKntrAdapter.directExit(loader) != null ||
-            BrandSplashKntrAdapter.resolveExit(loader, brandKntrExit) != null)
-        val brandKntrExitDiagnostic = AdaptDiagnostic(
-            BrandSplashKntrAdapter.DIAGNOSTIC_EXIT,
-            when {
-                brandKntrExitReady -> AdaptState.FOUND
-                brandKntrExitEnabled && BrandSplashKntrAdapter.applicable(loader) &&
-                    (brandKntrExitPlanned || previouslyMissingBrandKntrExit) -> AdaptState.MISSING
-                !brandKntrExitEnabled && previouslyMissingBrandKntrExit -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val brandKntrExitOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = BrandSplashKntrAdapter.DIAGNOSTIC_EXIT,
+            enabled = brandKntrExitEnabled,
+            planned = brandKntrExitPlanned,
+            previouslyMissing = previouslyMissingBrandKntrExit,
+            query = BrandSplashKntrAdapter.queryExit,
+            applicableCheck = BrandSplashKntrAdapter::applicable,
+            directFoundCheck = { BrandSplashKntrAdapter.directExit(it) != null },
+            locateBlock = {
+                BrandSplashKntrAdapter.locateExit(loader, dexAssist, brandKntrExitEnabled, previousBrandKntrExit, brandKntrExitPlanned)
             },
-            when {
-                !brandKntrExitEnabled -> if (previouslyMissingBrandKntrExit) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntrExit) "cached-attempt-preserved" else "not-applicable-host"
-                BrandSplashKntrAdapter.directExit(loader) != null -> "direct"
-                brandKntrExitReady -> "verified"
-                !brandKntrExitPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(BrandSplashKntrAdapter.queryExit)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size + outcome.methods.size}"
-                }
-            }
+            readyCheck = { BrandSplashKntrAdapter.resolveExit(loader, it) != null },
+            candidateFailureDetail = { "unavailable-or-ambiguous:${it.classes.size + it.methods.size}" }
         )
-        val brandKntrPage = BrandSplashKntrAdapter.locatePage(
-            loader, dexAssist, brandKntrPageEnabled, previousBrandKntrPage, brandKntrPagePlanned
-        )
-        val brandKntrPageReady = brandKntrPageEnabled && (BrandSplashKntrAdapter.directPage(loader) != null ||
-            BrandSplashKntrAdapter.resolvePage(loader, brandKntrPage) != null)
-        val brandKntrPageDiagnostic = AdaptDiagnostic(
-            BrandSplashKntrAdapter.DIAGNOSTIC_PAGE,
-            when {
-                brandKntrPageReady -> AdaptState.FOUND
-                brandKntrPageEnabled && BrandSplashKntrAdapter.applicable(loader) &&
-                    (brandKntrPagePlanned || previouslyMissingBrandKntrPage) -> AdaptState.MISSING
-                !brandKntrPageEnabled && previouslyMissingBrandKntrPage -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val brandKntrExit = brandKntrExitOutcome.value
+        val brandKntrExitDiagnostic = brandKntrExitOutcome.diagnostic
+        val brandKntrPageOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = BrandSplashKntrAdapter.DIAGNOSTIC_PAGE,
+            enabled = brandKntrPageEnabled,
+            planned = brandKntrPagePlanned,
+            previouslyMissing = previouslyMissingBrandKntrPage,
+            query = BrandSplashKntrAdapter.queryPage,
+            applicableCheck = BrandSplashKntrAdapter::applicable,
+            directFoundCheck = { BrandSplashKntrAdapter.directPage(it) != null },
+            locateBlock = {
+                BrandSplashKntrAdapter.locatePage(loader, dexAssist, brandKntrPageEnabled, previousBrandKntrPage, brandKntrPagePlanned)
             },
-            when {
-                !brandKntrPageEnabled -> if (previouslyMissingBrandKntrPage) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntrPage) "cached-attempt-preserved" else "not-applicable-host"
-                BrandSplashKntrAdapter.directPage(loader) != null -> "direct"
-                brandKntrPageReady -> "verified"
-                !brandKntrPagePlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(BrandSplashKntrAdapter.queryPage)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { BrandSplashKntrAdapter.resolvePage(loader, it) != null }
         )
-        val cloudKeyFreezeContract = CloudKeyFreezeAdapter.locate(
-            loader, dexAssist, cloudKeyFreezeEnabled, previousCloudKeyContract, cloudKeyContractPlanned
-        )
-        val cloudKeyContractReady = cloudKeyFreezeEnabled && (CloudKeyFreezeAdapter.direct(loader) != null ||
-            CloudKeyFreezeAdapter.resolve(loader, cloudKeyFreezeContract) != null)
-        val cloudKeyContractDiagnostic = AdaptDiagnostic(
-            CloudKeyFreezeAdapter.DIAGNOSTIC,
-            when {
-                cloudKeyContractReady -> AdaptState.FOUND
-                cloudKeyFreezeEnabled && CloudKeyFreezeAdapter.applicable(loader) &&
-                    (cloudKeyContractPlanned || previouslyMissingCloudKeyContract) -> AdaptState.MISSING
-                !cloudKeyFreezeEnabled && previouslyMissingCloudKeyContract -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val brandKntrPage = brandKntrPageOutcome.value
+        val brandKntrPageDiagnostic = brandKntrPageOutcome.diagnostic
+        val cloudKeyOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = CloudKeyFreezeAdapter.DIAGNOSTIC,
+            enabled = cloudKeyFreezeEnabled,
+            planned = cloudKeyContractPlanned,
+            previouslyMissing = previouslyMissingCloudKeyContract,
+            query = CloudKeyFreezeAdapter.query,
+            applicableCheck = CloudKeyFreezeAdapter::applicable,
+            directFoundCheck = { CloudKeyFreezeAdapter.direct(it) != null },
+            locateBlock = {
+                CloudKeyFreezeAdapter.locate(loader, dexAssist, cloudKeyFreezeEnabled, previousCloudKeyContract, cloudKeyContractPlanned)
             },
-            when {
-                !cloudKeyFreezeEnabled -> if (previouslyMissingCloudKeyContract) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !CloudKeyFreezeAdapter.applicable(loader) -> if (previouslyMissingCloudKeyContract) "cached-attempt-preserved" else "not-applicable-host"
-                CloudKeyFreezeAdapter.direct(loader) != null -> "direct"
-                cloudKeyContractReady -> "verified"
-                !cloudKeyContractPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(CloudKeyFreezeAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { CloudKeyFreezeAdapter.resolve(loader, it) != null }
         )
+        val cloudKeyFreezeContract = cloudKeyOutcome.value
+        val cloudKeyContractDiagnostic = cloudKeyOutcome.diagnostic
         val popupUnresolved = if (playerPopupPromotionEnabled && popup != null) PlayerPopupPromotionAdapter.missing(loader, popup) else emptySet()
         val popupDiagnostics = PlayerPopupPromotionAdapter.Family.entries.map { family ->
             val found = playerPopupPromotionEnabled && family !in popupUnresolved
@@ -5469,38 +3638,30 @@ object VersionAdapter {
             locateHomeRecommendFeed(loader)
         }
         val videoRelate = sync(PointFamily.VIDEO_RELATE, previous?.videoRelate) { locateVideoRelate(loader) }
-        val homeTabs = directHomeTabs ?: if (plan.needs(PointFamily.HOME_TABS)) {
-            HomeTabResourceAdapter.locate(
-                loader, dexAssist, enabled = true, direct = null,
-                cached = previous?.homeTabs, planned = homeTabResourcePlanned
-            )
-        } else null
-        val homeTabResourceDiagnostic = AdaptDiagnostic(
-            HomeTabResourceAdapter.DIAGNOSTIC,
-            when {
-                !plan.needs(PointFamily.HOME_TABS) ->
-                    if (previouslyMissingHomeTabResource) AdaptState.MISSING else AdaptState.NOT_APPLICABLE
-                homeTabs != null -> AdaptState.FOUND
-                HomeTabResourceAdapter.applicable(loader) &&
-                    (homeTabResourcePlanned || previouslyMissingHomeTabResource) -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val homeTabResourceOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = HomeTabResourceAdapter.DIAGNOSTIC,
+            enabled = plan.needs(PointFamily.HOME_TABS),
+            planned = homeTabResourcePlanned,
+            previouslyMissing = previouslyMissingHomeTabResource,
+            query = HomeTabResourceAdapter.query,
+            applicableCheck = HomeTabResourceAdapter::applicable,
+            directFoundCheck = { directHomeTabs != null },
+            locateBlock = {
+                directHomeTabs ?: if (plan.needs(PointFamily.HOME_TABS)) {
+                    HomeTabResourceAdapter.locate(
+                        loader, dexAssist, enabled = true, direct = null,
+                        cached = previous?.homeTabs, planned = homeTabResourcePlanned
+                    )
+                } else null
             },
-            when {
-                !plan.needs(PointFamily.HOME_TABS) ->
-                    if (previouslyMissingHomeTabResource) "plan-not-requested:cached-attempt-preserved" else "plan-not-requested"
-                !HomeTabResourceAdapter.applicable(loader) ->
-                    if (previouslyMissingHomeTabResource) "cached-attempt-preserved" else "not-applicable-host"
-                directHomeTabs != null -> "direct"
-                homeTabs != null && !homeTabResourcePlanned -> "cached-verified"
-                homeTabs != null -> "verified"
-                !homeTabResourcePlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(HomeTabResourceAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { it != null },
+            verifiedDetail = { if (!homeTabResourcePlanned) "cached-verified" else "verified" },
+            disabledDetail = if (previouslyMissingHomeTabResource) "plan-not-requested:cached-attempt-preserved" else "plan-not-requested"
         )
+        val homeTabs = homeTabResourceOutcome.value
+        val homeTabResourceDiagnostic = homeTabResourceOutcome.diagnostic
         val homeComponents = sync(PointFamily.HOME_COMPONENTS, previous?.homeComponents) { locateHomeComponents(loader) }
         val mineComponents = sync(PointFamily.MINE_COMPONENTS, previous?.mineComponents) { locateMineComponents(loader, mine) }
         val mineAccountMine = sync(PointFamily.MINE_ACCOUNT_MINE, previous?.mineAccountMine) {
@@ -5573,16 +3734,33 @@ object VersionAdapter {
                 else -> "partial:policy=${storyQuality.policyMethod != null},resource=${storyQuality.resourceSelectionMethod != null},match=${storyQuality.matchPreferenceMethod != null}"
             })
         val teenagersMode = sync(PointFamily.TEENAGERS_MODE, previous?.teenagersMode) { locateTeenagersMode(loader) }
-        val assistedQuickReplyMethods = if (commentQuickReplyEnabled) {
-            CommentQuickReplyAdapter.locate(
-                loader,
-                dexAssist,
-                enabled = true,
-                directMethods = directQuickReplyMethods,
-                cachedMethods = previous?.commentPurify?.quickReplyDialogMethods.orEmpty(),
-                planned = commentQuickReplyPlanned
-            )
-        } else emptyList()
+        val quickReplyOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = CommentQuickReplyAdapter.DIAGNOSTIC,
+            enabled = commentQuickReplyEnabled,
+            planned = commentQuickReplyPlanned,
+            previouslyMissing = previouslyMissingCommentQuickReply,
+            query = CommentQuickReplyAdapter.query,
+            applicableCheck = CommentQuickReplyAdapter::applicable,
+            directFoundCheck = { directQuickReplyMethods.isNotEmpty() },
+            locateBlock = {
+                if (commentQuickReplyEnabled) {
+                    CommentQuickReplyAdapter.locate(
+                        loader,
+                        dexAssist,
+                        enabled = true,
+                        directMethods = directQuickReplyMethods,
+                        cachedMethods = previous?.commentPurify?.quickReplyDialogMethods.orEmpty(),
+                        planned = commentQuickReplyPlanned
+                    )
+                } else emptyList()
+            },
+            readyCheck = { it.isNotEmpty() },
+            verifiedDetail = { if (!commentQuickReplyPlanned) "cached-verified" else "verified" }
+        )
+        val assistedQuickReplyMethods = quickReplyOutcome.value
+        val commentQuickReplyDiagnostic = quickReplyOutcome.diagnostic
         val commentPurify = when {
             !commentQuickReplyEnabled || assistedQuickReplyMethods.isEmpty() -> directCommentPurify
             directCommentPurify == null -> CommentPurifyPoints(
@@ -5598,109 +3776,59 @@ object VersionAdapter {
             directCommentPurify.quickReplyDialogMethods.isNotEmpty() -> directCommentPurify
             else -> directCommentPurify.copy(quickReplyDialogMethods = assistedQuickReplyMethods)
         }
-        val commentQuickReplyReady = commentQuickReplyEnabled &&
-            (directQuickReplyMethods.isNotEmpty() || assistedQuickReplyMethods.isNotEmpty())
-        val commentQuickReplyDiagnostic = AdaptDiagnostic(
-            CommentQuickReplyAdapter.DIAGNOSTIC,
-            when {
-                commentQuickReplyReady -> AdaptState.FOUND
-                commentQuickReplyEnabled && CommentQuickReplyAdapter.applicable(loader) &&
-                    (commentQuickReplyPlanned || previouslyMissingCommentQuickReply) -> AdaptState.MISSING
-                !commentQuickReplyEnabled && previouslyMissingCommentQuickReply -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val pausedCountdownOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN,
+            enabled = pausedAdEnabled,
+            planned = pausedCountdownPlanned,
+            previouslyMissing = previouslyMissingPauseCountdown,
+            query = PausedAdDexAdapter.queryCountdown,
+            applicableCheck = PausedAdDexAdapter::applicableCountdown,
+            directFoundCheck = { PausedAdDexAdapter.directCountdown(it) != null },
+            locateBlock = {
+                val assisted = if (pausedAdEnabled) {
+                    PausedAdDexAdapter.locateCountdown(
+                        loader, dexAssist, enabled = true, direct = pause.countdown,
+                        cached = previous?.pause?.countdown, planned = pausedCountdownPlanned
+                    )
+                } else pause.countdown
+                pause.countdown ?: assisted
             },
-            when {
-                !commentQuickReplyEnabled ->
-                    if (previouslyMissingCommentQuickReply) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !CommentQuickReplyAdapter.applicable(loader) ->
-                    if (previouslyMissingCommentQuickReply) "cached-attempt-preserved" else "not-applicable-host"
-                directQuickReplyMethods.isNotEmpty() -> "direct"
-                commentQuickReplyReady && !commentQuickReplyPlanned -> "cached-verified"
-                commentQuickReplyReady -> "verified"
-                !commentQuickReplyPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(CommentQuickReplyAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { PausedAdDexAdapter.resolveCountdown(loader, it) != null },
+            verifiedDetail = { if (!pausedCountdownPlanned) "cached-verified" else "verified" }
         )
-        val assistedPauseCountdown = if (pausedAdEnabled) {
-            PausedAdDexAdapter.locateCountdown(
-                loader, dexAssist, enabled = true, direct = pause.countdown,
-                cached = previous?.pause?.countdown, planned = pausedCountdownPlanned
-            )
-        } else pause.countdown
-        val assistedPauseApiEntry = if (pausedAdEnabled) {
-            PausedAdDexAdapter.locateRequestApi(
-                loader, vc, dexAssist, enabled = true,
-                cached = previous?.pause?.apiEntry, planned = pausedRequestApiPlanned
-            )
-        } else pause.apiEntry
+        val pausedRequestApiOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API,
+            enabled = pausedAdEnabled,
+            planned = pausedRequestApiPlanned,
+            previouslyMissing = previouslyMissingPauseApiEntry,
+            query = PausedAdDexAdapter.queryRequestApi,
+            applicableCheck = PausedAdDexAdapter::applicableRequestApi,
+            directFoundCheck = { PauseRequestCoverage.hasVerifiedApiEntry(it, vc, cachedApiEntry = null) },
+            locateBlock = {
+                val assisted = if (pausedAdEnabled) {
+                    PausedAdDexAdapter.locateRequestApi(
+                        loader, vc, dexAssist, enabled = true,
+                        cached = previous?.pause?.apiEntry, planned = pausedRequestApiPlanned
+                    )
+                } else pause.apiEntry
+                assisted ?: pause.apiEntry
+            },
+            readyCheck = { PauseRequestCoverage.resolveApiEntry(loader, it) != null },
+            verifiedDetail = { if (!pausedRequestApiPlanned) "cached-verified" else "verified" }
+        )
         val mergedPause = PausePoints(
             requestMethods = pause.requestMethods,
             legacyCallback = pause.legacyCallback,
             panelShow = pause.panelShow,
-            countdown = pause.countdown ?: assistedPauseCountdown,
-            apiEntry = assistedPauseApiEntry ?: pause.apiEntry
+            countdown = pausedCountdownOutcome.value,
+            apiEntry = pausedRequestApiOutcome.value
         )
-        val pausedCountdownReady = pausedAdEnabled &&
-            (PausedAdDexAdapter.directCountdown(loader) != null ||
-                PausedAdDexAdapter.resolveCountdown(loader, mergedPause.countdown) != null)
-        val pausedCountdownDiagnostic = AdaptDiagnostic(
-            PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN,
-            when {
-                pausedCountdownReady -> AdaptState.FOUND
-                pausedAdEnabled && PausedAdDexAdapter.applicableCountdown(loader) &&
-                    (pausedCountdownPlanned || previouslyMissingPauseCountdown) -> AdaptState.MISSING
-                !pausedAdEnabled && previouslyMissingPauseCountdown -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
-            },
-            when {
-                !pausedAdEnabled ->
-                    if (previouslyMissingPauseCountdown) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !PausedAdDexAdapter.applicableCountdown(loader) ->
-                    if (previouslyMissingPauseCountdown) "cached-attempt-preserved" else "not-applicable-host"
-                PausedAdDexAdapter.directCountdown(loader) != null -> "direct"
-                pausedCountdownReady && !pausedCountdownPlanned -> "cached-verified"
-                pausedCountdownReady -> "verified"
-                !pausedCountdownPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(PausedAdDexAdapter.queryCountdown)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
-        )
-        val pausedApiEntryDirect = pausedAdEnabled &&
-            PauseRequestCoverage.hasVerifiedApiEntry(loader, vc, cachedApiEntry = null)
-        val pausedApiEntryReady = pausedAdEnabled &&
-            (pausedApiEntryDirect || PauseRequestCoverage.resolveApiEntry(loader, mergedPause.apiEntry) != null)
-        val pausedRequestApiDiagnostic = AdaptDiagnostic(
-            PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API,
-            when {
-                pausedApiEntryReady -> AdaptState.FOUND
-                pausedAdEnabled && PausedAdDexAdapter.applicableRequestApi(loader) &&
-                    (pausedRequestApiPlanned || previouslyMissingPauseApiEntry) -> AdaptState.MISSING
-                !pausedAdEnabled && previouslyMissingPauseApiEntry -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
-            },
-            when {
-                !pausedAdEnabled ->
-                    if (previouslyMissingPauseApiEntry) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !PausedAdDexAdapter.applicableRequestApi(loader) ->
-                    if (previouslyMissingPauseApiEntry) "cached-attempt-preserved" else "not-applicable-host"
-                pausedApiEntryDirect -> "direct"
-                pausedApiEntryReady && !pausedRequestApiPlanned -> "cached-verified"
-                pausedApiEntryReady -> "verified"
-                !pausedRequestApiPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(PausedAdDexAdapter.queryRequestApi)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
-        )
+        val pausedCountdownDiagnostic = pausedCountdownOutcome.diagnostic
+        val pausedRequestApiDiagnostic = pausedRequestApiOutcome.diagnostic
         val commentFilter = sync(PointFamily.COMMENT_FILTER, previous?.commentFilter) { locateCommentFilter(loader) }
         val topologyAssist = when {
             topologyPlanned -> locateCommentTopologyMapperByDex(loader, dexAssist)
@@ -5755,151 +3883,91 @@ object VersionAdapter {
                 }
             }
         )
-        val kmpGrpcWireEngine = KmpGrpcWireAdapter.locate(
-            loader, dexAssist, effectiveKmpGrpcWireEnabled, previousKmpGrpcWire, kmpGrpcWirePlanned
-        )
-        val kmpGrpcWireReady = effectiveKmpGrpcWireEnabled &&
-            KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine) != null
-        val kmpGrpcWireDiagnostic = AdaptDiagnostic(
-            KmpGrpcWireAdapter.DIAGNOSTIC,
-            when {
-                kmpGrpcWireReady -> AdaptState.FOUND
-                effectiveKmpGrpcWireEnabled && KmpGrpcWireAdapter.applicable(loader) &&
-                    (kmpGrpcWirePlanned || previouslyMissingKmpGrpcWire) -> AdaptState.MISSING
-                !effectiveKmpGrpcWireEnabled && previouslyMissingKmpGrpcWire -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val kmpGrpcWireOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = KmpGrpcWireAdapter.DIAGNOSTIC,
+            enabled = effectiveKmpGrpcWireEnabled,
+            planned = kmpGrpcWirePlanned,
+            previouslyMissing = previouslyMissingKmpGrpcWire,
+            query = KmpGrpcWireAdapter.query,
+            applicableCheck = KmpGrpcWireAdapter::applicable,
+            directFoundCheck = { KmpGrpcWireAdapter.direct(it) != null },
+            locateBlock = {
+                KmpGrpcWireAdapter.locate(loader, dexAssist, effectiveKmpGrpcWireEnabled, previousKmpGrpcWire, kmpGrpcWirePlanned)
             },
-            when {
-                !effectiveKmpGrpcWireEnabled ->
-                    if (previouslyMissingKmpGrpcWire) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !KmpGrpcWireAdapter.applicable(loader) ->
-                    if (previouslyMissingKmpGrpcWire) "cached-attempt-preserved" else "not-applicable-host"
-                KmpGrpcWireAdapter.direct(loader) != null -> "direct"
-                kmpGrpcWireReady -> "verified"
-                !kmpGrpcWirePlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(KmpGrpcWireAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { KmpGrpcWireAdapter.resolve(loader, it) != null }
         )
-        val privacyIgnetHttp = PrivacyChannelAdapter.locateIgnet(
-            loader, dexAssist, privacyIgnetEnabled, previousPrivacyIgnet, privacyIgnetPlanned
-        )
-        val privacyIgnetReady = privacyIgnetEnabled &&
-            PrivacyChannelAdapter.resolveIgHttpRequest(loader, privacyIgnetHttp) != null
-        val privacyIgnetDiagnostic = AdaptDiagnostic(
-            PrivacyChannelAdapter.DIAGNOSTIC_IGNET,
-            when {
-                privacyIgnetReady -> AdaptState.FOUND
-                privacyIgnetEnabled && PrivacyChannelAdapter.applicableIgnet(loader) &&
-                    (privacyIgnetPlanned || previouslyMissingPrivacyIgnet) -> AdaptState.MISSING
-                !privacyIgnetEnabled && previouslyMissingPrivacyIgnet -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val kmpGrpcWireEngine = kmpGrpcWireOutcome.value
+        val kmpGrpcWireDiagnostic = kmpGrpcWireOutcome.diagnostic
+        val privacyIgnetOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = PrivacyChannelAdapter.DIAGNOSTIC_IGNET,
+            enabled = privacyIgnetEnabled,
+            planned = privacyIgnetPlanned,
+            previouslyMissing = previouslyMissingPrivacyIgnet,
+            query = PrivacyChannelAdapter.queryIgnet,
+            applicableCheck = PrivacyChannelAdapter::applicableIgnet,
+            directFoundCheck = { PrivacyChannelAdapter.directIgnet(it) != null },
+            locateBlock = {
+                PrivacyChannelAdapter.locateIgnet(loader, dexAssist, privacyIgnetEnabled, previousPrivacyIgnet, privacyIgnetPlanned)
             },
-            when {
-                !privacyIgnetEnabled ->
-                    if (previouslyMissingPrivacyIgnet) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !PrivacyChannelAdapter.applicableIgnet(loader) ->
-                    if (previouslyMissingPrivacyIgnet) "cached-attempt-preserved" else "not-applicable-host"
-                PrivacyChannelAdapter.directIgnet(loader) != null -> "direct"
-                privacyIgnetReady -> "verified"
-                !privacyIgnetPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(PrivacyChannelAdapter.queryIgnet)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { PrivacyChannelAdapter.resolveIgHttpRequest(loader, it) != null }
         )
-        val privacyKNeuron = PrivacyChannelAdapter.locateKNeuron(
-            loader, dexAssist, incognitoPrivacyEnabled, previousPrivacyKNeuron, privacyKNeuronPlanned
-        )
-        val privacyKNeuronReady = incognitoPrivacyEnabled &&
-            PrivacyChannelAdapter.resolveKNeuron(loader, privacyKNeuron) != null
-        val privacyKNeuronDiagnostic = AdaptDiagnostic(
-            PrivacyChannelAdapter.DIAGNOSTIC_KNEURON,
-            when {
-                privacyKNeuronReady -> AdaptState.FOUND
-                incognitoPrivacyEnabled && PrivacyChannelAdapter.applicableKNeuron(loader) &&
-                    (privacyKNeuronPlanned || previouslyMissingPrivacyKNeuron) -> AdaptState.MISSING
-                !incognitoPrivacyEnabled && previouslyMissingPrivacyKNeuron -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val privacyIgnetHttp = privacyIgnetOutcome.value
+        val privacyIgnetDiagnostic = privacyIgnetOutcome.diagnostic
+        val privacyKNeuronOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = PrivacyChannelAdapter.DIAGNOSTIC_KNEURON,
+            enabled = incognitoPrivacyEnabled,
+            planned = privacyKNeuronPlanned,
+            previouslyMissing = previouslyMissingPrivacyKNeuron,
+            query = PrivacyChannelAdapter.queryKNeuron,
+            applicableCheck = PrivacyChannelAdapter::applicableKNeuron,
+            directFoundCheck = { PrivacyChannelAdapter.directKNeuron(it) != null },
+            locateBlock = {
+                PrivacyChannelAdapter.locateKNeuron(loader, dexAssist, incognitoPrivacyEnabled, previousPrivacyKNeuron, privacyKNeuronPlanned)
             },
-            when {
-                !incognitoPrivacyEnabled ->
-                    if (previouslyMissingPrivacyKNeuron) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !PrivacyChannelAdapter.applicableKNeuron(loader) ->
-                    if (previouslyMissingPrivacyKNeuron) "cached-attempt-preserved" else "not-applicable-host"
-                PrivacyChannelAdapter.directKNeuron(loader) != null -> "direct"
-                privacyKNeuronReady -> "verified"
-                !privacyKNeuronPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(PrivacyChannelAdapter.queryKNeuron)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { PrivacyChannelAdapter.resolveKNeuron(loader, it) != null }
         )
-        val guestPlayerCore = GuestPlayerCoreAdapter.locate(
-            loader, dexAssist, guestBrowsingEnabled, previousGuestPlayerCore, guestPlayerCorePlanned
-        )
-        val guestPlayerCoreReady = guestBrowsingEnabled &&
-            GuestPlayerCoreAdapter.resolve(loader, guestPlayerCore) != null
-        val guestPlayerCoreDiagnostic = AdaptDiagnostic(
-            GuestPlayerCoreAdapter.DIAGNOSTIC,
-            when {
-                guestPlayerCoreReady -> AdaptState.FOUND
-                guestBrowsingEnabled && GuestPlayerCoreAdapter.applicable(loader) &&
-                    (guestPlayerCorePlanned || previouslyMissingGuestPlayerCore) -> AdaptState.MISSING
-                !guestBrowsingEnabled && previouslyMissingGuestPlayerCore -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val privacyKNeuron = privacyKNeuronOutcome.value
+        val privacyKNeuronDiagnostic = privacyKNeuronOutcome.diagnostic
+        val guestPlayerCoreOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = GuestPlayerCoreAdapter.DIAGNOSTIC,
+            enabled = guestBrowsingEnabled,
+            planned = guestPlayerCorePlanned,
+            previouslyMissing = previouslyMissingGuestPlayerCore,
+            query = GuestPlayerCoreAdapter.query,
+            applicableCheck = GuestPlayerCoreAdapter::applicable,
+            directFoundCheck = { GuestPlayerCoreAdapter.direct(it) != null },
+            locateBlock = {
+                GuestPlayerCoreAdapter.locate(loader, dexAssist, guestBrowsingEnabled, previousGuestPlayerCore, guestPlayerCorePlanned)
             },
-            when {
-                !guestBrowsingEnabled ->
-                    if (previouslyMissingGuestPlayerCore) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !GuestPlayerCoreAdapter.applicable(loader) ->
-                    if (previouslyMissingGuestPlayerCore) "cached-attempt-preserved" else "not-applicable-host"
-                GuestPlayerCoreAdapter.direct(loader) != null -> "direct"
-                guestPlayerCoreReady -> "verified"
-                !guestPlayerCorePlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(GuestPlayerCoreAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { GuestPlayerCoreAdapter.resolve(loader, it) != null }
         )
-        val detailSpecialTagMapper = DetailSpecialTagAdapter.locate(
-            loader, dexAssist, detailSpecialTagEnabled, previousDetailSpecialTag, detailSpecialTagPlanned
-        )
-        val detailSpecialTagReady = detailSpecialTagEnabled &&
-            DetailSpecialTagAdapter.resolve(loader, detailSpecialTagMapper) != null
-        val detailSpecialTagDiagnostic = AdaptDiagnostic(
-            DetailSpecialTagAdapter.DIAGNOSTIC,
-            when {
-                detailSpecialTagReady -> AdaptState.FOUND
-                detailSpecialTagEnabled && DetailSpecialTagAdapter.applicable(loader) &&
-                    (detailSpecialTagPlanned || previouslyMissingDetailSpecialTag) -> AdaptState.MISSING
-                !detailSpecialTagEnabled && previouslyMissingDetailSpecialTag -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val guestPlayerCore = guestPlayerCoreOutcome.value
+        val guestPlayerCoreDiagnostic = guestPlayerCoreOutcome.diagnostic
+        val detailSpecialTagOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = DetailSpecialTagAdapter.DIAGNOSTIC,
+            enabled = detailSpecialTagEnabled,
+            planned = detailSpecialTagPlanned,
+            previouslyMissing = previouslyMissingDetailSpecialTag,
+            query = DetailSpecialTagAdapter.query,
+            applicableCheck = DetailSpecialTagAdapter::applicable,
+            directFoundCheck = { DetailSpecialTagAdapter.direct(it) != null },
+            locateBlock = {
+                DetailSpecialTagAdapter.locate(loader, dexAssist, detailSpecialTagEnabled, previousDetailSpecialTag, detailSpecialTagPlanned)
             },
-            when {
-                !detailSpecialTagEnabled ->
-                    if (previouslyMissingDetailSpecialTag) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !DetailSpecialTagAdapter.applicable(loader) ->
-                    if (previouslyMissingDetailSpecialTag) "cached-attempt-preserved" else "not-applicable-host"
-                DetailSpecialTagAdapter.direct(loader) != null -> "direct"
-                detailSpecialTagReady -> "verified"
-                !detailSpecialTagPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(DetailSpecialTagAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { DetailSpecialTagAdapter.resolve(loader, it) != null }
         )
+        val detailSpecialTagMapper = detailSpecialTagOutcome.value
+        val detailSpecialTagDiagnostic = detailSpecialTagOutcome.diagnostic
         val commentReplyButtonOwners = CommentReplyButtonAdapter.locate(
             loader, dexAssist, commentReplyButtonEnabled, previousCommentReplyOwners, commentReplyButtonPlanned
         )
@@ -5908,92 +3976,60 @@ object VersionAdapter {
         } else {
             emptyMap()
         }
-        val commentReplyButtonReady = commentReplyButtonEnabled &&
-            resolvedCommentReplyOwners.size == CommentReplyButtonAdapter.FAMILIES.size
-        val commentReplyButtonDiagnostic = AdaptDiagnostic(
-            CommentReplyButtonAdapter.DIAGNOSTIC,
-            when {
-                commentReplyButtonReady -> AdaptState.FOUND
-                commentReplyButtonEnabled && CommentReplyButtonAdapter.applicable(loader) &&
-                    (commentReplyButtonPlanned || previouslyMissingCommentReplyOwners) -> AdaptState.MISSING
-                !commentReplyButtonEnabled && previouslyMissingCommentReplyOwners -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
-            },
-            when {
-                !commentReplyButtonEnabled ->
-                    if (previouslyMissingCommentReplyOwners) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !CommentReplyButtonAdapter.applicable(loader) ->
-                    if (previouslyMissingCommentReplyOwners) "cached-attempt-preserved" else "not-applicable-host"
-                commentReplyButtonReady && CommentReplyButtonAdapter.directOwners(loader).size == CommentReplyButtonAdapter.FAMILIES.size -> "direct"
-                commentReplyButtonReady -> "verified"
-                !commentReplyButtonPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(CommentReplyButtonAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates ->
-                        "incomplete:families=${resolvedCommentReplyOwners.keys.sorted().joinToString("+")}"
-                }
+        val commentReplyButtonDiagnostic = StandardDexFeatureAdapter.buildApplicableDiagnostic(
+            diagnosticId = CommentReplyButtonAdapter.DIAGNOSTIC,
+            enabled = commentReplyButtonEnabled,
+            applicable = CommentReplyButtonAdapter.applicable(loader),
+            directFound = CommentReplyButtonAdapter.directOwners(loader).size == CommentReplyButtonAdapter.FAMILIES.size,
+            ready = commentReplyButtonEnabled && resolvedCommentReplyOwners.size == CommentReplyButtonAdapter.FAMILIES.size,
+            planned = commentReplyButtonPlanned,
+            previouslyMissing = previouslyMissingCommentReplyOwners,
+            dexAssist = dexAssist,
+            query = CommentReplyButtonAdapter.query,
+            candidateFailureDetail = {
+                "incomplete:families=${resolvedCommentReplyOwners.keys.sorted().joinToString("+")}"
             }
         )
-        val homeRecommendEarlyLoadListener = HomeRecommendEarlyLoadAdapter.locate(
-            loader, dexAssist, homeRecommendEarlyLoadEnabled, previousHomeEarlyLoadListener, homeEarlyLoadPlanned
-        )
-        val homeEarlyLoadReady = homeRecommendEarlyLoadEnabled &&
-            HomeRecommendEarlyLoadAdapter.resolve(loader, homeRecommendEarlyLoadListener) != null
-        val homeEarlyLoadDiagnostic = AdaptDiagnostic(
-            HomeRecommendEarlyLoadAdapter.DIAGNOSTIC,
-            when {
-                homeEarlyLoadReady -> AdaptState.FOUND
-                homeRecommendEarlyLoadEnabled && HomeRecommendEarlyLoadAdapter.applicable(loader) &&
-                    (homeEarlyLoadPlanned || previouslyMissingHomeEarlyLoadListener) -> AdaptState.MISSING
-                !homeRecommendEarlyLoadEnabled && previouslyMissingHomeEarlyLoadListener -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val homeEarlyLoadOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = HomeRecommendEarlyLoadAdapter.DIAGNOSTIC,
+            enabled = homeRecommendEarlyLoadEnabled,
+            planned = homeEarlyLoadPlanned,
+            previouslyMissing = previouslyMissingHomeEarlyLoadListener,
+            query = HomeRecommendEarlyLoadAdapter.query,
+            applicableCheck = HomeRecommendEarlyLoadAdapter::applicable,
+            directFoundCheck = { HomeRecommendEarlyLoadAdapter.direct(it) != null },
+            locateBlock = {
+                HomeRecommendEarlyLoadAdapter.locate(
+                    loader, dexAssist, homeRecommendEarlyLoadEnabled, previousHomeEarlyLoadListener, homeEarlyLoadPlanned
+                )
             },
-            when {
-                !homeRecommendEarlyLoadEnabled ->
-                    if (previouslyMissingHomeEarlyLoadListener) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !HomeRecommendEarlyLoadAdapter.applicable(loader) ->
-                    if (previouslyMissingHomeEarlyLoadListener) "cached-attempt-preserved" else "not-applicable-host"
-                HomeRecommendEarlyLoadAdapter.direct(loader) != null -> "direct"
-                homeEarlyLoadReady -> "verified"
-                !homeEarlyLoadPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(HomeRecommendEarlyLoadAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size}"
-                }
-            }
+            readyCheck = { HomeRecommendEarlyLoadAdapter.resolve(loader, it) != null },
+            candidateFailureDetail = { "unavailable-or-ambiguous:${it.classes.size}" }
         )
-        val aiPlaylistDirector = AiPlaylistDirectorAdapter.locate(
-            loader, dexAssist, aiDeclaredVideoEnabled, previousAiPlaylistDirector, aiPlaylistDirectorPlanned
-        )
-        val aiPlaylistDirectorDirect = AiPlaylistDirectorAdapter.direct(loader)
-        val aiPlaylistDirectorReady = aiDeclaredVideoEnabled &&
-            (aiPlaylistDirectorDirect != null || AiPlaylistDirectorAdapter.resolve(loader, aiPlaylistDirector) != null)
-        val aiPlaylistDirectorDiagnostic = AdaptDiagnostic(
-            AiPlaylistDirectorAdapter.DIAGNOSTIC,
-            when {
-                aiPlaylistDirectorReady -> AdaptState.FOUND
-                aiDeclaredVideoEnabled && AiPlaylistDirectorAdapter.applicable(loader) &&
-                    (aiPlaylistDirectorPlanned || previouslyMissingAiPlaylistDirector) -> AdaptState.MISSING
-                !aiDeclaredVideoEnabled && previouslyMissingAiPlaylistDirector -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val homeRecommendEarlyLoadListener = homeEarlyLoadOutcome.value
+        val homeEarlyLoadDiagnostic = homeEarlyLoadOutcome.diagnostic
+        val aiPlaylistOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = AiPlaylistDirectorAdapter.DIAGNOSTIC,
+            enabled = aiDeclaredVideoEnabled,
+            planned = aiPlaylistDirectorPlanned,
+            previouslyMissing = previouslyMissingAiPlaylistDirector,
+            query = AiPlaylistDirectorAdapter.query,
+            applicableCheck = AiPlaylistDirectorAdapter::applicable,
+            directFoundCheck = { AiPlaylistDirectorAdapter.direct(it) != null },
+            locateBlock = {
+                AiPlaylistDirectorAdapter.locate(
+                    loader, dexAssist, aiDeclaredVideoEnabled, previousAiPlaylistDirector, aiPlaylistDirectorPlanned
+                )
             },
-            when {
-                !aiDeclaredVideoEnabled ->
-                    if (previouslyMissingAiPlaylistDirector) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !AiPlaylistDirectorAdapter.applicable(loader) ->
-                    if (previouslyMissingAiPlaylistDirector) "cached-attempt-preserved" else "not-applicable-host"
-                aiPlaylistDirectorDirect != null -> "direct"
-                aiPlaylistDirectorReady -> "verified"
-                !aiPlaylistDirectorPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(AiPlaylistDirectorAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size}"
-                }
-            }
+            readyCheck = { AiPlaylistDirectorAdapter.resolve(loader, it) != null },
+            candidateFailureDetail = { "unavailable-or-ambiguous:${it.classes.size}" }
         )
+        val aiPlaylistDirector = aiPlaylistOutcome.value
+        val aiPlaylistDirectorDiagnostic = aiPlaylistOutcome.diagnostic
         val followUpRecommendBodies = FollowUpRecommendAdapter.locate(
             loader, dexAssist, followUpRecommendEnabled, previousFollowUpBodies, followUpPlanned
         )
@@ -6003,175 +4039,133 @@ object VersionAdapter {
         } else {
             emptyList()
         }
-        val followUpReady = followUpRecommendEnabled && followUpApplicable && followUpMissingAfterLocate.isEmpty()
-        val followUpRecommendDiagnostic = AdaptDiagnostic(
-            FollowUpRecommendAdapter.DIAGNOSTIC,
-            when {
-                followUpReady -> AdaptState.FOUND
-                followUpRecommendEnabled && followUpApplicable &&
-                    (followUpPlanned || previouslyMissingFollowUp) -> AdaptState.MISSING
-                !followUpRecommendEnabled && previouslyMissingFollowUp -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
-            },
-            when {
-                !followUpRecommendEnabled ->
-                    if (previouslyMissingFollowUp) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !followUpApplicable ->
-                    if (previouslyMissingFollowUp) "cached-attempt-preserved" else "not-applicable-host"
-                followUpReady && FollowUpRecommendAdapter.missingFamilies(loader, emptyMap()).isEmpty() -> "direct"
-                followUpReady -> "verified"
-                !followUpPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(FollowUpRecommendAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates ->
-                        "incomplete:missing=${followUpMissingAfterLocate.joinToString("+") { it.key }}"
-                }
+        val followUpRecommendDiagnostic = StandardDexFeatureAdapter.buildApplicableDiagnostic(
+            diagnosticId = FollowUpRecommendAdapter.DIAGNOSTIC,
+            enabled = followUpRecommendEnabled,
+            applicable = followUpApplicable,
+            directFound = FollowUpRecommendAdapter.missingFamilies(loader, emptyMap()).isEmpty(),
+            ready = followUpRecommendEnabled && followUpApplicable && followUpMissingAfterLocate.isEmpty(),
+            planned = followUpPlanned,
+            previouslyMissing = previouslyMissingFollowUp,
+            dexAssist = dexAssist,
+            query = FollowUpRecommendAdapter.query,
+            candidateFailureDetail = {
+                "incomplete:missing=${followUpMissingAfterLocate.joinToString("+") { f -> f.key }}"
             }
         )
-        val detailRelateGameComponent = DetailRelateGameAdapter.locate(
-            loader, dexAssist, detailRelateGameEnabled, previousDetailRelateGame, detailRelateGamePlanned
-        )
-        val detailRelateGameDirect = DetailRelateGameAdapter.direct(loader)
-        val detailRelateGameReady = detailRelateGameEnabled &&
-            (detailRelateGameDirect != null || DetailRelateGameAdapter.resolve(loader, detailRelateGameComponent) != null)
-        val detailRelateGameDiagnostic = AdaptDiagnostic(
-            DetailRelateGameAdapter.DIAGNOSTIC,
-            when {
-                detailRelateGameReady -> AdaptState.FOUND
-                detailRelateGameEnabled && DetailRelateGameAdapter.applicable(loader) &&
-                    (detailRelateGamePlanned || previouslyMissingDetailRelateGame) -> AdaptState.MISSING
-                !detailRelateGameEnabled && previouslyMissingDetailRelateGame -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val detailRelateGameOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = DetailRelateGameAdapter.DIAGNOSTIC,
+            enabled = detailRelateGameEnabled,
+            planned = detailRelateGamePlanned,
+            previouslyMissing = previouslyMissingDetailRelateGame,
+            query = DetailRelateGameAdapter.query,
+            applicableCheck = DetailRelateGameAdapter::applicable,
+            directFoundCheck = { DetailRelateGameAdapter.direct(it) != null },
+            locateBlock = {
+                DetailRelateGameAdapter.locate(
+                    loader, dexAssist, detailRelateGameEnabled, previousDetailRelateGame, detailRelateGamePlanned
+                )
             },
-            when {
-                !detailRelateGameEnabled ->
-                    if (previouslyMissingDetailRelateGame) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !DetailRelateGameAdapter.applicable(loader) ->
-                    if (previouslyMissingDetailRelateGame) "cached-attempt-preserved" else "not-applicable-host"
-                detailRelateGameDirect != null -> "direct"
-                detailRelateGameReady -> "verified"
-                !detailRelateGamePlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(DetailRelateGameAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size + outcome.methods.size}"
-                }
-            }
+            readyCheck = { DetailRelateGameAdapter.resolve(loader, it) != null },
+            candidateFailureDetail = { "unavailable-or-ambiguous:${it.classes.size + it.methods.size}" }
         )
-        val legacyStoryDanmakuBind = LegacyStoryDanmakuAdapter.locate(
-            loader, dexAssist, storyDanmakuToggleHidden, previousLegacyStoryBind, legacyStoryDanmakuPlanned
-        )
-        val legacyStoryDanmakuDirect = LegacyStoryDanmakuAdapter.direct(loader)
-        val legacyStoryDanmakuReady = storyDanmakuToggleHidden &&
-            (legacyStoryDanmakuDirect != null || LegacyStoryDanmakuAdapter.resolve(loader, legacyStoryDanmakuBind) != null)
-        val legacyStoryDanmakuDiagnostic = AdaptDiagnostic(
-            LegacyStoryDanmakuAdapter.DIAGNOSTIC,
-            when {
-                legacyStoryDanmakuReady -> AdaptState.FOUND
-                storyDanmakuToggleHidden && LegacyStoryDanmakuAdapter.applicable(loader) &&
-                    (legacyStoryDanmakuPlanned || previouslyMissingLegacyStoryBind) -> AdaptState.MISSING
-                !storyDanmakuToggleHidden && previouslyMissingLegacyStoryBind -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val detailRelateGameComponent = detailRelateGameOutcome.value
+        val detailRelateGameDiagnostic = detailRelateGameOutcome.diagnostic
+        val legacyStoryDanmakuOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = LegacyStoryDanmakuAdapter.DIAGNOSTIC,
+            enabled = storyDanmakuToggleHidden,
+            planned = legacyStoryDanmakuPlanned,
+            previouslyMissing = previouslyMissingLegacyStoryBind,
+            query = LegacyStoryDanmakuAdapter.query,
+            applicableCheck = LegacyStoryDanmakuAdapter::applicable,
+            directFoundCheck = { LegacyStoryDanmakuAdapter.direct(it) != null },
+            locateBlock = {
+                LegacyStoryDanmakuAdapter.locate(
+                    loader, dexAssist, storyDanmakuToggleHidden, previousLegacyStoryBind, legacyStoryDanmakuPlanned
+                )
             },
-            when {
-                !storyDanmakuToggleHidden ->
-                    if (previouslyMissingLegacyStoryBind) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !LegacyStoryDanmakuAdapter.applicable(loader) ->
-                    if (previouslyMissingLegacyStoryBind) "cached-attempt-preserved" else "not-applicable-host"
-                legacyStoryDanmakuDirect != null -> "direct"
-                legacyStoryDanmakuReady -> "verified"
-                !legacyStoryDanmakuPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(LegacyStoryDanmakuAdapter.query)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
-                }
-            }
+            readyCheck = { LegacyStoryDanmakuAdapter.resolve(loader, it) != null }
         )
-        val playerSpeedTheseus2LongPress = PlayerSpeedLocator.locateTheseus2LongPress(
-            loader, dexAssist, playerSpeedLongPressEnabled, previousTheseus2LongPress, theseus2LongPressPlanned
-        )
+        val legacyStoryDanmakuBind = legacyStoryDanmakuOutcome.value
+        val legacyStoryDanmakuDiagnostic = legacyStoryDanmakuOutcome.diagnostic
         val theseus2SpeedService = PlayerSpeedLocator.theseus2LongPressService(loader)
         val theseus2LongPressContinuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation")
-        val theseus2LongPressApplicable = theseus2SpeedService != null && theseus2LongPressContinuation != null
-        val theseus2LongPressDirect = theseus2SpeedService != null &&
-            PlayerSpeedLocator.theseus2LongPress(loader, theseus2SpeedService, cached = null) != null
-        val theseus2LongPressReady = playerSpeedLongPressEnabled && theseus2SpeedService != null && (
-            theseus2LongPressDirect || (
-                playerSpeedTheseus2LongPress != null &&
-                    PlayerSpeedLocator.resolveTheseus2LongPress(
-                        loader, theseus2SpeedService, playerSpeedTheseus2LongPress, theseus2LongPressContinuation
-                    ) != null
-                )
-            )
-        val theseus2LongPressDiagnostic = AdaptDiagnostic(
-            PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC,
-            when {
-                theseus2LongPressReady -> AdaptState.FOUND
-                playerSpeedLongPressEnabled && theseus2LongPressApplicable &&
-                    (theseus2LongPressPlanned || previouslyMissingTheseus2LongPress) -> AdaptState.MISSING
-                !playerSpeedLongPressEnabled && previouslyMissingTheseus2LongPress -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
+        val theseus2LongPressOutcome = StandardDexFeatureAdapter.locateAndDiagnoseApplicable(
+            loader = loader,
+            dexAssist = dexAssist,
+            diagnosticId = PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC,
+            enabled = playerSpeedLongPressEnabled,
+            planned = theseus2LongPressPlanned,
+            previouslyMissing = previouslyMissingTheseus2LongPress,
+            query = DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS,
+            applicableCheck = { theseus2SpeedService != null && theseus2LongPressContinuation != null },
+            directFoundCheck = {
+                theseus2SpeedService != null &&
+                    PlayerSpeedLocator.theseus2LongPress(it, theseus2SpeedService, cached = null) != null
             },
-            when {
-                !playerSpeedLongPressEnabled ->
-                    if (previouslyMissingTheseus2LongPress) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
-                !theseus2LongPressApplicable ->
-                    if (previouslyMissingTheseus2LongPress) "cached-attempt-preserved" else "not-applicable-host"
-                theseus2LongPressDirect -> "direct"
-                theseus2LongPressReady -> "verified"
-                !theseus2LongPressPlanned -> "cached-attempt-preserved"
-                dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS)) {
-                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                    is DexAssistResult.Candidates ->
-                        "unavailable-or-ambiguous:${outcome.classes.size + outcome.methods.size}"
-                }
-            }
+            locateBlock = {
+                PlayerSpeedLocator.locateTheseus2LongPress(
+                    loader, dexAssist, playerSpeedLongPressEnabled, previousTheseus2LongPress, theseus2LongPressPlanned
+                )
+            },
+            readyCheck = { point ->
+                theseus2SpeedService != null && point != null &&
+                    PlayerSpeedLocator.resolveTheseus2LongPress(
+                        loader, theseus2SpeedService, point, theseus2LongPressContinuation
+                    ) != null
+            },
+            candidateFailureDetail = { "unavailable-or-ambiguous:${it.classes.size + it.methods.size}" }
         )
+        val playerSpeedTheseus2LongPress = theseus2LongPressOutcome.value
+        val theseus2LongPressDiagnostic = theseus2LongPressOutcome.diagnostic
         val commentSection = sync(PointFamily.COMMENT_SECTION, previous?.commentSection) { locateCommentSection(loader) }
         val splashAds = sync(PointFamily.SPLASH_ADS, previous?.splashAds) { locateSplashAds(loader) }
         // 只有所有点都落空时才需要；改成惰性求值，避免每轮适配白白探测上百个候选类。
-        val anyClassExists by lazy { COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS)
-            || KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
-            || FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any { KavaMemberLookup.hasClass(loader, it) }
-            || PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-            || PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-            || HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS)
-            || BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-            || TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-            || COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-            || COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any {
-                KavaMemberLookup.hasClass(loader, it)
-            }
-            || SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
-            || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } }
+        val anyClassExists by lazy {
+            CommentLocator.COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MineAndHomeUiLocator.HOME_TOP_BAR_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.MINE_FRAGMENT_CLASS)
+                || KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
+                || MineAndHomeUiLocator.FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MediaQualityAndPlayerLocator.PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MediaQualityAndPlayerLocator.PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+                || HomeRecommendFeedLocator.PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || VideoRelateLocator.VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+                || MineAndHomeUiLocator.HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MineAndHomeUiLocator.MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.STORY_DETAIL_CLASS)
+                || MineAndHomeUiLocator.BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MediaQualityAndPlayerLocator.PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+                || MediaQualityAndPlayerLocator.TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+                || CommentLocator.COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+                || CommentLocator.COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || CommentLocator.THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any {
+                    KavaMemberLookup.hasClass(loader, it)
+                }
+                || MediaQualityAndPlayerLocator.SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                || MediaQualityAndPlayerLocator.BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+        }
         if (low == null && high == null && mine == null &&
             mergedPause.requestMethods.isEmpty() && mergedPause.legacyCallback == null &&
             mergedPause.panelShow == null && mergedPause.countdown == null && mergedPause.apiEntry == null &&
@@ -6186,7 +4180,7 @@ object VersionAdapter {
             commentFilter == null && commentTopology == null && commentSection == null &&
             splashAds == null &&
             !anyClassExists) return@withLookupBatch null
-        val protocolFingerprint = buildProtocolStructureFingerprint(
+        val protocolFingerprint = ProtocolFingerprintBuilder.buildProtocolStructureFingerprint(
             loader, homeRecommendFeed, videoRelate, commentFilter, playerQuality,
             splashAds, mineAccountMine
         )
@@ -6292,214 +4286,12 @@ object VersionAdapter {
         }
     })
 
-    private data class ProtocolFingerprint(
-        val value: String,
-        val evidenceCount: Int,
-        val liveResolvedCount: Int = 0
-    ) {
-        /**
-         * 摘要只覆盖计划内的协议家族。计划没有覆盖全部六个来源时，没有证据不是「缺失」而是未请求，
-         * 摘要也只是局部摘要，不能和全量摘要比较。
-         */
-        fun toDiagnostic(plan: AdaptPlan): AdaptDiagnostic = AdaptDiagnostic(
-            id = "protocol.structure",
-            state = when {
-                evidenceCount > 0 -> AdaptState.FOUND
-                PROTOCOL_FINGERPRINT_FAMILIES.all(plan::needs) -> AdaptState.MISSING
-                else -> AdaptState.NOT_APPLICABLE
-            },
-            detail = value
-        )
-    }
-
-    private fun resolveProtocolMethod(loader: ClassLoader, point: HookPoint): Method? {
-        val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return null
-        return KavaMemberLookup.methods(
-            owner,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { method ->
-            method.name == point.methodName && point.paramClassNames?.let { expected ->
-                method.parameterTypes.map(Class<*>::getName) == expected
-            } != false
-        }.distinctBy(Method::toGenericString).singleOrNull()
-    }
-
-    /**
-     * 只在适配阶段计算公开协议结构摘要。成员解析失败时跳过该项，现有 Hook 点仍可按原路径
-     * 使用；摘要本身不参与业务热路径，也不包含宿主内容或用户数据。
-     */
-    private fun buildProtocolStructureFingerprint(
-        loader: ClassLoader,
-        home: HomeRecommendFeedPoints?,
-        relate: VideoRelatePoints?,
-        comment: CommentFilterPoints?,
-        quality: PlayerQualityPoints?,
-        splash: SplashAdPoints?,
-        mine: MineAccountMinePoints?
-    ): ProtocolFingerprint {
-        val descriptors = linkedSetOf<String>()
-        var liveResolvedCount = 0
-
-        fun add(label: String, point: HookPoint?) {
-            point ?: return
-            val method = resolveProtocolMethod(loader, point) ?: return
-            liveResolvedCount++
-            val fieldNumber = method.protobufFieldNumberOrNull()?.let { "@field=$it" }.orEmpty()
-            descriptors += "$label:${method.declaringClass.name}#${method.name}(" +
-                method.parameterTypes.joinToString(",") { it.name } + ")" +
-                "->${method.returnType.name}$fieldNumber"
-        }
-
-        home?.let { points ->
-            points.responseItemGetters.forEachIndexed { index, point -> add("home.response.$index", point) }
-            add("home.holder", points.holderTypeGetter)
-            add("home.biz", points.bizTypeGetter)
-            add("home.ad_info", points.adInfoGetter)
-            add("home.card_type", points.cardTypeGetter)
-            add("home.card_goto", points.cardGotoGetter)
-            add("home.goto", points.goToGetter)
-            add("home.uri", points.uriGetter)
-            add("home.param", points.paramGetter)
-            add("home.player_args", points.playerArgsGetter)
-            add("home.duration", points.playerArgsDurationGetter)
-            add("home.intent_handler", points.intentHandlerOnCreate)
-            if (!points.playerArgsDurationField.isNullOrBlank()) {
-                descriptors += "home.duration_field:${points.playerArgsDurationField}"
-            }
-        }
-        relate?.let { points ->
-            points.responseItemGetters.forEachIndexed { index, point -> add("relate.response.$index", point) }
-            points.cardCaseGetters.forEachIndexed { index, point -> add("relate.case.$index", point) }
-            points.gotoGetters.forEachIndexed { index, point -> add("relate.goto.$index", point) }
-            points.cardTypeGetters.forEachIndexed { index, point -> add("relate.type.$index", point) }
-            points.relateCardTypeGetters.forEachIndexed { index, point ->
-                add("relate.relate_type.$index", point)
-            }
-            points.fromSourceTypeGetters.forEachIndexed { index, point ->
-                add("relate.source_type.$index", point)
-            }
-            points.fromSourceTypeChains.forEachIndexed { index, chain ->
-                add("relate.source_type_chain.$index.container", chain.itemGetter)
-                add("relate.source_type_chain.$index.value", chain.sourceTypeGetter)
-            }
-            points.relateCardTypeValueGetters.forEachIndexed { index, point ->
-                add("relate.relate_type_value.$index", point)
-            }
-            points.directDurationGetters.forEachIndexed { index, point ->
-                add("relate.duration.$index", point)
-            }
-            points.durationChains.forEachIndexed { index, chain ->
-                add("relate.chain.$index.container", chain.itemGetter)
-                add("relate.chain.$index.duration", chain.durationGetter)
-            }
-            points.reasonChains.forEachIndexed { chainIndex, chain ->
-                chain.steps.forEachIndexed { stepIndex, point ->
-                    add("relate.reason.$chainIndex.$stepIndex", point)
-                }
-            }
-            points.commercialEvidenceChains.forEachIndexed { chainIndex, chain ->
-                chain.steps.forEachIndexed { stepIndex, point ->
-                    add("relate.commercial.$chainIndex.$stepIndex", point)
-                }
-            }
-            points.publishTextChains.forEachIndexed { chainIndex, chain ->
-                chain.steps.forEachIndexed { stepIndex, point ->
-                    add("relate.publish_text.$chainIndex.$stepIndex", point)
-                }
-            }
-            points.detailRelateService?.let { service ->
-                add("relate.service.factory", service.componentFactory)
-                service.typeGetter?.let { add("relate.service.type", it) }
-                service.titleGetter?.let { add("relate.service.title", it) }
-            }
-        }
-        comment?.let { points ->
-            points.replyListGetters.forEachIndexed { index, point -> add("comment.list.$index", point) }
-            add("comment.content", points.contentGetter)
-            add("comment.message", points.messageGetter)
-            add("comment.member", points.memberGetter)
-            add("comment.level", points.levelGetter)
-            add("comment.member_v2", points.memberV2Getter)
-            add("comment.member_v2_basic", points.memberV2BasicGetter)
-            add("comment.member_v2_level", points.memberV2LevelGetter)
-            add("comment.at_count", points.atNameCountGetter)
-            add("comment.at_map", points.atNameMapGetter)
-            add("comment.member_name", points.memberNameGetter)
-            add("comment.member_mid", points.memberMidGetter)
-            add("comment.member_v2_name", points.memberV2NameGetter)
-            add("comment.member_v2_mid", points.memberV2MidGetter)
-            points.topReplyGetters.forEachIndexed { index, point -> add("comment.top.$index", point) }
-        }
-        splash?.let { points ->
-            points.listGetters.forEachIndexed { index, point -> add("splash.list.$index", point) }
-            points.itemSignalGetters.forEachIndexed { index, signal ->
-                add("splash.${signal.role}.$index", signal.getter)
-            }
-        }
-        quality?.capabilitySignals.orEmpty().sorted().forEach { capability ->
-            descriptors += "player.capability:$capability"
-        }
-        add("player.default", quality?.defaultQualityMethod)
-        quality?.story?.let { story ->
-            descriptors += "story.preference:${story.preferenceClassName}:service-field=${story.serviceFieldName}"
-            add("story.manual", story.manualMethod); add("story.create", story.ownerOnCreate)
-            add("story.release", story.ownerRelease); add("story.destroy", story.ownerOnDestroy)
-            add("story.integer", story.integerDefaultMethod); add("story.policy", story.policyMethod)
-            add("story.resource", story.resourceSelectionMethod); add("story.match", story.matchPreferenceMethod)
-        }
-        mine?.let { points ->
-            descriptors += "mine.account:${points.accountMineClass}:" +
-                "section=${points.sectionListV2Field}:builders=${points.buildMethods.size}"
-        }
-
-        val canonical = descriptors.sorted().joinToString("\n")
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(canonical.toByteArray(Charsets.UTF_8))
-            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
-            .take(24)
-        return ProtocolFingerprint(
-            value = "protocol-v1:${descriptors.size}:$digest",
-            evidenceCount = descriptors.size,
-            liveResolvedCount = liveResolvedCount
-        )
-    }
-
-    private fun Method.protobufFieldNumberOrNull(): Int? {
-        val stem = name.removePrefix("get").removePrefix("is")
-        if (stem.isBlank()) return null
-        val snake = stem.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").uppercase()
-        val candidates = linkedSetOf(
-            "${snake}_FIELD_NUMBER",
-            "${snake.removeSuffix("_LIST")}_FIELD_NUMBER",
-            "${snake.removeSuffix("_MAP")}_FIELD_NUMBER",
-            "${snake.removeSuffix("_VALUE")}_FIELD_NUMBER"
-        )
-        return declaringClass.fields.firstNotNullOfOrNull { field ->
-            if (field.name !in candidates || field.type != classOf<Int>()) {
-                return@firstNotNullOfOrNull null
-            }
-            runCatching { field.getInt(null) }.getOrNull()
-        }
-    }
-
-    private fun HookPoint.label(): String = buildString {
-        append(className)
-        append('#')
-        append(methodName)
-        paramClassNames?.let { params ->
-            append('(')
-            append(params.joinToString(","))
-            append(')')
-        }
-    }
-
     /**
      * 每个逻辑 Hook 点的定位诊断。计划外（[plan] 没有要求）的家族不探测候选类，直接记为
      * 「未请求」：沿用 [previous] 里已有的诊断（此前真的尝试过），否则写 `NOT_APPLICABLE` + [PLAN_NOT_REQUESTED]。
      * 未请求不是缺失，也不为了凑齐诊断去重新探测关闭的功能。
      *
-     * [hostVersionCode] 决定候选存在性是否把当前构建的已验真 owner（[VERIFIED_MEDIA_OWNERS]）算进去。
+     * [hostVersionCode] 决定候选存在性是否把当前构建的已验真 owner（[MediaQualityAndPlayerLocator.VERIFIED_MEDIA_OWNERS]）算进去。
      * 已验真分支（[locateBlockUpdate] / [locateDefaultVideoQuality]）只按 owner 名字查一次，
      * 类缺失或签名不符都直接返回 null，不再回候选表；不并进来就会把这两种真实的适配失败
      * 误记成 `NOT_APPLICABLE`（宿主没有该结构），掩盖问题。登记了 owner 即按「结构存在」处理，
@@ -6550,13 +4342,13 @@ object VersionAdapter {
 
         val previousCoverage = previous?.coverage
         val previousDiagnostics = if (previousCoverage != null) {
-            previous.diagnostics.associateBy { it.id }
+            previous.diagnosticsById
         } else {
             emptyMap()
         }
         // 当前构建已验真的媒体 owner；候选存在性必须并进来，否则已验真分支失败会被记成「无此结构」。
-        val verifiedBlockUpdateOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.first }
-        val verifiedQualityOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.second }
+        val verifiedBlockUpdateOwner = hostVersionCode?.let { MediaQualityAndPlayerLocator.VERIFIED_MEDIA_OWNERS[it]?.first }
+        val verifiedQualityOwner = hostVersionCode?.let { MediaQualityAndPlayerLocator.VERIFIED_MEDIA_OWNERS[it]?.second }
 
         /** 计划内才求值状态与详情；计划外直接写未请求（或沿用此前真实尝试过的诊断）。 */
         fun item(family: PointFamily, id: String, state: () -> AdaptState, detail: () -> String): AdaptDiagnostic =
@@ -6569,99 +4361,99 @@ object VersionAdapter {
             }
 
         val lowCandidateExists by lazy {
-            COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_LOW_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val highCandidateExists by lazy {
-            COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_HIGH_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val mineCandidateExists by lazy { KavaMemberLookup.hasClass(loader, MINE_FRAGMENT_CLASS) }
+        val mineCandidateExists by lazy { KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.MINE_FRAGMENT_CLASS) }
         val mineVipCandidateExists by lazy {
-            mineCandidateExists && KavaMemberLookup.hasClass(loader, MINE_VIP_MANAGER_CLASS)
+            mineCandidateExists && KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.MINE_VIP_MANAGER_CLASS)
         }
         val blockUpdateCandidateExists by lazy {
             // 已验真 owner 按登记算存在：验真证据来自该构建真实 dex，类名漂移/签名不符都是适配失败，
             // 不能因为「现在按名字加载不到」就退回「宿主无此结构」。
             verifiedBlockUpdateOwner != null ||
-                BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                MediaQualityAndPlayerLocator.BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val dynamicTabsCandidateExists by lazy {
-            KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
-                KavaMemberLookup.hasClass(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
+            KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.DYNAMIC_MEDIATOR_FRAGMENT_CLASS) &&
+                KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.DYNAMIC_MEDIATOR_TAB_CLASS)
         }
         val fullNumbersCandidateExists by lazy {
-            FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MineAndHomeUiLocator.FULL_NUMBER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val playerPortraitCandidateExists by lazy {
-            PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MediaQualityAndPlayerLocator.PLAYER_PORTRAIT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val playerInteractiveCandidateExists by lazy {
-            PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any { KavaMemberLookup.hasClass(loader, it) }
+            MediaQualityAndPlayerLocator.PLAYER_INTERACTIVE_CANDIDATE_CLASSES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val playerStatusBarCandidateExists by lazy {
-            PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MediaQualityAndPlayerLocator.PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val homeRecommendFeedCandidateExists by lazy {
-            KavaMemberLookup.hasClass(loader, PEGASUS_HOLDER_DATA_CLASS) &&
-                PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            KavaMemberLookup.hasClass(loader, HomeRecommendFeedLocator.PEGASUS_HOLDER_DATA_CLASS) &&
+                HomeRecommendFeedLocator.PEGASUS_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val videoRelateCandidateExists by lazy {
-            VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            VideoRelateLocator.VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val homeTabsCandidateExists by lazy {
-            HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MineAndHomeUiLocator.HOME_FRAGMENT_V2_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
-        val homeComponentsCandidateExists by lazy { KavaMemberLookup.hasClass(loader, HOST_FRAGMENT_CLASS) }
+        val homeComponentsCandidateExists by lazy { KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.HOST_FRAGMENT_CLASS) }
         val mineComponentsCandidateExists by lazy {
-            MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MineAndHomeUiLocator.MINE_MENU_GROUP_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val storyFeedCandidateExists by lazy {
-            KavaMemberLookup.hasClass(loader, STORY_DETAIL_CLASS) &&
-                (KavaMemberLookup.hasClass(loader, STORY_FEED_RESPONSE_CLASS) ||
-                    KavaMemberLookup.hasClass(loader, STORY_PAGER_PLAYER_CLASS))
+            KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.STORY_DETAIL_CLASS) &&
+                (KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.STORY_FEED_RESPONSE_CLASS) ||
+                    KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.STORY_PAGER_PLAYER_CLASS))
         }
         val bottomBarCandidateExists by lazy {
-            BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MineAndHomeUiLocator.BOTTOM_TAB_HOST_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val playerQualityCandidateExists by lazy {
             verifiedQualityOwner != null ||
-                PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+                MediaQualityAndPlayerLocator.PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val teenagersModeCandidateExists by lazy {
-            TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MediaQualityAndPlayerLocator.TEENAGERS_MODE_ACTIVITY_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentPurifyCandidateExists by lazy {
-            COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_CONTENT_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentEmptyPageCandidateExists by lazy {
-            COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentVoteCandidateExists by lazy {
-            COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentFollowCandidateExists by lazy {
-            COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } ||
-                COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } ||
+                CommentLocator.COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentMainListCandidateExists by lazy {
-            COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentQuickReplyCandidateExists by lazy {
-            COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentFilterCandidateExists by lazy {
-            COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.COMMENT_REPLY_INFO_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val commentTopologyCandidateExists by lazy {
             commentFilterCandidateExists &&
-                KavaMemberLookup.hasClass(loader, COMMENT_ITEM_CLASS) &&
-                (COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } ||
-                    (hostVersionCode != null && VERIFIED_COMMENT_REPLY_MAPPERS.containsKey(hostVersionCode)))
+                KavaMemberLookup.hasClass(loader, CommentTopologyLocator.COMMENT_ITEM_CLASS) &&
+                (CommentTopologyLocator.COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } ||
+                    (hostVersionCode != null && CommentTopologyLocator.VERIFIED_COMMENT_REPLY_MAPPERS.containsKey(hostVersionCode)))
         }
         val commentSectionCandidateExists by lazy {
-            THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            CommentLocator.THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val splashCandidateExists by lazy {
-            SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MediaQualityAndPlayerLocator.SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val pauseCandidateExists by lazy {
             listOf(
@@ -6683,10 +4475,10 @@ object VersionAdapter {
         val bannerCandidateExists by lazy {
             KavaMemberLookup.hasClass(loader, "com.bilibili.pegasus.holders.bannerv8.V8Banner")
         }
-        val gameMenuCandidateExists by lazy { KavaMemberLookup.hasClass(loader, HOME_MENU_ITEM_CLASS) }
-        val composeGameCandidateExists by lazy { KavaMemberLookup.hasClass(loader, HOME_TOP_RIGHT_LAMBDA_CLASS) }
+        val gameMenuCandidateExists by lazy { KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.HOME_MENU_ITEM_CLASS) }
+        val composeGameCandidateExists by lazy { KavaMemberLookup.hasClass(loader, MineAndHomeUiLocator.HOME_TOP_RIGHT_LAMBDA_CLASS) }
         val searchCandidateExists by lazy {
-            HOME_MAIN_FRAGMENT_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
+            MineAndHomeUiLocator.HOME_MAIN_FRAGMENT_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
         }
         val searchReady = homeTopBar?.baseOnViewCreated != null &&
             homeTopBar.defaultWordMethods.isNotEmpty()
@@ -6927,138 +4719,21 @@ object VersionAdapter {
         )
     }
 
-    private fun Method.toHookPoint() = HookPoint(
-        className = declaringClass.name,
-        methodName = name,
-        paramClassNames = parameterTypes.map { it.name }
-    )
-
-    /**
-     * 按宿主类层级名称判断类型，避免模块与宿主各自打包 AndroidX 时 Class 身份不同。
-     * 仅用于一次性版本探测，不进入任何 Hook 回调热路径。
-     */
-    private fun Class<*>.hasSuperclassNamed(expectedName: String): Boolean {
-        var current: Class<*>? = this
-        while (current != null) {
-            if (current.name == expectedName) return true
-            current = current.superclass
-        }
-        return false
-    }
-
-    /** 通过类名遍历接口层级，避免宿主 AndroidX 与模块 ClassLoader 身份差异。 */
-    private fun Class<*>.implementsInterfaceNamed(expectedName: String): Boolean {
-        val pending = java.util.ArrayDeque<Class<*>>()
-        val visited = HashSet<Class<*>>()
-        pending.add(this)
-        while (pending.isNotEmpty()) {
-            val current = pending.removeFirst()
-            if (!visited.add(current)) continue
-            current.interfaces.forEach { implemented ->
-                if (implemented.name == expectedName) return true
-                pending.addLast(implemented)
-            }
-            current.superclass?.let(pending::addLast)
-        }
-        return false
-    }
-
     /**
      * 结构化定位“我的”页入口。已确认的字段漂移：
      * 8.90.2/9.8.0 由运行时结构匹配；9.1.1=of+n1/m1、9.2.0=pf+m1/l1、
      * 9.3.0=nf+u0/t0。只依赖方法参数、List 和 RecyclerView.Adapter 类型。
      */
-    fun locateMineEntry(loader: ClassLoader, allowModuleInstance: Boolean = false): MineEntryPoint? = runCatching {
-        val fragmentName = MINE_FRAGMENT_CLASS
-        val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
-        val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
-        val fragment = KavaMemberLookup.classOrNull(loader, fragmentName)
-            ?: return@runCatching null
-        val accountMine = KavaMemberLookup.classOrNull(loader, accountMineName)
-            ?: return@runCatching null
-        val itemClass = KavaMemberLookup.classOrNull(loader, itemName)
-            ?: return@runCatching null
-
-        val staticBuilds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-            it.isStatic && it.returnType == Void.TYPE &&
-                it.parameterTypes.contentEquals(arrayOf(fragment, accountMine))
-        }
-        val moduleInstance = staticBuilds.isEmpty()
-        val builds = if (moduleInstance) {
-            if (!allowModuleInstance) return@runCatching null
-            // 9.15/9.19/9.20: 先找唯一的非 static (AccountMine)->void 公开终局方法；不唯一或缺失时再匹配唯一的 (AccountMine, boolean)->void。
-            val instanceOneArg = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-                it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
-                    it.parameterTypes.contentEquals(arrayOf(accountMine))
-            }.singleOrNull()
-            val build = instanceOneArg ?: KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-                it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
-                    it.parameterTypes.contentEquals(arrayOf(accountMine, classOf<Boolean>()))
-            }.singleOrNull() ?: return@runCatching null
-            listOf(build)
-        } else staticBuilds
-
-        val listFields = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
-            !it.isStatic && it.type isSubclassOf classOf<List<*>>()
-        }
-        val groups = listFields.singleOrNull() ?: return@runCatching null
-
-        val adapter = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
-            !it.isStatic &&
-                it.type.hasSuperclassNamed("androidx.recyclerview.widget.RecyclerView\$Adapter")
-        }.singleOrNull()
-
-        val clickOwners = (listOf("$fragmentName\$e", "$fragmentName\$i") + fragment.declaredClasses.map { it.name }).distinct()
-        val click = clickOwners
-            .asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .mapNotNull { clickClass ->
-                KavaMemberLookup.declaredMethods(clickClass, makeAccessible = true) {
-                    !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
-                        it.parameterTypes.contentEquals(arrayOf(itemClass)) &&
-                        (!moduleInstance || (it.isPublic && it.isFinal))
-                }.singleOrNull()
-            }
-            .firstOrNull() ?: return@runCatching null
-
-        MineEntryPoint(builds.map { it.toHookPoint() }, groups.name, adapter?.name, click.toHookPoint())
-    }.getOrNull()
+    fun locateMineEntry(loader: ClassLoader, allowModuleInstance: Boolean = false): MineEntryPoint? =
+        MineAndHomeUiLocator.locateMineEntry(loader, allowModuleInstance)
 
     /**
      * 结构化定位“我的”页 VIP 卡片。8.90.2、9.1.0 与 9.9.0 的混淆字段名不同，
      * 但 Fragment 持有唯一 MineVipModuleManager、管理器持有唯一 ViewBinding，且
      * ViewBinding 暴露无参 getRoot。只在适配期扫描并缓存精确成员描述。
      */
-    fun locateMineVip(loader: ClassLoader): MineVipPoint? = runCatching {
-        val fragment = KavaMemberLookup.classOrNull(loader, MINE_FRAGMENT_CLASS)
-            ?: return@runCatching null
-        val manager = KavaMemberLookup.classOrNull(loader, MINE_VIP_MANAGER_CLASS)
-            ?: return@runCatching null
-        val onResume = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-            !it.isStatic && it.name == "onResume" && it.parameterCount == 0 &&
-                it.returnType == Void.TYPE
-        }.singleOrNull() ?: return@runCatching null
-        val managerField = KavaMemberLookup.declaredFields(fragment, makeAccessible = true) {
-            !it.isStatic && it.type isSubclassOf manager
-        }.singleOrNull() ?: return@runCatching null
-        val bindingField = KavaMemberLookup.declaredFields(manager, makeAccessible = true) {
-            !it.isStatic &&
-                it.type.implementsInterfaceNamed("androidx.viewbinding.ViewBinding")
-        }.singleOrNull() ?: return@runCatching null
-        val rootGetter = KavaMemberLookup.declaredMethods(
-            bindingField.type,
-            makeAccessible = true
-        ) {
-            !it.isStatic && !it.isBridge && it.name == "getRoot" &&
-                it.parameterCount == 0 && it.returnType isSubclassOf classOf<View>()
-        }.singleOrNull() ?: return@runCatching null
-
-        MineVipPoint(
-            onResume = onResume.toHookPoint().copy(viewField = managerField.name),
-            bindingField = bindingField.name,
-            rootGetter = rootGetter.toHookPoint()
-        )
-    }.getOrNull()
+    fun locateMineVip(loader: ClassLoader): MineVipPoint? =
+        MineAndHomeUiLocator.locateMineVip(loader)
 
     /**
      * 定位官方客户端更新信息同步入口。候选类来自 8.90.2 与 9.1.0–9.11.0 的离线字符串/
@@ -7066,40 +4741,8 @@ object VersionAdapter {
      * 8.90.2 同时存在接口桥接 a(Context) 与真实网络实现 c(Context)，优先选择没有被接口
      * 声明的叶子方法；新版本只有一个实现时直接采用唯一候选。
      */
-    fun locateBlockUpdate(loader: ClassLoader, hostVersionCode: Int? = null): HookPoint? = runCatching {
-        val upgradeInfo = KavaMemberLookup.classOrNull(loader, BILI_UPGRADE_INFO_CLASS)
-            ?: return@runCatching null
-        hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.first }?.let { verifiedOwner ->
-            val owner = KavaMemberLookup.classOrNull(loader, verifiedOwner) ?: return@runCatching null
-            return@runCatching KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                !it.isStatic && !it.isAbstract && !it.isBridge && !it.isSynthetic &&
-                    it.returnType == upgradeInfo &&
-                    it.parameterTypes.contentEquals(arrayOf(classOf<Context>()))
-            }.singleOrNull()?.takeIf { it.name == "a" }?.toHookPoint()
-        }
-        for (ownerName in BLOCK_UPDATE_OWNER_CANDIDATES) {
-            val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
-            val candidates = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                !it.isStatic && !it.isAbstract && !it.isBridge && !it.isSynthetic &&
-                    it.returnType == upgradeInfo &&
-                    it.parameterTypes.contentEquals(arrayOf(classOf<Context>()))
-            }
-            if (candidates.isEmpty()) continue
-            val interfaceSignatures = owner.interfaces.flatMap { contract ->
-                KavaMemberLookup.declaredMethods(contract).map { method ->
-                    method.name to method.parameterTypes.toList()
-                }
-            }.toSet()
-            val leafCandidates = candidates.filter { method ->
-                (method.name to method.parameterTypes.toList()) !in interfaceSignatures
-            }
-            val selected = leafCandidates.singleOrNull()
-                ?: candidates.takeIf { leafCandidates.isEmpty() }?.singleOrNull()
-                ?: continue
-            return@runCatching selected.toHookPoint()
-        }
-        null
-    }.getOrNull()
+    fun locateBlockUpdate(loader: ClassLoader, hostVersionCode: Int? = null): HookPoint? =
+        MediaQualityAndPlayerLocator.locateBlockUpdate(loader, hostVersionCode)
 
     internal data class KotlinDefaultWordsDexAssist(val point: HookPoint?, val diagnostic: AdaptDiagnostic)
 
@@ -7203,8 +4846,11 @@ object VersionAdapter {
         val commentTopology: CommentTopologyPoints?,
         private val diagnostics: List<AdaptDiagnostic>
     ) {
+        private val diagnosticsById: Map<String, AdaptDiagnostic> =
+            if (diagnostics.isEmpty()) emptyMap() else diagnostics.associateBy(AdaptDiagnostic::id)
+
         fun attempt(family: AdaptAssistGate.Family): AdaptAssistGate.Attempt = AdaptAssistGate.attempt(diagnostics, family)
-        fun diagnostic(family: AdaptAssistGate.Family): AdaptDiagnostic? = diagnostics.lastOrNull { it.id == family.diagnosticId }
+        fun diagnostic(family: AdaptAssistGate.Family): AdaptDiagnostic? = diagnosticsById[family.diagnosticId]
 
         /** 缓存里已有「兜底实现」级别的默认画质点（不是旧包装层）。 */
         val assistedQuality: PlayerQualityPoints? = playerQuality
@@ -7269,7 +4915,7 @@ object VersionAdapter {
                 detail = "block-update:no-dex-source"
             )
         )
-        val upgradeInfo = KavaMemberLookup.classOrNull(loader, BILI_UPGRADE_INFO_CLASS)
+        val upgradeInfo = KavaMemberLookup.classOrNull(loader, MediaQualityAndPlayerLocator.BILI_UPGRADE_INFO_CLASS)
             ?: return BlockUpdateDexAssist(
                 point = null,
                 diagnostic = AdaptDiagnostic(
@@ -7320,7 +4966,7 @@ object VersionAdapter {
         AdaptDiagnostic(id = DEX_ASSIST_PLAYER_QUALITY_ID, state = state, detail = "player-quality:$detail")
 
     /**
-     * 混淆候选全部落空（或只落到稳定包装层）时，按"`()I` + 方法体常量 `quality settings:`"全 DEX 查询
+     * 混淆候选全部落空（或只落到稳定包装层）时，按“`()I` + 方法体常量 `quality settings:`”全 DEX 查询
      * 默认画质实现。结果由宿主 ClassLoader 解析并复核签名，不唯一按缺失处理。
      */
     private fun locatePlayerQualityByDex(
@@ -7384,13 +5030,13 @@ object VersionAdapter {
             mapperOwners = emptyList(),
             diagnostic = commentTopologyAssistDiagnostic(AdaptState.MISSING, "no-dex-source")
         )
-        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
+        val replyInfo = CommentLocator.COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .firstOrNull() ?: return CommentTopologyDexAssist(
             mapperOwners = emptyList(),
             diagnostic = commentTopologyAssistDiagnostic(AdaptState.MISSING, "reply-info-missing")
         )
-        val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
+        val commentItem = KavaMemberLookup.classOrNull(loader, CommentTopologyLocator.COMMENT_ITEM_CLASS)
             ?: return CommentTopologyDexAssist(
                 mapperOwners = emptyList(),
                 diagnostic = commentTopologyAssistDiagnostic(
@@ -7436,132 +5082,27 @@ object VersionAdapter {
      * 页签添加始终落到 TabLayout.addTab(Tab, boolean)。页签模型由 getter 泛型签名取得，
      * 再验证 title/name 两个 String 字段；任一结构不唯一即不安装，避免位置错配。
      */
-    fun locateDynamicTabs(loader: ClassLoader): DynamicTabsPoint? = runCatching {
-        val fragment = KavaMemberLookup.classOrNull(loader, DYNAMIC_MEDIATOR_FRAGMENT_CLASS)
-            ?: return@runCatching null
-        val mediatorTab = KavaMemberLookup.classOrNull(loader, DYNAMIC_MEDIATOR_TAB_CLASS)
-            ?: return@runCatching null
-        if (!mediatorTab.hasSuperclassNamed("com.google.android.material.tabs.TabLayout")) {
-            return@runCatching null
-        }
-        val listGetter = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-            !it.isStatic && it.parameterCount == 0 && classOf<List<*>>() == it.returnType
-        }.singleOrNull() ?: return@runCatching null
-        val itemClass = (listGetter.genericReturnType as? ParameterizedType)
-            ?.actualTypeArguments
-            ?.singleOrNull() as? Class<*>
-            ?: return@runCatching null
-        val stringFields = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-            !it.isStatic && !it.isSynthetic && it.type == classOf<String>()
-        }
-        val namedTitle = stringFields.singleOrNull { it.name == "a" }
-        val namedName = stringFields.singleOrNull { it.name == "b" }
-        val (titleField, nameField) = when {
-            namedTitle != null && namedName != null -> namedTitle to namedName
-            stringFields.size == 2 -> stringFields[0] to stringFields[1]
-            else -> return@runCatching null
-        }
-        val tabLayout = mediatorTab.superclass?.let { current ->
-            generateSequence(current) { it.superclass }
-                .firstOrNull { it.name == "com.google.android.material.tabs.TabLayout" }
-        } ?: return@runCatching null
-        val tabClass = KavaMemberLookup.classOrNull(
-            loader,
-            "com.google.android.material.tabs.TabLayout\$Tab"
-        ) ?: return@runCatching null
-        val addTab = KavaMemberLookup.methodOrNull(
-            tabLayout,
-            "addTab",
-            tabClass,
-            classOf<Boolean>()
-        ) ?: return@runCatching null
-        val customViewGetter = KavaMemberLookup.methodOrNull(
-            tabClass,
-            "getCustomView"
-        )?.takeIf { it.returnType isSubclassOf classOf<View>() }
-            ?: return@runCatching null
-
-        DynamicTabsPoint(
-            listGetter = listGetter.toHookPoint(),
-            addTab = addTab.toHookPoint(),
-            tabCustomViewGetter = customViewGetter.toHookPoint(),
-            mediatorTabClassName = mediatorTab.name,
-            itemClassName = itemClass.name,
-            itemTitleField = titleField.name,
-            itemNameField = nameField.name
-        )
-    }.getOrNull()
+    fun locateDynamicTabs(loader: ClassLoader): DynamicTabsPoint? =
+        MineAndHomeUiLocator.locateDynamicTabs(loader)
 
     /**
      * 定位数字缩写格式化器。8.90.2、9.1.0 与 9.9.0 均同时保留 Java NumberFormat；
      * “我的”页则直接调用 kntr 的 Kotlin 顶层函数。只接受 static、String 返回值且首参
      * 为 int/long（含装箱）或 kntr 的数字字符串重载，避免碰触时间/小数格式化方法。
      */
-    fun locateFullNumbers(loader: ClassLoader): FullNumberPoints? = runCatching {
-        val acceptedNames = setOf(
-            "format",
-            "formatWithComma",
-            "formatNumber",
-            "format\$default",
-            "formatNumber\$default"
-        )
-        val numericTypes = setOf(
-            classOf<Int>(),
-            classOf<Long>(),
-            classOf<Int>(primitiveType = false),
-            classOf<Long>(primitiveType = false)
-        )
-        val methods = FULL_NUMBER_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    val firstType = method.parameterTypes.firstOrNull()
-                    method.isStatic && method.returnType == classOf<String>() &&
-                        method.name in acceptedNames && method.parameterCount in 1..5 &&
-                        (firstType in numericTypes ||
-                            (firstType == classOf<String>() &&
-                                owner.name == KNTR_NUMBER_FORMAT_CLASS))
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        methods.takeIf { it.isNotEmpty() }?.let(::FullNumberPoints)
-    }.getOrNull()
+    fun locateFullNumbers(loader: ClassLoader): FullNumberPoints? =
+        MineAndHomeUiLocator.locateFullNumbers(loader)
 
     fun locatePgcAutoActivityPopup(loader: ClassLoader): PgcAutoActivityPopupPoints? =
-        PgcAutoActivityPopupLocator.locate(loader)
+        MediaQualityAndPlayerLocator.locatePgcAutoActivityPopup(loader)
 
     /**
      * 定位播放器“进入看一看”竖屏切换控件。8.90.2、9.1.0 与 9.9.0 的布局和 dex
      * 交叉验证表明该控件均由 GeminiPlayerFullStoryWidget 自身覆写 setVisibility(int)。
      * 只缓存控件自身声明的精确方法，不安装全局 View 可见性 Hook，也不扫描界面树。
      */
-    fun locatePlayerPortrait(loader: ClassLoader): PlayerPortraitPoints? = runCatching {
-        val methods = PLAYER_PORTRAIT_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .filter { it.hasSuperclassNamed("android.view.View") }
-            .mapNotNull { owner ->
-                KavaMemberLookup.methodOrNull(
-                    owner,
-                    "setVisibility",
-                    classOf<Int>()
-                )?.takeIf { method ->
-                    method.declaringClass == owner && method.returnType == Void.TYPE
-                }
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        methods.takeIf { it.isNotEmpty() }?.let(::PlayerPortraitPoints)
-    }.getOrNull()
-
-    /** protobuf 生成类上的静态 `getDefaultInstance()`；缺失时返回 null，由调用方降级。 */
-    private fun locateDefaultInstanceGetter(owner: Class<*>): Method? =
-        KavaMemberLookup.methodOrNull(owner, PLAYER_INTERACTIVE_DEFAULT_INSTANCE_GETTER)
-            ?.takeIf { method ->
-                method.isStatic && method.parameterCount == 0 && method.returnType == owner
-            }
+    fun locatePlayerPortrait(loader: ClassLoader): PlayerPortraitPoints? =
+        MediaQualityAndPlayerLocator.locatePlayerPortrait(loader)
 
     /**
      * 定位播放器互动层 protobuf 读边界。只认公开稳定类名，按家族自带的白名单在 Guide 上
@@ -7572,897 +5113,43 @@ object VersionAdapter {
      */
     fun locatePlayerInteractiveOverlays(
         loader: ClassLoader
-    ): PlayerInteractiveOverlayPoints? = runCatching {
-        val families = ArrayList<PlayerInteractiveGuideFamily>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
-        val mossExecutes = ArrayList<HookPoint>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
-        val mossAsync = ArrayList<HookPoint>(PLAYER_INTERACTIVE_MOSS_FAMILIES.size)
-        fun locateMoss(moss: Class<*>?, reply: Class<*>, sync: String, async: String) {
-            moss ?: return
-            val methods = KavaMemberLookup.declaredMethods(moss, makeAccessible = true)
-            methods.filter { !it.isStatic && it.name == sync && it.parameterCount == 1 && it.returnType == reply }
-                .singleOrNull()?.let { mossExecutes += it.toHookPoint() }
-            methods.filter { !it.isStatic && it.name == async && it.parameterCount == 2 &&
-                it.returnType == Void.TYPE && it.parameterTypes[1].name == "com.bilibili.lib.moss.api.MossResponseHandler" }
-                .singleOrNull()?.let { mossAsync += it.toHookPoint() }
-        }
-        PLAYER_INTERACTIVE_MOSS_FAMILIES.forEach { spec ->
-            val moss = KavaMemberLookup.classOrNull(loader, spec.mossClassName)
-            val reply = KavaMemberLookup.classOrNull(loader, spec.replyClassName)
-            val guide = KavaMemberLookup.classOrNull(loader, spec.guideClassName)
-            if (reply == null) return@forEach
-            val getter = KavaMemberLookup.methodOrNull(reply, "getVideoGuide")
-                ?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == guide
-                }
-            val clears = spec.clearNames.mapNotNull { name ->
-                guide?.let { KavaMemberLookup.methodOrNull(it, name) }?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == Void.TYPE &&
-                        method.name != PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
-                }
-            }
-            // 第二载体 DmResource：缺任何一环就整条降级为不装，绝不半路留个空 getter。
-            val dmClass = spec.dmClassName?.let { KavaMemberLookup.classOrNull(loader, it) }
-            val dmGetter = dmClass?.let {
-                KavaMemberLookup.methodOrNull(reply, "getDm")?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 && method.returnType == it
-                }
-            }
-            val dmClears = if (dmClass == null || dmGetter == null) {
-                emptyList()
-            } else {
-                spec.dmClearNames.mapNotNull { name ->
-                    KavaMemberLookup.methodOrNull(dmClass, name)?.takeIf { method ->
-                        !method.isStatic && method.parameterCount == 0 &&
-                            method.returnType == Void.TYPE &&
-                            method.name != PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
-                    }
-                }
-            }
-            families += PlayerInteractiveGuideFamily(
-                replyClassName = spec.replyClassName,
-                guideGetter = getter?.toHookPoint(),
-                guideClears = clears.map { it.toHookPoint() },
-                guideDefault = guide?.let(::locateDefaultInstanceGetter)?.toHookPoint(),
-                // dmClears 只在 dmGetter 存在时才可能非空，两者要么同时有要么同时无。
-                dmGetter = if (dmClears.isEmpty()) null else dmGetter?.toHookPoint(),
-                dmClears = dmClears.map { it.toHookPoint() },
-                dmDefault = dmClass?.let(::locateDefaultInstanceGetter)?.toHookPoint()
-            )
-            locateMoss(moss, reply, "executeViewProgress", "viewProgress")
-        }
-
-        val dmReply = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_REPLY_CLASS)
-        val dmCommand = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_COMMAND_CLASS)
-        val commandGetter = dmReply?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, "getCommand")?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 &&
-                    (dmCommand == null || method.returnType == dmCommand)
-            }
-        }
-        val commandClear = dmReply?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, PLAYER_INTERACTIVE_DM_REPLY_CLEAR)
-                ?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == Void.TYPE
-                }
-        }
-        val commandDefault = dmCommand?.let(::locateDefaultInstanceGetter)
-        val activityMetaClear = dmReply?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, PLAYER_INTERACTIVE_DM_ACTIVITY_META_CLEAR)
-                ?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == Void.TYPE
-                }
-        }
-        val dmMoss = KavaMemberLookup.classOrNull(loader, PLAYER_INTERACTIVE_DM_MOSS_CLASS)
-        if (dmMoss != null && dmReply != null) {
-            locateMoss(dmMoss, dmReply, "executeDmView", "dmView")
-        }
-
-        if (families.isEmpty() && commandClear == null) return@runCatching null
-        PlayerInteractiveOverlayPoints(
-            families = families,
-            mossExecutes = mossExecutes.distinctBy { it.label() },
-            commandGetter = commandGetter?.toHookPoint(),
-            commandClear = commandClear?.toHookPoint(),
-            commandDefault = commandDefault?.toHookPoint(),
-            commandActivityMetaClear = activityMetaClear?.toHookPoint(),
-            mossAsync = mossAsync.distinctBy { it.label() }
-        )
-    }.getOrNull()
+    ): PlayerInteractiveOverlayPoints? =
+        MediaQualityAndPlayerLocator.locatePlayerInteractiveOverlays(loader)
 
     /**
      * 详情页透明状态栏只挂到目标 Activity 自己声明的 onCreate(Bundle)，避免全局
      * Activity 生命周期 Hook。9.x 主链均使用 UnitedBizDetailsActivity；类或签名漂移时
      * 直接不安装，不以类名模糊匹配其它页面。
      */
-    fun locatePlayerStatusBar(loader: ClassLoader): PlayerStatusBarPoints? = runCatching {
-        val methods = PLAYER_DETAIL_ACTIVITY_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .filter { it.hasSuperclassNamed("android.app.Activity") }
-            .mapNotNull { owner ->
-                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
-                    ?.takeIf { method ->
-                        method.declaringClass == owner && method.returnType == Void.TYPE &&
-                            !method.isStatic
-                    }
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        methods.takeIf { it.isNotEmpty() }?.let(::PlayerStatusBarPoints)
-    }.getOrNull()
+    fun locatePlayerStatusBar(loader: ClassLoader): PlayerStatusBarPoints? =
+        MediaQualityAndPlayerLocator.locatePlayerStatusBar(loader)
 
     /**
      * 首页推荐卡片定位：响应只接受无参 List getter，卡片属性只接受公开无参 String
      * getter。运行期先由响应边界登记对象身份，再改写已登记竖屏卡片的路由，避免把同一
      * BasePegasusData 类型在其它页面的对象一并修改。
      */
-    fun locateHomeRecommendFeed(loader: ClassLoader): HomeRecommendFeedPoints? = runCatching {
-        val holder = KavaMemberLookup.classOrNull(loader, PEGASUS_HOLDER_DATA_CLASS)
-            ?: return@runCatching null
-        val holderType = KavaMemberLookup.methods(
-            holder,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { method ->
-            method.name == "getHolderType" && method.parameterCount == 0 &&
-                method.returnType == classOf<String>() && !method.isStatic
-        }.distinctBy(Method::toGenericString).singleOrNull() ?: return@runCatching null
+    fun locateHomeRecommendFeed(loader: ClassLoader): HomeRecommendFeedPoints? =
+        HomeRecommendFeedLocator.locate(loader)
 
-        val responseGetters = PEGASUS_RESPONSE_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getItems" && method.parameterCount == 0 &&
-                        (method.returnType isSubclassOf classOf<List<*>>()) &&
-                        !method.isStatic && !method.isAbstract
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        if (responseGetters.isEmpty()) return@runCatching null
-
-        val base = BASE_PEGASUS_DATA_CLASS_CANDIDATES.firstNotNullOfOrNull {
-            KavaMemberLookup.classOrNull(loader, it)
-        } ?: holder
-        fun stringGetter(name: String): HookPoint? = KavaMemberLookup.methods(
-            base,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { method ->
-            method.name == name && method.parameterCount == 0 &&
-                method.returnType == classOf<String>() && !method.isStatic
-        }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
-
-        val uri = stringGetter("getUri") ?: return@runCatching null
-        fun objectGetterMethod(name: String): Method? = KavaMemberLookup.methods(
-            base,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { method ->
-            method.name == name && method.parameterCount == 0 && method.isPublic &&
-                !method.isStatic
-        }.distinctBy(Method::toGenericString).singleOrNull()
-        fun objectGetter(name: String): HookPoint? = objectGetterMethod(name)?.toHookPoint()
-
-        // 分区过滤的上下文链：`getArgs()` → `ArgsData.getTid()`。
-        // 只按方法名 + 无参 + 数值返回类型过滤；`classOf<Long>()` 是原始 `long`，
-        // 装箱形式必须显式写 `primitiveType = false`（AGENTS.md 红线），两种都收。
-        val argsGetter = objectGetterMethod("getArgs")
-        fun argsLeaf(name: String, accept: (Method) -> Boolean): Method? =
-            argsGetter?.returnType?.let { argsClass ->
-                KavaMemberLookup.methods(
-                    argsClass,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == name && method.parameterCount == 0 &&
-                        method.isPublic && !method.isStatic && accept(method)
-                }.distinctBy(Method::toGenericString).singleOrNull()
-            }
-        val argsTidGetter = argsLeaf("getTid") { method ->
-            method.returnType in setOf(
-                classOf<Int>(), classOf<Long>(),
-                classOf<Int>(primitiveType = false),
-                classOf<Long>(primitiveType = false)
-            )
-        }
-        val argsTnameGetter = argsLeaf("getTname") { it.returnType == classOf<String>() }
-        val argsRidGetter = argsLeaf("getRid") { method ->
-            method.returnType in setOf(
-                classOf<Int>(), classOf<Long>(),
-                classOf<Int>(primitiveType = false),
-                classOf<Long>(primitiveType = false)
-            )
-        }
-        // 三点面板"不感兴趣"落点：全部收敛到未混淆的占位卡 DislikeItemData 上。
-        // 名字虽然未混淆，仍按"无参/单参 + 精确参数类型 + 非静态"选，避免同名重载误挂。
-        val dislikeItemClass = KavaMemberLookup.classOrNull(loader, HOME_DISLIKE_ITEM_CLASS)
-        fun dislikeSetter(name: String, parameterClassName: String): HookPoint? =
-            dislikeItemClass?.let { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    method.name == name && method.parameterCount == 1 && !method.isStatic &&
-                        method.parameterTypes[0].name == parameterClassName
-                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
-            }
-        fun dislikeGetter(name: String, returnClassName: String): HookPoint? =
-            dislikeItemClass?.let { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == name && method.parameterCount == 0 && !method.isStatic &&
-                        method.returnType.name == returnClassName
-                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
-            }
-        val dislikeReasonSetter =
-            dislikeSetter("setSelectedDislikeReason", HOME_DISLIKE_REASON_CLASS)
-        val dislikeRecordSetter =
-            dislikeSetter("setDislikeRequestRecord", HOME_DISLIKE_RECORD_CLASS)
-        val dislikeAnchorGetter = dislikeGetter("getDislikeAnchor", HOME_PEGASUS_DATA_CLASS)
-        val dislikeTypeGetter = dislikeItemClass?.let { owner ->
-            KavaMemberLookup.methods(
-                owner,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                method.name == "getSelectedDislikeType" && method.parameterCount == 0 &&
-                    !method.isStatic && method.returnType.isEnum
-            }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
-        }
-        val feedbackItemClass = KavaMemberLookup.classOrNull(loader, HOME_FEEDBACK_ITEM_CLASS)
-        fun feedbackItemGetter(name: String, accept: (Method) -> Boolean): HookPoint? =
-            feedbackItemClass?.let { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    method.name == name && method.parameterCount == 0 && !method.isStatic &&
-                        accept(method)
-                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
-            }
-        val feedbackItemExtendGetter =
-            feedbackItemGetter("getExtend") { it.returnType == classOf<String>() }
-        val feedbackItemIdGetter = feedbackItemGetter("getId") { method ->
-            method.returnType in setOf(
-                classOf<Int>(), classOf<Long>(),
-                classOf<Int>(primitiveType = false),
-                classOf<Long>(primitiveType = false)
-            )
-        }
-        val feedbackItemTitleGetter =
-            feedbackItemGetter("getTitle") { it.returnType == classOf<String>() }
-        val feedbackItemTypeGetter = feedbackItemGetter("getType") { it.returnType.isEnum }
-        val feedbackItemOnClickGetter = feedbackItemGetter("getOnClick") { true }
-        // 主构造器：排掉 Kotlin 默认参数生成的合成重载（带 DefaultConstructorMarker），
-        // 剩下参数最多的那个。参数**位置**不在这里定，安装期用哨兵值反查。
-        val feedbackItemConstructor = feedbackItemClass?.let { owner ->
-            KavaMemberLookup.declaredConstructors(owner) { constructor ->
-                constructor.parameterTypes.none {
-                    it.name == "kotlin.jvm.internal.DefaultConstructorMarker"
-                }
-            }.maxByOrNull { it.parameterCount }?.let { constructor ->
-                HookPoint(
-                    className = HOME_FEEDBACK_ITEM_CLASS,
-                    methodName = "<init>",
-                    paramClassNames = constructor.parameterTypes.map { it.name }
-                )
-            }
-        }
-        // 面板 Fragment 的 onCreate：标准 Android 回调，只认这个类自己声明的那个。
-        val feedbackDialogFragmentCreate = KavaMemberLookup
-            .classOrNull(loader, HOME_FEEDBACK_DIALOG_CLASS)
-            ?.let { owner ->
-                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
-                    ?.takeIf { it.declaringClass == owner && !it.isStatic }
-                    ?.toHookPoint()
-            }
-        // 分组模型：getItems / getStyle / getTitle / copy 全未混淆，只按签名收敛。
-        val feedbackGroupClass = KavaMemberLookup.classOrNull(loader, HOME_FEEDBACK_GROUP_CLASS)
-        fun groupMember(name: String, accept: (Method) -> Boolean): HookPoint? =
-            feedbackGroupClass?.let { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    method.name == name && !method.isStatic && accept(method)
-                }.distinctBy(Method::toGenericString).singleOrNull()?.toHookPoint()
-            }
-        val feedbackGroupItemsGetter = groupMember("getItems") { method ->
-            method.parameterCount == 0 && (method.returnType isSubclassOf classOf<List<*>>())
-        }
-        val feedbackGroupTitleGetter = groupMember("getTitle") {
-            it.parameterCount == 0 && it.returnType == classOf<String>()
-        }
-        val feedbackGroupStyleGetter = groupMember("getStyle") {
-            it.parameterCount == 0 && it.returnType.isEnum
-        }
-        // copy 的参数表跟着 data class 走；认"三参数且返回自身类型"这一位就够唯一，
-        // 排掉 copy$default（它带 mask 与 Object 兜底位）。
-        val feedbackGroupCopy = groupMember("copy") { method ->
-            method.parameterCount == 3 &&
-                method.returnType.name == HOME_FEEDBACK_GROUP_CLASS &&
-                (method.parameterTypes[2] isSubclassOf classOf<List<*>>())
-        }
-        val argsUpIdGetter = argsLeaf("getUpId") { method ->
-            method.returnType in setOf(
-                classOf<Int>(), classOf<Long>(),
-                classOf<Int>(primitiveType = false),
-                classOf<Long>(primitiveType = false)
-            )
-        }
-        val argsUpNameGetter = argsLeaf("getUpName") { it.returnType == classOf<String>() }
-        val playerArgsGetter = objectGetterMethod("getPlayerArgs")
-        val playerArgsDurationGetter = playerArgsGetter?.returnType?.let { playerArgsClass ->
-            KavaMemberLookup.methods(
-                playerArgsClass,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                method.name == "getDuration" && method.parameterCount == 0 &&
-                    method.isPublic && !method.isStatic &&
-                    method.returnType in setOf(
-                        classOf<Int>(), classOf<Long>(),
-                        classOf<Int>(primitiveType = false),
-                        classOf<Long>(primitiveType = false)
-                    )
-            }.distinctBy(Method::toGenericString).singleOrNull()
-        }
-        val playerArgsDurationField = playerArgsGetter?.returnType?.let { playerArgsClass ->
-            KavaMemberLookup.declaredFields(playerArgsClass, makeAccessible = true) { field ->
-                field.type in setOf(classOf<Int>(), classOf<Long>()) && field.isPublic &&
-                    !field.isStatic && field.annotations.any { annotation ->
-                        val annotationClass = annotation.annotationClass.java
-                        val attributeName = when (annotationClass.name) {
-                            "com.google.gson.annotations.SerializedName" -> "value"
-                            "com.alibaba.fastjson.annotation.JSONField" -> "name"
-                            else -> null
-                        } ?: return@any false
-                        runCatching {
-                            annotationClass.getMethod(attributeName).invoke(annotation) as? String
-                        }.getOrNull() == "duration"
-                    }
-            }.singleOrNull()
-        }
-        val intentHandlerOnCreate = KavaMemberLookup.classOrNull(
-            loader,
-            HOME_VERTICAL_INTENT_HANDLER_CLASS
-        )?.takeIf { it.hasSuperclassNamed("android.app.Activity") }?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
-                ?.takeIf { method ->
-                    method.declaringClass == owner && method.returnType == Void.TYPE &&
-                        !method.isStatic
-                }
-                ?.toHookPoint()
-        }
-        HomeRecommendFeedPoints(
-            responseItemGetters = responseGetters,
-            holderTypeGetter = holderType.toHookPoint(),
-            bizTypeGetter = stringGetter("getBizType"),
-            adInfoGetter = objectGetter("getAdInfo"),
-            cardTypeGetter = stringGetter("getCardType"),
-            cardGotoGetter = stringGetter("getCardGoto"),
-            goToGetter = stringGetter("getGoTo"),
-            uriGetter = uri,
-            paramGetter = stringGetter("getParam"),
-            titleGetter = stringGetter("getTitle"),
-            subtitleGetter = stringGetter("getSubtitle"),
-            descGetter = stringGetter("getDesc"),
-            // PlayerArgs 除时长外还承载稳定 aid/直播/番剧身份，不能因时长字段缺失而整体丢弃。
-            playerArgsGetter = playerArgsGetter?.toHookPoint(),
-            playerArgsDurationField = playerArgsDurationField?.name,
-            playerArgsDurationGetter = playerArgsDurationGetter?.toHookPoint(),
-            argsGetter = argsGetter?.toHookPoint(),
-            argsTidGetter = argsTidGetter?.toHookPoint(),
-            argsTnameGetter = argsTnameGetter?.toHookPoint(),
-            argsRidGetter = argsRidGetter?.toHookPoint(),
-            dislikeReasonSetter = dislikeReasonSetter,
-            dislikeRecordSetter = dislikeRecordSetter,
-            dislikeAnchorGetter = dislikeAnchorGetter,
-            dislikeTypeGetter = dislikeTypeGetter,
-            feedbackItemExtendGetter = feedbackItemExtendGetter,
-            feedbackItemIdGetter = feedbackItemIdGetter,
-            feedbackDialogFragmentCreate = feedbackDialogFragmentCreate,
-            feedbackGroupItemsGetter = feedbackGroupItemsGetter,
-            feedbackGroupStyleGetter = feedbackGroupStyleGetter,
-            feedbackGroupTitleGetter = feedbackGroupTitleGetter,
-            feedbackGroupCopy = feedbackGroupCopy,
-            feedbackItemConstructor = feedbackItemConstructor,
-            feedbackItemTitleGetter = feedbackItemTitleGetter,
-            feedbackItemTypeGetter = feedbackItemTypeGetter,
-            feedbackItemOnClickGetter = feedbackItemOnClickGetter,
-            argsUpIdGetter = argsUpIdGetter?.toHookPoint(),
-            argsUpNameGetter = argsUpNameGetter?.toHookPoint(),
-            intentHandlerOnCreate = intentHandlerOnCreate
-        )
-    }.getOrNull()
-
-    internal fun selectDetailRelateComponentFactory(serviceClass: Class<*>): Method? {
-        fun verifiedCurrentDispatcher(method: Method): Boolean {
-            // 8.90.2 DEX：C0 按 r2.y() 分发；同签名的 J0/P0 等只构建单一类型。
-            if (method.name != "C0" || method.returnType.name !=
-                "com.bilibili.app.gemini.ui.RunningUIComponent") return false
-            val item = method.parameterTypes.single()
-            if (item.name != "$DETAIL_RELATE_SERVICE_PACKAGE.r2") return false
-            val type = KavaMemberLookup.fieldOrNull(item, "a")
-                ?.takeIf { !it.isStatic }?.type ?: return false
-            if (type.name != "$DETAIL_RELATE_SERVICE_PACKAGE.RelateCardType" || !type.isEnum) return false
-            val names = KavaMemberLookup.fields(type, includeSuperclasses = false) { it.isEnumConstant }
-                .map { it.name }.toSet()
-            if (!names.containsAll(setOf("AV", "CM", "GAME", "LIVE", "COURSE"))) return false
-            val getter = KavaMemberLookup.methodOrNull(item, "y") ?: return false
-            return !getter.isStatic && getter.returnType == type
-        }
-        val scored = KavaMemberLookup.methods(serviceClass,
-            includeSuperclasses = true, makeAccessible = true) { method ->
-            !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
-                method.returnType != Void.TYPE && !method.returnType.isPrimitive
-        }.distinctBy(Method::toGenericString).map { method ->
-            val parameterName = method.parameterTypes.single().name
-            val score = (if (parameterName.endsWith("D0") ||
-                parameterName.startsWith("$DETAIL_RELATE_SERVICE_PACKAGE.")) 4 else 0) +
-                (if (method.returnType.name.contains("RunningUIComponent")) 4 else 0) +
-                (if (method.name == "d") 1 else 0) +
-                (if (verifiedCurrentDispatcher(method)) 16 else 0)
-            method to score
-        }.filter { it.second > 0 }
-        val highest = scored.maxOfOrNull { it.second } ?: return null
-        return scored.filter { it.second == highest }.map { it.first }.singleOrNull()
-    }
+    internal fun selectDetailRelateComponentFactory(serviceClass: Class<*>): Method? =
+        VideoRelateLocator.selectDetailRelateComponentFactory(serviceClass)
 
     /** 8.90.2 C0/r2 DTO 的 H() 只返回对应卡型的推荐理由；不读取标题或 toString。 */
-    internal fun selectDetailRelateServiceReasonGetter(factory: Method): Method? {
-        if (factory.name != "C0" || factory.isStatic || factory.parameterCount != 1 ||
-            factory.returnType.name != "com.bilibili.app.gemini.ui.RunningUIComponent"
-        ) return null
-        val itemClass = factory.parameterTypes.single()
-        if (itemClass.name != "$DETAIL_RELATE_SERVICE_PACKAGE.r2") return null
-        return KavaMemberLookup.methods(itemClass,
-            includeSuperclasses = true, makeAccessible = true) { method ->
-            method.name == "H" && method.isPublic && !method.isStatic &&
-                method.parameterCount == 0 && method.returnType == classOf<String>()
-        }.distinctBy(Method::toGenericString).singleOrNull()
-    }
+    internal fun selectDetailRelateServiceReasonGetter(factory: Method): Method? =
+        VideoRelateLocator.selectDetailRelateServiceReasonGetter(factory)
 
     /** 精确定位相关推荐列表以及公开的直接/嵌套类型读取方法。 */
-    fun locateVideoRelate(loader: ClassLoader): VideoRelatePoints? = runCatching {
-        fun responseListField(getter: Method): Field? {
-            val candidates = KavaMemberLookup.fields(
-                getter.declaringClass,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { field ->
-                !field.isStatic && (field.type isSubclassOf classOf<List<*>>())
-            }.distinctBy(Field::toGenericString)
-            if (candidates.isEmpty()) return null
-            val stem = getter.name.removePrefix("get").removeSuffix("List").lowercase()
-            fun normalizedFieldName(field: Field): String =
-                field.name.trimEnd('_').lowercase()
-            return candidates.singleOrNull { normalizedFieldName(it) == stem }
-                ?: candidates.filter { normalizedFieldName(it).startsWith(stem) }.singleOrNull()
-                ?: candidates.singleOrNull()
-        }
-
-        val responses = VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name in setOf("getCardsList", "getRelatesList", "getListList") &&
-                        method.parameterCount == 0 &&
-                        (method.returnType isSubclassOf classOf<List<*>>()) &&
-                        !method.isStatic && !method.isAbstract
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { method ->
-                method.toHookPoint().copy(viewField = responseListField(method)?.name)
-            }
-            .toList()
-        if (responses.isEmpty()) return@runCatching null
-
-        fun itemMethods(name: String): List<Method> =
-            VIDEO_RELATE_ITEM_CLASS_CANDIDATES.asSequence()
-                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-                .flatMap { owner ->
-                    KavaMemberLookup.methods(
-                        owner,
-                        includeSuperclasses = true,
-                        makeAccessible = true
-                    ) { method ->
-                        method.name == name && method.parameterCount == 0 &&
-                            method.isPublic && !method.isStatic && method.returnType != Void.TYPE
-                    }.asSequence()
-                }
-                .distinctBy(Method::toGenericString)
-                .toList()
-
-        fun isDurationMethod(method: Method): Boolean = method.parameterCount == 0 &&
-            method.isPublic && !method.isStatic &&
-            method.returnType == classOf<Long>()
-
-        fun isIntegralMethod(method: Method): Boolean = method.returnType in setOf(
-            classOf<Long>(),
-            classOf<Long>(primitiveType = false),
-            classOf<Int>(),
-            classOf<Int>(primitiveType = false)
-        )
-
-        fun isStringMethod(method: Method): Boolean = method.parameterCount == 0 &&
-            method.isPublic && !method.isStatic && method.returnType == classOf<String>()
-
-        fun isBooleanMethod(method: Method): Boolean = method.parameterCount == 0 &&
-            method.isPublic && !method.isStatic &&
-            method.returnType in setOf(
-                classOf<Boolean>(),
-                classOf<Boolean>(primitiveType = false)
-            )
-
-        fun enumLooksLikeRelateType(type: Class<*>): Boolean = type.isEnum &&
-            type.declaredFields.asSequence()
-                .filter(Field::isEnumConstant)
-                .map { it.name.removePrefix("CARD_TYPE_").removePrefix("RELATE_CARD_TYPE_") }
-                .any(VIDEO_RELATE_KNOWN_TYPE_NAMES::contains)
-
-        fun <T> selectUniqueHighestScore(
-            candidates: List<T>,
-            score: (T) -> Int
-        ): T? {
-            val scored = candidates.map { it to score(it) }.filter { it.second > 0 }
-            val highest = scored.maxOfOrNull { it.second } ?: return null
-            return scored.filter { it.second == highest }.map { it.first }.singleOrNull()
-        }
-
-        val detailRelateFactory = KavaMemberLookup.classOrNull(
-            loader,
-            DETAIL_RELATE_SERVICE_CLASS
-        )?.let(::selectDetailRelateComponentFactory)
-        val detailRelateService = detailRelateFactory?.let { factory ->
-            val itemClass = factory.parameterTypes.single()
-            val itemFields = KavaMemberLookup.fields(
-                itemClass,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { field -> !field.isStatic }.distinctBy(Field::toGenericString)
-            val typeField = selectUniqueHighestScore(itemFields) { field ->
-                (if (field.name in DETAIL_RELATE_TYPE_MEMBER_NAMES) 4 else 0) +
-                    (if (enumLooksLikeRelateType(field.type)) 3 else 0)
-            }
-            val itemMethods = KavaMemberLookup.methods(
-                itemClass,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                method.parameterCount == 0 && method.isPublic && !method.isStatic &&
-                    method.returnType != Void.TYPE
-            }.distinctBy(Method::toGenericString)
-            val typeGetter = selectUniqueHighestScore(itemMethods) { method ->
-                (if (method.name in DETAIL_RELATE_TYPE_GETTER_NAMES) 4 else 0) +
-                    (if (enumLooksLikeRelateType(method.returnType)) 3 else 0)
-            }
-            val titleGetter = selectUniqueHighestScore(itemMethods.filter(::isStringMethod)) {
-                when (it.name) {
-                    "getTitle" -> 4
-                    "d" -> 3
-                    else -> 0
-                }
-            }
-            DetailRelateServicePoint(
-                componentFactory = factory.toHookPoint(),
-                typeField = typeField?.name,
-                typeGetter = typeGetter?.toHookPoint(),
-                titleGetter = titleGetter?.toHookPoint()
-            )
-        }
-
-        fun reasonChain(prefix: List<Method>): ReasonMethodChain? {
-            val last = prefix.lastOrNull() ?: return null
-            val steps = if (last.returnType == classOf<String>()) {
-                prefix
-            } else {
-                val textGetter = KavaMemberLookup.methods(
-                    last.returnType,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method -> method.name == "getText" && isStringMethod(method) }
-                    .distinctBy(Method::toGenericString)
-                    .singleOrNull()
-                    ?: return null
-                prefix + textGetter
-            }
-            if (steps.size !in 1..3) return null
-            return ReasonMethodChain(steps.map { it.toHookPoint() })
-        }
-
-        val cases = itemMethods("getCardCase").map { it.toHookPoint() }
-        val gotos = itemMethods("getGoto").map { it.toHookPoint() }
-        val types = itemMethods("getCardType").map { it.toHookPoint() }
-        val relateTypes = itemMethods("getRelateCardType")
-            .filter { it.returnType.isEnum || it.returnType == classOf<String>() }
-            .map { it.toHookPoint() }
-        val sourceTypes = itemMethods("getFromSourceType")
-            .filter(::isIntegralMethod)
-            .map { it.toHookPoint() }
-        val sourceTypeChains = itemMethods("getBasicInfo")
-            .mapNotNull { itemGetter ->
-                KavaMemberLookup.methods(
-                    itemGetter.returnType,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getFromSourceType" && method.parameterCount == 0 &&
-                        method.isPublic && !method.isStatic && isIntegralMethod(method)
-                }
-                    .distinctBy(Method::toGenericString)
-                    .singleOrNull()
-                    ?.let { sourceTypeGetter ->
-                        SourceTypeMethodChain(
-                            itemGetter = itemGetter.toHookPoint(),
-                            sourceTypeGetter = sourceTypeGetter.toHookPoint()
-                        )
-                    }
-            }
-            .distinctBy { it.itemGetter.label() + "->" + it.sourceTypeGetter.label() }
-        val relateTypeValues = itemMethods("getRelateCardTypeValue")
-            .filter {
-                it.returnType == classOf<Int>() ||
-                    it.returnType == classOf<Int>(primitiveType = false)
-            }
-            .map { it.toHookPoint() }
-        val directDurations = itemMethods("getDuration")
-            .filter(::isDurationMethod)
-            .map { it.toHookPoint() }
-        val durationChains = listOf("getAv", "getHistoryAv", "getAiCard")
-            .flatMap(::itemMethods)
-            .mapNotNull { itemGetter ->
-                KavaMemberLookup.methods(
-                    itemGetter.returnType,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method -> method.name == "getDuration" && isDurationMethod(method) }
-                    .distinctBy(Method::toGenericString)
-                    .singleOrNull()
-                    ?.let { durationGetter ->
-                        DurationMethodChain(
-                            itemGetter = itemGetter.toHookPoint(),
-                            durationGetter = durationGetter.toHookPoint()
-                        )
-                    }
-            }
-            .distinctBy { it.itemGetter.label() + "->" + it.durationGetter.label() }
-        fun uniquePublicGetter(
-            owner: Class<*>,
-            name: String,
-            accept: (Method) -> Boolean
-        ): Method? = KavaMemberLookup.methods(
-            owner,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { method ->
-            method.name == name && method.parameterCount == 0 &&
-                method.isPublic && !method.isStatic && accept(method)
-        }.distinctBy(Method::toGenericString).singleOrNull()
-        fun isNestedObjectMethod(method: Method): Boolean =
-            !method.returnType.isPrimitive && method.returnType != Void.TYPE
-        val playCountChains = listOf("getAv", "getAiCard")
-            .flatMap(::itemMethods)
-            .mapNotNull { itemGetter ->
-                val statGetter = uniquePublicGetter(
-                    itemGetter.returnType,
-                    "getStat",
-                    ::isNestedObjectMethod
-                ) ?: return@mapNotNull null
-                val vtGetter = uniquePublicGetter(
-                    statGetter.returnType,
-                    "getVt",
-                    ::isNestedObjectMethod
-                ) ?: return@mapNotNull null
-                val valueGetter = uniquePublicGetter(
-                    vtGetter.returnType,
-                    "getValue"
-                ) { method -> isIntegralMethod(method) } ?: return@mapNotNull null
-                PlayCountMethodChain(
-                    itemGetter = itemGetter.toHookPoint(),
-                    statGetter = statGetter.toHookPoint(),
-                    vtGetter = vtGetter.toHookPoint(),
-                    valueGetter = valueGetter.toHookPoint()
-                )
-            }
-            .distinctBy { chain ->
-                chain.itemGetter.label() + "->" + chain.statGetter.label() + "->" +
-                    chain.vtGetter.label() + "->" + chain.valueGetter.label()
-            }
-        val directReasonChains = listOf(
-            "getRcmdReason",
-            "getRcmdReasonExtra",
-            "getRcmdReasonStyle"
-        )
-            .flatMap(::itemMethods)
-            .mapNotNull { reasonChain(listOf(it)) }
-        val nestedReasonChains = listOf(
-            "getAv" to "getRcmdReason",
-            "getBangumi" to "getRcmdReason",
-            "getResource" to "getRcmdReason",
-            "getGame" to "getGameRcmdReason",
-            "getSpecial" to "getRcmdReason"
-        ).flatMap { (containerName, reasonName) ->
-            itemMethods(containerName).mapNotNull { itemGetter ->
-                val reasonGetter = KavaMemberLookup.methods(
-                    itemGetter.returnType,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == reasonName && method.parameterCount == 0 &&
-                        method.isPublic && !method.isStatic && method.returnType != Void.TYPE
-                }
-                    .distinctBy(Method::toGenericString)
-                    .singleOrNull()
-                    ?: return@mapNotNull null
-                reasonChain(listOf(itemGetter, reasonGetter))
-            }
-        }
-        val serviceReasonChains = detailRelateFactory?.let(::selectDetailRelateServiceReasonGetter)
-            ?.let { listOf(ReasonMethodChain(listOf(it.toHookPoint()))) }.orEmpty()
-        val reasonChains = (directReasonChains + nestedReasonChains + serviceReasonChains).distinctBy { chain ->
-            chain.steps.joinToString("->") { it.label() }
-        }
-        // 作者与标签维度。新版作者位于 CardBasicInfo；旧版仍直接持有 Author。
-        // 数值 mid 不能走 reasonChain（它只认文本），因此保留完整的类型化成员链。
-        // 8.90.2 新版游戏卡标签由宿主 j.y(RelateGameCard) 映射；缺少标签的普通卡不作推断。
-        val tagNameChains = (itemMethods("getTagName").map(::listOf) +
-            itemMethods("getGame").mapNotNull { gameGetter ->
-                uniquePublicGetter(gameGetter.returnType, "getTagName", ::isStringMethod)
-                    ?.let { listOf(gameGetter, it) }
-            }).mapNotNull(::reasonChain)
-            .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
-        val authorGetterPaths = itemMethods("getAuthor").map(::listOf) +
-            itemMethods("getBasicInfo").mapNotNull { basicGetter ->
-                KavaMemberLookup.methods(
-                    basicGetter.returnType,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getAuthor" && method.parameterCount == 0 &&
-                        method.isPublic && !method.isStatic && !method.returnType.isPrimitive
-                }.distinctBy(Method::toGenericString).singleOrNull()
-                    ?.let { listOf(basicGetter, it) }
-            }
-        fun authorLeaf(name: String, accept: (Method) -> Boolean): List<ReasonMethodChain> =
-            authorGetterPaths.mapNotNull { authorPath ->
-                val authorClass = authorPath.last().returnType
-                // 8.90.2 Owner#getTitle 是作者显示名，不能将任意卡片标题当作者名。
-                val leafName = if (name == "getName" && authorClass.name ==
-                    "com.bapis.bilibili.app.viewunite.common.Owner") "getTitle" else name
-                val leaf = KavaMemberLookup.methods(
-                    authorClass,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == leafName && method.parameterCount == 0 &&
-                        method.isPublic && !method.isStatic && accept(method)
-                }.distinctBy(Method::toGenericString).singleOrNull() ?: return@mapNotNull null
-                ReasonMethodChain((authorPath + leaf).map { it.toHookPoint() })
-            }.distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
-        val authorNameChains = authorLeaf("getName") { it.returnType == classOf<String>() }
-        val authorMidChains = authorLeaf("getMid") { method ->
-            method.returnType in setOf(
-                classOf<Int>(), classOf<Long>(),
-                classOf<Int>(primitiveType = false),
-                classOf<Long>(primitiveType = false)
-            )
-        }
-        val directCommercialChains = listOf("hasCm", "hasCmStock")
-            .flatMap(::itemMethods)
-            .filter(::isBooleanMethod)
-            .map { method -> BooleanMethodChain(listOf(method.toHookPoint())) }
-        val nestedCommercialChains = itemMethods("getThreePoint")
-            .mapNotNull { itemGetter ->
-                KavaMemberLookup.methods(
-                    itemGetter.returnType,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method -> method.name == "hasFeedback" && isBooleanMethod(method) }
-                    .distinctBy(Method::toGenericString)
-                    .singleOrNull()
-                    ?.let { feedbackGetter ->
-                        BooleanMethodChain(
-                            listOf(itemGetter.toHookPoint(), feedbackGetter.toHookPoint())
-                        )
-                    }
-            }
-        val commercialEvidenceChains = (directCommercialChains + nestedCommercialChains)
-            .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
-        // 发布时间只有展示文案可读（2026-10-18 跨 35 版静态核对）。只收 String 叶子，
-        // 不走 reasonChain 的 getText 兜底，避免把徽标对象误当成描述。
-        val directPublishTextChains = itemMethods("getDesc")
-            .filter(::isStringMethod)
-            .map { method -> ReasonMethodChain(listOf(method.toHookPoint())) }
-        val nestedPublishTextChains = itemMethods("getBasicInfo").mapNotNull { basicInfoGetter ->
-            KavaMemberLookup.methods(
-                basicInfoGetter.returnType,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                method.name == "getDesc" && isStringMethod(method)
-            }.distinctBy(Method::toGenericString).singleOrNull()?.let { descGetter ->
-                ReasonMethodChain(listOf(basicInfoGetter.toHookPoint(), descGetter.toHookPoint()))
-            }
-        }
-        val publishTextChains = (directPublishTextChains + nestedPublishTextChains)
-            .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
-        if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty() &&
-            relateTypes.isEmpty() && sourceTypes.isEmpty() && sourceTypeChains.isEmpty() &&
-            relateTypeValues.isEmpty() && directDurations.isEmpty() && durationChains.isEmpty() &&
-            reasonChains.isEmpty() && commercialEvidenceChains.isEmpty()
-        ) return@runCatching null
-        VideoRelatePoints(
-            responseItemGetters = responses,
-            cardCaseGetters = cases,
-            gotoGetters = gotos,
-            cardTypeGetters = types,
-            relateCardTypeGetters = relateTypes,
-            fromSourceTypeGetters = sourceTypes,
-            fromSourceTypeChains = sourceTypeChains,
-            relateCardTypeValueGetters = relateTypeValues,
-            directDurationGetters = directDurations,
-            durationChains = durationChains,
-            playCountChains = playCountChains,
-            reasonChains = reasonChains,
-            commercialEvidenceChains = commercialEvidenceChains,
-            authorNameChains = authorNameChains,
-            authorMidChains = authorMidChains,
-            tagNameChains = tagNameChains,
-            detailRelateService = detailRelateService,
-            publishTextChains = publishTextChains
-        )
-    }.getOrNull()
+    fun locateVideoRelate(loader: ClassLoader): VideoRelatePoints? =
+        VideoRelateLocator.locate(loader)
 
     /** 首页 Tab 构建方法：单个 List 参数、List 返回值，且参数泛型为 main2.resource。 */
-    fun locateHomeTabs(loader: ClassLoader): HomeTabPoints? = runCatching {
-        val candidates = HOME_FRAGMENT_V2_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && !method.isAbstract && method.parameterCount == 1 &&
-                        (method.parameterTypes[0] isSubclassOf classOf<List<*>>()) &&
-                        (method.returnType isSubclassOf classOf<List<*>>()) &&
-                        method.genericParameterTypes[0].toString().contains("main2.resource.")
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .toList()
-        val build = candidates.singleOrNull() ?: return@runCatching null
-        val resource = (build.genericParameterTypes[0] as? ParameterizedType)
-            ?.actualTypeArguments?.singleOrNull() as? Class<*>
-            ?: HOME_TAB_RESOURCE_CLASS_CANDIDATES.firstNotNullOfOrNull {
-                KavaMemberLookup.classOrNull(loader, it)
-            }
-            ?: return@runCatching null
-        HomeTabResourceAdapter.buildPoints(build, resource)
-    }.getOrNull()
+    fun locateHomeTabs(loader: ClassLoader): HomeTabPoints? =
+        MineAndHomeUiLocator.locateHomeTabs(loader)
 
     /** 首页子组件仅使用宿主 AndroidX Fragment 的公开生命周期和父级读取方法。 */
-    fun locateHomeComponents(loader: ClassLoader): HomeComponentPoints? = runCatching {
-        val fragment = KavaMemberLookup.classOrNull(loader, HOST_FRAGMENT_CLASS)
-            ?: return@runCatching null
-        val onViewCreated = KavaMemberLookup.methodOrNull(
-            fragment,
-            "onViewCreated",
-            classOf<View>(),
-            classOf<Bundle>()
-        )?.takeIf { !it.isStatic && it.returnType == Void.TYPE }
-            ?: return@runCatching null
-        val parent = KavaMemberLookup.methodOrNull(fragment, "getParentFragment")
-            ?.takeIf { !it.isStatic && it.returnType.name == HOST_FRAGMENT_CLASS }
-            ?: return@runCatching null
-        HomeComponentPoints(onViewCreated.toHookPoint(), parent.toHookPoint())
-    }.getOrNull()
+    fun locateHomeComponents(loader: ClassLoader): HomeComponentPoints? =
+        MineAndHomeUiLocator.locateHomeComponents(loader)
 
     /**
      * “我的”页入口的数据层剪枝定位：以 AccountMine 为锚，在 Fragment 构建菜单前剪枝。
@@ -8470,77 +5157,8 @@ object VersionAdapter {
      * 实例形状复用 locateMineEntry 的菜单结构复核，这里另采集数据剪枝所需的字段名。
      * 只有 sections、group.itemList 和 item.title 是剪枝必需字段；附件字段缺失时保留对应组件。
      */
-    fun locateMineAccountMinePoints(loader: ClassLoader): MineAccountMinePoints? = runCatching {
-        val fragmentName = MINE_FRAGMENT_CLASS
-        val accountMineName = "tv.danmaku.bili.ui.main2.api.AccountMine"
-        val groupName = "com.bilibili.lib.homepage.mine.MenuGroup"
-        val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
-        val fragment = KavaMemberLookup.classOrNull(loader, fragmentName)
-            ?: return@runCatching null
-        val accountMine = KavaMemberLookup.classOrNull(loader, accountMineName)
-            ?: return@runCatching null
-        val group = KavaMemberLookup.classOrNull(loader, groupName)
-            ?: return@runCatching null
-        val item = KavaMemberLookup.classOrNull(loader, itemName)
-            ?: return@runCatching null
-
-        val builds = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
-            it.isStatic && it.returnType == Void.TYPE &&
-                it.parameterTypes.contentEquals(arrayOf(fragment, accountMine))
-        }.map { it.toHookPoint() }.ifEmpty {
-            locateMineEntry(loader, allowModuleInstance = true)?.buildMethods.orEmpty()
-        }
-        if (builds.isEmpty()) return@runCatching null
-
-        fun fieldName(owner: Class<*>, predicate: (java.lang.reflect.Field) -> Boolean): String? =
-            KavaMemberLookup.firstDeclaredFieldOrNull(owner, makeAccessible = true) { predicate(it) }
-                ?.name
-
-        val sectionsField = fieldName(accountMine) {
-            it.name == "sectionListV2" && it.type isSubclassOf classOf<java.util.List<*>>()
-        } ?: fieldName(accountMine) {
-            it.name.startsWith("sectionListV2") && it.type isSubclassOf classOf<java.util.List<*>>()
-        } ?: return@runCatching null
-        val groupTitleField = fieldName(group) {
-            it.name == "title" && it.type == classOf<String>()
-        }
-        val groupItemsField = fieldName(group) {
-            !it.isStatic && !it.isFinal &&
-                it.type isSubclassOf classOf<java.util.List<*>>() &&
-                (it.genericType as? java.lang.reflect.ParameterizedType)
-                    ?.actualTypeArguments?.singleOrNull()?.rawClassOrNull()?.name == itemName
-        } ?: return@runCatching null
-        val itemTitleField = fieldName(item) {
-            it.name == "title" && it.type == classOf<String>()
-        } ?: return@runCatching null
-        val itemIdField = fieldName(item) { it.name == "id" }
-        val itemUriField = fieldName(item) {
-            it.name == "uri" && it.type == classOf<String>()
-        }
-        val itemVisibleField = fieldName(item) { it.name == "visible" }
-        val itemLocalShowField = fieldName(item) { it.name == "localShow" }
-        val liveTipField = fieldName(accountMine) { it.name == "liveTip" }
-        val vipSectionRightField = fieldName(accountMine) { it.name == "vipSectionRight" }
-        val sectionButtonField = fieldName(group) { it.name == "button" }
-
-        MineAccountMinePoints(
-            buildMethods = builds,
-            accountMineClass = accountMineName,
-            sectionListV2Field = sectionsField,
-            groupClass = groupName,
-            groupTitleField = groupTitleField,
-            groupItemListField = groupItemsField,
-            itemClass = itemName,
-            itemTitleField = itemTitleField,
-            itemIdField = itemIdField,
-            itemUriField = itemUriField,
-            itemVisibleField = itemVisibleField,
-            itemLocalShowField = itemLocalShowField,
-            liveTipField = liveTipField,
-            vipSectionRightField = vipSectionRightField,
-            sectionButtonField = sectionButtonField
-        )
-    }.getOrNull()
+    fun locateMineAccountMinePoints(loader: ClassLoader): MineAccountMinePoints? =
+        MineAndHomeUiLocator.locateMineAccountMinePoints(loader)
 
     /**
      * “我的”页保留 MenuGroup(V2) 公开 getter 边界，同时保留可验证的旧菜单构建字段链。
@@ -8549,371 +5167,34 @@ object VersionAdapter {
     fun locateMineComponents(
         loader: ClassLoader,
         mineEntry: MineEntryPoint? = null
-    ): MineComponentPoints? = runCatching {
-        val lists = MINE_MENU_GROUP_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getItemList" && method.parameterCount == 0 &&
-                        (method.returnType isSubclassOf classOf<List<*>>()) && !method.isStatic
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        val titles = MINE_MENU_ITEM_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getTitle" && method.parameterCount == 0 &&
-                        method.returnType == classOf<String>() && !method.isStatic
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        fun itemGetter(name: String, requireString: Boolean): List<HookPoint> =
-            MINE_MENU_ITEM_CLASS_CANDIDATES.asSequence()
-                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-                .flatMap { owner ->
-                    KavaMemberLookup.methods(
-                        owner,
-                        includeSuperclasses = true,
-                        makeAccessible = true
-                    ) { method ->
-                        method.name == name && method.parameterCount == 0 && !method.isStatic &&
-                            method.returnType != Void.TYPE &&
-                            (!requireString || method.returnType == classOf<String>())
-                    }.asSequence()
-                }
-                .distinctBy(Method::toGenericString)
-                .map { it.toHookPoint() }
-                .toList()
-        val ids = itemGetter("getId", requireString = false)
-        val uris = itemGetter("getUri", requireString = true)
-        val groupTitles = MINE_MENU_GROUP_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getTitle" && method.parameterCount == 0 && !method.isStatic &&
-                        method.returnType == classOf<String>()
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        val legacy = locateLegacyMineComponents(loader, mineEntry ?: locateMineEntry(loader))
-        if (lists.isNotEmpty() && titles.isNotEmpty()) {
-            return@runCatching (legacy ?: MineComponentPoints(emptyList(), emptyList())).copy(
-                itemListGetters = lists,
-                itemTitleGetters = titles,
-                itemIdGetters = ids,
-                itemUriGetters = uris,
-                groupTitleGetters = groupTitles
-            )
-        }
-        legacy
-    }.getOrNull()
+    ): MineComponentPoints? =
+        MineAndHomeUiLocator.locateMineComponents(loader, mineEntry)
 
     /** 仅供旧公开字段模型与单元测试使用；字段链在适配期确定，运行期直接 Field#get/set。 */
     internal fun locateLegacyMineComponents(
         loader: ClassLoader,
         mineEntry: MineEntryPoint?
-    ): MineComponentPoints? = runCatching {
-        val entry = mineEntry ?: return@runCatching null
-        for (groupName in MINE_MENU_GROUP_CLASS_CANDIDATES) {
-            val group = KavaMemberLookup.classOrNull(loader, groupName) ?: continue
-            val itemListFields = KavaMemberLookup.declaredFields(
-                group,
-                makeAccessible = true
-            ) { field ->
-                !field.isStatic &&
-                    !field.isFinal &&
-                    field.type isSubclassOf classOf<List<*>>() &&
-                    ((field.genericType as? ParameterizedType)
-                        ?.actualTypeArguments
-                        ?.singleOrNull()
-                        ?.rawClassOrNull()
-                        ?.name in MINE_MENU_ITEM_CLASS_CANDIDATES)
-            }
-            val itemListField = itemListFields.singleOrNull() ?: continue
-            val itemClass = (itemListField.genericType as? ParameterizedType)
-                ?.actualTypeArguments
-                ?.singleOrNull()
-                ?.rawClassOrNull() ?: continue
-            val titleField = KavaMemberLookup.declaredFields(
-                itemClass,
-                makeAccessible = true
-            ) { field ->
-                !field.isStatic && field.name == "title" && field.type == classOf<String>()
-            }.singleOrNull() ?: continue
-            return@runCatching MineComponentPoints(
-                itemListGetters = emptyList(),
-                itemTitleGetters = emptyList(),
-                legacyBuildMethods = entry.buildMethods,
-                legacyGroupListField = entry.groupListField,
-                legacyAdapterField = entry.adapterField,
-                legacyGroupClassName = group.name,
-                legacyItemListField = itemListField.name,
-                legacyItemClassName = itemClass.name,
-                legacyItemTitleField = titleField.name
-            )
-        }
-        null
-    }.getOrNull()
+    ): MineComponentPoints? =
+        MineAndHomeUiLocator.locateLegacyMineComponents(loader, mineEntry)
 
     /** Story 只采用 StoryDetail 自身公开类型判断，不按标题、URI 或字段内容猜测。 */
-    fun locateStoryFeed(loader: ClassLoader): StoryFeedPoints? = runCatching {
-        val detail = KavaMemberLookup.classOrNull(loader, STORY_DETAIL_CLASS)
-            ?: return@runCatching null
-        fun booleanGetter(name: String): HookPoint? = KavaMemberLookup.methodOrNull(detail, name)
-            ?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 &&
-                    method.returnType == classOf<Boolean>()
-            }
-            ?.toHookPoint()
-
-        fun objectGetter(name: String): Method? = KavaMemberLookup.methodOrNull(detail, name)
-            ?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 &&
-                    !method.returnType.isPrimitive && method.returnType != Void.TYPE
-            }
-
-        val responses = KavaMemberLookup.classOrNull(loader, STORY_FEED_RESPONSE_CLASS)
-            ?.let { response ->
-                KavaMemberLookup.methods(
-                    response,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    method.name == "getItems" && !method.isStatic &&
-                        method.parameterCount == 0 &&
-                        (method.returnType isSubclassOf classOf<List<*>>())
-                }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
-            }.orEmpty()
-
-        val pager = KavaMemberLookup.classOrNull(loader, STORY_PAGER_PLAYER_CLASS)
-            ?.let { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && !method.isAbstract && method.returnType == Void.TYPE &&
-                        method.parameterCount == 1 &&
-                        (method.parameterTypes[0] isSubclassOf classOf<List<*>>()) &&
-                        method.genericParameterTypes[0].toString().contains(STORY_DETAIL_CLASS)
-                }.distinctBy(Method::toGenericString).map { it.toHookPoint() }
-            }.orEmpty()
-
-        val ad = booleanGetter("isAd")
-        val live = booleanGetter("isLive")
-        val game = booleanGetter("isGame")
-        val bangumi = booleanGetter("isBangumi")
-        val course = booleanGetter("isCheese")
-        val music = booleanGetter("isMusic")
-        val cartInfo = objectGetter("getCartIconInfo")
-        val dramaPrompt = objectGetter("getDramaPromptBar")
-        val seasonInfo = objectGetter("getSeasonInfo")
-        val seasonType = seasonInfo?.returnType?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, "getSeasonType")
-                ?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == classOf<Int>()
-                }
-        }
-        if ((responses.isEmpty() && pager.isEmpty()) ||
-            (ad == null && live == null && game == null && bangumi == null && course == null &&
-                music == null && cartInfo == null && dramaPrompt == null && seasonType == null)) {
-            return@runCatching null
-        }
-        StoryFeedPoints(
-            responses,
-            pager,
-            ad,
-            live,
-            game,
-            bangumi,
-            course,
-            music,
-            cartInfo?.toHookPoint(),
-            dramaPrompt?.toHookPoint(),
-            seasonInfo?.takeIf { seasonType != null }?.toHookPoint(),
-            seasonType?.toHookPoint()
-        )
-    }.getOrNull()
+    fun locateStoryFeed(loader: ClassLoader): StoryFeedPoints? =
+        MineAndHomeUiLocator.locateStoryFeed(loader)
 
     /**
      * 评论区只在 TheseusTabPagerService 的直接配置依赖中寻找 List<TabPage> 构造器，
      * 并要求 TabPage 存在返回含 Comment 枚举值的唯一无参方法，避免按混淆类名猜测。
      */
-    fun locateCommentSection(loader: ClassLoader): CommentSectionPoints? = runCatching {
-        val constructors = ArrayList<ListConstructorPoint>()
-        var tagGetter: HookPoint? = null
-
-        fun inspectConstructor(ownerConstructor: java.lang.reflect.Constructor<*>) {
-            if (ownerConstructor.isSynthetic) return
-            ownerConstructor.genericParameterTypes.forEachIndexed { index, genericType ->
-                if (!(ownerConstructor.parameterTypes[index] isSubclassOf classOf<List<*>>())) {
-                    return@forEachIndexed
-                }
-                val parameterized = genericType as? ParameterizedType ?: return@forEachIndexed
-                val itemClass = parameterized.actualTypeArguments.singleOrNull()
-                    ?.rawClassOrNull() ?: return@forEachIndexed
-                val getter = KavaMemberLookup.methods(
-                    itemClass,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    !method.isStatic && method.parameterCount == 0 && method.returnType.isEnum &&
-                        method.returnType.enumConstants
-                            ?.filterIsInstance<Enum<*>>()
-                            ?.any { it.name.equals("Comment", ignoreCase = true) } == true
-                }.distinctBy(Method::toGenericString).singleOrNull() ?: return@forEachIndexed
-
-                val point = getter.toHookPoint()
-                if (tagGetter != null && tagGetter != point) return@forEachIndexed
-                tagGetter = point
-                constructors += ListConstructorPoint(
-                    ownerConstructor.declaringClass.name,
-                    ownerConstructor.parameterTypes.map { it.name },
-                    index
-                )
-            }
-        }
-
-        THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .forEach { service ->
-                KavaMemberLookup.declaredConstructors(service, makeAccessible = true)
-                    .forEach { serviceConstructor ->
-                        inspectConstructor(serviceConstructor)
-                        serviceConstructor.parameterTypes.asSequence()
-                            .filter { parameter ->
-                                !parameter.isPrimitive && !parameter.isArray &&
-                                    parameter.classLoader === service.classLoader
-                            }
-                            .forEach { parameter ->
-                                KavaMemberLookup.declaredConstructors(
-                                    parameter,
-                                    makeAccessible = true
-                                ).forEach(::inspectConstructor)
-                            }
-                    }
-            }
-
-        val distinctConstructors = constructors.distinctBy {
-            "${it.className}(${it.paramClassNames.joinToString(",")})#${it.listParameterIndex}"
-        }
-        CommentSectionPoints(
-            listConstructors = distinctConstructors.takeIf { it.isNotEmpty() }
-                ?: return@runCatching null,
-            locatableTagGetter = tagGetter ?: return@runCatching null
-        )
-    }.getOrNull()
+    fun locateCommentSection(loader: ClassLoader): CommentSectionPoints? =
+        CommentLocator.locateCommentSection(loader)
 
     /** 开屏净化定位白名单 List getter，并尽量补充公开 SplashItem 广告语义。 */
-    fun locateSplashAds(loader: ClassLoader): SplashAdPoints? = runCatching {
-        val getterMethods = SPLASH_RESPONSE_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.methods(
-                    owner,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    !method.isStatic && !method.isAbstract && method.parameterCount == 0 &&
-                        method.name in SPLASH_LIST_GETTER_NAMES &&
-                        (method.returnType isSubclassOf classOf<List<*>>())
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .toList()
-        if (getterMethods.isEmpty()) return@runCatching null
-        val genericItemClasses = getterMethods.mapNotNull { getter ->
-            (getter.genericReturnType as? ParameterizedType)
-                ?.actualTypeArguments?.singleOrNull()?.rawClassOrNull()
-                ?.takeIf { it != classOf<Any>() }
-        }
-        val itemClasses = (genericItemClasses + SPLASH_ITEM_CLASS_CANDIDATES.mapNotNull {
-            KavaMemberLookup.classOrNull(loader, it)
-        }).distinctBy { it.name }
-        val numericTypes = setOf(
-            classOf<Int>(), classOf<Long>(),
-            classOf<Int>(primitiveType = false), classOf<Long>(primitiveType = false)
-        )
-        val signals = itemClasses.flatMap { itemClass ->
-            SPLASH_SIGNAL_METHOD_NAMES.flatMap { (role, names) ->
-                KavaMemberLookup.methods(
-                    itemClass,
-                    includeSuperclasses = true,
-                    makeAccessible = true
-                ) { method ->
-                    !method.isStatic && method.isPublic && method.parameterCount == 0 &&
-                        method.name in names && when (role) {
-                            "is_ad", "is_ad_loc" -> method.returnType in setOf(
-                                classOf<Boolean>(), classOf<Boolean>(primitiveType = false)
-                            )
-                            "cm_mark", "card_type", "server_type" ->
-                                method.returnType in numericTypes
-                            else -> method.returnType == classOf<String>()
-                        }
-                }.map { method -> SplashItemSignalPoint(role, method.toHookPoint()) }
-            }
-        }.distinctBy { it.role + "|" + it.getter.label() }
-        SplashAdPoints(
-            listGetters = getterMethods.map { it.toHookPoint() },
-            itemSignalGetters = signals
-        )
-    }.getOrNull()
-
-    private fun Type.rawClassOrNull(): Class<*>? = when (this) {
-        is Class<*> -> this
-        is ParameterizedType -> rawType as? Class<*>
-        is WildcardType -> upperBounds.firstNotNullOfOrNull { it.rawClassOrNull() }
-        else -> null
-    }
+    fun locateSplashAds(loader: ClassLoader): SplashAdPoints? =
+        MediaQualityAndPlayerLocator.locateSplashAds(loader)
 
     /** 底栏按 TabHost 的公开 tabs 列表和唯一 (int, View) 绑定入口定位。 */
-    fun locateBottomBar(loader: ClassLoader): BottomBarPoints? = runCatching {
-        for (ownerName in BOTTOM_TAB_HOST_CLASS_CANDIDATES) {
-            val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
-            val tabsGetter = KavaMemberLookup.methods(
-                owner,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                method.name == "getTabs" && !method.isStatic && method.parameterCount == 0 &&
-                    (method.returnType isSubclassOf classOf<List<*>>())
-            }.distinctBy(Method::toGenericString).singleOrNull() ?: continue
-            val itemClass = (tabsGetter.genericReturnType as? ParameterizedType)
-                ?.actualTypeArguments?.singleOrNull() as? Class<*> ?: continue
-            val bind = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                !method.isStatic && method.returnType == Void.TYPE && method.parameterCount == 2 &&
-                    method.parameterTypes[0] == classOf<Int>() &&
-                    (method.parameterTypes[1] isSubclassOf classOf<View>())
-            }.singleOrNull() ?: continue
-            val strings = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-                !it.isStatic && it.type == classOf<String>()
-            }.map { it.name }
-            if (strings.isEmpty()) continue
-            return@runCatching BottomBarPoints(
-                tabsGetter = tabsGetter.toHookPoint(),
-                bindTabMethod = bind.toHookPoint(),
-                itemClassName = itemClass.name,
-                itemStringFields = strings
-            )
-        }
-        null
-    }.getOrNull()
+    fun locateBottomBar(loader: ClassLoader): BottomBarPoints? =
+        MineAndHomeUiLocator.locateBottomBar(loader)
 
     /**
      * 定位播放器默认画质计算方法。8.84.0–8.87.0 使用稳定公开
@@ -8928,83 +5209,15 @@ object VersionAdapter {
         /** 后台 DexMeguviz 兜底找到的实现；给了就不再查候选表。 */
         assisted: Method? = null,
         hostVersionCode: Int? = null
-    ): PlayerQualityPoints? = runCatching {
-        val verifiedOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.second }
-        val defaultMethod = assisted ?: if (verifiedOwner != null) {
-            KavaMemberLookup.classOrNull(loader, verifiedOwner)?.let { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    method.isStatic && !method.isAbstract && !method.isBridge && !method.isSynthetic &&
-                        method.parameterCount == 0 && method.returnType == classOf<Int>()
-                }.singleOrNull()?.takeIf { it.name == "a" }
-            }
-        } else {
-            PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
-                val owner = KavaMemberLookup.classOrNull(loader, ownerName)
-                    ?: return@firstNotNullOfOrNull null
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isAbstract && !method.isBridge && !method.isSynthetic &&
-                        method.parameterCount == 0 &&
-                        method.returnType == classOf<Int>() &&
-                        (method.name == "a" || method.name == "c" || method.name == "getDefaultQuality")
-                }.singleOrNull()
-            }
-        }
-
-        val story = StoryQualityLocator.direct(loader)
-        if (defaultMethod == null && story == null) return@runCatching null
-
-        fun sharedClass(key: String): Class<*>? = PLAYER_SHARED_CLASS_CANDIDATES[key]
-            .orEmpty()
-            .firstNotNullOfOrNull { KavaMemberLookup.classOrNull(loader, it) }
-        fun hasPublicNoArg(owner: Class<*>?, names: Set<String>): Boolean = owner != null &&
-            KavaMemberLookup.methods(
-                owner,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                !method.isStatic && method.isPublic && method.parameterCount == 0 &&
-                    method.name in names
-            }.isNotEmpty()
-
-        val streamInfo = sharedClass("stream_info")
-        val dashVideo = sharedClass("dash_video")
-        val videoVod = sharedClass("video_vod")
-        val vodInfo = sharedClass("vod_info")
-        val capabilities = buildList {
-            if (hasPublicNoArg(streamInfo, setOf("getQuality")) ||
-                hasPublicNoArg(videoVod, setOf("getQn")) ||
-                hasPublicNoArg(vodInfo, setOf("getQuality"))
-            ) add("stream_quality")
-            if (hasPublicNoArg(streamInfo, setOf("getNeedVip", "getVipFree"))) {
-                add("vip_entitlement")
-            }
-            if (hasPublicNoArg(dashVideo, setOf("getCodecid")) ||
-                hasPublicNoArg(vodInfo, setOf("getVideoCodecid"))
-            ) add("codec")
-        }
-        PlayerQualityPoints(defaultMethod?.toHookPoint(), capabilities, story)
-    }.getOrNull()
+    ): PlayerQualityPoints? =
+        MediaQualityAndPlayerLocator.locateDefaultVideoQuality(loader, assisted, hostVersionCode)
 
     /**
      * 青少年模式提示页在 8.90.2、9.1.0 与 9.9.0 均保留稳定类名。
      * 只接受 Activity 自身声明的 onCreate(Bundle)，避免结束正常青少年模式设置页面。
      */
-    fun locateTeenagersMode(loader: ClassLoader): TeenagersModePoints? = runCatching {
-        val methods = TEENAGERS_MODE_ACTIVITY_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .filter { it.hasSuperclassNamed("android.app.Activity") }
-            .mapNotNull { owner ->
-                KavaMemberLookup.methodOrNull(owner, "onCreate", classOf<Bundle>())
-                    ?.takeIf { method ->
-                        !method.isStatic && method.declaringClass == owner &&
-                            method.returnType == Void.TYPE
-                    }
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        methods.takeIf { it.isNotEmpty() }?.let(::TeenagersModePoints)
-    }.getOrNull()
+    fun locateTeenagersMode(loader: ClassLoader): TeenagersModePoints? =
+        MediaQualityAndPlayerLocator.locateTeenagersMode(loader)
 
     /**
      * 定位评论筛选的公开 protobuf 读取链。
@@ -9012,142 +5225,8 @@ object VersionAdapter {
      * 以 ReplyInfo 的真实返回类型反推 Content/Member，避免包重定位后分别选择到不同代
      * 的同名类；列表边界还要求泛型元素精确为同一个 ReplyInfo，拒绝无关 List getter。
      */
-    fun locateCommentFilter(loader: ClassLoader): CommentFilterPoints? = runCatching {
-        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .firstOrNull() ?: return@runCatching null
-
-        fun publicNoArg(owner: Class<*>?, name: String): Method? =
-            owner?.let { KavaMemberLookup.methodOrNull(it, name) }?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 && method.isPublic
-            }
-
-        val contentGetter = publicNoArg(replyInfo, "getContent")
-            ?.takeIf { !it.returnType.isPrimitive }
-        val messageGetter = publicNoArg(contentGetter?.returnType, "getMessage")
-            ?.takeIf { it.returnType == classOf<String>() }
-        val memberGetter = publicNoArg(replyInfo, "getMember")
-            ?.takeIf { !it.returnType.isPrimitive }
-        val levelGetter = memberGetter?.let { getter -> publicNoArg(getter.returnType, "getLevel") }
-            ?.takeIf { method ->
-                method.returnType in setOf(
-                    classOf<Int>(),
-                    classOf<Long>(),
-                    classOf<Int>(primitiveType = false),
-                    classOf<Long>(primitiveType = false)
-                )
-            }
-        val memberV2Getter = publicNoArg(replyInfo, "getMemberV2")
-            ?.takeIf { !it.returnType.isPrimitive }
-        val memberV2BasicGetter = memberV2Getter?.let { getter ->
-            publicNoArg(getter.returnType, "getBasic")?.takeIf { !it.returnType.isPrimitive }
-        }
-        val memberV2LevelGetter = memberV2BasicGetter?.let { getter ->
-            publicNoArg(getter.returnType, "getLevel")?.takeIf { method ->
-                method.returnType in setOf(
-                    classOf<Int>(), classOf<Long>(),
-                    classOf<Int>(primitiveType = false),
-                    classOf<Long>(primitiveType = false)
-                )
-            }
-        }
-
-        // @ 整条过滤：Content 上的 `atNameToMid` map。计数 getter 是热路径的前置判据，
-        // Map getter 只在计数 > 0 时才会被调用。
-        val atNameCountGetter = publicNoArg(contentGetter?.returnType, "getAtNameToMidCount")
-            ?.takeIf { it.returnType == classOf<Int>() }
-        val atNameMapGetter = publicNoArg(contentGetter?.returnType, "getAtNameToMidMap")
-            ?.takeIf { it.returnType isSubclassOf classOf<Map<*, *>>() }
-
-        fun nameGetter(owner: Class<*>?): Method? = owner?.let {
-            publicNoArg(it, "getName")?.takeIf { method -> method.returnType == classOf<String>() }
-        }
-
-        fun midGetter(owner: Class<*>?): Method? = owner?.let {
-            publicNoArg(it, "getMid")?.takeIf { method ->
-                method.returnType in setOf(
-                    classOf<Int>(), classOf<Long>(),
-                    classOf<Int>(primitiveType = false),
-                    classOf<Long>(primitiveType = false)
-                )
-            }
-        }
-
-        val memberNameGetter = nameGetter(memberGetter?.returnType)
-        val memberMidGetter = midGetter(memberGetter?.returnType)
-        val memberV2NameGetter = nameGetter(memberV2BasicGetter?.returnType)
-        val memberV2MidGetter = midGetter(memberV2BasicGetter?.returnType)
-
-        fun Method.returnsReplyInfoList(): Boolean {
-            if (!(returnType isSubclassOf classOf<List<*>>())) return false
-            val generic = genericReturnType as? ParameterizedType ?: return false
-            val argument = generic.actualTypeArguments.singleOrNull() ?: return false
-            val argumentName = when (argument) {
-                is Class<*> -> argument.name
-                is ParameterizedType -> (argument.rawType as? Class<*>)?.name
-                else -> null
-            }
-            return argumentName == replyInfo.name
-        }
-
-        val listGetters = (COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES + replyInfo.name)
-            .asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && method.parameterCount == 0 && method.isPublic &&
-                        method.name in setOf("getRepliesList", "getTopRepliesList") &&
-                        method.returnsReplyInfoList()
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        if (listGetters.isEmpty()) return@runCatching null
-
-        val topReplyGetters = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                listOf("getUpTop", "getAdminTop", "getVoteTop").asSequence()
-                    .mapNotNull { name ->
-                        publicNoArg(owner, name)?.takeIf { it.returnType == replyInfo }
-                    }
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        val replyDefaultInstance = KavaMemberLookup.declaredMethods(
-            replyInfo,
-            makeAccessible = true
-        ) { method ->
-            method.isStatic && method.isPublic && method.name == "getDefaultInstance" &&
-                method.parameterCount == 0 && method.returnType == replyInfo
-        }.singleOrNull()
-
-        CommentFilterPoints(
-            replyListGetters = listGetters,
-            contentGetter = contentGetter?.toHookPoint(),
-            messageGetter = messageGetter?.toHookPoint(),
-            // 发布者过滤只需要 member 本身，等级链缺失时仍要保留它，否则按 UID/用户名过滤
-            // 会连"能不能读到作者"都判断不了。等级路径的完整性另由 hasLevelPath 判定。
-            memberGetter = memberGetter?.toHookPoint(),
-            levelGetter = levelGetter?.toHookPoint(),
-            memberV2Getter = memberV2Getter?.toHookPoint(),
-            memberV2BasicGetter = memberV2BasicGetter?.toHookPoint(),
-            memberV2LevelGetter = memberV2LevelGetter?.toHookPoint(),
-            topReplyGetters = topReplyGetters,
-            replyDefaultInstanceGetter = replyDefaultInstance?.takeIf {
-                topReplyGetters.isNotEmpty()
-            }?.toHookPoint(),
-            // 计数与 Map 必须成对出现：只有其中之一时无法既省开销又拿到 @ 名单。
-            atNameCountGetter = atNameCountGetter?.takeIf { atNameMapGetter != null }?.toHookPoint(),
-            atNameMapGetter = atNameMapGetter?.takeIf { atNameCountGetter != null }?.toHookPoint(),
-            memberNameGetter = memberNameGetter?.toHookPoint(),
-            memberMidGetter = memberMidGetter?.toHookPoint(),
-            memberV2NameGetter = memberV2NameGetter?.toHookPoint(),
-            memberV2MidGetter = memberV2MidGetter?.toHookPoint()
-        )
-    }.getOrNull()
+    fun locateCommentFilter(loader: ClassLoader): CommentFilterPoints? =
+        CommentLocator.locateCommentFilter(loader)
 
     /**
      * 定位回复脉络的 ReplyInfo 身份桥和宿主 MOSS 公开分页边界。
@@ -9159,7 +5238,7 @@ object VersionAdapter {
         loader: ClassLoader,
         hostVersionCode: Int = 0
     ): CommentTopologyPoints? =
-        locateCommentTopologyWithDiagnostic(loader, hostVersionCode = hostVersionCode).points
+        CommentTopologyLocator.locate(loader, hostVersionCode)
 
     /**
      * @param extraMapperOwners DEX 兜底补充的 mapper owner。它只扩大候选 owner 集合，不放宽
@@ -9169,510 +5248,30 @@ object VersionAdapter {
         loader: ClassLoader,
         extraMapperOwners: List<Class<*>> = emptyList(),
         hostVersionCode: Int = 0
-    ): CommentTopologyLocateOutcome {
-        var stage = "reply-info-class"
-        val attempt = runCatching {
-        val replyInfo = COMMENT_REPLY_INFO_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .firstOrNull() ?: return@runCatching null
-        val replyPackage = replyInfo.name.substringBeforeLast('.')
-        stage = "comment-item-class"
-        val commentItem = KavaMemberLookup.classOrNull(loader, COMMENT_ITEM_CLASS)
-            ?: return@runCatching null
-        stage = "reply-mapper-methods"
-        // 9.19/9.20 builds move the five-parameter mapper to the root package; keep direct resolution exact per build.
-        val relocatedSpecs = when {
-            hostVersionCode > 0 -> listOfNotNull(VERIFIED_COMMENT_REPLY_MAPPERS[hostVersionCode])
-            else -> VERIFIED_COMMENT_REPLY_MAPPERS.values.distinct()
-        }
-        val relocatedMappers = relocatedSpecs.mapNotNull { spec ->
-            KavaMemberLookup.classOrNull(loader, spec.ownerClassName)?.let { owner ->
-                val parameters = listOf(
-                    replyInfo.name,
-                    "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
-                    "boolean",
-                    "java.lang.String",
-                    spec.fifthParamClassName
-                )
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    method.name == spec.methodName && method.isPublic && method.isStatic &&
-                        method.isFinal && !method.isSynthetic &&
-                        method.returnType == commentItem &&
-                        method.parameterTypes.firstOrNull() == replyInfo &&
-                        method.parameterTypes.map(Class<*>::getName) == parameters
-                }.singleOrNull()
-            }
-        }
-        val packageMappers = (
-            COMMENT_REPLY_MAPPER_CLASS_CANDIDATES.asSequence()
-                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) } +
-                extraMapperOwners.asSequence()
-            )
-            .distinct()
-            .flatMap { mapperOwner ->
-                KavaMemberLookup.declaredMethods(mapperOwner, makeAccessible = true) { method ->
-                    method.isStatic && !method.isAbstract && !method.isSynthetic &&
-                        method.returnType == commentItem && method.parameterCount >= 1 &&
-                        method.parameterTypes.firstOrNull() == replyInfo
-                }.asSequence()
-            }
-        val mapperMethods = (packageMappers + relocatedMappers)
-            .distinctBy(Method::toGenericString)
-            .sortedBy(Method::toGenericString)
-            .take(CommentTopologyPoints.MAX_MAPPER_METHODS + 1)
-            .toList()
-        if (mapperMethods.isEmpty()) return@runCatching null
-        if (mapperMethods.size > CommentTopologyPoints.MAX_MAPPER_METHODS) {
-            error("too-many-reply-mappers:${mapperMethods.size}")
-        }
-
-        fun publicNoArg(owner: Class<*>, name: String): Method? =
-            KavaMemberLookup.inheritedMethodOrNull(owner, name)?.takeIf { method ->
-                !method.isStatic && method.isPublic && method.parameterCount == 0
-            }
-
-        fun publicStaticNoArg(owner: Class<*>, name: String): Method? =
-            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                method.isStatic && method.isPublic && method.name == name &&
-                    method.parameterCount == 0
-            }.singleOrNull()
-
-        fun publicExact(owner: Class<*>, name: String, vararg params: Class<*>): Method? =
-            KavaMemberLookup.inheritedMethodOrNull(owner, name, *params)?.takeIf { method ->
-                !method.isStatic && method.isPublic &&
-                    method.parameterTypes.contentEquals(params)
-            }
-
-        val methods = linkedMapOf<String, HookPoint>()
-        fun add(key: String, method: Method?): Method {
-            val resolved = method ?: throw NoSuchMethodException(key)
-            methods[key] = resolved.toHookPoint()
-            return resolved
-        }
-
-        add(CommentTopologyPoints.REPLY_ID, publicNoArg(replyInfo, "getId"))
-        add(CommentTopologyPoints.COMMENT_ITEM_ID, publicNoArg(commentItem, "getId"))
-        add(CommentTopologyPoints.REPLY_OID, publicNoArg(replyInfo, "getOid"))
-        add(CommentTopologyPoints.REPLY_TYPE, publicNoArg(replyInfo, "getType"))
-        add(CommentTopologyPoints.REPLY_ROOT, publicNoArg(replyInfo, "getRoot"))
-        add(CommentTopologyPoints.REPLY_PARENT, publicNoArg(replyInfo, "getParent"))
-        add(CommentTopologyPoints.REPLY_DIALOG, publicNoArg(replyInfo, "getDialog"))
-        add(CommentTopologyPoints.REPLY_CTIME, publicNoArg(replyInfo, "getCtime"))
-        add(CommentTopologyPoints.REPLY_COUNT, publicNoArg(replyInfo, "getCount"))
-        add(CommentTopologyPoints.REPLY_MID, publicNoArg(replyInfo, "getMid"))
-        val contentGetter = add(
-            CommentTopologyPoints.REPLY_CONTENT,
-            publicNoArg(replyInfo, "getContent")
-        )
-        val memberGetter = publicNoArg(replyInfo, "getMember")
-        memberGetter?.let { methods[CommentTopologyPoints.REPLY_MEMBER] = it.toHookPoint() }
-        val memberV2Getter = add(
-            CommentTopologyPoints.REPLY_MEMBER_V2,
-            publicNoArg(replyInfo, "getMemberV2")
-        )
-        val parentMemberGetter = publicNoArg(replyInfo, "getParentReplyMember")
-        parentMemberGetter?.let {
-            methods[CommentTopologyPoints.REPLY_PARENT_MEMBER] = it.toHookPoint()
-        }
-        add(CommentTopologyPoints.REPLY_CHILDREN, publicNoArg(replyInfo, "getRepliesList"))
-        add(
-            CommentTopologyPoints.CONTENT_MESSAGE,
-            publicNoArg(contentGetter.returnType, "getMessage")
-        )
-        memberGetter?.let { getter ->
-            publicNoArg(getter.returnType, "getName")?.let { nameGetter ->
-                methods[CommentTopologyPoints.MEMBER_NAME] = nameGetter.toHookPoint()
-            }
-        }
-        val memberBasicGetter = add(
-            CommentTopologyPoints.MEMBER_V2_BASIC,
-            publicNoArg(memberV2Getter.returnType, "getBasic")
-        )
-        add(
-            CommentTopologyPoints.MEMBER_BASIC_NAME,
-            publicNoArg(memberBasicGetter.returnType, "getName")
-        )
-        parentMemberGetter?.let { getter ->
-            publicNoArg(getter.returnType, "getName")?.let { nameGetter ->
-                methods[CommentTopologyPoints.PARENT_MEMBER_NAME] = nameGetter.toHookPoint()
-            }
-        }
-
-        stage = "feed-pagination-class"
-        val pagination = FEED_PAGINATION_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .firstOrNull() ?: return@runCatching null
-        val paginationNewBuilder = add(
-            CommentTopologyPoints.PAGINATION_NEW_BUILDER,
-            publicStaticNoArg(pagination, "newBuilder")
-        )
-        val paginationBuilder = paginationNewBuilder.returnType
-        add(
-            CommentTopologyPoints.PAGINATION_SET_OFFSET,
-            publicExact(paginationBuilder, "setOffset", classOf<String>())
-        )
-        add(CommentTopologyPoints.PAGINATION_BUILD, publicNoArg(paginationBuilder, "build"))
-
-        stage = "detail-list-request-class"
-        val detailReq = KavaMemberLookup.classOrNull(loader, "$replyPackage.DetailListReq")
-            ?: return@runCatching null
-        val detailNewBuilder = add(
-            CommentTopologyPoints.DETAIL_NEW_BUILDER,
-            publicStaticNoArg(detailReq, "newBuilder")
-        )
-        val detailBuilder = detailNewBuilder.returnType
-        add(CommentTopologyPoints.DETAIL_SET_OID, publicExact(detailBuilder, "setOid", classOf<Long>()))
-        add(CommentTopologyPoints.DETAIL_SET_TYPE, publicExact(detailBuilder, "setType", classOf<Long>()))
-        add(CommentTopologyPoints.DETAIL_SET_MODE, publicExact(detailBuilder, "setModeValue", classOf<Int>()))
-        add(
-            CommentTopologyPoints.DETAIL_SET_PAGINATION,
-            publicExact(detailBuilder, "setPagination", pagination)
-        )
-        add(CommentTopologyPoints.DETAIL_SET_ROOT, publicExact(detailBuilder, "setRoot", classOf<Long>()))
-        add(CommentTopologyPoints.DETAIL_SET_RPID, publicExact(detailBuilder, "setRpid", classOf<Long>()))
-        add(CommentTopologyPoints.DETAIL_BUILD, publicNoArg(detailBuilder, "build"))
-
-        stage = "reply-moss-class"
-        val replyMoss = KavaMemberLookup.classOrNull(loader, "$replyPackage.ReplyMoss")
-            ?: return@runCatching null
-        stage = "reply-moss-constructor"
-        if (KavaMemberLookup.constructorOrNull(replyMoss) == null) return@runCatching null
-        stage = "reply-moss-detail-list"
-        val detailCall = KavaMemberLookup.methods(
-            replyMoss,
-            includeSuperclasses = true,
-            makeAccessible = true
-        ) { method ->
-            !method.isStatic && method.isPublic && method.name == "detailList" &&
-                method.parameterCount == 2 && method.parameterTypes[0] == detailReq &&
-                method.returnType == Void.TYPE
-        }.distinctBy(Method::toGenericString).singleOrNull() ?: return@runCatching null
-        add(CommentTopologyPoints.MOSS_DETAIL, detailCall)
-
-        stage = "detail-list-reply-class"
-        val detailReply = KavaMemberLookup.classOrNull(loader, "$replyPackage.DetailListReply")
-            ?: return@runCatching null
-        val detailRoot = add(
-            CommentTopologyPoints.DETAIL_ROOT,
-            publicNoArg(detailReply, "getRoot")
-        )
-        stage = "detail-root-return-type"
-        if (detailRoot.returnType != replyInfo) return@runCatching null
-        val detailPagination = add(
-            CommentTopologyPoints.DETAIL_PAGINATION,
-            publicNoArg(detailReply, "getPaginationReply")
-        )
-        add(
-            CommentTopologyPoints.PAGINATION_NEXT_OFFSET,
-            publicNoArg(detailPagination.returnType, "getNextOffset")
-        )
-
-        stage = "required-method-validation"
-        CommentTopologyPoints(
-            mapperMethods = mapperMethods.map { it.toHookPoint() },
-            replyMossClassName = replyMoss.name,
-            methods = methods
-        ).takeIf(CommentTopologyPoints::hasRequiredMethods)
-        }
-        val points = attempt.getOrNull()
-        val detail = if (points != null) {
-            ""
-        } else {
-            attempt.exceptionOrNull()?.let { throwable ->
-                val message = throwable.message?.takeIf(String::isNotBlank)
-                "${throwable.javaClass.simpleName}:${message ?: stage}"
-            } ?: "unresolved:$stage"
-        }
-        return CommentTopologyLocateOutcome(points, detail)
-    }
-
-    private data class CommentTopologyLocateOutcome(
-        val points: CommentTopologyPoints?,
-        val failureDetail: String
-    )
+    ): CommentTopologyLocateOutcome =
+        CommentTopologyLocator.locateWithDiagnostic(loader, extraMapperOwners, hostVersionCode)
 
     /**
      * 定位评论内容的公开 URL Map getter。8.90.2、9.1.0 与 9.9.0 均保留 getUrls/
      * getUrlsMap；只接管 Map 返回边界，避免修改 protobuf 内部 MapFieldLite 的可变状态。
      */
-    fun locateCommentPurify(loader: ClassLoader): CommentPurifyPoints? = runCatching {
-        val urlMethods = COMMENT_CONTENT_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.name in setOf("getUrls", "getUrlsMap") &&
-                        method.returnType isSubclassOf classOf<Map<*, *>>()
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        // 第二道防线：跳转目标字段本身。只认无参、返回 String 的公开读取方法，
-        // 不按方法名以外的任何宿主结构猜测；类不在就整条不装（空列表 → partial）。
-        val urlSchemaGetters = COMMENT_URL_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.name == "getAppUrlSchema" &&
-                        method.returnType == classOf<String>()
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        val emptyPageGetters = COMMENT_EMPTY_PAGE_OWNER_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .mapNotNull { owner ->
-                val contentGetter = KavaMemberLookup.methodOrNull(owner, "getEmptyPage")
-                    ?.takeIf { method ->
-                        !method.isStatic && method.parameterCount == 0 &&
-                            method.returnType.simpleName == "EmptyPage"
-                    } ?: return@mapNotNull null
-                val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
-                    contentGetter.returnType,
-                    "getDefaultInstance"
-                )?.takeIf { method ->
-                    method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == contentGetter.returnType
-                } ?: return@mapNotNull null
-                CommentEmptyPagePoint(
-                    contentGetter.toHookPoint(),
-                    defaultInstanceGetter.toHookPoint()
-                )
-            }
-            .distinctBy { it.contentGetter.label() }
-            .toList()
-        val voteWidgetMethods = COMMENT_VOTE_WIDGET_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .filter { it.hasSuperclassNamed("android.view.View") }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    if (method.isStatic || method.returnType != Void.TYPE) return@declaredMethods false
-                    val parameterNames = method.parameterTypes.map { it.name }
-                    when (owner.simpleName) {
-                        "CmtVoteWidget" -> method.parameterCount == 4 &&
-                            parameterNames.count { it.endsWith(".CmtThemeStrategy") } == 1 &&
-                            parameterNames.count { it == "kotlin.jvm.functions.Function0" } == 1 &&
-                            parameterNames.count { it == "kotlin.jvm.functions.Function1" } == 1
-                        "CmtMountWidget" -> method.parameterCount == 2 &&
-                            parameterNames.count { it.endsWith(".CmtThemeStrategy") } == 1
-                        "CommentVoteView" -> method.parameterCount == 1 &&
-                            method.name.startsWith("setVoteData") &&
-                            !method.parameterTypes[0].isPrimitive
-                        else -> false
-                    }
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
-        val followWidgetMethods = COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .filter { it.hasSuperclassNamed("android.view.View") }
-            .flatMap { owner ->
-                val directMethods = KavaMemberLookup.declaredMethods(
-                    owner,
-                    makeAccessible = true
-                ) { method ->
-                    if (method.isStatic || method.returnType != Void.TYPE) {
-                        return@declaredMethods false
-                    }
-                    val binder = method.parameterCount == 1 &&
-                        !method.parameterTypes[0].isPrimitive
-                    val visibilityState = method.parameterCount == 0 &&
-                        method.name != "onDetachedFromWindow"
-                    binder || visibilityState
-                }.map { it.toHookPoint() }
-                val callbackMethods = owner.declaredClasses.flatMap { callbackClass ->
-                    val outerField = KavaMemberLookup.declaredFields(
-                        callbackClass,
-                        makeAccessible = true
-                    ) { field -> !field.isStatic && field.type == owner }.singleOrNull()
-                        ?: return@flatMap emptyList()
-                    KavaMemberLookup.declaredMethods(
-                        callbackClass,
-                        makeAccessible = true
-                    ) { method ->
-                        !method.isStatic && method.returnType == Void.TYPE &&
-                            method.parameterCount == 2 &&
-                            method.parameterTypes[1] == classOf<Int>()
-                    }.map { method -> method.toHookPoint().copy(viewField = outerField.name) }
-                }
-                (directMethods + callbackMethods).asSequence()
-            }
-            .distinctBy { it.label() }
-            .toList()
-        val followButtonClass = COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .firstOrNull()
-        val headerBindMethods = if (followButtonClass == null) {
-            emptyList()
-        } else {
-            COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES.asSequence()
-                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-                .filter { it.hasSuperclassNamed("android.view.ViewGroup") }
-                .flatMap { owner ->
-                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                        !method.isStatic && method.returnType == Void.TYPE &&
-                            method.parameterCount == 2 &&
-                            method.parameterTypes[0] isSubclassOf classOf<List<*>>() &&
-                            !method.parameterTypes[1].isPrimitive
-                    }.asSequence()
-                }
-                .distinctBy(Method::toGenericString)
-                .map { it.toHookPoint() }
-                .toList()
-        }
-        val followPoints = if (followWidgetMethods.isEmpty() && headerBindMethods.isEmpty()) {
-            null
-        } else {
-            CommentFollowPoints(
-                followWidgetMethods,
-                headerBindMethods,
-                followButtonClass?.name
-            )
-        }
-        val mainListOwner = COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .firstOrNull()
-        fun optionalPayloadPoint(
-            owner: Class<*>?,
-            presenceName: String,
-            contentName: String
-        ): CommentOptionalPayloadPoint? {
-            val messageClass = owner ?: return null
-            val presenceGetter = KavaMemberLookup.methodOrNull(messageClass, presenceName)
-                ?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        method.returnType == classOf<Boolean>()
-                } ?: return null
-            val contentGetter = KavaMemberLookup.methodOrNull(messageClass, contentName)
-                ?.takeIf { method ->
-                    !method.isStatic && method.parameterCount == 0 &&
-                        !method.returnType.isPrimitive
-                } ?: return null
-            val defaultInstanceGetter = KavaMemberLookup.methodOrNull(
-                contentGetter.returnType,
-                "getDefaultInstance"
-            )?.takeIf { method ->
-                method.isStatic && method.parameterCount == 0 &&
-                    method.returnType == contentGetter.returnType
-            } ?: return null
-            return CommentOptionalPayloadPoint(
-                presenceGetter.toHookPoint(),
-                contentGetter.toHookPoint(),
-                defaultInstanceGetter.toHookPoint()
-            )
-        }
-        val qoePoint = optionalPayloadPoint(mainListOwner, "hasQoe", "getQoe")
-        val operationPoints = listOfNotNull(
-            optionalPayloadPoint(mainListOwner, "hasOperation", "getOperation"),
-            optionalPayloadPoint(mainListOwner, "hasOperationV2", "getOperationV2")
-        )
-        val quickReplyDialogMethods = locateCommentQuickReplyDirect(loader)
-        // 空判据必须与 isStructurallyValid 的有效口径一致：urlSchemaGetters 是搜索跳转
-        // 第二道防线的唯一载体，只算它就足够让整组点成立，漏掉会把可用的防线整条丢弃。
-        if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
-            followPoints == null && qoePoint == null && operationPoints.isEmpty() &&
-            quickReplyDialogMethods.isEmpty() && urlSchemaGetters.isEmpty()) {
-            null
-        } else {
-            CommentPurifyPoints(
-                urlMethods,
-                emptyPageGetters,
-                voteWidgetMethods,
-                followPoints,
-                qoePoint,
-                operationPoints,
-                quickReplyDialogMethods,
-                urlSchemaGetters
-            )
-        }
-    }.getOrNull()
+    fun locateCommentPurify(loader: ClassLoader): CommentPurifyPoints? =
+        CommentLocator.locateCommentPurify(loader)
 
     /** 评论快捷回复收集器的同包候选直连定位（Tier-1 零 I/O 快路径）。 */
     private fun locateCommentQuickReplyDirect(loader: ClassLoader): List<HookPoint> =
-        COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && method.parameterCount == 2 &&
-                        method.parameterTypes[0].name.endsWith(".PublishDialogIntent") &&
-                        method.parameterTypes[1].name == "kotlin.coroutines.Continuation"
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
+        CommentLocator.locateCommentQuickReplyDirect(loader)
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
-    private fun locatePausePoints(loader: ClassLoader): PausePoints {
-        fun method(className: String, name: String, predicate: (Method) -> Boolean): HookPoint? {
-            val owner = KavaMemberLookup.classOrNull(loader, className) ?: return null
-            return KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                it.name == name && predicate(it)
-            }.singleOrNull()?.toHookPoint()
-        }
-
-        val requests = listOfNotNull(
-            method(
-                "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
-                "invokeSuspend"
-            ) { !it.isStatic && it.parameterCount == 1 },
-            method(
-                "com.bilibili.ship.theseus.united.page.pausedpage." +
-                    "PausedPageService\$requestPausedPageData\$2",
-                "invokeSuspend"
-            ) { !it.isStatic && it.parameterCount == 1 }
-        )
-        val legacy = method(
-            "kntr.app.ad.biz.videodetail.pausedpage.ui.g",
-            "invoke"
-        ) { !it.isStatic && it.parameterCount == 0 }
-        val panel = method(
-            "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository",
-            "showPanel"
-        ) { !it.isStatic && it.parameterCount >= 2 }
-        val countdown = method(
-            "com.bilibili.ship.theseus.united.page.pausedpage." +
-                "PausedPageService\$showPauseBarCountdownToast\$3",
-            "invokeSuspend"
-        ) { !it.isStatic && it.parameterCount == 1 }
-        return PausePoints(requests, legacy, panel, countdown)
-    }
+    private fun locatePausePoints(loader: ClassLoader): PausePoints =
+        MediaQualityAndPlayerLocator.locatePausePoints(loader)
 
     /**
      * V8Banner 从 8.90.2 到 9.9.0 均继承 SwiperBanner；父类的 attach、setAdapter 与
      * visibility 回调是稳定低频入口。Hook 时仍按 V8Banner 实例过滤，不影响其它轮播控件。
      */
-    private fun locateBanner(loader: ClassLoader): BannerPoint? = runCatching {
-        val bannerName = "com.bilibili.pegasus.holders.bannerv8.V8Banner"
-        val banner = KavaMemberLookup.classOrNull(loader, bannerName)
-            ?: return@runCatching null
-        var currentOwner: Class<*>? = banner.superclass
-        while (
-            currentOwner != null &&
-            currentOwner.name != "com.bilibili.app.comm.list.widget.swiper.SwiperBanner"
-        ) {
-            currentOwner = currentOwner.superclass
-        }
-        val owner = currentOwner ?: return@runCatching null
-        val hooks = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-            when (it.name) {
-                "onAttachedToWindow" -> it.parameterCount == 0
-                "setAdapter" -> it.parameterCount == 1 &&
-                    it.parameterTypes[0].name.endsWith(".SwiperBannerAdapter")
-                "onVisibilityChanged" -> it.parameterTypes.contentEquals(
-                    arrayOf(classOf<android.view.View>(), Integer.TYPE)
-                )
-                else -> false
-            }
-        }.map { it.toHookPoint() }
-        if (hooks.none { it.methodName == "onAttachedToWindow" }) return@runCatching null
-        BannerPoint(bannerName, hooks)
-    }.getOrNull()
+    private fun locateBanner(loader: ClassLoader): BannerPoint? =
+        MineAndHomeUiLocator.locateBanner(loader)
 
     /**
      * 首页顶部栏结构化定位：
@@ -9680,166 +5279,21 @@ object VersionAdapter {
      * - 默认搜索词模型在 8.90.2 为 api.d，9.1.0–9.9.0 为 api.b。
      * 因此只依赖参数/返回类型与 SwitchTextView 字段特征，不缓存宿主实例。
      */
-    fun locateHomeTopBar(loader: ClassLoader): HomeTopBarPoints? = runCatching {
-        val menuOwner = KavaMemberLookup.classOrNull(loader, HOME_MENU_ITEM_CLASS)
-        val gameMenu = menuOwner?.let { owner ->
-            val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                !it.isStatic && it.returnType == Void.TYPE &&
-                    it.parameterTypes.contentEquals(
-                        arrayOf(classOf<Menu>(), classOf<MenuInflater>())
-                    )
-            }.singleOrNull() ?: return@let null
-            val configField = KavaMemberLookup.declaredFields(
-                owner,
-                makeAccessible = true
-            ) { field ->
-                !field.isStatic &&
-                    field.type.enclosingClass == owner &&
-                    KavaMemberLookup.declaredFields(field.type) {
-                        it.type == classOf<String>()
-                    }.isNotEmpty()
-            }.singleOrNull() ?: return@let null
-            method.toHookPoint().copy(viewField = configField.name)
-        }
-
-        // 新 Compose 路径：只认签名 `(List, Continuation) -> Object`。
-        // 同名的桥接方法是 `(Object, Object) -> Object`，靠参数 0 的类型把它排除掉；
-        // 命中不到就整层缺失，由安装器单独降级，绝不影响上面的老路径。
-        val composeGameMenu = KavaMemberLookup.classOrNull(loader, HOME_TOP_RIGHT_LAMBDA_CLASS)
-            ?.let { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                    !it.isStatic && it.name == "invoke" && it.parameterCount == 2 &&
-                        it.parameterTypes[0] == classOf<List<*>>() &&
-                        it.returnType == classOf<Any>()
-                }.singleOrNull()?.toHookPoint()
-            }
-
-        val baseOnViewCreated = HOME_BASE_FRAGMENT_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .mapNotNull { owner ->
-                val searchFields = KavaMemberLookup.declaredFields(
-                    owner,
-                    makeAccessible = true
-                ) {
-                    (it.type isSubclassOf classOf<TextView>()) &&
-                        it.type.simpleName == "SwitchTextView"
-                }
-                val searchField = searchFields.singleOrNull() ?: return@mapNotNull null
-                val method = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                    !it.isStatic && it.returnType == Void.TYPE &&
-                        it.name == "onViewCreated" &&
-                        it.parameterTypes.contentEquals(
-                            arrayOf(classOf<View>(), classOf<Bundle>())
-                        )
-                }.singleOrNull() ?: return@mapNotNull null
-                method.toHookPoint().copy(viewField = searchField.name)
-            }
-            .firstOrNull()
-
-        val defaultWordMethods = if (baseOnViewCreated == null) {
-            emptyList()
-        } else {
-            HOME_MAIN_FRAGMENT_CANDIDATES.asSequence()
-                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-                .map { owner ->
-                    KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                        !it.isStatic && !it.isAbstract && it.returnType == Void.TYPE &&
-                            it.parameterCount == 1 && isHomeDefaultWordEntry(it)
-                    }.distinctBy(Method::toGenericString)
-                }
-                .firstOrNull { it.isNotEmpty() }
-                .orEmpty()
-                .map { it.toHookPoint() }
-        }
-
-        val kotlinWords = KotlinDefaultWordsLocator.direct(loader)?.let(KotlinDefaultWordsLocator::point)
-        if (gameMenu == null && composeGameMenu == null &&
-            baseOnViewCreated == null && defaultWordMethods.isEmpty() && kotlinWords == null
-        ) {
-            null
-        } else {
-            HomeTopBarPoints(gameMenu, composeGameMenu, baseOnViewCreated, defaultWordMethods, kotlinWords)
-        }
-    }.getOrNull()
-
-    private fun isHomeDefaultWordEntry(method: Method): Boolean {
-        val model = method.parameterTypes[0]
-        if (model.name in HOME_DEFAULT_WORD_CLASS_CANDIDATES) return true
-        // 9.15+: P0/yc 及 R8 重命名接口均只声明四个无混淆 getter。
-        if (method.declaringClass.name !in HOME_MAIN_FRAGMENT_CANDIDATES || !model.isInterface) return false
-        fun returns(name: String, type: Class<*>): Boolean =
-            KavaMemberLookup.methodOrNull(model, name)?.let { !it.isStatic && it.returnType == type } == true
-        return returns("getShow", String::class.java) && returns("getAnimationTimeMilli", Long::class.javaPrimitiveType!!) &&
-            returns("enableAnimation", Boolean::class.javaPrimitiveType!!) && returns("isShowFront", Boolean::class.javaPrimitiveType!!)
-    }
+    fun locateHomeTopBar(loader: ClassLoader): HomeTopBarPoints? =
+        MineAndHomeUiLocator.locateHomeTopBar(loader)
 
     /**
      * 低版本评论 holder：候选类存在 + 有绑定方法（方法名漂移自适应：8.90.2 为 o0、
      * 9.8.0 为 q0——按候选方法名列表匹配；参数不限，运行期 hook 全部重载）。
      */
-    private fun locateCommentLow(loader: ClassLoader): HookPoint? {
-        val methodCandidates = listOf("o0", "q0")
-        for (cn in COMMENT_LOW_CANDIDATES) {
-            val c = KavaMemberLookup.classOrNull(loader, cn) ?: continue
-            val declaredMethods = KavaMemberLookup.declaredMethods(c)
-            for (mn in methodCandidates) {
-                if (declaredMethods.any { it.name == mn }) {
-                    return HookPoint(cn, mn)
-                }
-            }
-        }
-        return null
-    }
+    private fun locateCommentLow(loader: ClassLoader): HookPoint? =
+        CommentLocator.locateCommentLow(loader)
 
     /**
      * 高版本评论 handler：候选类存在 + 有 CommentItem 字段 + 绑定方法。
-     * 特征（版本无关、字段名/方法名/参数类名全部自适应，历史漂移全覆盖）：
-     * - 8.63.0：CommentContentRichTextHandler（字段 h、绑定方法 G(CommentItem, jv.u, ...)）
-     * - 9.0.0 ：Pj.J / b、9.8.0：al.J / d/e——三者类名/字段名/方法名均不同
-     * 特征 1：存在「声明了 CommentItem 类型字段」的字段（字段名不限 i/h）。
-     * 特征 2（绑定方法）：参数中存在「声明了 View 类型字段」的类（ViewBinding 特征，
-     *   jv.u / Pj.J / al.J 均命中——含 View 字段即可，不依赖字段名 a），且参数个数 1-5
-     *   （G 有 5 参）。候选列表仅含评论 handler 类，双特征已足够精确，不再加额外校验
-     *   （9.8.0 的 d(al.J, boolean) 参数无 comment3.* 类，曾因外加校验误判漏定位）。
      */
-    private fun locateCommentHigh(loader: ClassLoader): HookPoint? {
-        for (cn in COMMENT_HIGH_CANDIDATES) {
-            val c = KavaMemberLookup.classOrNull(loader, cn) ?: continue
-            // 特征 1：任一字段声明 CommentItem（字段名不限；8.63.0 为 h、9.x 为 i）
-            val hasCommentItemField = KavaMemberLookup.declaredFields(c) {
-                it.type.name.endsWith(".CommentItem")
-            }.isNotEmpty()
-            if (!hasCommentItemField) continue
-            // 特征 2：绑定方法 = 非 static + 参数含 ViewBinding（View 字段）+ 参数 1-5。
-            // 9.8.0 的 static h(al.J) 只设置字号/颜色，旧定位器会误把它缓存成绑定入口。
-            // 候选中优先带 CommentItem 实参的方法（可避免 Handler 可变字段串项），否则
-            // 选参数更多的主绑定方法（9.8.0 为 d(al.J, boolean)，而 e(al.J) 是分支布局）。
-            val bindingCandidates = java.util.ArrayList<java.lang.reflect.Method>()
-            for (m in KavaMemberLookup.declaredMethods(c)) {
-                if (m.parameterCount < 1 || m.parameterCount > 5) continue
-                if (m.isStatic) continue
-                var hasViewBinding = false
-                for (pt in m.parameterTypes) {
-                    if (pt.isPrimitive || pt.isArray || pt.isInterface) continue
-                    val hasViewField = KavaMemberLookup.declaredFields(pt) {
-                        it.type isSubclassOf classOf<android.view.View>()
-                    }.isNotEmpty()
-                    if (hasViewField) { hasViewBinding = true; break }
-                }
-                if (!hasViewBinding) continue
-                bindingCandidates.add(m)
-            }
-            val best = bindingCandidates.maxWithOrNull(
-                compareBy<java.lang.reflect.Method> {
-                    if (it.parameterTypes.any { pt -> pt.name.endsWith(".CommentItem") }) 1 else 0
-                }.thenBy { it.parameterCount }
-            )
-            if (best != null) {
-                return HookPoint(cn, best.name, best.parameterTypes.map { it.name }, null)
-            }
-        }
-        return null
-    }
+    private fun locateCommentHigh(loader: ClassLoader): HookPoint? =
+        CommentLocator.locateCommentHigh(loader)
 
     /** 主线程弹适配 toast（B 站进程内） */
     fun showAdaptToast(context: Context, text: String) {
