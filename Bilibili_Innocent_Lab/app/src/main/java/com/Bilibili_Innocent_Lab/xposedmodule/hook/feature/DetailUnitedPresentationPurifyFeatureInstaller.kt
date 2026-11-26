@@ -222,7 +222,7 @@ internal class DetailUnitedPresentationPurifyFeatureInstaller(
 /** 标题模型的安全替换：只在经审计 label 形状里的字符串字段具有精确热搜来源 URI 时构造无 label 副本。 */
 internal class HeadlineBadgeModelCleaner private constructor(
     private val modelClass: Class<*>,
-    private val content: Field,
+    private val mappedFields: List<Field>,
     private val label: Field,
     private val labelStrings: List<Field>,
     private val constructor: Constructor<*>
@@ -249,9 +249,12 @@ internal class HeadlineBadgeModelCleaner private constructor(
             DetailUnitedPresentationPurifyPolicy.isPromotionalLabelUri(field.get(labelValue) as? String)
         }
         if (!isHotSearch) return null
-        val title = content.get(model) as? String ?: return null
+        val args = Array<Any?>(mappedFields.size) { index ->
+            val field = mappedFields[index]
+            if (field == label) null else field.get(model)
+        }
         return try {
-            constructor.newInstance(title, null)
+            constructor.newInstance(*args)
         } catch (throwable: Throwable) {
             degraded = true
             throw throwable
@@ -263,41 +266,25 @@ internal class HeadlineBadgeModelCleaner private constructor(
             val fields = KavaMemberLookup.declaredFields(modelClass, makeAccessible = true) {
                 !it.isStatic
             }
-            // 只接受当前已核实的 HeadlineData = String + label 形状；未来字段扩张时 fail-open。
+            // 只接受已核实的 HeadlineData = String + label 两字段形状；允许字段重排与混淆改名。
             if (fields.size != 2) return null
-            val contentFields = fields.filter { it.type == classOf<String>() }
-            val labelFields = fields.filter { field ->
-                !field.type.isPrimitive && field.type != classOf<String>()
+            if (fields.count { it.type == classOf<String>() } != 1) return null
+            val (constructor, mappedFields) = matchDataModelConstructor(modelClass, fields) ?: return null
+            val label = fields.singleOrNull { !it.type.isPrimitive && it.type != classOf<String>() }
+                ?: return null
+            val nested = KavaMemberLookup.declaredFields(label.type, makeAccessible = true) {
+                !it.isStatic
             }
-            val candidates = contentFields.flatMap { content ->
-                labelFields.mapNotNull { label ->
-                    val constructor = KavaMemberLookup.declaredConstructors(
-                        modelClass,
-                        makeAccessible = true
-                    ) { candidate ->
-                        candidate.parameterTypes.contentEquals(
-                            arrayOf(classOf<String>(), label.type)
-                        )
-                    }.singleOrNull() ?: return@mapNotNull null
-                    val labelFields = KavaMemberLookup.declaredFields(label.type, makeAccessible = true) {
-                        !it.isStatic
-                    }
-                    // 五个已审计宿主的 Label 均为 int + 5 String + 2 long + Map；
-                    // 任意扩张或类型漂移都拒绝，以免把未来的非标题 label 当作热搜角标。
-                    if (labelFields.size != 9 ||
-                        labelFields.count { it.type == classOf<Int>() } != 1 ||
-                        labelFields.count { it.type == classOf<Long>() } != 2 ||
-                        labelFields.count { it.type isSubclassOf classOf<Map<*, *>>() } != 1
-                    ) return@mapNotNull null
-                    val uriFields = labelFields.filter {
-                        it.type == classOf<String>()
-                    }
-                    uriFields.takeIf { it.size == 5 }?.let {
-                        HeadlineBadgeModelCleaner(modelClass, content, label, it, constructor)
-                    }
-                }
-            }.distinctBy { it.content.name to it.label.name }
-            candidates.singleOrNull()
+            // 五个已审计宿主的 Label 均为 int + 5 String + 2 long + Map；
+            // 任意扩张或类型漂移都拒绝，以免把未来的非标题 label 当作热搜角标。
+            if (nested.size != 9 ||
+                nested.count { it.type == classOf<Int>() } != 1 ||
+                nested.count { it.type == classOf<Long>() } != 2 ||
+                nested.count { it.type isSubclassOf classOf<Map<*, *>>() } != 1
+            ) return null
+            val uriFields = nested.filter { it.type == classOf<String>() }
+            if (uriFields.size != 5) return null
+            HeadlineBadgeModelCleaner(modelClass, mappedFields, label, uriFields, constructor)
         }.getOrNull()
     }
 }
@@ -305,6 +292,7 @@ internal class HeadlineBadgeModelCleaner private constructor(
 /** SpecialTag 映射结果的安全过滤器；无命中时返回同一实例，避免无意义的模型重建。 */
 internal class SpecialTopicTagsModelCleaner private constructor(
     private val modelClass: Class<*>,
+    private val mappedFields: List<Field>,
     private val cells: Field,
     private val refresh: Field,
     private val constructor: Constructor<*>
@@ -325,7 +313,14 @@ internal class SpecialTopicTagsModelCleaner private constructor(
         }
         // 空列表必须同时关闭 refresh；否则 TagsService 仍可能创建一个没有 cell 的容器。
         val nextRefresh = if (retained.isEmpty()) false else refresh.getBoolean(model)
-        return constructor.newInstance(retained, nextRefresh)
+        val args = Array<Any?>(mappedFields.size) { index ->
+            when (val field = mappedFields[index]) {
+                cells -> retained
+                refresh -> nextRefresh
+                else -> field.get(model)
+            }
+        }
+        return constructor.newInstance(*args)
     }
 
     private fun isSpecialTopicCell(cell: Any?): Boolean {
@@ -345,18 +340,33 @@ internal class SpecialTopicTagsModelCleaner private constructor(
             val fields = KavaMemberLookup.declaredFields(modelClass, makeAccessible = true) {
                 !it.isStatic
             }
-            // TagsData 只有 cells + refresh 两个状态；多出字段时不能靠不完整副本猜测。
+            // TagsData 只有 cells + refresh 两个状态；多出字段时不能靠不完整副本猜测，但允许构造参数顺序漂移。
             if (fields.size != 2) return null
             val cells = fields.filter { it.type isSubclassOf classOf<List<*>>() }.singleOrNull()
                 ?: return null
             val refresh = fields.filter { it.type == classOf<Boolean>() }.singleOrNull()
                 ?: return null
-            val constructor = KavaMemberLookup.declaredConstructors(modelClass, makeAccessible = true) {
-                it.parameterTypes.contentEquals(arrayOf(cells.type, refresh.type))
-            }.singleOrNull() ?: return null
-            SpecialTopicTagsModelCleaner(modelClass, cells, refresh, constructor)
+            val (constructor, mappedFields) = matchDataModelConstructor(modelClass, fields) ?: return null
+            SpecialTopicTagsModelCleaner(modelClass, mappedFields, cells, refresh, constructor)
         }.getOrNull()
     }
+}
+
+private fun matchDataModelConstructor(modelClass: Class<*>, fields: List<Field>): Pair<Constructor<*>, List<Field>>? {
+    val fieldTypes = fields.map { it.type }
+    val byUniqueType = fields.groupBy { it.type }
+    val allDistinct = byUniqueType.values.all { it.size == 1 }
+    return KavaMemberLookup.declaredConstructors(modelClass, makeAccessible = true) {
+        it.parameterCount == fields.size
+    }.mapNotNull { ctor ->
+        val params = ctor.parameterTypes.toList()
+        val mapped = when {
+            params == fieldTypes -> fields
+            allDistinct && params.all { it in byUniqueType } -> params.map { byUniqueType.getValue(it).single() }
+            else -> null
+        }
+        mapped?.let { ctor to it }
+    }.singleOrNull()
 }
 
 private data class HeadlineBadgeHookPlan(

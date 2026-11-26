@@ -324,16 +324,31 @@ internal class HomeTopBarFeatureInstaller(
         val cleaner = SearchDefaultWordsCleaner.resolve(reply)
             ?: return FeatureInstallResult.Skipped("missing-default-words-cleaner")
         val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
-        if (wireSurface != null && KmpGrpcWireChannel.install(
+        val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val wireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
                 environment = environment,
                 surface = wireSurface,
                 javaMossClassName = SEARCH_MOSS_CLASS,
                 rpc = "defaultWords",
                 javaReplyClass = reply,
                 what = "搜索默认词",
-                logKey = "search_default_words_kmoss"
+                logKey = "search_default_words_kmoss",
+                wireActive = wireActive
             ) { cleaner.clean(it, environment) }
-        ) {
+        } else {
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = SEARCH_MOSS_CLASS,
+                rpc = "defaultWords",
+                javaReplyClass = reply,
+                what = "搜索默认词",
+                logKey = "search_default_words_kmoss",
+                wireActive = wireActive
+            ) { cleaner.clean(it, environment) }
+        }
+        if (wireInstalled) {
             return FeatureInstallResult.Installed(1, complete = cleaner.complete)
         }
         val members = KotlinMossChannel.prepare(environment, loader, "搜索默认词", "search_default_words_kmoss")
@@ -345,6 +360,7 @@ internal class HomeTopBarFeatureInstaller(
             hookId = "home.top_bar.search_default_words.kotlin",
             what = "搜索默认词", logKey = "search_default_words_kmoss",
             resolvedEntry = points?.kotlinDefaultWords?.let { KotlinDefaultWordsLocator.resolve(loader, it) },
+            supersededBy = wireActive,
             transformJava = { cleaner.clean(it, environment) })
         return if (installed) FeatureInstallResult.Installed(1, complete = cleaner.complete)
         else FeatureInstallResult.Skipped("kotlin-default-words-registration-failed")

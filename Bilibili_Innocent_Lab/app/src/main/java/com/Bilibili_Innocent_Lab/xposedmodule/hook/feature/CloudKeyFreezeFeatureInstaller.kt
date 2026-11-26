@@ -294,6 +294,9 @@ internal class CloudKeyFreezeFeatureInstaller(
         discoverFeatureFlagContracts(loader).forEach { owner ->
             contractTargets(FAMILY_CONTRACT_FF, owner).forEach(::add)
         }
+        KavaMemberLookup.classOrNull(loader, KCONFIG_CLASS)?.let { owner ->
+            kconfigTargets(owner).forEach(::add)
+        }
         return targets
     }
 
@@ -331,15 +334,29 @@ internal class CloudKeyFreezeFeatureInstaller(
     private fun kotlinDeviceDecisionTargets(owner: Class<*>): List<Target> {
         val bools = methodsOf(owner) {
             it.isStatic && it.name == "getBool" && it.returnType == classOf<Boolean>() &&
-                it.parameterCount == 4 && it.parameterTypes[1] == classOf<String>() &&
+                it.parameterCount in 3..4 && it.parameterTypes[1] == classOf<String>() &&
                 it.parameterTypes[2] == classOf<Boolean>()
         }.map { Target(FAMILY_KOTLIN_DD, it, CloudKeyReadKind.BOOL, keyIndex = 1, defaultIndex = 2) }
         val texts = methodsOf(owner) {
             it.isStatic && it.name == "getString" && it.returnType == classOf<String>() &&
-                it.parameterCount == 4 && it.parameterTypes[1] == classOf<String>() &&
+                it.parameterCount in 3..4 && it.parameterTypes[1] == classOf<String>() &&
                 it.parameterTypes[2] == classOf<String>()
         }.map { Target(FAMILY_KOTLIN_DD, it, CloudKeyReadKind.TEXT, keyIndex = 1, defaultIndex = 2) }
         return bools + texts
+    }
+
+    private fun kconfigTargets(owner: Class<*>): List<Target> {
+        val flags = methodsOf(owner) {
+            !it.isStatic && it.name == "ff" && it.returnType == classOf<Boolean>() &&
+                it.parameterCount == 2 && it.parameterTypes[0] == classOf<String>() &&
+                it.parameterTypes[1] == classOf<Boolean>()
+        }.map { Target(FAMILY_KCONFIG, it, CloudKeyReadKind.BOOL, keyIndex = 0, defaultIndex = 1) }
+        val configs = methodsOf(owner) {
+            !it.isStatic && it.name == "config" && it.returnType == classOf<String>() &&
+                it.parameterCount == 2 && it.parameterTypes[0] == classOf<String>() &&
+                it.parameterTypes[1] == classOf<String>()
+        }.map { Target(FAMILY_KCONFIG, it, CloudKeyReadKind.TEXT, keyIndex = 0, defaultIndex = 1) }
+        return flags + configs
     }
 
     private fun configManagerTargets(owner: Class<*>): List<Target> {
@@ -382,7 +399,15 @@ internal class CloudKeyFreezeFeatureInstaller(
         facade: Class<*>?
     ): List<Class<*>> {
         val contract = KavaMemberLookup.classOrNull(loader, GDEVICE_DECISION_CLASS) ?: return emptyList()
-        return scanLeafClasses(loader, DEVICE_DECISION_PACKAGE).filter { candidate ->
+        val declared = facade?.let { owner ->
+            KavaMemberLookup.declaredFields(owner, makeAccessible = true).mapNotNull { field ->
+                field.type.takeIf { candidate ->
+                    candidate != facade && !candidate.isInterface && !candidate.isPrimitive &&
+                        contract.isAssignableFrom(candidate)
+                }
+            }
+        }.orEmpty()
+        return (declared + scanLeafClasses(loader, DEVICE_DECISION_PACKAGE)).distinct().filter { candidate ->
             candidate != facade && !candidate.isInterface && contract.isAssignableFrom(candidate)
         }
     }
@@ -422,6 +447,7 @@ internal class CloudKeyFreezeFeatureInstaller(
         private const val DEVICE_DECISION_CLASS = "$DEVICE_DECISION_PACKAGE.DeviceDecision"
         private const val GDEVICE_DECISION_CLASS = "$DEVICE_DECISION_PACKAGE.GDeviceDecision"
         private const val KOTLIN_DD_CLASS = "kntr.base.dd.IDeviceDecisionKt"
+        private const val KCONFIG_CLASS = "kntr.base.config.KConfig"
         private const val BLCONFIG_PACKAGE = "com.bilibili.lib.blconfig"
         private const val BLCONFIG_INTERNAL_PACKAGE = "$BLCONFIG_PACKAGE.internal"
         private const val CONFIG_MANAGER_CLASS = "$BLCONFIG_PACKAGE.ConfigManager"
@@ -440,6 +466,7 @@ internal class CloudKeyFreezeFeatureInstaller(
         private const val FAMILY_CONFIG = "config"
         private const val FAMILY_CONTRACT = "contract"
         private const val FAMILY_CONTRACT_FF = "contract-ff"
+        private const val FAMILY_KCONFIG = "kconfig"
 
         /** R8 混淆后的单字母叶名，`a`–`z` 与 `A`–`Z`。 */
         private val LEAF_NAMES: List<String> =

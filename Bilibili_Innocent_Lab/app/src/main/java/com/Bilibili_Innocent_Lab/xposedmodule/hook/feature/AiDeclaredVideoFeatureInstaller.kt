@@ -210,20 +210,39 @@ internal class AiDeclaredVideoFeatureInstaller(
             }
         }
 
-        val kmpViewWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
-            environment = environment,
-            surface = wireSurface,
-            javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
-            rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
-            javaReplyClass = replyClass,
-            what = "AI 声明拦截",
-            logKey = "ai_declared_kmoss",
-            javaRequestClass = requestClass,
-            transformWithRequest = { req, reply ->
-                handle(reply, passive(req) || AiRelatePrechecker.isQueryThread())
-            },
-            transformJava = { reply -> handle(reply, AiRelatePrechecker.isQueryThread()) }
-        )
+        val viewWireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val viewTransformWithRequest: (Any?, Any) -> Any = { req, reply ->
+            handle(reply, passive(req) || AiRelatePrechecker.isQueryThread())
+        }
+        val kmpViewWireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = wireSurface,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                what = "AI 声明拦截",
+                logKey = "ai_declared_kmoss",
+                javaRequestClass = requestClass,
+                transformWithRequest = viewTransformWithRequest,
+                wireActive = viewWireActive,
+                transformJava = { reply -> handle(reply, AiRelatePrechecker.isQueryThread()) }
+            )
+        } else {
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                what = "AI 声明拦截",
+                logKey = "ai_declared_kmoss",
+                javaRequestClass = requestClass,
+                transformWithRequest = viewTransformWithRequest,
+                wireActive = viewWireActive,
+                transformJava = { reply -> handle(reply, AiRelatePrechecker.isQueryThread()) }
+            )
+        }
         val kmpViewInstalled = kmpViewWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
             environment, loader, "AI 声明拦截", "ai_declared_kmoss"
         )?.let { bridge ->
@@ -237,6 +256,7 @@ internal class AiDeclaredVideoFeatureInstaller(
                 hookId = "$id.kmoss.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
                 what = "AI 声明拦截",
                 logKey = "ai_declared_kmoss",
+                supersededBy = viewWireActive,
                 transformJava = { reply -> handle(reply, AiRelatePrechecker.isQueryThread()) }
             )
         } == true)
@@ -398,16 +418,32 @@ internal class AiDeclaredVideoFeatureInstaller(
                 }
             }
         }
-        val kmpWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
-            environment = environment,
-            surface = wireSurface,
-            javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
-            rpc = AiRelatesFeedStripper.ASYNC_METHOD,
-            javaReplyClass = replyClass,
-            what = "推荐续页 AI 卡过滤",
-            logKey = "ai_declared_feed_kmoss",
-            transformJava = transform
-        )
+        val feedWireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val kmpWireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = wireSurface,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = AiRelatesFeedStripper.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                what = "推荐续页 AI 卡过滤",
+                logKey = "ai_declared_feed_kmoss",
+                wireActive = feedWireActive,
+                transformJava = transform
+            )
+        } else {
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = AiRelatesFeedStripper.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                what = "推荐续页 AI 卡过滤",
+                logKey = "ai_declared_feed_kmoss",
+                wireActive = feedWireActive,
+                transformJava = transform
+            )
+        }
         val kmpFeedInstalled = kmpWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
             environment, loader, "推荐续页 AI 卡过滤", "ai_declared_feed_kmoss"
         )?.let { bridge ->
@@ -421,6 +457,7 @@ internal class AiDeclaredVideoFeatureInstaller(
                 hookId = "${AiDeclaredVideoPolicy.ID}.feed.kmoss.${AiRelatesFeedStripper.ASYNC_METHOD}",
                 what = "推荐续页 AI 卡过滤",
                 logKey = "ai_declared_feed_kmoss",
+                supersededBy = feedWireActive,
                 transformJava = transform
             )
         } == true)

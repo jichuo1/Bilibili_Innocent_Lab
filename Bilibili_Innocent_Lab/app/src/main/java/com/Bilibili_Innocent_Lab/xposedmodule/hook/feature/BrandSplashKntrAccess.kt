@@ -64,13 +64,18 @@ internal object BrandSplashKntrAccess {
         if (current) {
             val mutable = Lookup.classOrNull(loader, "androidx.compose.runtime.MutableState") ?: return null
             val state = Lookup.classOrNull(loader, "androidx.compose.runtime.State") ?: return null
-            if (callback.name != "\$onExit" || listOf("\$customBitmapReady\$delegate", "\$customLogoReady\$delegate").any { key ->
-                    fields.singleOrNull { it.name == key }?.type != mutable
-                } || fields.singleOrNull { it.name == "\$currentOnShow" }?.type != state) return null
-            // 9.18/9.19 persist the shown model only if this image state holds a bitmap.
             val bitmapStateFields = fields.filter { it.name == "\$customBitmap\$delegate" }
-            if (name == BITMAP_EXIT && bitmapStateFields.singleOrNull()?.type != mutable) return null
-            if (bitmapStateFields.isNotEmpty() && bitmapStateFields.singleOrNull()?.type != mutable) return null
+            val namedMatched = callback.name == "\$onExit" &&
+                listOf("\$customBitmapReady\$delegate", "\$customLogoReady\$delegate").all { key ->
+                    fields.singleOrNull { it.name == key }?.type == mutable
+                } &&
+                fields.singleOrNull { it.name == "\$currentOnShow" }?.type == state &&
+                (name != BITMAP_EXIT || bitmapStateFields.singleOrNull()?.type == mutable) &&
+                (bitmapStateFields.isEmpty() || bitmapStateFields.singleOrNull()?.type == mutable)
+            // 混淆改名时退回字段结构校验：唯一 Function0 + 2..3 MutableState + 1 State（外加 label/invokeSuspend）。
+            val structuralMatched = fields.count { it.type == mutable } in 2..3 &&
+                fields.count { it.type == state } == 1
+            if (!namedMatched && !structuralMatched) return null
             val intrinsics = Lookup.classOrNull(loader, "kotlin.coroutines.intrinsics.IntrinsicsKt") ?: return null
             waiting = Lookup.inheritedMethodOrNull(intrinsics, "getCOROUTINE_SUSPENDED")?.invoke(null) ?: return null
             failure = Lookup.classOrNull(loader, "kotlin.Result\$Failure") ?: return null

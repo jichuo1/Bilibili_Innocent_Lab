@@ -16,7 +16,10 @@ internal class PlayerEndPageRecommendFeatureInstaller(
 ) : FeatureInstaller {
     override val id = ID
     private val registered = linkedSetOf<Method>()
-    private var kmpRegistered = false
+    private val kmpWireActive = AtomicBoolean(false)
+    private var kmpWireInstalled = false
+    private var kmpKotlinRegistered = false
+    private var kmpDeferredQueued = false
     private var initialRun = false
     private var retryConsumed = false
     @Volatile var requiresAdaptationRetry = false
@@ -75,21 +78,40 @@ internal class PlayerEndPageRecommendFeatureInstaller(
                     args[1] = proxy
                 }
             }
-            if (!kmpRegistered && loader != null) {
+            if (kmpWireActive.get()) kmpWireInstalled = true
+            if (!kmpWireInstalled && loader != null) {
                 val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngineProvider())
-                val wireOk = wireSurface != null && KmpGrpcWireChannel.install(
-                    environment = environment,
-                    surface = wireSurface,
-                    javaMossClassName = PlayerEndPageRecommendLocator.MOSS,
-                    rpc = "viewEndPage",
-                    javaReplyClass = access.reply,
-                    what = "结束页推荐",
-                    logKey = "player_end_page_kmoss",
-                    transformJava = ::transform
-                )
-                if (wireOk) {
-                    kmpRegistered = true
+                val wireOk = if (wireSurface != null) {
+                    KmpGrpcWireChannel.install(
+                        environment = environment,
+                        surface = wireSurface,
+                        javaMossClassName = PlayerEndPageRecommendLocator.MOSS,
+                        rpc = "viewEndPage",
+                        javaReplyClass = access.reply,
+                        what = "结束页推荐",
+                        logKey = "player_end_page_kmoss",
+                        wireActive = kmpWireActive,
+                        transformJava = ::transform
+                    )
+                } else if (!kmpDeferredQueued) {
+                    kmpDeferredQueued = true
+                    KmpGrpcWireChannel.installOrDefer(
+                        environment = environment,
+                        surface = null,
+                        javaMossClassName = PlayerEndPageRecommendLocator.MOSS,
+                        rpc = "viewEndPage",
+                        javaReplyClass = access.reply,
+                        what = "结束页推荐",
+                        logKey = "player_end_page_kmoss",
+                        wireActive = kmpWireActive,
+                        transformJava = ::transform
+                    )
                 } else {
+                    false
+                }
+                if (wireOk) {
+                    kmpWireInstalled = true
+                } else if (!kmpKotlinRegistered) {
                     val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(PlayerEndPageRecommendLocator.MOSS)
                     if (kotlinName != null && KavaMemberLookup.classOrNull(loader, kotlinName) != null) {
                         val bridge = KotlinMossChannel.prepare(environment, loader, "结束页推荐", "player_end_page_kmoss")
@@ -103,10 +125,11 @@ internal class PlayerEndPageRecommendFeatureInstaller(
                                 hookId = "$ID.kmoss.viewEndPage",
                                 what = "结束页推荐",
                                 logKey = "player_end_page_kmoss",
+                                supersededBy = kmpWireActive,
                                 transformJava = ::transform
                             )
                         ) {
-                            kmpRegistered = true
+                            kmpKotlinRegistered = true
                         }
                     }
                 }
@@ -142,7 +165,8 @@ internal class PlayerEndPageRecommendFeatureInstaller(
                 if (original > 0) { result = 0; if (result == 0) applied(original) }
             }
         }
-        val kmpRetryNeeded = access.canCopy && !kmpRegistered && loader != null &&
+        val kmpReady = kmpWireInstalled || kmpWireActive.get() || kmpKotlinRegistered
+        val kmpRetryNeeded = access.canCopy && !kmpWireInstalled && !kmpWireActive.get() && loader != null &&
             KmpGrpcWireAdapter.applicable(loader)
         if (initialRun) {
             retryConsumed = true
@@ -151,7 +175,7 @@ internal class PlayerEndPageRecommendFeatureInstaller(
             initialRun = true
             requiresAdaptationRetry = !retryConsumed && (access.mergedList == null || kmpRetryNeeded)
         }
-        if (installed == 0 && !kmpRegistered) return skipped("no-safe-hook-point")
+        if (installed == 0 && !kmpReady) return skipped("no-safe-hook-point")
         val reportedInstalled = if (installed > 0) installed else 1
         val expected = PlayerEndPageRecommendLocator.EXPECTED_PATHS
         environment.reportCapabilityCoverage(ID, true, reportedInstalled, expected)

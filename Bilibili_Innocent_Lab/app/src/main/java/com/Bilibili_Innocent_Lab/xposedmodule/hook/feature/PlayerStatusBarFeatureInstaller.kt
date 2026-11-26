@@ -2,11 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.app.Activity
 import android.graphics.Color
+import android.os.Build
 import android.view.View
-import android.view.WindowInsetsController
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
-import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 
 /** 仅在 Adapter 确认的视频详情 Activity 生命周期末尾应用透明播放器状态栏。 */
 internal class PlayerStatusBarFeatureInstaller(
@@ -55,19 +55,23 @@ internal class PlayerStatusBarFeatureInstaller(
         return FeatureInstallResult.Installed(installed, complete = installed == methods.size)
     }
 
-    @Suppress("DEPRECATION")
     private fun applyTransparentStatusBar(activity: Activity) {
         val window = activity.window ?: return
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
-        // 仅改目标状态栏，不让控制器接管宿主导航栏与 Insets 生命周期。
-        window.statusBarColor = Color.TRANSPARENT
-        if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.setSystemBarsAppearance(
-                0,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-            )
+        if (Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+            // 仅改目标状态栏，不让控制器接管宿主导航栏与 Insets 生命周期。
+            @Suppress("DEPRECATION")
+            window.statusBarColor = Color.TRANSPARENT
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isStatusBarContrastEnforced = false
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
         } else {
+            @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility =
                 (window.decorView.systemUiVisibility or
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE or

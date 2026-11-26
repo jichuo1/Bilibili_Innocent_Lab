@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ComposeChangedMask
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -246,8 +247,8 @@ internal class ReplyTopologyComposeMenu(
                             }
                         }
                         args[0] = merged
-                        // 与 NativeFeedbackPanel 相同：参数 0 的 changed 槽是 1–3 位，保留 force 位。
-                        args[3] = (argOrNull(3) as Int) and 0b1110.inv()
+                        // 与 NativeFeedbackPanel 相同：参数 0 的 changed 槽是 1–3 位（and 0b1110.inv()），保留 force 位。
+                        (argOrNull(3) as? Int)?.let { args[3] = ComposeChangedMask.clearSlots(it, 0) }
                         environment.reportRuntimeEvidence(CommentTopologyFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)
                     }
                 }
@@ -306,8 +307,8 @@ internal class ReplyTopologyComposeMenu(
                             }
                         }
                         args[0] = mergedGroups
-                        // WindowSheet / InContainer 列表参数同样是第 0 参，changed 槽是 1–3 位，保留 force 位。
-                        args[5] = (argOrNull(5) as Int) and 0b1110.inv()
+                        // WindowSheet / InContainer 列表参数同样是第 0 参，changed 槽是 1–3 位（and 0b1110.inv()），保留 force 位。
+                        (argOrNull(5) as? Int)?.let { args[5] = ComposeChangedMask.clearSlots(it, 0) }
                         environment.reportRuntimeEvidence(CommentTopologyFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)
                     }
                 }

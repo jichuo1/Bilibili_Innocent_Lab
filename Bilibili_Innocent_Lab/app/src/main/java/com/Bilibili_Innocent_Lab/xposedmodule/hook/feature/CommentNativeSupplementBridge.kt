@@ -5,6 +5,7 @@ import android.view.View
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.lang.ref.WeakReference
 import java.lang.reflect.Field
@@ -16,11 +17,18 @@ internal class CommentRichTextReader private constructor(private val field: Fiel
     fun read(value: Any): String? = (field?.get(value) ?: method?.invoke(value)) as? String
     companion object {
         fun resolve(type: Class<*>): CommentRichTextReader? {
+            if (type.isPrimitive || type.name.startsWith("java.")) return null
             val field = listOf("a", "raw").mapNotNull { KavaMemberLookup.fieldOrNull(type, it) }
-                .firstOrNull { it.type == classOf<String>() }
+                .firstOrNull { !it.isStatic && it.type == classOf<String>() }
+                ?: KavaMemberLookup.declaredFields(type, makeAccessible = true) {
+                    !it.isStatic && it.type == classOf<String>()
+                }.singleOrNull()
             if (field != null) return CommentRichTextReader(field, null)
             val getter = listOf("getRaw", "e").mapNotNull { KavaMemberLookup.inheritedMethodOrNull(type, it) }
-                .firstOrNull { it.returnType == classOf<String>() }
+                .firstOrNull { !it.isStatic && it.parameterCount == 0 && it.returnType == classOf<String>() }
+                ?: KavaMemberLookup.declaredMethods(type, makeAccessible = true) {
+                    !it.isStatic && it.parameterCount == 0 && it.name != "toString" && it.returnType == classOf<String>()
+                }.singleOrNull()
             return getter?.let { CommentRichTextReader(null, it) }
         }
     }
@@ -136,12 +144,7 @@ internal class CommentNativeSupplementBridge(
             if (texts.size != 3) return@forEach
             val dataClass = (owner.genericSuperclass as? ParameterizedType)?.actualTypeArguments?.singleOrNull() as? Class<*>
                 ?: return@forEach
-            val sourceFields = listOf("b", "c").map { KavaMemberLookup.fieldOrNull(dataClass, it) }
-            if (sourceFields.any { it == null }) return@forEach
-            val richFields = sourceFields.map { KavaMemberLookup.fieldOrNull(it!!.type, "h") }
-            if (richFields.any { it == null }) return@forEach
-            val readers = richFields.map { CommentRichTextReader.resolve(it!!.type) }
-            if (readers.any { it == null }) return@forEach
+            val (sourceFields, richFields, readers) = resolvePushModelAccess(dataClass) ?: return@forEach
             val methods = KavaMemberLookup.declaredMethods(owner).filter {
                 it.returnType == Void.TYPE && it.parameterCount == 4 &&
                     it.parameterTypes[2] == classOf<List<*>>() && it.parameterTypes[3] == classOf<Int>()
@@ -172,9 +175,9 @@ internal class CommentNativeSupplementBridge(
                             }
                             for (i in 0..1) {
                                 val view = (if (i == 0) primary else secondary) ?: continue
-                                val source = sourceFields[i]!!.get(model) ?: continue
-                                val rich = richFields[i]!!.get(source) ?: continue
-                                val raw = readers[i]!!.read(rich) ?: continue
+                                val source = sourceFields[i].get(model) ?: continue
+                                val rich = richFields[i].get(source) ?: continue
+                                val raw = readers[i].read(rich) ?: continue
                                 bind(view, raw, rich)
                             }
                         }
@@ -195,8 +198,45 @@ internal class CommentNativeSupplementBridge(
         return results
     }
 
-    private fun owners(prefix: String): List<String> = ('a'..'z').map { prefix + it } +
-        if (prefix == IMAGE_HANDLERS) listOf(prefix + "CardRichTextHandler") else emptyList()
+    private fun resolvePushModelAccess(
+        dataClass: Class<*>
+    ): Triple<List<Field>, List<Field>, List<CommentRichTextReader>>? {
+        val namedSources = listOf("b", "c").map { KavaMemberLookup.fieldOrNull(dataClass, it) }
+        if (namedSources.none { it == null }) {
+            val sources = namedSources.filterNotNull()
+            val namedRich = sources.map { KavaMemberLookup.fieldOrNull(it.type, "h") }
+            if (namedRich.none { it == null }) {
+                val rich = namedRich.filterNotNull()
+                val readers = rich.map { CommentRichTextReader.resolve(it.type) }
+                if (readers.none { it == null }) {
+                    return Triple(sources, rich, readers.filterNotNull())
+                }
+            }
+        }
+        val structural = KavaMemberLookup.declaredFields(dataClass, makeAccessible = true).mapNotNull { sourceField ->
+            if (sourceField.isStatic || sourceField.type.isPrimitive || sourceField.type.name.startsWith("java.")) {
+                return@mapNotNull null
+            }
+            val richField = KavaMemberLookup.fieldOrNull(sourceField.type, "h")
+                ?.takeIf { !it.isStatic && CommentRichTextReader.resolve(it.type) != null }
+                ?: KavaMemberLookup.declaredFields(sourceField.type, makeAccessible = true).singleOrNull { f ->
+                    !f.isStatic && !f.type.isPrimitive && !f.type.name.startsWith("java.") &&
+                        CommentRichTextReader.resolve(f.type) != null
+                } ?: return@mapNotNull null
+            val reader = CommentRichTextReader.resolve(richField.type) ?: return@mapNotNull null
+            Triple(sourceField, richField, reader)
+        }
+        if (structural.size != 2) return null
+        return Triple(
+            structural.map { it.first },
+            structural.map { it.second },
+            structural.map { it.third }
+        )
+    }
+
+    private fun owners(prefix: String): List<String> =
+        (('a'..'z') + ('A'..'Z')).map { prefix + it } +
+            if (prefix == IMAGE_HANDLERS) listOf(prefix + "CardRichTextHandler") else emptyList()
 
     private companion object {
         const val COMMENT_ITEM = "com.bilibili.app.comment3.data.model.CommentItem"

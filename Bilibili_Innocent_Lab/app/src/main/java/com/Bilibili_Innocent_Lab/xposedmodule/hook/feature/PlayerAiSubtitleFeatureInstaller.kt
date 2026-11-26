@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import java.lang.reflect.Method
 
 /** Client eligibility only. Language tracks and generation remain owned by the official server. */
 internal class PlayerAiSubtitleFeatureInstaller(private val enabled: Boolean) : FeatureInstaller {
@@ -12,22 +14,50 @@ internal class PlayerAiSubtitleFeatureInstaller(private val enabled: Boolean) : 
         if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-classloader")
         var installed = 0
+        var languageGateHooked = false
         KavaMemberLookup.classOrNull(loader, "com.bilibili.lib.dd.DeviceDecision")?.let { owner ->
-            KavaMemberLookup.methodOrNull(owner, "getBoolean", classOf<String>(), classOf<Boolean>())
-                ?.takeIf { it.returnType == classOf<Boolean>() }?.let { method ->
-                    environment.registrar.exact("player.subtitle.ai.language", owner, method.name, *method.parameterTypes) {
-                        after {
-                            if (hasThrowable || argOrNull(0) != LANGUAGE_FLAG) return@after
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                            if (result == false) {
-                                result = true
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                            }
-                        }
-                    }
-                    installed++
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && it.name == "getBoolean" && it.returnType == classOf<Boolean>() &&
+                    it.parameterCount in 2..3 &&
+                    it.parameterTypes[0] == classOf<String>() &&
+                    it.parameterTypes[1] == classOf<Boolean>()
+            }.forEach { method ->
+                val hookId = if (method.parameterCount == 2) "player.subtitle.ai.language"
+                else "player.subtitle.ai.language.${method.parameterCount}"
+                if (registerLanguageFlagHook(environment, hookId, method, keyIndex = 0)) {
+                    languageGateHooked = true
                 }
+            }
         }
+        KavaMemberLookup.classOrNull(loader, "kntr.base.config.KConfig")?.let { owner ->
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && it.name == "ff" && it.returnType == classOf<Boolean>() &&
+                    it.parameterTypes.contentEquals(arrayOf(classOf<String>(), classOf<Boolean>()))
+            }.singleOrNull()?.let { method ->
+                if (registerLanguageFlagHook(environment, "player.subtitle.ai.kconfig", method, keyIndex = 0)) {
+                    languageGateHooked = true
+                }
+            }
+        }
+        KavaMemberLookup.classOrNull(loader, "kntr.base.dd.IDeviceDecisionKt")?.let { owner ->
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                it.isStatic && it.name == "getBool" && it.returnType == classOf<Boolean>() &&
+                    it.parameterCount in 3..4 &&
+                    it.parameterTypes[1] == classOf<String>() &&
+                    it.parameterTypes[2] == classOf<Boolean>()
+            }.forEach { method ->
+                if (registerLanguageFlagHook(
+                        environment,
+                        "player.subtitle.ai.kotlin_dd.${method.parameterCount}",
+                        method,
+                        keyIndex = 1
+                    )
+                ) {
+                    languageGateHooked = true
+                }
+            }
+        }
+        if (languageGateHooked) installed++
         KavaMemberLookup.classOrNull(loader, "tv.danmaku.biliplayerv2.service.Video\$DanmakuResolveParams")?.let { owner ->
             val request = KavaMemberLookup.methodOrNull(owner, "getRequestSubtitle")
                 ?.takeIf { it.returnType == classOf<Boolean>() }
@@ -54,6 +84,25 @@ internal class PlayerAiSubtitleFeatureInstaller(private val enabled: Boolean) : 
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         return FeatureInstallResult.Installed(installed, complete = installed == 2)
     }
+
+    private fun registerLanguageFlagHook(
+        environment: HookEnvironment,
+        hookId: String,
+        method: Method,
+        keyIndex: Int
+    ): Boolean = runCatching {
+        environment.registrar.exact(hookId, method.declaringClass, method.name, *method.parameterTypes) {
+            after {
+                if (hasThrowable || argOrNull(keyIndex) != LANGUAGE_FLAG) return@after
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                if (result == false) {
+                    result = true
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                }
+            }
+        }
+        true
+    }.getOrDefault(false)
 
     companion object {
         const val ID = "player_ai_subtitle"

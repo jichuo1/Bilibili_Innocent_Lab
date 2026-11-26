@@ -269,11 +269,13 @@ internal class BrandSplashKntrRenderer(
 
 internal fun brandSplashDrawConstructorAbi(parameters: List<String>, image: String, model: String, resource: String): Boolean {
     val state = "androidx.compose.runtime.MutableState"
+    val intState = "androidx.compose.runtime.MutableIntState"
     val prefix = listOf(image, model, "androidx.compose.ui.unit.Density", resource, state)
-    val oldCaptures = listOf(state, state)
-    // 9.18/9.19 capture the selected image's native transition state between readiness captures.
-    return parameters == prefix + oldCaptures ||
-        parameters == prefix + "androidx.compose.runtime.MutableIntState" + oldCaptures
+    if (parameters.take(prefix.size) != prefix) return false
+    val afterPrefix = parameters.drop(prefix.size)
+    // 仅允许 slot 5 为可选 MutableIntState 过渡捕获，其后至少保留 2 个 MutableState 参数。
+    val trailingStates = if (afterPrefix.firstOrNull() == intState) afterPrefix.drop(1) else afterPrefix
+    return trailingStates.size >= 2 && trailingStates.all { it == state }
 }
 
 internal fun brandSplashChangedModelFlags(flags: Int): Int = (flags and 0b1110.inv()) or 0b0100

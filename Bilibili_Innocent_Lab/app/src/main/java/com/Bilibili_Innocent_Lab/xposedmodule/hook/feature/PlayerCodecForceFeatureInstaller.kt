@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.os.Bundle
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
@@ -14,7 +16,8 @@ import java.lang.reflect.Modifier
  */
 internal class PlayerCodecForceFeatureInstaller(
     codecPreferenceValue: Int,
-    decodeModeValue: Int
+    decodeModeValue: Int,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
     override val id: String = ID
     private val preference = PlayerCodecPreference.fromValue(codecPreferenceValue)
@@ -59,6 +62,7 @@ internal class PlayerCodecForceFeatureInstaller(
                 "[BIL] AV1 与强制软解不可同时使用，编码偏好已降级为 H.264"
             )
         }
+        val wireSurface = kmpGrpcWireEngine?.let { KmpGrpcWireAdapter.resolve(loader, it) }
         val requestCapability = if (stripAv1Only) DECODE_CAPABILITY else CODEC_CAPABILITY
         val requestCoverage = if (requestPreference != PlayerCodecPreference.FOLLOW_HOST || stripAv1Only) {
             listOf(
@@ -76,10 +80,16 @@ internal class PlayerCodecForceFeatureInstaller(
                     nestedVod = false,
                     capability = requestCapability
                 ),
-                installKotlinRequestFamily(environment, loader, MOSS_CLASSES_UNITE.first(), REQUEST_CLASSES_UNITE.first(),
-                    "playViewUnite", nestedVod = true, capability = requestCapability),
-                installKotlinRequestFamily(environment, loader, MOSS_CLASSES_LEGACY.first(), REQUEST_CLASSES_LEGACY.first(),
-                    "playView", nestedVod = false, capability = requestCapability)
+                installWireOrKotlinRequestFamily(
+                    environment, loader, wireSurface,
+                    MOSS_CLASSES_UNITE.first(), REQUEST_CLASSES_UNITE.first(),
+                    "playViewUnite", nestedVod = true, capability = requestCapability
+                ),
+                installWireOrKotlinRequestFamily(
+                    environment, loader, wireSurface,
+                    MOSS_CLASSES_LEGACY.first(), REQUEST_CLASSES_LEGACY.first(),
+                    "playView", nestedVod = false, capability = requestCapability
+                )
             ).fold(InstallCoverage()) { total, current ->
                 InstallCoverage(total.available + current.available, total.installed + current.installed)
             }
@@ -172,13 +182,73 @@ internal class PlayerCodecForceFeatureInstaller(
         InstallCoverage()
     }
 
+    private fun installWireOrKotlinRequestFamily(
+        environment: HookEnvironment,
+        loader: ClassLoader,
+        wireSurface: KmpGrpcWireAdapter.WireSurface?,
+        javaMoss: String,
+        javaRequest: String,
+        rpc: String,
+        nestedVod: Boolean,
+        capability: String
+    ): InstallCoverage {
+        val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val request = KavaMemberLookup.classOrNull(loader, javaRequest)
+        val access = request?.let { RequestAccess.resolve(it, nestedVod, requestPreference) }
+        val codec = request?.let { KotlinMossBridgeMembers.JavaReplyCodec.resolve(it) }
+        val rpcFullName = KmpGrpcWireChannel.fullMethodName(javaMoss, rpc)
+        if (request != null && access != null && codec != null && rpcFullName != null) {
+            val errorLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+            val transformRawRequest: (ByteArray) -> ByteArray = raw@{ bytes ->
+                try {
+                    val original = codec.parse(bytes)
+                    environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.OBSERVED)
+                    val updated = access.rewrite(original, requestPreference) ?: return@raw bytes
+                    check(request.isInstance(updated))
+                    val serialized = codec.serialize(updated)
+                    environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED)
+                    serialized
+                } catch (failure: Throwable) {
+                    environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.ERROR)
+                    if (errorLogged.compareAndSet(false, true)) {
+                        environment.logError("$ID.wire.$rpc", "[BIL] 线格式播放请求编码偏好改写失败，保留原请求")
+                    }
+                    throw failure
+                }
+            }
+            if (wireSurface != null) {
+                val installed = KmpGrpcWireChannel.installRawBytes(
+                    environment = environment,
+                    surface = wireSurface,
+                    rpcFullName = rpcFullName,
+                    what = "播放器编码偏好",
+                    logKey = "$ID.wire.$rpc",
+                    transformRawRequest = transformRawRequest,
+                    wireActive = wireActive
+                ) { it }
+                if (installed) return InstallCoverage(1, 1)
+            } else {
+                KmpGrpcWireChannel.deferRawBytes(
+                    environment = environment,
+                    rpcFullName = rpcFullName,
+                    what = "播放器编码偏好",
+                    logKey = "$ID.wire.$rpc",
+                    transformRawRequest = transformRawRequest,
+                    wireActive = wireActive
+                ) { it }
+            }
+        }
+        return installKotlinRequestFamily(environment, loader, javaMoss, javaRequest, rpc, nestedVod, capability, wireActive)
+    }
+
     /**
      * K*Moss typed request names and fields are R8 aliases. Its generic callback entry is
      * shared by suspend/callback calls and supplies the actual request serializer. Reuse
      * the host's wire codec and the same Java copy-on-write policy for both channels.
      */
     private fun installKotlinRequestFamily(environment: HookEnvironment, loader: ClassLoader,
-        javaMoss: String, javaRequest: String, rpc: String, nestedVod: Boolean, capability: String): InstallCoverage {
+        javaMoss: String, javaRequest: String, rpc: String, nestedVod: Boolean, capability: String,
+        wireActive: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false)): InstallCoverage {
         val owner = KotlinMossBridgeMembers.kotlinMossClassName(javaMoss)
             ?.let { KavaMemberLookup.classOrNull(loader, it) } ?: return InstallCoverage()
         val missing = InstallCoverage(1, 0)
@@ -201,6 +271,7 @@ internal class PlayerCodecForceFeatureInstaller(
         val installed = runCatching {
             environment.registrar.exact("$ID.request.kotlin.$rpc", owner, entry.name, *entry.parameterTypes) {
                 before {
+                    if (wireActive.get()) return@before
                     val original = argOrNull(0) ?: return@before
                     runCatching {
                         val format = if (entry.parameterCount == 4) members.defaultProtoBuf() else argOrNull(4)

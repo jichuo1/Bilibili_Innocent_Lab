@@ -99,13 +99,17 @@ internal class HomeVerticalDetailFeatureInstaller(
         val kotlin = installPlayConfigGetters(
             environment, loader, "k_play_config", K_PLAY_CONFIG_CLASS, K_BOOL_VALUE_CLASS
         ) { boolValueClass ->
-            // kotlinx.serialization 数据类：全默认值的公开无参构造应得到 value=false；不假设，实测为 false 才用。
-            runCatching { boolValueClass.getDeclaredConstructor().newInstance() }
-                .getOrNull()
-                ?.takeIf { instance ->
-                    KavaMemberLookup.methodOrNull(boolValueClass, "getValue")
-                        ?.let { runCatching { it.invoke(instance) }.getOrNull() } == false
-                }
+            // kotlinx.serialization 数据类：优先无参默认值构造，回退带显式 Boolean 默认构造，实测 value=false 才用。
+            val instance = runCatching { boolValueClass.getDeclaredConstructor().newInstance() }.getOrNull()
+                ?: runCatching {
+                    KavaMemberLookup.declaredConstructors(boolValueClass, makeAccessible = true) {
+                        it.parameterTypes.contentEquals(arrayOf(Boolean::class.javaPrimitiveType))
+                    }.singleOrNull()?.newInstance(false)
+                }.getOrNull()
+            instance?.takeIf { created ->
+                KavaMemberLookup.methodOrNull(boolValueClass, "getValue")
+                    ?.let { runCatching { it.invoke(created) }.getOrNull() } == false
+            }
         }
         return PlayConfigLayer(java.installed + kotlin.installed, java.expected + kotlin.expected)
     }

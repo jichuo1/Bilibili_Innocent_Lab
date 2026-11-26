@@ -34,7 +34,8 @@ internal class SubtitlePackagePatcher(private val runtime: String) {
                 entries.any { !safeEntry(it.name) || it.name.startsWith("res/${SubtitleStylePayload.DIRECTORY}/") }) return null
             lastFailure = "identity"
             val info = JSONObject(zip.getInputStream(zip.getEntry("info.json") ?: return null).use { it.boundedBytes(8192) }.toString(Charsets.UTF_8))
-            if (info.optString("name") != "danmaku-flame-master" || info.optString("version") != "3.12.0" ||
+            if (info.optString("name") != "danmaku-flame-master" ||
+                !SUBTITLE_VERSION_REGEX.matches(info.optString("version")) ||
                 info.has("innocent_subtitle_adapter")) return null
             lastFailure = "worker"
             val entry = zip.getEntry(SubtitleScriptAdapter.WORKER) ?: return null
@@ -118,6 +119,7 @@ internal class SubtitlePackagePatcher(private val runtime: String) {
     }.getOrDefault(false)
 
     companion object {
+        private val SUBTITLE_VERSION_REGEX = Regex("""3\.\d+\.\d+""")
         private const val MAX_ARCHIVE = 8_000_000L
         private const val MAX_EXPANDED = 64_000_000L
         private const val MAX_ENTRIES = 4096

@@ -276,18 +276,81 @@ internal class DanmakuPurifyFeatureInstaller(
         var bridge: KotlinMossBridgeMembers? = null
         var bridgeChecked = false
         val transformJava: (Any) -> Any = { reply -> purify(environment, reply, members, defaultReply) }
+        val wirePlan = members.wire
+        val wireRawErrorLogged = AtomicBoolean(false)
+        val transformRaw: ((ByteArray) -> ByteArray)? = wirePlan?.let { plan ->
+            raw@{ bytes ->
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                val live = liveRules?.invoke() ?: LiveDanmakuRules(minimumWeight, removeVipColorful)
+                val updated = purifyWireBytes(plan, environment, bytes, members, live) ?: run {
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
+                    if (wireRawErrorLogged.compareAndSet(false, true)) {
+                        environment.logError("danmaku_purify_wire_raw", "[BIL] 弹幕线格式直改失败，保留原分片")
+                    }
+                    return@raw bytes
+                }
+                if (updated !== bytes) {
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                }
+                updated
+            }
+        }
         for (rpc in ASYNC_METHOD_NAMES) {
-            if (wireSurface != null && KmpGrpcWireChannel.install(
-                    environment = environment,
-                    surface = wireSurface,
-                    javaMossClassName = DM_MOSS_CLASS,
-                    rpc = rpc,
-                    javaReplyClass = replyClass,
-                    what = "弹幕净化",
-                    logKey = "danmaku_purify_kmoss",
-                    transformJava = transformJava
-                )
-            ) {
+            val wireActive = AtomicBoolean(false)
+            val rawTransform = transformRaw
+            val wireBound = if (wirePlan != null && rawTransform != null) {
+                val fullName = KmpGrpcWireChannel.fullMethodName(DM_MOSS_CLASS, rpc)
+                if (wireSurface != null) {
+                    fullName != null && KmpGrpcWireChannel.installRawBytes(
+                        environment = environment,
+                        surface = wireSurface,
+                        rpcFullName = fullName,
+                        what = "弹幕净化",
+                        logKey = "danmaku_purify_kmoss",
+                        wireActive = wireActive,
+                        transformRawReply = rawTransform
+                    )
+                } else {
+                    if (fullName != null) {
+                        KmpGrpcWireChannel.deferRawBytes(
+                            environment = environment,
+                            rpcFullName = fullName,
+                            what = "弹幕净化",
+                            logKey = "danmaku_purify_kmoss",
+                            wireActive = wireActive,
+                            transformRawReply = rawTransform
+                        )
+                    }
+                    false
+                }
+            } else {
+                if (wireSurface != null) {
+                    KmpGrpcWireChannel.install(
+                        environment = environment,
+                        surface = wireSurface,
+                        javaMossClassName = DM_MOSS_CLASS,
+                        rpc = rpc,
+                        javaReplyClass = replyClass,
+                        what = "弹幕净化",
+                        logKey = "danmaku_purify_kmoss",
+                        wireActive = wireActive,
+                        transformJava = transformJava
+                    )
+                } else {
+                    KmpGrpcWireChannel.installOrDefer(
+                        environment = environment,
+                        surface = null,
+                        javaMossClassName = DM_MOSS_CLASS,
+                        rpc = rpc,
+                        javaReplyClass = replyClass,
+                        what = "弹幕净化",
+                        logKey = "danmaku_purify_kmoss",
+                        wireActive = wireActive,
+                        transformJava = transformJava
+                    )
+                }
+            }
+            if (wireBound) {
                 installed++
                 continue
             }
@@ -307,6 +370,7 @@ internal class DanmakuPurifyFeatureInstaller(
                     hookId = "danmaku.purify.kmoss.$rpc",
                     what = "弹幕净化",
                     logKey = "danmaku_purify_kmoss",
+                    supersededBy = wireActive,
                     transformJava = transformJava
                 )
             ) {
@@ -327,13 +391,13 @@ internal class DanmakuPurifyFeatureInstaller(
         // 字段未设置时宿主拿到的是进程级单例，改它会污染整个进程。
         if (defaultReply != null && reply === defaultReply) return reply
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+        val live = liveRules?.invoke() ?: LiveDanmakuRules(minimumWeight, removeVipColorful)
         // wire 快路径优先：序列化 → 字节扫描 → 判定 → 字节重写 → parseFrom 核验。
         // 任何一步不可用/不一致都返回 null，继续走下方既有反射链路。
         members.wire?.let { plan ->
-            purifyViaWire(plan, environment, reply, members)?.let { return it }
+            purifyViaWire(plan, environment, reply, members, live)?.let { return it }
         }
         return runCatching {
-            val live = liveRules?.invoke() ?: LiveDanmakuRules(minimumWeight, removeVipColorful)
             val weighted = purifyElems(environment, reply, members, live.minimum)
             val colorful = purifyColorfulSrc(reply, members, live.colorful)
             // 删了渐变样式定义，就必须同时把引用它的弹幕改回普通色：弹幕分段整包交给原生引擎
@@ -403,114 +467,141 @@ internal class DanmakuPurifyFeatureInstaller(
         environment: HookEnvironment,
         reply: Any,
         members: ReplyMembers,
-    ): Any? = runCatching {
-        val bytes = plan.serialize(reply) ?: return@runCatching null
-        val fields: DanmakuWireFields = plan.fields
-        val scan = engineScan(bytes, fields) ?: return@runCatching null
-        val elems = scan.elems
-        val srcKinds = scan.srcKinds
+        live: LiveDanmakuRules,
+    ): Any? {
+        val threshold = live.minimum
+        val liveColorful = live.colorful
+        if (threshold == null && !liveColorful && semanticJudge == null) return reply
+        return runCatching {
+            val bytes = plan.serialize(reply) ?: return@runCatching null
+            val purified = purifyWireBytes(plan, environment, bytes, members, live) ?: return@runCatching null
+            if (purified === bytes) return@runCatching reply
+            // 宿主解析器口径二次核验：改写产物真的被 parseFrom 接受且条数正确。
+            val parsed = plan.parse(purified) ?: return@runCatching null
+            val expectedCount = engineScan(purified, plan.fields)?.elems?.size ?: return@runCatching null
+            if (invokeList(members.elemList!!.elemsGetter, parsed)?.size != expectedCount) return@runCatching null
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+            parsed
+        }.getOrNull()
+    }
 
-        // ---- 权重（含"整段无可用权重即放行"熔断，与 purifyElems 同语义）----
-        val threshold = minimumWeight
-        val usableWeight = threshold == null || elems.any { (it.weight ?: 0) > 0 }
-        if (threshold != null && !usableWeight && weightUnavailableLogged.compareAndSet(false, true)) {
-            environment.logInfo(
-                "danmaku_purify_weight_unavailable",
-                "[BIL] 本分片无可用权重，按设计保留；后续分片仍独立判断"
-            )
-        }
-        val weightKeep = if (threshold == null || !usableWeight) {
-            BooleanArray(elems.size) { true }
-        } else {
-            BooleanArray(elems.size) { i -> (elems[i].weight ?: threshold) >= threshold }
-        }
+    /**
+     * 纯线格式核：扫描、权重熔断、语义判定、彩字改色、重写与 rescan 复核。
+     * 未改返回原 [bytes] 引用，不可用/不一致返回 null。
+     */
+    private fun purifyWireBytes(
+        plan: DanmakuWirePlan,
+        environment: HookEnvironment,
+        bytes: ByteArray,
+        members: ReplyMembers,
+        live: LiveDanmakuRules,
+    ): ByteArray? {
+        val threshold = live.minimum
+        val liveColorful = live.colorful
+        if (threshold == null && !liveColorful && semanticJudge == null) return bytes
+        return runCatching {
+            val fields: DanmakuWireFields = plan.fields
+            val scan = engineScan(bytes, fields) ?: return@runCatching null
+            val elems = scan.elems
+            val srcKinds = scan.srcKinds
 
-        // ---- 语义（与 semanticFilter 同语义：去重按权重保留后的顺序，最多 SEMANTIC_MAX_UNIQUE）----
-        val judge = semanticJudge
-        val vipValue = members.colorful?.vipGradualColorValue ?: DanmakuPurifyPolicy.VIP_GRADUAL_COLOR_VALUE
-        val semanticActive = judge != null && members.content != null
-        val texts = if (semanticActive) Array(elems.size) { i -> wireText(bytes, elems[i]) } else emptyArray()
-        val blocked: Set<String> = if (semanticActive) {
-            val unique = LinkedHashSet<String>()
-            for (i in elems.indices) {
-                if (unique.size >= SEMANTIC_MAX_UNIQUE) break
-                if (weightKeep[i] && texts[i].isNotEmpty()) unique += texts[i]
-            }
-            if (unique.isEmpty()) {
-                emptySet()
-            } else {
-                val candidates = unique.toList()
-                val mode = if (isMainThread()) SemanticMode.CACHE_ONLY else SemanticMode.WAIT
-                val logDir = semanticLogDir
-                val verdicts = judge.evaluate(
-                    candidates,
-                    mode,
-                    onReport = logDir?.let { dir ->
-                        { report, batch, result -> logSemanticBatch(dir, report, batch, result) }
-                    }
+            // ---- 权重（含"整段无可用权重即放行"熔断，与 purifyElems 同语义）----
+            val usableWeight = threshold == null || elems.any { (it.weight ?: 0) > 0 }
+            if (threshold != null && !usableWeight && weightUnavailableLogged.compareAndSet(false, true)) {
+                environment.logInfo(
+                    "danmaku_purify_weight_unavailable",
+                    "[BIL] 本分片无可用权重，按设计保留；后续分片仍独立判断"
                 )
-                val blockedSet = HashSet<String>()
-                candidates.forEachIndexed { index, text ->
-                    if (verdicts[index] == SemanticVerdict.BLOCK) blockedSet += text
+            }
+            val weightKeep = if (threshold == null || !usableWeight) {
+                BooleanArray(elems.size) { true }
+            } else {
+                BooleanArray(elems.size) { i -> (elems[i].weight ?: threshold) >= threshold }
+            }
+
+            // ---- 语义（与 semanticFilter 同语义：去重按权重保留后的顺序，最多 SEMANTIC_MAX_UNIQUE）----
+            val judge = semanticJudge
+            val vipValue = members.colorful?.vipGradualColorValue ?: DanmakuPurifyPolicy.VIP_GRADUAL_COLOR_VALUE
+            val semanticActive = judge != null && members.content != null
+            val texts = if (semanticActive) Array(elems.size) { i -> wireText(bytes, elems[i]) } else emptyArray()
+            val blocked: Set<String> = if (semanticActive) {
+                val unique = LinkedHashSet<String>()
+                for (i in elems.indices) {
+                    if (unique.size >= SEMANTIC_MAX_UNIQUE) break
+                    if (weightKeep[i] && texts[i].isNotEmpty()) unique += texts[i]
                 }
-                if (blockedSet.isEmpty()) {
-                    // 主线程冷启动证据与反射路径共用同一闩锁，口径一致。
-                    if (mode == SemanticMode.CACHE_ONLY && verdicts.all { it == SemanticVerdict.UNKNOWN } &&
-                        semanticColdStartReported.compareAndSet(false, true)
-                    ) {
-                        environment.reportRuntimeEvidence(CAPABILITY_SEMANTIC, FeatureRuntimeStage.ERROR)
-                        environment.logError(
-                            "danmaku_purify_semantic_main_thread",
-                            "[BIL] 智能过滤弹幕：弹幕分段在主线程回调，本进程只能查缓存、未命中即不删；" +
-                                "该通道上的弹幕不会被语义过滤隐藏"
-                        )
-                    }
+                if (unique.isEmpty()) {
                     emptySet()
                 } else {
-                    blockedSet
+                    val candidates = unique.toList()
+                    val mode = if (isMainThread()) SemanticMode.CACHE_ONLY else SemanticMode.WAIT
+                    val logDir = semanticLogDir
+                    val verdicts = judge.evaluate(
+                        candidates,
+                        mode,
+                        onReport = logDir?.let { dir ->
+                            { report, batch, result -> logSemanticBatch(dir, report, batch, result) }
+                        }
+                    )
+                    val blockedSet = HashSet<String>()
+                    candidates.forEachIndexed { index, text ->
+                        if (verdicts[index] == SemanticVerdict.BLOCK) blockedSet += text
+                    }
+                    if (blockedSet.isEmpty()) {
+                        // 主线程冷启动证据与反射路径共用同一闩锁，口径一致。
+                        if (mode == SemanticMode.CACHE_ONLY && verdicts.all { it == SemanticVerdict.UNKNOWN } &&
+                            semanticColdStartReported.compareAndSet(false, true)
+                        ) {
+                            environment.reportRuntimeEvidence(CAPABILITY_SEMANTIC, FeatureRuntimeStage.ERROR)
+                            environment.logError(
+                                "danmaku_purify_semantic_main_thread",
+                                "[BIL] 智能过滤弹幕：弹幕分段在主线程回调，本进程只能查缓存、未命中即不删；" +
+                                    "该通道上的弹幕不会被语义过滤隐藏"
+                            )
+                        }
+                        emptySet()
+                    } else {
+                        blockedSet
+                    }
                 }
+            } else {
+                emptySet()
             }
-        } else {
-            emptySet()
-        }
 
-        // ---- 位图：权重 × 语义 × 彩字改色（改色只作用于保留下来的条目，与反射路径组合一致）----
-        val keep = BooleanArray(elems.size)
-        val recolor = BooleanArray(elems.size)
-        var changed = false
-        for (i in elems.indices) {
-            keep[i] = weightKeep[i] && (!semanticActive || texts[i] !in blocked)
-            recolor[i] = removeVipColorful && keep[i] && elems[i].colorful != null &&
-                elems[i].colorful == vipValue
-            if (!keep[i] || recolor[i]) changed = true
-        }
-        val keepSrc = BooleanArray(srcKinds.size) { j ->
-            !removeVipColorful || srcKinds[j] == null || srcKinds[j] != vipValue
-        }
-        for (j in srcKinds.indices) {
-            if (!keepSrc[j]) changed = true
-        }
-        if (!changed) return@runCatching reply
+            // ---- 位图：权重 × 语义 × 彩字改色（改色只作用于保留下来的条目，与反射路径组合一致）----
+            val keep = BooleanArray(elems.size)
+            val recolor = BooleanArray(elems.size)
+            var changed = false
+            for (i in elems.indices) {
+                keep[i] = weightKeep[i] && (!semanticActive || texts[i] !in blocked)
+                recolor[i] = liveColorful && keep[i] && elems[i].colorful != null &&
+                    elems[i].colorful == vipValue
+                if (!keep[i] || recolor[i]) changed = true
+            }
+            val keepSrc = BooleanArray(srcKinds.size) { j ->
+                !liveColorful || srcKinds[j] == null || srcKinds[j] != vipValue
+            }
+            for (j in srcKinds.indices) {
+                if (!keepSrc[j]) changed = true
+            }
+            if (!changed) return@runCatching bytes
 
-        val rewritten = engineRewrite(bytes, fields, keep, recolor, keepSrc) ?: return@runCatching null
-        // wire 级复检：条数与改色值必须符合位图意图（红线：实际核改写结果的第一道核）。
-        val rescan = engineScan(rewritten, fields) ?: return@runCatching null
-        val keptCount = keep.count { it }
-        if (rescan.elems.size != keptCount || rescan.srcKinds.size != keepSrc.count { it }) {
-            return@runCatching null
-        }
-        var keptIndex = 0
-        for (i in elems.indices) {
-            if (!keep[i]) continue
-            if (recolor[i] && rescan.elems[keptIndex].colorful != 0) return@runCatching null
-            keptIndex++
-        }
-        // 宿主解析器口径二次核验：改写产物真的被 parseFrom 接受且条数正确。
-        val parsed = plan.parse(rewritten) ?: return@runCatching null
-        if (invokeList(members.elemList!!.elemsGetter, parsed)?.size != keptCount) return@runCatching null
-        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-        parsed
-    }.getOrNull()
+            val rewritten = engineRewrite(bytes, fields, keep, recolor, keepSrc) ?: return@runCatching null
+            // wire 级复检：条数与改色值必须符合位图意图（红线：实际核改写结果的第一道核）。
+            val rescan = engineScan(rewritten, fields) ?: return@runCatching null
+            val keptCount = keep.count { it }
+            if (rescan.elems.size != keptCount || rescan.srcKinds.size != keepSrc.count { it }) {
+                return@runCatching null
+            }
+            var keptIndex = 0
+            for (i in elems.indices) {
+                if (!keep[i]) continue
+                if (recolor[i] && rescan.elems[keptIndex].colorful != 0) return@runCatching null
+                keptIndex++
+            }
+            rewritten
+        }.getOrNull()
+    }
 
     /** native 可用即用（差分自检已在安装期把关），否则 JVM 基准；native 拒绝不重试 JVM。 */
     private fun engineScan(bytes: ByteArray, fields: DanmakuWireFields): DanmakuWire.Scan? =
@@ -659,13 +750,6 @@ internal class DanmakuPurifyFeatureInstaller(
      */
     private fun resolveMembers(loader: ClassLoader, replyClass: Class<*>): ReplyMembers? {
         val builder = ProtobufBuilderPlan.resolve(replyClass) ?: return null
-        val elemClass = KavaMemberLookup.classOrNull(loader, DANMAKU_ELEM_CLASS)
-        val weightGetter = elemClass?.let {
-            KavaMemberLookup.methodOrNull(it, "getWeight")?.takeIf { method ->
-                !method.isStatic && method.parameterCount == 0 &&
-                    method.returnType == classOf<Int>()
-            }
-        }
         val elemList = run {
             val elemsGetter = listGetter(replyClass, "getElemsList")
             val clearElems = builder.method("clearElems")
@@ -676,6 +760,17 @@ internal class DanmakuPurifyFeatureInstaller(
                 ElemListMembers(elemsGetter, clearElems, addAllElems)
             }
         }
+        val elemClass = if (replyClass.name == DM_SEG_REPLY_CLASS) {
+            KavaMemberLookup.classOrNull(loader, DANMAKU_ELEM_CLASS) ?: listElementClass(elemList?.elemsGetter)
+        } else {
+            listElementClass(elemList?.elemsGetter) ?: KavaMemberLookup.classOrNull(loader, DANMAKU_ELEM_CLASS)
+        }
+        val weightGetter = elemClass?.let {
+            KavaMemberLookup.methodOrNull(it, "getWeight")?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 &&
+                    method.returnType == classOf<Int>()
+            }
+        }
         val weight = weightGetter?.takeIf { elemList != null }?.let(::WeightMembers)
         val contentGetter = elemClass?.let {
             KavaMemberLookup.methodOrNull(it, "getContent")?.takeIf { method ->
@@ -683,7 +778,12 @@ internal class DanmakuPurifyFeatureInstaller(
             }
         }
 
-        val colorfulClass = KavaMemberLookup.classOrNull(loader, DM_COLORFUL_CLASS)
+        val srcGetter = listGetter(replyClass, "getColorfulSrcList")
+        val colorfulClass = if (replyClass.name == DM_SEG_REPLY_CLASS) {
+            KavaMemberLookup.classOrNull(loader, DM_COLORFUL_CLASS) ?: listElementClass(srcGetter)
+        } else {
+            listElementClass(srcGetter) ?: KavaMemberLookup.classOrNull(loader, DM_COLORFUL_CLASS)
+        }
         val typeGetter = colorfulClass?.let {
             KavaMemberLookup.methodOrNull(it, "getTypeValue")?.takeIf { method ->
                 !method.isStatic && method.parameterCount == 0 &&
@@ -699,7 +799,6 @@ internal class DanmakuPurifyFeatureInstaller(
         }
         val elemColorfulSetter = elemPlan?.method("setColorfulValue", classOf<Int>())
         val colorful = typeGetter?.let { getter ->
-            val srcGetter = listGetter(replyClass, "getColorfulSrcList")
             val clear = builder.method("clearColorfulSrc")
             val addAll = builder.method("addAllColorfulSrc", classOf<Iterable<*>>())
             if (srcGetter == null || clear == null || addAll == null || elemList == null ||
@@ -754,6 +853,17 @@ internal class DanmakuPurifyFeatureInstaller(
             !method.isStatic && method.parameterCount == 0 &&
                 method.returnType isSubclassOf classOf<List<*>>()
         }
+
+    private fun listElementClass(getter: Method?): Class<*>? {
+        val type = getter?.genericReturnType as? java.lang.reflect.ParameterizedType ?: return null
+        val arg = type.actualTypeArguments.firstOrNull() ?: return null
+        val resolved = when (arg) {
+            is Class<*> -> arg
+            is java.lang.reflect.WildcardType -> arg.upperBounds.firstOrNull() as? Class<*>
+            else -> null
+        } ?: return null
+        return resolved.takeIf { it != classOf<Any>() }
+    }
 
     private fun missing(
         environment: HookEnvironment,

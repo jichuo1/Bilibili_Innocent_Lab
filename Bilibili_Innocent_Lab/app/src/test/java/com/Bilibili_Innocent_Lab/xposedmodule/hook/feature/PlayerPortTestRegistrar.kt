@@ -5,6 +5,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreato
 import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Constructor
 import java.lang.reflect.Executable
+import java.lang.reflect.Modifier
 
 /** 通过真实 Modern DSL 调用测试链，覆盖参数复制、原方法异常和 before/after 顺序。 */
 internal class PlayerPortTestRegistrar(var failId: String? = null) : HookRegistrar by TestHookRegistrar {
@@ -18,6 +19,7 @@ internal class PlayerPortTestRegistrar(var failId: String? = null) : HookRegistr
         record(id, constructor, block)
     private fun record(id: String, member: Executable, block: ModernMemberHookCreator.() -> Unit) {
         registrationAttempts += id to member
+        require(!Modifier.isAbstract(member.modifiers)) { "Cannot hook abstract executable: $member" }
         check(id != failId) { "simulated registration failure" }
         hooks[id] = Entry(member, ModernMemberHookCreator(member).apply(block))
     }

@@ -109,6 +109,35 @@ class VideoRelateResponseWritebackTest {
         }
     }
 
+    private class MaxSentinelReply {
+        @JvmField var memoizedHashCode = 42
+        private var serializedSizeCache = 16
+        @JvmField var items: List<String> = ProtoItems(listOf("drop", "kept"))
+        fun getMemoizedSerializedSize(): Int = serializedSizeCache
+        fun setMemoizedSerializedSize(value: Int) { serializedSizeCache = value }
+
+        companion object {
+            private val DEFAULT = MaxSentinelReply().apply {
+                serializedSizeCache = Int.MAX_VALUE
+                memoizedHashCode = 0
+            }
+            @JvmStatic
+            fun getDefaultInstance(): MaxSentinelReply = DEFAULT
+        }
+    }
+
+    fun javaUtilListWithProtobufRuntimeAndMaxValueSentinelWriteback() {
+        val reply = MaxSentinelReply()
+        val original = reply.items
+        assertTrue(write(reply, listOf("kept")))
+        assertNotSame(original, reply.items)
+        assertEquals(listOf("kept"), reply.items)
+        assertFalse((reply.items as Internal.ProtobufList<*>).isModifiable)
+        assertEquals(Int.MAX_VALUE, reply.getMemoizedSerializedSize())
+        assertEquals(0, reply.memoizedHashCode)
+        assertFalse(write(MaxSentinelReply.getDefaultInstance(), emptyList<String>()))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (VideoRelateResponseWritebackTest) -> Unit) {
@@ -119,5 +148,6 @@ class VideoRelateResponseWritebackTest {
         runIsolated { s -> s.removingEveryItemStillWritesACompatibleImmutableEmptyList() }
         runIsolated { s -> s.unknownMessageShapeAndAliasedCopyDoNotMutateTheOriginal() }
         runIsolated { s -> s.failedCacheResetRollsBackTheOriginalFieldAndCachedValues() }
+        runIsolated { s -> s.javaUtilListWithProtobufRuntimeAndMaxValueSentinelWriteback() }
     }
 }

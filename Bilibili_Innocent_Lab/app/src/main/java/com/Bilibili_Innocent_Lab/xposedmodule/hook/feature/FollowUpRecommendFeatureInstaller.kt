@@ -240,7 +240,8 @@ internal class FollowUpRecommendFeatureInstaller(
             val function2 = KavaMemberLookup.classOrNull(loader, FUNCTION2) ?: return null
             if (!function2.isAssignableFrom(body) || Modifier.isAbstract(body.modifiers)) return null
             val owned = KavaMemberLookup.declaredConstructors(body) {
-                it.parameterTypes.size == 2 && it.parameterTypes[0] == repository && it.parameterTypes[1] == continuation
+                val p = it.parameterTypes
+                p.size in 2..4 && p[0] == repository && p.last() == continuation
             }.size == 1
             if (!owned) return null
             return KavaMemberLookup.declaredMethods(body, makeAccessible = true) {

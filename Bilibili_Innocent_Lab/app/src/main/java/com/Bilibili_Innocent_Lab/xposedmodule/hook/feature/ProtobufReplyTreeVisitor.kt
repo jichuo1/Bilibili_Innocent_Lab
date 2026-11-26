@@ -3,9 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.lang.reflect.Method
-import java.lang.reflect.ParameterizedType
 import java.util.concurrent.ConcurrentHashMap
 
 /** 只读观察评论树；保持 raw 读取、单条槽位和后序访问，不创建编辑列表或 builder。 */
@@ -54,15 +52,7 @@ internal class ProtobufReplyTreeVisitor(
             !it.isStatic && it.parameterCount == 0 && it.name.startsWith("get")
         }
         val lists = getters.filter { getter ->
-            if (!getter.name.endsWith("List") || !(getter.returnType isSubclassOf classOf<List<*>>())) return@filter false
-            if (getter.name.removePrefix("get").removeSuffix("List").isEmpty()) return@filter false
-            val argument = (getter.genericReturnType as? ParameterizedType)?.actualTypeArguments?.singleOrNull()
-            val raw = when (argument) {
-                is Class<*> -> argument
-                is ParameterizedType -> argument.rawType
-                else -> null
-            }
-            raw == replyInfoClass
+            ProtobufReplyTreeRewriter.returnsListOf(type, getter, replyInfoClass)
         }
         val singles = getters.mapNotNull { getter ->
             if (getter.returnType != replyInfoClass) return@mapNotNull null

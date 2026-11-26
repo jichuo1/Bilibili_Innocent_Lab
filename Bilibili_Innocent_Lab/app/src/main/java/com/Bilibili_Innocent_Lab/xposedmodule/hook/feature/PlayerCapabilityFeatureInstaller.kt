@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerCapabilityAcces
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 同步/异步播放响应只调整已选客户端能力；不创建播放地址、不更改服务器权限。 */
 internal class PlayerCapabilityFeatureInstaller(
@@ -51,6 +52,21 @@ internal class PlayerCapabilityFeatureInstaller(
                     "[BIL] 播放器能力缺少响应结构(${family.id})，保留该链路原行为")
                 continue
             }
+            val transformCopy: (Any) -> Any = copy@{ reply ->
+                if (!access.replyClass.isInstance(reply)) return@copy reply
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                runCatching {
+                    val copied = access.applyCopy(reply, observed, applied)
+                    if (copied !== reply) {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    }
+                    copied
+                }.getOrElse {
+                    environment.logError("player_capability_runtime_${family.id}",
+                        "[BIL] 播放器能力改写失败(${family.id}): ${it.javaClass.simpleName}")
+                    reply
+                }
+            }
             fun apply(reply: Any) {
                 if (!access.replyClass.isInstance(reply)) return
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
@@ -71,7 +87,17 @@ internal class PlayerCapabilityFeatureInstaller(
                 if (sync != null && runCatching {
                         environment.registrar.exact("player.capability.${family.id}.sync", owner,
                             sync.name, *sync.parameterTypes) {
-                            after { if (!hasThrowable) result?.let(::apply) }
+                            after {
+                                if (!hasThrowable) {
+                                    val current = result ?: return@after
+                                    if (access.canMutateInPlace) {
+                                        apply(current)
+                                    } else {
+                                        val updated = transformCopy(current)
+                                        if (updated !== current) result = updated
+                                    }
+                                }
+                            }
                         }
                     }.isSuccess) {
                     hooks++
@@ -88,7 +114,11 @@ internal class PlayerCapabilityFeatureInstaller(
                             async.name, *async.parameterTypes) {
                             before {
                                 val delegate = argOrNull(1) ?: return@before
-                                val wrapped = MossResponseHandlerProxy.wrap(handler, delegate, ::apply) ?: return@before
+                                val wrapped = if (access.canMutateInPlace) {
+                                    MossResponseHandlerProxy.wrap(handler, delegate, ::apply)
+                                } else {
+                                    MossResponseHandlerProxy.wrapTransform(handler, delegate, transformCopy)
+                                } ?: return@before
                                 args[1] = wrapped
                             }
                         }
@@ -102,31 +132,32 @@ internal class PlayerCapabilityFeatureInstaller(
                     "[BIL] 播放器能力缺少响应结构(${family.id})，保留该链路原行为")
             }
             if (access.canCopy) {
-                val transformCopy: (Any) -> Any = copy@{ reply ->
-                    if (!access.replyClass.isInstance(reply)) return@copy reply
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                    runCatching {
-                        val copied = access.applyCopy(reply, observed, applied)
-                        if (copied !== reply) {
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                        }
-                        copied
-                    }.getOrElse {
-                        environment.logError("player_capability_runtime_${family.id}",
-                            "[BIL] 播放器能力改写失败(${family.id}): ${it.javaClass.simpleName}")
-                        reply
-                    }
+                val wireActive = AtomicBoolean(false)
+                val wireInstalled = if (wireSurface != null) {
+                    KmpGrpcWireChannel.install(
+                        environment = environment,
+                        surface = wireSurface,
+                        javaMossClassName = family.moss,
+                        rpc = family.method,
+                        javaReplyClass = access.replyClass,
+                        what = "播放器能力",
+                        logKey = "player_capability_kmoss_${family.id}",
+                        wireActive = wireActive,
+                        transformJava = transformCopy
+                    )
+                } else {
+                    KmpGrpcWireChannel.installOrDefer(
+                        environment = environment,
+                        surface = null,
+                        javaMossClassName = family.moss,
+                        rpc = family.method,
+                        javaReplyClass = access.replyClass,
+                        what = "播放器能力",
+                        logKey = "player_capability_kmoss_${family.id}",
+                        wireActive = wireActive,
+                        transformJava = transformCopy
+                    )
                 }
-                val wireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
-                    environment = environment,
-                    surface = wireSurface,
-                    javaMossClassName = family.moss,
-                    rpc = family.method,
-                    javaReplyClass = access.replyClass,
-                    what = "播放器能力",
-                    logKey = "player_capability_kmoss_${family.id}",
-                    transformJava = transformCopy
-                )
                 if (wireInstalled) {
                     kmpHooks++
                 } else {
@@ -147,6 +178,7 @@ internal class PlayerCapabilityFeatureInstaller(
                                 hookId = "player.capability.kmoss.${family.id}",
                                 what = "播放器能力",
                                 logKey = "player_capability_kmoss_${family.id}",
+                                supersededBy = wireActive,
                                 transformJava = transformCopy
                             )
                         ) {

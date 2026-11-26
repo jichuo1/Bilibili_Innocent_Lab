@@ -49,20 +49,22 @@ internal class ComposeCommentText private constructor(
             val namedAttachmentsOk = namedOrigin != null && listOf("o", "p").all {
                 KavaMemberLookup.fieldOrNull(type, it)?.type == namedOrigin.type
             }
-            val (origin, translated) = if (namedOrigin != null && namedTranslated != null && namedAttachmentsOk) {
-                namedOrigin to namedTranslated
-            } else {
-                val quadType = fields.map { it.type }
-                    .groupingBy { it }
-                    .eachCount()
-                    .filter { (candidate, count) ->
-                        count == 4 && !candidate.isPrimitive && candidate != language.type &&
-                            stringField(candidate) != null
-                    }
-                    .keys
-                    .singleOrNull() ?: return@runCatching null
-                val quadFields = fields.filter { it.type == quadType }
-                quadFields[0] to quadFields[1]
+            val (origin, translated) = when {
+                namedOrigin != null && namedTranslated != null && namedAttachmentsOk ->
+                    namedOrigin to namedTranslated
+                namedOrigin != null && namedTranslated != null && stringField(namedOrigin.type) != null ->
+                    namedOrigin to namedTranslated
+                else -> {
+                    val counts = fields.map { it.type }.groupingBy { it }.eachCount()
+                    val richType = listOf(4, 2).firstNotNullOfOrNull { expectedCount ->
+                        counts.filter { (candidate, count) ->
+                            count == expectedCount && !candidate.isPrimitive && candidate != language.type &&
+                                stringField(candidate) != null
+                        }.keys.singleOrNull()
+                    } ?: return@runCatching null
+                    val matchedFields = fields.filter { it.type == richType }
+                    matchedFields[0] to matchedFields[1]
+                }
             }
             val raw = stringField(origin.type) ?: return@runCatching null
 

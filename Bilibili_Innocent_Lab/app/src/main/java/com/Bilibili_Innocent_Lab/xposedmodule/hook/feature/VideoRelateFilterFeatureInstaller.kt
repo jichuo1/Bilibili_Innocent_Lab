@@ -449,6 +449,7 @@ internal class VideoRelateFilterFeatureInstaller(
             runCatching {
                 environment.registrar.adapted("video.relate.response.$index", point) {
                     after {
+                        if (hasThrowable || KotlinMossChannel.isRaw()) return@after
                         val source = result as? List<*> ?: return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val semanticVerdicts = semantic.verdicts(source) { item -> SemanticTitleReader.read(item) }

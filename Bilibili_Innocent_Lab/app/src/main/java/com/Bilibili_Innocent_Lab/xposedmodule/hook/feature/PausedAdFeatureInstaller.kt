@@ -32,6 +32,9 @@ internal class PausedAdFeatureInstaller(
     private var javaAttempted = false
     private var javaInstalledCount = 0
     private var kotlinInstalled = false
+    private var kotlinMossRegistered = false
+    private var wireBound = false
+    private val kmpWireActive = java.util.concurrent.atomic.AtomicBoolean(false)
     private var responseExpected = 0
 
     @Synchronized
@@ -127,29 +130,46 @@ internal class PausedAdFeatureInstaller(
         }
 
         val resolvedResponsePoints = PauseResponseAdapter.resolve(loader)
+        if (kmpWireActive.get()) {
+            wireBound = true
+            kotlinInstalled = true
+            if (!resolvedResponsePoints.kotlinPresent) {
+                responseExpected = maxOf(responseExpected, resolvedResponsePoints.expected + 1)
+            }
+        }
         if (!javaAttempted) {
             val response = PauseResponseAdapter.install(
                 environment,
                 resolvedResponsePoints,
                 kmpGrpcWireEngineProvider(),
-                skipJava = false
+                skipJava = false,
+                skipKotlin = false,
+                wireActive = kmpWireActive,
+                deferIfMissingWire = true
             )
             javaAttempted = true
             responseExpected = response.expected
             kotlinInstalled = response.kotlinInstalled
+            kotlinMossRegistered = response.kotlinRegistered
+            wireBound = response.wireBound || kmpWireActive.get()
             javaInstalledCount = response.installed - (if (response.kotlinInstalled) 1 else 0)
-        } else if (!kotlinInstalled) {
+        } else if (!wireBound && (kmpGrpcWireEngineProvider() != null || !kotlinInstalled)) {
             val wireRetry = PauseResponseAdapter.install(
                 environment,
                 resolvedResponsePoints,
                 kmpGrpcWireEngineProvider(),
-                skipJava = true
+                skipJava = true,
+                skipKotlin = kotlinMossRegistered,
+                wireActive = kmpWireActive,
+                deferIfMissingWire = false
             )
             responseExpected = maxOf(responseExpected, wireRetry.expected)
-            kotlinInstalled = wireRetry.kotlinInstalled
+            kotlinInstalled = kotlinInstalled || wireRetry.kotlinInstalled
+            kotlinMossRegistered = kotlinMossRegistered || wireRetry.kotlinRegistered
+            wireBound = wireRetry.wireBound || kmpWireActive.get()
         }
 
-        val responseInstalled = javaInstalledCount + (if (kotlinInstalled) 1 else 0)
+        val responseInstalled = javaInstalledCount + (if (kotlinInstalled || wireBound) 1 else 0)
         val responseComplete = responseExpected > 0 && responseInstalled == responseExpected
         val expected = requestFamilies.size +
             (if (panelExpected) 1 else 0) +
@@ -165,7 +185,7 @@ internal class PausedAdFeatureInstaller(
         } else {
             initialInstallRun = true
             val cleanerReady = resolvedResponsePoints.reply?.let(PausePayloadCleaner::resolve) != null
-            val wireRetry = !kotlinInstalled && cleanerReady && KmpGrpcWireAdapter.applicable(loader)
+            val wireRetry = !wireBound && !kmpWireActive.get() && cleanerReady && KmpGrpcWireAdapter.applicable(loader)
             val countdownRetry = countdownExpected && !countdownInstalled
             val apiEntryRetry = ("ad-api" in requestFamilies || "theseus" in requestFamilies) &&
                 kotlinInstalled &&

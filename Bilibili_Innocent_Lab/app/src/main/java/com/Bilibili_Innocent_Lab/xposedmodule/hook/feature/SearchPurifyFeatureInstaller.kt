@@ -200,7 +200,9 @@ internal class SearchPurifyFeatureInstaller(
                 addAllItem.invoke(target, filtered)
             }
         }
-        if (wireSurface != null && KmpGrpcWireChannel.install(
+        val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val wireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
                 environment = environment,
                 surface = wireSurface,
                 javaMossClassName = SEARCH_MOSS_CLASS,
@@ -208,9 +210,23 @@ internal class SearchPurifyFeatureInstaller(
                 javaReplyClass = responseClass,
                 what = "搜索结果过滤",
                 logKey = KMOSS_LOG_KEY,
+                wireActive = wireActive,
                 transformJava = transformJava
             )
-        ) {
+        } else {
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = SEARCH_MOSS_CLASS,
+                rpc = rpc,
+                javaReplyClass = responseClass,
+                what = "搜索结果过滤",
+                logKey = KMOSS_LOG_KEY,
+                wireActive = wireActive,
+                transformJava = transformJava
+            )
+        }
+        if (wireInstalled) {
             environment.logInfo("search_purify_kmoss_$rpc", "[BIL] 搜索结果过滤 $rpc：线格式新通道已接入")
             return true
         }
@@ -224,6 +240,7 @@ internal class SearchPurifyFeatureInstaller(
             hookId = "search.purify.kmoss.$rpc",
             what = "搜索结果过滤",
             logKey = KMOSS_LOG_KEY,
+            supersededBy = wireActive,
             transformJava = transformJava
         )
         environment.logInfo("search_purify_kmoss_$rpc", "[BIL] 搜索结果过滤 $rpc：Kotlin 新通道${if (installed) "已接入" else "未接入"}")

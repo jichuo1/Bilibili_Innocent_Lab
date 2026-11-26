@@ -118,7 +118,7 @@ internal class ProtobufReplyTreeRewriter(
         }
         val lists = methods.mapNotNull { getter ->
             val name = getter.name.removePrefix("get").removeSuffix("List")
-            if (!getter.name.endsWith("List") || name.isEmpty() || !returnsReplyInfoList(getter)) return@mapNotNull null
+            if (!getter.name.endsWith("List") || name.isEmpty() || !returnsListOf(type, getter, replyInfoClass)) return@mapNotNull null
             val clear = plan.method("clear$name") ?: return@mapNotNull null
             val addAll = plan.method("addAll$name", classOf<Iterable<*>>()) ?: return@mapNotNull null
             ListField(getter, clear, addAll)
@@ -136,21 +136,29 @@ internal class ProtobufReplyTreeRewriter(
         return Shape(plan, lists, singles)
     }
 
-    private fun returnsReplyInfoList(method: Method): Boolean {
-        if (!(method.returnType isSubclassOf classOf<List<*>>())) return false
-        val argument = (method.genericReturnType as? ParameterizedType)?.actualTypeArguments?.singleOrNull()
-        val raw = when (argument) {
-            is Class<*> -> argument
-            is ParameterizedType -> argument.rawType as? Class<*>
-            else -> null
-        }
-        return raw == replyInfoClass
-    }
-
     companion object {
         /** `MainListReply` 的三个置顶位：与 Java 链路的置顶 getter 过滤一致。 */
         val DEFAULT_REMOVABLE_SINGLES = setOf("UpTop", "AdminTop", "VoteTop")
         const val MAX_DEPTH = 3
         private val NONE = Any()
+
+        internal fun returnsListOf(owner: Class<*>, getter: Method, elementClass: Class<*>): Boolean {
+            if (!getter.name.endsWith("List") || !(getter.returnType isSubclassOf classOf<List<*>>())) return false
+            val baseName = getter.name.removePrefix("get").removeSuffix("List")
+            if (baseName.isEmpty()) return false
+            val argument = (getter.genericReturnType as? ParameterizedType)?.actualTypeArguments?.singleOrNull()
+            val genericElement = when (argument) {
+                is Class<*> -> argument
+                is ParameterizedType -> argument.rawType as? Class<*>
+                else -> null
+            }
+            if (genericElement != null) return genericElement == elementClass
+            val indexedGetter = KavaMemberLookup.methodOrNull(
+                owner,
+                "get$baseName",
+                Int::class.javaPrimitiveType!!
+            )?.takeIf { !it.isStatic } ?: return false
+            return indexedGetter.returnType == elementClass
+        }
     }
 }

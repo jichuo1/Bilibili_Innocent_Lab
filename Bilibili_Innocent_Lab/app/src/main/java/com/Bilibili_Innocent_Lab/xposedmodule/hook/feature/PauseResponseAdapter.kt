@@ -23,8 +23,22 @@ internal object PauseResponseAdapter {
         val expected: Int get() = (if (javaPresent) 2 else 0) + (if (kotlinPresent) 1 else 0)
     }
 
-    data class Coverage(val installed: Int, val expected: Int, val kotlinInstalled: Boolean = false) {
+    data class Coverage(
+        val installed: Int,
+        val expected: Int,
+        val kotlinInstalled: Boolean = false
+    ) {
+        var wireBound: Boolean = false
+            internal set
+        var kotlinRegistered: Boolean = false
+            internal set
         val complete: Boolean get() = expected > 0 && installed == expected
+
+        internal fun withWiring(wireBound: Boolean = false, kotlinRegistered: Boolean = false): Coverage =
+            apply {
+                this.wireBound = wireBound
+                this.kotlinRegistered = kotlinRegistered
+            }
     }
 
     fun resolve(loader: ClassLoader): Points = resolve(
@@ -67,7 +81,10 @@ internal object PauseResponseAdapter {
         environment: HookEnvironment,
         points: Points,
         kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null,
-        skipJava: Boolean = false
+        skipJava: Boolean = false,
+        skipKotlin: Boolean = false,
+        wireActive: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+        deferIfMissingWire: Boolean = true
     ): Coverage {
         val cleaner = points.reply?.let(PausePayloadCleaner::resolve)
             ?: return Coverage(0, points.expected)
@@ -109,20 +126,42 @@ internal object PauseResponseAdapter {
             com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(it, kmpGrpcWireEngine)
         }
         val expected = points.expected + if (wireSurface != null && !points.kotlinPresent) 1 else 0
-        val wireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
-            environment = environment,
-            surface = wireSurface,
-            javaMossClassName = JAVA_MOSS,
-            rpc = "playPause",
-            javaReplyClass = points.reply,
-            what = "暂停页广告",
-            logKey = "paused_p4_kmoss"
-        ) { reply ->
-            cleaner.clearAds(reply, environment)
+        val wireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = wireSurface,
+                javaMossClassName = JAVA_MOSS,
+                rpc = "playPause",
+                javaReplyClass = points.reply,
+                what = "暂停页广告",
+                logKey = "paused_p4_kmoss",
+                wireActive = wireActive
+            ) { reply ->
+                cleaner.clearAds(reply, environment)
+            }
+        } else {
+            if (deferIfMissingWire) {
+                KmpGrpcWireChannel.installOrDefer(
+                    environment = environment,
+                    surface = null,
+                    javaMossClassName = JAVA_MOSS,
+                    rpc = "playPause",
+                    javaReplyClass = points.reply,
+                    what = "暂停页广告",
+                    logKey = "paused_p4_kmoss",
+                    wireActive = wireActive
+                ) { reply ->
+                    cleaner.clearAds(reply, environment)
+                }
+            }
+            false
         }
         if (wireInstalled) {
             installed++
-            return Coverage(installed, expected, kotlinInstalled = true)
+            return Coverage(installed, expected, kotlinInstalled = true).withWiring(wireBound = true)
+        }
+        if (skipKotlin) {
+            return Coverage(installed, expected, kotlinInstalled = true).withWiring(kotlinRegistered = true)
         }
         val members = if (points.kotlin != null && loader != null) {
             KotlinMossChannel.prepare(environment, loader, "暂停页广告", "paused_p4_kmoss")
@@ -136,6 +175,7 @@ internal object PauseResponseAdapter {
                 environment.registrar.exact("paused.response.kmoss.play_pause", method.declaringClass,
                     method.name, *method.parameterTypes) {
                     before {
+                        if (wireActive.get()) return@before
                         val delegate = args.getOrNull(3) ?: return@before
                         val format = if (legacy) defaultProtoBuf else args.getOrNull(4)
                         val bridge = members.bridgeFor(format, args.getOrNull(2), codec) ?: return@before
@@ -146,7 +186,7 @@ internal object PauseResponseAdapter {
                     }
                 }
             }
-        return Coverage(installed, expected, kotlinInstalled)
+        return Coverage(installed, expected, kotlinInstalled).withWiring(kotlinRegistered = kotlinInstalled)
     }
 
     /** 回写与再次解码核验成功后才记 APPLIED；转换失败不把 Java 中间副本当交付结果。 */

@@ -152,19 +152,37 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                 "[BIL] 互动层 Kotlin 通道跳过 ${kotlinName.substringAfterLast('.')}#$rpc: $reason"
             )
             val replyClass = KavaMemberLookup.classOrNull(loader, replyName) ?: return@forEach skip("no-reply-class")
-            if (wireSurface != null && KmpGrpcWireChannel.install(
+            val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+            val transformWire: (Any) -> Any = { reply ->
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                cleaner.cleanResponse(reply, environment)
+            }
+            val wireInstalled = if (wireSurface != null) {
+                KmpGrpcWireChannel.install(
                     environment = environment,
                     surface = wireSurface,
                     javaMossClassName = javaMossName,
                     rpc = rpc,
                     javaReplyClass = replyClass,
                     what = "互动层",
-                    logKey = "player_interactive_kmoss"
-                ) { reply ->
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                    cleaner.cleanResponse(reply, environment)
-                }
-            ) {
+                    logKey = "player_interactive_kmoss",
+                    wireActive = wireActive,
+                    transformJava = transformWire
+                )
+            } else {
+                KmpGrpcWireChannel.installOrDefer(
+                    environment = environment,
+                    surface = null,
+                    javaMossClassName = javaMossName,
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    what = "互动层",
+                    logKey = "player_interactive_kmoss",
+                    wireActive = wireActive,
+                    transformJava = transformWire
+                )
+            }
+            if (wireInstalled) {
                 installed++
                 return@forEach
             }
@@ -194,6 +212,7 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                     entry.declaringClass, entry.name, *entry.parameterTypes
                 ) {
                     before {
+                        if (wireActive.get()) return@before
                         if (called.compareAndSet(false, true)) {
                             environment.logInfo(
                                 "player_interactive_kmoss_call",

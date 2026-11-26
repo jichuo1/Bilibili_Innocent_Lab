@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ComposeChangedMask
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -196,8 +197,10 @@ internal class NativeFeedbackPanel(
                     runCatching { panel.merge(groups) }.onSuccess { merged ->
                         if (merged != null) {
                             args[0] = merged
-                            // 第一个参数被替换，清掉调用方针对原列表预计算的 Compose changed 位。
-                            args[changedIndex] = (args[changedIndex] as Int) and 0b1110.inv()
+                            // 第一个参数被替换，按 Uncertain (0b0100) 更新调用方针对原列表预计算的 Compose changed 位。
+                            (args[changedIndex] as? Int)?.let {
+                                args[changedIndex] = ComposeChangedMask.markUncertain(it, 0)
+                            }
                             environment.reportRuntimeEvidence(SectionPickFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)
                         }
                     }.onFailure {

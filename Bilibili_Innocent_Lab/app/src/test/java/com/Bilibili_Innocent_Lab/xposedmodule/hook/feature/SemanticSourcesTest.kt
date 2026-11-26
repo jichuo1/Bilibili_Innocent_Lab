@@ -1754,9 +1754,22 @@ private class SubtitlePackagePatcherCases {
             val source = File(root, "official.zip"); archive(source, "future-version")
             val output = File(root, "private")
             assertNull(SubtitlePackagePatcher(runtime).prepare(source, File(root, "style.json"), output))
+            archive(source, "2.9.0")
+            assertNull(SubtitlePackagePatcher(runtime).prepare(source, File(root, "style.json"), output))
+            archive(source, "4.0.0")
+            assertNull(SubtitlePackagePatcher(runtime).prepare(source, File(root, "style.json"), output))
             source.writeText("corrupt")
             assertNull(SubtitlePackagePatcher(runtime).prepare(source, File(root, "style.json"), output))
             assertFalse(output.exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    fun `accepts 3_x_y patch releases beyond 3_12_0`() {
+        val root = Files.createTempDirectory("subtitle-patch-test").toFile()
+        try {
+            val source = File(root, "official.zip"); archive(source, "3.13.1")
+            val patched = SubtitlePackagePatcher(runtime).prepare(source, File(root, "style.json"), File(root, "private"))
+            assertNotNull(patched)
         } finally { root.deleteRecursively() }
     }
 
@@ -1767,6 +1780,7 @@ private class SubtitlePackagePatcherCases {
         }
         runIsolated { s -> s.`private copy is reusable while the official bytes and unrelated resources are preserved`() }
         runIsolated { s -> s.`unknown versions or damaged archives do not publish a replacement`() }
+        runIsolated { s -> s.`accepts 3_x_y patch releases beyond 3_12_0`() }
     }
 }
 

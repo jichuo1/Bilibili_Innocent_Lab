@@ -69,10 +69,9 @@ internal class CommentComposePurifyBridge(
             val decorationFields = decoration?.let {
                 KavaMemberLookup.declaredFields(it, makeAccessible = true).filterNot { f -> f.isStatic }
             }.orEmpty()
-            val namedFollowed = decoration?.let { KavaMemberLookup.fieldOrNull(it, "b") }
-            val followField = namedFollowed ?: decorationFields.singleOrNull { f ->
+            val followField = decorationFields.singleOrNull { f ->
                 f.type.name.substringAfterLast('$').substringAfterLast('.') == "Follow"
-            }
+            } ?: decoration?.let { KavaMemberLookup.fieldOrNull(it, "b") }
             val constructors = decoration?.let {
                 KavaMemberLookup.declaredConstructors(it, makeAccessible = true).filter { ctor ->
                     ctor.parameterCount == 4 &&
@@ -92,7 +91,9 @@ internal class CommentComposePurifyBridge(
                     environment.registrar.constructor("comment.compose.follow.${constructor.declaringClass.name}", constructor) {
                         before {
                             // 只清源码核对为可空的 follow 装饰槽；其它三种装饰原样保留。
-                            val (argIndex, targetField) = fixedFollowSlot ?: run {
+                            val (argIndex, targetField) = fixedFollowSlot?.takeIf { (idx, _) ->
+                                argOrNull(idx)?.toString()?.startsWith("Follow(mid=") == true
+                            } ?: run {
                                 val idx = args.indices.firstOrNull {
                                     args[it]?.toString()?.startsWith("Follow(mid=") == true
                                 } ?: return@before

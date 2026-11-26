@@ -358,17 +358,32 @@ internal class DynamicPurifyFeatureInstaller(
         specs: List<FeedSpec>
     ): Set<String> {
         val installed = mutableSetOf<String>()
-        if (wireSurface != null) {
-            specs.forEach { spec ->
-                val feed = feeds.firstOrNull { it.replyClass.name == spec.replyClassName } ?: run {
+        val wireActiveByRpc = HashMap<String, java.util.concurrent.atomic.AtomicBoolean>(specs.size)
+        specs.forEach { spec ->
+            val feed = feeds.firstOrNull { it.replyClass.name == spec.replyClassName } ?: run {
+                if (wireSurface != null) {
                     environment.logInfo(
                         "dynamic_kmoss_filter_skip_${spec.asyncName}",
                         "[BIL] 动态页新通道过滤跳过 ${spec.asyncName}: no-java-feed"
                     )
-                    return@forEach
                 }
-                val reported = java.util.concurrent.atomic.AtomicBoolean(false)
-                val ok = KmpGrpcWireChannel.install(
+                return@forEach
+            }
+            val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+            wireActiveByRpc[spec.asyncName] = wireActive
+            val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+            val confirmed: (Any) -> KotlinMossResponseHandlerProxy.ConfirmedReply = { javaReply ->
+                if (reported.compareAndSet(false, true)) {
+                    environment.logInfo(
+                        "dynamic_kmoss_active",
+                        "[BIL] 动态页新通道 wire(${spec.asyncName}) 已收到响应并进入过滤" +
+                            "（javaPathObserved=${javaPathObserved.get()}）"
+                    )
+                }
+                confirmedReply(environment, javaReply, feed, itemMembers, plan)
+            }
+            val ok = if (wireSurface != null) {
+                KmpGrpcWireChannel.install(
                     environment = environment,
                     surface = wireSurface,
                     javaMossClassName = DYNAMIC_MOSS_CLASS,
@@ -376,19 +391,23 @@ internal class DynamicPurifyFeatureInstaller(
                     javaReplyClass = feed.replyClass,
                     what = "动态页",
                     logKey = "dynamic_kmoss_filter",
-                    confirmedTransform = { javaReply ->
-                        if (reported.compareAndSet(false, true)) {
-                            environment.logInfo(
-                                "dynamic_kmoss_active",
-                                "[BIL] 动态页新通道 wire(${spec.asyncName}) 已收到响应并进入过滤" +
-                                    "（javaPathObserved=${javaPathObserved.get()}）"
-                            )
-                        }
-                        confirmedReply(environment, javaReply, feed, itemMembers, plan)
-                    }
+                    wireActive = wireActive,
+                    confirmedTransform = confirmed
                 ) { it }
-                if (ok) installed += spec.asyncName
+            } else {
+                KmpGrpcWireChannel.installOrDefer(
+                    environment = environment,
+                    surface = null,
+                    javaMossClassName = DYNAMIC_MOSS_CLASS,
+                    rpc = spec.asyncName,
+                    javaReplyClass = feed.replyClass,
+                    what = "动态页",
+                    logKey = "dynamic_kmoss_filter",
+                    wireActive = wireActive,
+                    confirmedTransform = confirmed
+                ) { it }
             }
+            if (ok) installed += spec.asyncName
         }
         val remainingSpecs = specs.filterNot { it.asyncName in installed }
         if (remainingSpecs.isEmpty()) return installed
@@ -416,6 +435,7 @@ internal class DynamicPurifyFeatureInstaller(
             val handlerClass = entry.parameterTypes[3]
             val reported = java.util.concurrent.atomic.AtomicBoolean(false)
             val called = java.util.concurrent.atomic.AtomicBoolean(false)
+            val wireActive = wireActiveByRpc[spec.asyncName]
             runCatching {
                 environment.registrar.exact(
                     "dynamic.purify.kmoss.${spec.asyncName}",
@@ -424,6 +444,7 @@ internal class DynamicPurifyFeatureInstaller(
                     *entry.parameterTypes
                 ) {
                     before {
+                        if (wireActive?.get() == true) return@before
                         if (called.compareAndSet(false, true)) {
                             environment.logInfo(
                                 "dynamic_kmoss_call",
@@ -431,10 +452,10 @@ internal class DynamicPurifyFeatureInstaller(
                             )
                         }
                         val delegate = args.getOrNull(3) ?: return@before
-                        val protoBuf = if (hasProtoBufParam) args.getOrNull(4) else fallbackProtoBuf
+                        val protoBuf = (if (hasProtoBufParam) args.getOrNull(4) else fallbackProtoBuf) ?: return@before
                         val serializer = args.getOrNull(2) ?: return@before
                         val bridge = members.bridgeFor(protoBuf, serializer, codec) ?: return@before
-                        val key = KotlinMossResponseHandlerProxy.Key(entry, feed.replyClass, protoBuf!!, serializer)
+                        val key = KotlinMossResponseHandlerProxy.Key(entry, feed.replyClass, protoBuf, serializer)
                         val proxy = KotlinMossResponseHandlerProxy.wrap(handlerClass, delegate, key, bridge,
                             failed = { throwable ->
                                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)

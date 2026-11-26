@@ -510,13 +510,16 @@ internal class CommentFilterFeatureInstaller(
             }
         }
         val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
-        if (wireSurface != null) {
-            var wireHooks = 0
-            KMOSS_RPCS.forEach { (rpc, replyName) ->
-                val replyClass = KavaMemberLookup.classOrNull(loader, "$packageName.$replyName")
-                    ?: return@forEach skip("no-reply-class:$rpc")
-                val rpcRewriter = if (rpc == "replyInfo") singleRewriter else rewriter
-                val installed = KmpGrpcWireChannel.install(
+        var wireHooks = 0
+        val wireActiveByRpc = HashMap<String, java.util.concurrent.atomic.AtomicBoolean>(KMOSS_RPCS.size)
+        KMOSS_RPCS.forEach { (rpc, replyName) ->
+            val replyClass = KavaMemberLookup.classOrNull(loader, "$packageName.$replyName")
+                ?: return@forEach skip("no-reply-class:$rpc")
+            val rpcRewriter = if (rpc == "replyInfo") singleRewriter else rewriter
+            val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+            wireActiveByRpc[rpc] = wireActive
+            val installed = if (wireSurface != null) {
+                KmpGrpcWireChannel.install(
                     environment = environment,
                     surface = wireSurface,
                     javaMossClassName = "$packageName.ReplyMoss",
@@ -524,18 +527,33 @@ internal class CommentFilterFeatureInstaller(
                     javaReplyClass = replyClass,
                     what = "评论过滤",
                     logKey = KMOSS_LOG_KEY,
+                    wireActive = wireActive,
                     confirmedTransform = transformFor(rpcRewriter)
                 ) { it }
-                if (installed) wireHooks += 1
+            } else {
+                KmpGrpcWireChannel.installOrDefer(
+                    environment = environment,
+                    surface = null,
+                    javaMossClassName = "$packageName.ReplyMoss",
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    what = "评论过滤",
+                    logKey = KMOSS_LOG_KEY,
+                    wireActive = wireActive,
+                    confirmedTransform = transformFor(rpcRewriter)
+                ) { it }
             }
-            if (wireHooks > 0) {
-                environment.logInfo("comment_filter_kmoss", "[BIL] 评论过滤：线格式通道 $wireHooks 个")
-                return
-            }
+            if (installed) wireHooks += 1
+        }
+        if (wireHooks > 0 && wireHooks == wireActiveByRpc.size) {
+            environment.logInfo("comment_filter_kmoss", "[BIL] 评论过滤：线格式通道 $wireHooks 个")
+            return
         }
         val members = KotlinMossChannel.prepare(environment, loader, "评论过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->
+            val wireActive = wireActiveByRpc[rpc] ?: return@forEach
+            if (wireActive.get()) return@forEach
             val replyClass = KavaMemberLookup.classOrNull(loader, "$packageName.$replyName")
                 ?: return@forEach skip("no-reply-class:$rpc")
             val rpcRewriter = if (rpc == "replyInfo") singleRewriter else rewriter
@@ -548,11 +566,12 @@ internal class CommentFilterFeatureInstaller(
                 what = "评论过滤",
                 logKey = KMOSS_LOG_KEY,
                 shareUnchangedReply = true,
+                supersededBy = wireActive,
                 confirmedTransform = transformFor(rpcRewriter)
             ) { it }
             if (installed) hooks += 1
         }
-        environment.logInfo("comment_filter_kmoss", "[BIL] 评论过滤：Kotlin 新通道 $hooks 个")
+        environment.logInfo("comment_filter_kmoss", "[BIL] 评论过滤：线格式通道 $wireHooks 个，Kotlin 新通道 $hooks 个")
     }
 
     /**

@@ -91,7 +91,13 @@ internal object InsightRpc {
         }
         // 通用 KotlinMossChannel 的变换器只接收响应；这里需要请求 CID，复用它的 codec/代理边界并按单次调用捕获。
         val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
-        if (wireSurface != null && KmpGrpcWireChannel.install(
+        val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val requestClassOrNull = if (needsRequest || transformRequest != null) requestClass else null
+        val transformWithRequestOrNull: ((Any?, Any) -> Any)? = if (needsRequest) { req, reply ->
+            if (req != null) transform(req, reply) else reply
+        } else null
+        val wireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
                 environment = env,
                 surface = wireSurface,
                 javaMossClassName = mossName,
@@ -99,14 +105,29 @@ internal object InsightRpc {
                 javaReplyClass = replyClass,
                 what = what,
                 logKey = hookIdPrefix,
-                javaRequestClass = if (needsRequest || transformRequest != null) requestClass else null,
+                javaRequestClass = requestClassOrNull,
                 transformRequest = transformRequest,
-                transformWithRequest = if (needsRequest) { req, reply ->
-                    if (req != null) transform(req, reply) else reply
-                } else null,
+                transformWithRequest = transformWithRequestOrNull,
+                wireActive = wireActive,
                 transformJava = { reply -> if (needsRequest) reply else transform(null, reply) }
             )
-        ) {
+        } else {
+            KmpGrpcWireChannel.installOrDefer(
+                environment = env,
+                surface = null,
+                javaMossClassName = mossName,
+                rpc = rpc,
+                javaReplyClass = replyClass,
+                what = what,
+                logKey = hookIdPrefix,
+                javaRequestClass = requestClassOrNull,
+                transformRequest = transformRequest,
+                transformWithRequest = transformWithRequestOrNull,
+                wireActive = wireActive,
+                transformJava = { reply -> if (needsRequest) reply else transform(null, reply) }
+            )
+        }
+        if (wireInstalled) {
             return count + 1
         }
         val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(mossName) ?: return count
@@ -119,20 +140,37 @@ internal object InsightRpc {
         val defaultFormat = if (legacy) members.defaultProtoBuf() ?: return count else null
         val requestCodec = if (needsRequest) KotlinMossBridgeMembers.JavaReplyCodec.resolve(requestClass) ?: return count else null
         val replyCodec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(replyClass) ?: return count
+        val bridgeErrorLogged = java.util.concurrent.atomic.AtomicBoolean(false)
         env.registrar.exact("$hookIdPrefix.$kotlinName.$rpc", kotlin, entry.name, *entry.parameterTypes) { before {
+            if (wireActive.get()) return@before
             val format = if (legacy) defaultFormat else argOrNull(4)
             val replyBridge = members.bridgeFor(format, argOrNull(2), replyCodec) ?: return@before
             val updated = if (requestCodec != null) {
                 val original = argOrNull(0) ?: return@before
-                val requestBridge = members.bridgeFor(format, argOrNull(1), requestCodec) ?: return@before
-                val request = requestBridge.read(original)
-                val transformed = transformRequest?.invoke(request) ?: request
-                if (transformed !== request) args[0] = requestBridge.write(transformed)
-                transformed
+                val transformedResult = runCatching {
+                    val requestBridge = members.bridgeFor(format, argOrNull(1), requestCodec) ?: return@before
+                    val request = requestBridge.read(original)
+                    val transformed = transformRequest?.invoke(request) ?: request
+                    if (transformed !== request) args[0] = requestBridge.write(transformed)
+                    transformed
+                }.getOrElse { failure ->
+                    if (bridgeErrorLogged.compareAndSet(false, true)) {
+                        env.logError("${hookIdPrefix}_kmoss_req", "[BIL] $what Kotlin 请求改写失败，保留原请求: $failure")
+                    }
+                    return@before
+                }
+                transformedResult
             } else null
             val delegate = argOrNull(3) ?: return@before
             args[3] = MossResponseHandlerProxy.wrapTransform(entry.parameterTypes[3], delegate) { response ->
-                replyBridge.transform(response) { reply -> transform(updated, reply) }
+                runCatching {
+                    replyBridge.transform(response) { reply -> transform(updated, reply) }
+                }.getOrElse { failure ->
+                    if (bridgeErrorLogged.compareAndSet(false, true)) {
+                        env.logError("${hookIdPrefix}_kmoss_resp", "[BIL] $what Kotlin 响应转换失败，保留原响应: $failure")
+                    }
+                    response
+                }
             } ?: delegate
         } }
         return count + 1

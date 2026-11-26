@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.WireColorful
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.WireElem
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.WireReply
 import com.bapis.bilibili.community.service.dm.v1.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -89,6 +92,40 @@ class DanmakuCopyOnWriteTest {
         assertSame(DmSegMobileReply.getDefaultInstance(), purify(DmSegMobileReply.getDefaultInstance()))
     }
 
+    fun wireFastPathFollowsLiveRulesWithoutSnapshotLeakage() {
+        var rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules(null, false)
+        val installer = DanmakuPurifyFeatureInstaller(true, 5, true, liveRules = { rules })
+        val environment = HookEnvironment("tv.danmaku.bili", javaClass.classLoader,
+            HookPointRegistry(javaClass.classLoader), TestHookRegistrar,
+            { _, _ -> }, { key, _ -> errors += key }, { _, _ -> },
+            runtimeEvidence = { _, stage, _ -> stages += stage })
+        val resolve = installer.javaClass.declaredMethods.single { it.name == "resolveMembers" }.apply { isAccessible = true }
+        val members = resolve.invoke(installer, javaClass.classLoader, WireReply::class.java)
+        assertNotNull(members)
+        val purifyMethod = installer.javaClass.declaredMethods.single { it.name == "purify" }.apply { isAccessible = true }
+
+        val original = WireReply(
+            elems = listOf(WireElem(2, 60001, "low"), WireElem(9, 60001, "high")),
+            colorfulSrc = listOf(WireColorful(60001), WireColorful(0)),
+            flags = 42L
+        )
+        // Both minimum=null and colorful=false -> wire fast path must return original immediately.
+        assertSame(original, purifyMethod.invoke(installer, environment, original, members, WireReply.getDefaultInstance()))
+
+        rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules(8, true)
+        val filtered = purifyMethod.invoke(installer, environment, original, members, WireReply.getDefaultInstance()) as WireReply
+        assertEquals(1, filtered.elems.size)
+        assertEquals(9, filtered.elems.single().weight)
+        assertEquals(0, filtered.elems.single().colorful)
+        assertEquals(listOf<Int?>(0), filtered.colorfulSrc.map { it.type })
+        assertEquals(42L, filtered.flags)
+
+        rules = com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules(null, true)
+        val recoloredOnly = purifyMethod.invoke(installer, environment, original, members, WireReply.getDefaultInstance()) as WireReply
+        assertEquals(2, recoloredOnly.elems.size)
+        assertEquals(listOf<Int?>(0, 0), recoloredOnly.elems.map { it.colorful })
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DanmakuCopyOnWriteTest) -> Unit) {
@@ -101,5 +138,6 @@ class DanmakuCopyOnWriteTest {
         runIsolated { s -> s.`removing the vip gradient style also neutralizes the danmaku that reference it`() }
         runIsolated { s -> s.`weight filtering and colour neutralization compose on the same list`() }
         runIsolated { s -> s.`no matching rule and absent weight preserve identity and do not report an error`() }
+        runIsolated { s -> s.wireFastPathFollowsLiveRulesWithoutSnapshotLeakage() }
     }
 }

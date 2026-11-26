@@ -153,16 +153,32 @@ internal class DetailUnitedModulePurifyFeatureInstaller(
             environment.reportRuntimeEvidence(DetailUnitedModulePurifyPolicy.ID, FeatureRuntimeStage.OBSERVED)
             cleaner.clean(reply, environment)
         }
-        val kmpWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
-            environment = environment,
-            surface = wireSurface,
-            javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
-            rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
-            javaReplyClass = replyClass,
-            what = "United 详情页模块净化",
-            logKey = "detail_united_module_kmoss",
-            transformJava = transformKmp
-        )
+        val wireActive = java.util.concurrent.atomic.AtomicBoolean(false)
+        val kmpWireInstalled = if (wireSurface != null) {
+            KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = wireSurface,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                what = "United 详情页模块净化",
+                logKey = "detail_united_module_kmoss",
+                wireActive = wireActive,
+                transformJava = transformKmp
+            )
+        } else {
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                what = "United 详情页模块净化",
+                logKey = "detail_united_module_kmoss",
+                wireActive = wireActive,
+                transformJava = transformKmp
+            )
+        }
         val kmpInstalled = kmpWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
             environment, loader, "United 详情页模块净化", "detail_united_module_kmoss"
         )?.let { bridge ->
@@ -176,6 +192,7 @@ internal class DetailUnitedModulePurifyFeatureInstaller(
                 hookId = "${DetailUnitedModulePurifyPolicy.ID}.kmoss.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
                 what = "United 详情页模块净化",
                 logKey = "detail_united_module_kmoss",
+                supersededBy = wireActive,
                 transformJava = transformKmp
             )
         } == true)
