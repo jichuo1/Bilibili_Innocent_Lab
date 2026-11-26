@@ -3400,11 +3400,14 @@ object VersionAdapter {
         val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
         val versionCode = info.versionCodeCompat
         val appInfo = info.applicationInfo
-        val source = File(appInfo?.sourceDir.orEmpty())
-        val splits = appInfo?.splitSourceDirs
-            .orEmpty()
+        val basePath = appInfo?.sourceDir?.takeIf(String::isNotBlank)
+            ?: appInfo?.publicSourceDir?.takeIf(String::isNotBlank).orEmpty()
+        val source = File(basePath)
+        val rawSplits = appInfo?.splitSourceDirs?.takeIf { it.isNotEmpty() }
+            ?: appInfo?.splitPublicSourceDirs.orEmpty()
+        val splits = rawSplits
             .asSequence()
-            .filter { it.isNotBlank() }
+            .filter { !it.isNullOrBlank() }
             .map { path ->
                 val splitFile = File(path)
                 SplitFileMeta(splitFile.name, splitFile.length(), splitFile.lastModified())
@@ -4049,7 +4052,7 @@ object VersionAdapter {
                 splashAutoNightEnabled = splashAutoNightEnabled
             )
         }
-        fun requiresFeatureRefresh(value: AdaptResult): Boolean {
+        fun requiresFeatureRefresh(value: AdaptResult): Boolean = KavaMemberLookup.withLookupBatch(classLoader) {
             val valueChromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
                 value.diagnostics.any {
                     it.id == HomeChromeAdapter.diagnostic(query) && AdaptAssistGate.isAttemptedInCache(it)
@@ -4066,59 +4069,61 @@ object VersionAdapter {
             }
             if (PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
                     searchHomeRecommendEnabled, playerEndPageRecommendEnabled, valuePageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()) {
-                return true
+                return@withLookupBatch true
             }
             val popupRefresh = playerPopupPromotionEnabled &&
                 PlayerPopupPromotionAdapter.missing(classLoader, value.playerPopupPromotion).any { family ->
                     value.diagnostics.none { it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it) }
                 }
-            if (popupRefresh) return true
+            if (popupRefresh) return@withLookupBatch true
             val classicRefresh = commentClassicStyleEnabled &&
                 CommentClassicStyleLocator.missing(classLoader, value.commentClassicStyle).isNotEmpty() &&
                 value.diagnostics.none { it.id == CommentClassicStyleLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
-            if (classicRefresh) return true
+            if (classicRefresh) return@withLookupBatch true
             if (sponsorBlockEnabled && SponsorPlayerLocator.refreshCache(sponsorBlockEnabled, SponsorPlayerLocator.applicable(classLoader),
                     SponsorPlayerLocator.direct(classLoader) != null,
                     value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
                     value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
-                    PlayerSpeedSessionLocator.applicable(classLoader),
-                    PlayerSpeedSessionLocator.modern(classLoader) != null,
-                    value.playerSpeedSession?.let { PlayerSpeedSessionLocator.resolve(classLoader, it) } != null,
-                    value.diagnostics.any { it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                    { PlayerSpeedSessionLocator.applicable(classLoader) },
+                    { PlayerSpeedSessionLocator.modern(classLoader) != null },
+                    { value.playerSpeedSession?.let { PlayerSpeedSessionLocator.resolve(classLoader, it) } != null },
+                    { value.diagnostics.any { it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) } })) {
+                return@withLookupBatch true
             }
             if (PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
-                    PlayerSpeedLocator.calculatorApplicable(classLoader),
-                    PlayerSpeedLocator.theseus2LongPressCalculator(classLoader, vc) != null,
-                    value.playerSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(classLoader, it) } != null,
-                    value.diagnostics.any { it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                    { PlayerSpeedLocator.calculatorApplicable(classLoader) },
+                    { PlayerSpeedLocator.theseus2LongPressCalculator(classLoader, vc) != null },
+                    { value.playerSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(classLoader, it) } != null },
+                    { value.diagnostics.any { it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) } })) {
+                return@withLookupBatch true
             }
             if (WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
-                    WeChatShareCompatAccess.applicable(classLoader),
-                    WeChatShareCompatAccess.locate(classLoader, vc)?.let { it.wrappers.size == it.expectedWrappers } == true,
-                    value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) }
-                        ?.let { it.wrappers.size == it.expectedWrappers } == true,
-                    value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                    { WeChatShareCompatAccess.applicable(classLoader) },
+                    { WeChatShareCompatAccess.locate(classLoader, vc)?.let { it.wrappers.size == it.expectedWrappers } == true },
+                    {
+                        value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) }
+                            ?.let { it.wrappers.size == it.expectedWrappers } == true
+                    },
+                    { value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) } })) {
+                return@withLookupBatch true
             }
             if (systemEnvironmentEnabled &&
                 SystemEnvironmentAdapter.missing(classLoader, value.systemEnvironment).any { family ->
                     value.diagnostics.none { it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it) }
                 }) {
-                return true
+                return@withLookupBatch true
             }
             if (PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
                     value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC &&
                         (it.state == AdaptState.FOUND || AdaptAssistGate.isAttemptedInCache(it)) })) {
-                return true
+                return@withLookupBatch true
             }
             if (StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
                     value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }).isNotEmpty()) {
-                return true
+                return@withLookupBatch true
             }
             if (NormalQualityLocator.needsQuery(
                     classLoader,
@@ -4127,7 +4132,7 @@ object VersionAdapter {
                     playerQualityEnabled,
                     value.diagnostics.any { it.id == NormalQualityLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (DetailSpecialTagAdapter.needsQuery(
                     classLoader,
@@ -4135,7 +4140,7 @@ object VersionAdapter {
                     detailSpecialTagEnabled,
                     value.diagnostics.any { it.id == DetailSpecialTagAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (CommentReplyButtonAdapter.needsQuery(
                     classLoader,
@@ -4143,19 +4148,19 @@ object VersionAdapter {
                     commentReplyButtonEnabled,
                     value.diagnostics.any { it.id == CommentReplyButtonAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (FollowFeedAdapter.needsQuery(classLoader, value.followFeedStyle, followFeedStyleEnabled,
                     value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
                     value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (BrandSplashKntrAdapter.needsQuery(classLoader, value.brandSplashKntrDraw, brandSplashCustomEnabled,
                     value.diagnostics.any { it.id == BrandSplashKntrAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (BrandSplashKntrAdapter.needsExitQuery(
                     classLoader,
@@ -4165,7 +4170,7 @@ object VersionAdapter {
                         it.id == BrandSplashKntrAdapter.DIAGNOSTIC_EXIT && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (BrandSplashKntrAdapter.needsPageQuery(
                     classLoader,
@@ -4175,7 +4180,7 @@ object VersionAdapter {
                         it.id == BrandSplashKntrAdapter.DIAGNOSTIC_PAGE && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             val quickReplyAttempted = value.diagnostics.any {
                 it.id == CommentQuickReplyAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
@@ -4192,7 +4197,7 @@ object VersionAdapter {
                     quickReplyAttempted
                 )
             ) {
-                return true
+                return@withLookupBatch true
             }
             if (PausedAdDexAdapter.needsCountdownQuery(
                     classLoader,
@@ -4203,7 +4208,7 @@ object VersionAdapter {
                         it.id == PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (PausedAdDexAdapter.needsRequestApiQuery(
                     classLoader,
@@ -4214,7 +4219,7 @@ object VersionAdapter {
                         it.id == PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             val homeTabsAttempted = value.diagnostics.any {
                 it.id == HomeTabResourceAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
@@ -4230,23 +4235,23 @@ object VersionAdapter {
                     attempted = homeTabsAttempted
                 )
             ) {
-                return true
+                return@withLookupBatch true
             }
             if (CloudKeyFreezeAdapter.needsQuery(classLoader, value.cloudKeyFreezeContract, cloudKeyFreezeEnabled,
                     value.diagnostics.any { it.id == CloudKeyFreezeAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (PrivacyChannelAdapter.needsIgnetQuery(classLoader, value.privacyIgnetHttp, incognitoPrivacyEnabled || guestBrowsingEnabled,
                     value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_IGNET && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (PrivacyChannelAdapter.needsKNeuronQuery(classLoader, value.privacyKNeuron, incognitoPrivacyEnabled,
                     value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_KNEURON && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (GuestPlayerCoreAdapter.needsQuery(classLoader, value.guestPlayerCore, guestBrowsingEnabled,
                     value.diagnostics.any { it.id == GuestPlayerCoreAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
-                return true
+                return@withLookupBatch true
             }
             if (HomeRecommendEarlyLoadAdapter.needsQuery(
                     classLoader,
@@ -4256,7 +4261,7 @@ object VersionAdapter {
                         it.id == HomeRecommendEarlyLoadAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (AiPlaylistDirectorAdapter.needsQuery(
                     classLoader,
@@ -4266,7 +4271,7 @@ object VersionAdapter {
                         it.id == AiPlaylistDirectorAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (FollowUpRecommendAdapter.needsQuery(
                     classLoader,
@@ -4276,7 +4281,7 @@ object VersionAdapter {
                         it.id == FollowUpRecommendAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (DetailRelateGameAdapter.needsQuery(
                     classLoader,
@@ -4286,7 +4291,7 @@ object VersionAdapter {
                         it.id == DetailRelateGameAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (LegacyStoryDanmakuAdapter.needsQuery(
                     classLoader,
@@ -4296,7 +4301,7 @@ object VersionAdapter {
                         it.id == LegacyStoryDanmakuAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (PlayerSpeedLocator.theseus2LongPressNeedsQuery(
                     classLoader,
@@ -4306,13 +4311,13 @@ object VersionAdapter {
                         it.id == PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
                     }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, valueChromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty()) {
-                return true
+                return@withLookupBatch true
             }
             if (HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, valueSemanticsAttempted, homeChromeIconOnly)) {
-                return true
+                return@withLookupBatch true
             }
             if (CommentComposeMenuAdapter.needsQuery(
                     classLoader,
@@ -4320,7 +4325,7 @@ object VersionAdapter {
                     commentTopologyEnabled,
                     value.diagnostics.any { it.id == CommentComposeMenuAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (KmpGrpcWireAdapter.needsQuery(
                     classLoader,
@@ -4328,10 +4333,10 @@ object VersionAdapter {
                     kmpGrpcWireEnabled || commentTopologyEnabled,
                     value.diagnostics.any { it.id == KmpGrpcWireAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
                 )) {
-                return true
+                return@withLookupBatch true
             }
             if (assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)) {
-                return true
+                return@withLookupBatch true
             }
             if (kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
                     enabled = true,
@@ -4340,9 +4345,9 @@ object VersionAdapter {
                     cachedFound = value.homeTopBar?.kotlinDefaultWords != null,
                     attempted = value.diagnostics.any { it.id == KotlinDefaultWordsLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
                 )) {
-                return true
+                return@withLookupBatch true
             }
-            return false
+            false
         }
         val refreshRequested = usable?.let(::requiresFeatureRefresh) ?: false
         val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() }
@@ -4823,19 +4828,25 @@ object VersionAdapter {
         ) && cachedSponsor == null && !previouslyMissingSponsor
         val directSpeedSession = if (playerSpeedSessionEnabled) PlayerSpeedSessionLocator.modern(loader) else null
         val speedSessionPlanned = PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
-            PlayerSpeedSessionLocator.applicable(loader), directSpeedSession != null,
-            previousSpeedSession?.let { PlayerSpeedSessionLocator.resolve(loader, it) } != null, speedSessionAttempted)
+            { PlayerSpeedSessionLocator.applicable(loader) },
+            { directSpeedSession != null },
+            { previousSpeedSession?.let { PlayerSpeedSessionLocator.resolve(loader, it) } != null },
+            { speedSessionAttempted })
         val directSpeedCalculator = if (playerSpeedCalculatorEnabled)
             PlayerSpeedLocator.theseus2LongPressCalculator(loader, vc) else null
         val speedCalculatorPlanned = PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
-            PlayerSpeedLocator.calculatorApplicable(loader), directSpeedCalculator != null,
-            previousSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(loader, it) } != null, speedCalculatorAttempted)
+            { PlayerSpeedLocator.calculatorApplicable(loader) },
+            { directSpeedCalculator != null },
+            { previousSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(loader, it) } != null },
+            { speedCalculatorAttempted })
         val directWeChatShare = if (weChatShareEnabled) {
             WeChatShareCompatAccess.locate(loader, vc)?.takeIf { it.wrappers.size == it.expectedWrappers }
         } else null
         val weChatSharePlanned = WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
-            WeChatShareCompatAccess.applicable(loader), directWeChatShare != null,
-            previousWeChatShare?.let { WeChatShareCompatAccess.resolve(loader, it) } != null, weChatShareAttempted)
+            { WeChatShareCompatAccess.applicable(loader) },
+            { directWeChatShare != null },
+            { previousWeChatShare?.let { WeChatShareCompatAccess.resolve(loader, it) } != null },
+            { weChatShareAttempted })
         val classicDirectMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
         val classicMissing = if (commentClassicStyleEnabled && !previouslyMissingClassic) {
             CommentClassicStyleLocator.missing(loader, previousClassic)

@@ -213,6 +213,8 @@ class HookEntry : XposedModule() {
 
     private val modernRuntime = ModernHookRuntime(this)
     private val targetHooksStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var moduleApkSourceDir: String? = null
     private var loadedModuleArtifact: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LoadedModuleArtifact? = null
 
     @Volatile
@@ -301,6 +303,7 @@ class HookEntry : XposedModule() {
 
         /** 已打印日志的 hook 标记集：高频 hook 只在首次拦截打印，降低频繁磁盘 I/O */
         private val onceLogged = Collections.synchronizedSet(HashSet<String>())
+        private val LIST_SPLIT_REGEX = Regex("[,，;；\\r\\n]+")
 
         /** 日志总开关（loadApp 启动时读取 prefs 赋值） */
         @Volatile
@@ -2284,7 +2287,7 @@ class HookEntry : XposedModule() {
         private fun extractBindingRootFromArgs(param: ModernHookParam): View? {
             val method = param.method
             cViewBindingArgIndexByMethod[method]?.let { cachedIndex ->
-                val cachedRoot = param.args.getOrNull(cachedIndex)?.let { binding ->
+                val cachedRoot = param.argOrNull(cachedIndex)?.let { binding ->
                     runCatching { extractBindingRoot(binding) }.getOrNull()
                 }
                 if (cachedRoot != null) return cachedRoot
@@ -2292,8 +2295,9 @@ class HookEntry : XposedModule() {
             }
 
             val parameterTypes = (method as? java.lang.reflect.Method)?.parameterTypes
-            for (i in param.args.indices) {
-                val binding = param.args[i] ?: continue
+            val paramCount = method.parameterCount
+            for (i in 0 until paramCount) {
+                val binding = param.argOrNull(i) ?: continue
                 val type = parameterTypes?.getOrNull(i) ?: binding.javaClass
                 if (type.isPrimitive || type.isArray) continue
                 val looksLikeBinding =
@@ -2324,14 +2328,15 @@ class HookEntry : XposedModule() {
         ): BoundCommentItem? {
             val method = param.method
             cCommentItemArgIndexByMethod[method]?.let { cachedIndex ->
-                val cached = param.args.getOrNull(cachedIndex)
+                val cached = param.argOrNull(cachedIndex)
                 if (cached != null && cached.javaClass.name.endsWith(".CommentItem")) {
                     return BoundCommentItem(cached, true)
                 }
                 cCommentItemArgIndexByMethod.remove(method, cachedIndex)
             }
-            for (i in param.args.indices) {
-                val candidate = param.args[i] ?: continue
+            val paramCount = method.parameterCount
+            for (i in 0 until paramCount) {
+                val candidate = param.argOrNull(i) ?: continue
                 if (candidate.javaClass.name.endsWith(".CommentItem")) {
                     cCommentItemArgIndexByMethod[method] = i
                     return BoundCommentItem(candidate, true)
@@ -2554,9 +2559,7 @@ class HookEntry : XposedModule() {
             com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.setModuleUid(appInfo.uid)
         }
         if (param.processName == TARGET_PACKAGE) {
-            loadedModuleArtifact = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LoadedModuleArtifact.capture(
-                appInfo?.sourceDir
-            )
+            moduleApkSourceDir = appInfo?.sourceDir
         }
         moduleInstance = this
         loadedProcessName = param.processName
@@ -2747,10 +2750,30 @@ class HookEntry : XposedModule() {
             val nPatchStartup = java.util.concurrent.atomic.AtomicBoolean(false)
             val liveConfigChannel = java.util.concurrent.atomic.AtomicReference(
                 com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.STANDARD)
+            val frameInterpolationInstallerRef =
+                java.util.concurrent.atomic.AtomicReference<FrameInterpolationFeatureInstaller?>(null)
+            val memoryPressureInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
             lateinit var scheduleAuthorizationRetry: (Context, android.app.Application?) -> Unit
+
+            fun installHostMemoryPressure(application: android.app.Application?) {
+                if (application == null || !authorizedHooksInstalled.get()) return
+                if (!memoryPressureInstalled.compareAndSet(false, true)) return
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge.registerTrimCallbacks(
+                    onModerate = {
+                        com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpMethodDescriptorResolver.clearCaches()
+                    },
+                    onCritical = {
+                        com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpMethodDescriptorResolver.clearCaches()
+                        com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueModel.releaseIfIdle()
+                        frameInterpolationInstallerRef.get()?.releaseIfIdle()
+                    }
+                )
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge.install(application)
+            }
 
             fun installAuthorizedHooks(authorizationContext: Context) {
             StartupTrace.measure("install") {
+            KavaMemberLookup.withLookupBatch(biliClassLoader) {
 
             val hookConfig = checkNotNull(activeHookConfig.get()) {
                 "Authorized hook config was not selected"
@@ -3012,8 +3035,9 @@ class HookEntry : XposedModule() {
             )
             // 商单区间的本地缓存：宿主私有 files/bil_sponsor/，只存有区间的视频（文件名为单向摘要），联网失败时回退。
             // 这里只构造路径对象，磁盘读写都在仓库的抓取线程上；取不到目录就不缓存，行为与没有这层时一致。
-            val sponsorStore = runCatching { (authorizationContext.applicationContext ?: authorizationContext).filesDir }
-                .getOrNull()?.let { SponsorSegmentStore(it) }
+            val sponsorFilesDir = runCatching { (authorizationContext.applicationContext ?: authorizationContext).filesDir }
+                .getOrNull()
+            val sponsorStore = sponsorFilesDir?.let { SponsorSegmentStore(it) }
             // 详情页与 Story 共用一个查询仓库：缓存与 429 退避状态只有一份，首次使用时才创建。
             val sponsorRepository = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
                 SponsorSegmentRepository(SponsorCachingSource(
@@ -3021,7 +3045,9 @@ class HookEntry : XposedModule() {
             }
             val sponsorEnabled = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false)
             // 关闭 → 重启后磁盘上不留任何商单缓存（与智能过滤的缓存同一做法，后台清理）。
-            if (!sponsorEnabled && sponsorStore != null) {
+            if (!sponsorEnabled && sponsorStore != null &&
+                java.io.File(sponsorFilesDir, SponsorSegmentStore.DIRECTORY).exists()
+            ) {
                 SemanticJudge.submitBackground(Runnable { HostThreadGuard.run("sponsor_disk_cleanup") { sponsorStore.purge() } })
             }
             val sponsorAutomatic = hookConfig.getBoolean(FeaturePreferences.SPONSORBLOCK_AUTOMATIC, false)
@@ -3082,23 +3108,33 @@ class HookEntry : XposedModule() {
             val semanticStoreRoot = runCatching { attachedContext.filesDir }.getOrNull()
             if (semanticStoreRoot != null) {
                 semanticSettings = semanticSettings?.copy(storeRoot = semanticStoreRoot)
-                val active = buildSet {
-                    if (semanticActive(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED,
-                            FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_RULES, SemanticSurface.DYNAMIC)) add(SemanticSurface.DYNAMIC)
-                    if (semanticActive(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED,
-                            FeaturePreferences.DANMAKU_SEMANTIC_FILTER_RULES, SemanticSurface.DANMAKU)) add(SemanticSurface.DANMAKU)
-                    if (semanticActive(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED,
-                            FeaturePreferences.COMMENT_SEMANTIC_FILTER_RULES, SemanticSurface.COMMENT)) add(SemanticSurface.COMMENT)
-                    if (semanticActive(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED,
-                            FeaturePreferences.VIDEO_SEMANTIC_FILTER_RULES, SemanticSurface.VIDEO)) add(SemanticSurface.VIDEO)
-                }
-                SemanticJudge.submitBackground(Runnable {
-                    com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard.run("semantic_disk_cleanup") {
-                        SemanticDiskCleanup.run(semanticStoreRoot, active)
-                        // 已探明的请求写法 / 分批上限：读回来，避免每次重启都重新试错。
-                        if (active.isNotEmpty()) SemanticJudge.attachLearnedStore(semanticStoreRoot)
+                val active = if (semanticSettings == null) {
+                    emptySet()
+                } else {
+                    buildSet {
+                        if (semanticActive(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED,
+                                FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_RULES, SemanticSurface.DYNAMIC)) add(SemanticSurface.DYNAMIC)
+                        if (semanticActive(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED,
+                                FeaturePreferences.DANMAKU_SEMANTIC_FILTER_RULES, SemanticSurface.DANMAKU)) add(SemanticSurface.DANMAKU)
+                        if (semanticActive(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED,
+                                FeaturePreferences.COMMENT_SEMANTIC_FILTER_RULES, SemanticSurface.COMMENT)) add(SemanticSurface.COMMENT)
+                        if (semanticActive(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED,
+                                FeaturePreferences.VIDEO_SEMANTIC_FILTER_RULES, SemanticSurface.VIDEO)) add(SemanticSurface.VIDEO)
                     }
-                })
+                }
+                if (active.isNotEmpty() || java.io.File(
+                        semanticStoreRoot,
+                        com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticDiskStore.DIRECTORY
+                    ).exists()
+                ) {
+                    SemanticJudge.submitBackground(Runnable {
+                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard.run("semantic_disk_cleanup") {
+                            SemanticDiskCleanup.run(semanticStoreRoot, active)
+                            // 已探明的请求写法 / 分批上限：读回来，避免每次重启都重新试错。
+                            if (active.isNotEmpty()) SemanticJudge.attachLearnedStore(semanticStoreRoot)
+                        }
+                    })
+                }
             }
             // 首页推荐与相关推荐共用同一个判定器：规则相同，同一标题在两处只判一次。
             val videoSemanticJudge = semanticJudge(
@@ -3277,9 +3313,10 @@ class HookEntry : XposedModule() {
                         hiddenIds = prefs.getString(
                             FeaturePreferences.MINE_COMPONENT_HIDDEN_IDS,
                             ""
-                        ).orEmpty()
-                            .split(Regex("[,，;；\\r\\n]+"))
-                            .filter { it.isNotBlank() },
+                        ).let { raw ->
+                            if (raw.isNullOrBlank()) emptyList()
+                            else raw.split(LIST_SPLIT_REGEX).filter { it.isNotBlank() }
+                        },
                         selectors = prefs.getString(
                             FeaturePreferences.MINE_COMPONENT_HIDDEN_SELECTORS,
                             ""
@@ -3945,7 +3982,7 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE,
                             com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationMode.AUTO_DEFAULT
                         ).orEmpty()
-                    )
+                    ).also(frameInterpolationInstallerRef::set)
                 )
             )
 
@@ -4290,8 +4327,9 @@ class HookEntry : XposedModule() {
                 rawComment = { extractRawCommentTextV2(it) }
             )
             additionalNativeCopy = nativeSupplement
-            val legacyCommentCopy = StartupTrace.measure("legacy.comment_prepare") { CommentLegacyCopyBridge(biliClassLoader) }
-            if (legacyCommentCopy.isApplicable()) commentFamilies.record("comment2", legacyCommentCopy.isReady())
+            val legacyCommentCopy by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+                StartupTrace.measure("legacy.comment_prepare") { CommentLegacyCopyBridge(biliClassLoader) }
+            }
             val installCommentFreeCopyHooks: () -> Unit = installCommentHooks@{
                 // 只开脉络时只观察 Compose 更多操作，不安装关闭状态的原生复制／滚动 Hook。
                 if (!runtimeCommentFreeCopyEnabled) {
@@ -4354,6 +4392,11 @@ class HookEntry : XposedModule() {
                             }
                         }
                     }
+                }
+                if (classExists("com.bilibili.app.comm.comment2.model.BiliComment", biliClassLoader) &&
+                    legacyCommentCopy.isApplicable()
+                ) {
+                    commentFamilies.record("comment2", legacyCommentCopy.isReady())
                 }
                 var freeCopyOk = false
                 // 低版本（8.x/9.8.0）：holder.t0 的绑定方法（8.90.2 为 o0、9.8.0 漂移为 q0；
@@ -4675,11 +4718,13 @@ class HookEntry : XposedModule() {
                     // 自声明 setText——收窄后评论区 rebind 的普通 TextView 全部不再过
                     // 现代拦截器，这是拖动跟手性最后一块可削减的热路径开销）；两个类都
                     // 不存在/未声明时回退全局 TextView.setText（未知版本兼容）。
-                    val descTextHook = object : ModernMethodHook() {
-                        override fun afterHookedMethod(param: ModernHookParam) {
-                            if (!descLikeFreeCopyEnabled) return
-                            val v = param.thisObject as? View ?: return
-                            onDetailTextSet(v)
+                    val descTextHook = object : (ModernMemberHookCreator) -> Unit {
+                        override fun invoke(creator: ModernMemberHookCreator) {
+                            creator.after {
+                                if (!descLikeFreeCopyEnabled) return@after
+                                val v = instance as? View ?: return@after
+                                onDetailTextSet(v)
+                            }
                         }
                     }
                     var narrowed = false
@@ -4698,7 +4743,7 @@ class HookEntry : XposedModule() {
                             modernRuntime.install(
                                 "free-copy:description:set-text:${method.toGenericString()}",
                                 method,
-                                descTextHook
+                                block = descTextHook
                             )
                             narrowed = true
                         }
@@ -4762,7 +4807,10 @@ class HookEntry : XposedModule() {
                                 // 独立弱引用根并夺回。只命中两个资源 id，不扫描整树、不影响三点
                                 // 操作栏；长按时从该 TextView 实时取文本。
                                 if (isCommentBodyTextView(v) || additionalNativeCopy?.isImageBody(v) == true) {
-                                    val legacy = if (legacyCommentCopy.isBody(v)) {
+                                    val legacy = if (
+                                        classExists("com.bilibili.app.comm.comment2.model.BiliComment", biliClassLoader) &&
+                                        legacyCommentCopy.isBody(v)
+                                    ) {
                                         legacyCommentCopy.capture(argOrNull(0))
                                     } else null
                                     // 这里只负责在主绑定 hook 尚未登记时保证长按可用。TextView
@@ -5118,25 +5166,24 @@ class HookEntry : XposedModule() {
                             runCatching {
                                 modernRuntime.install(
                                     "free-copy:haptic:${m.toGenericString()}",
-                                    m,
-                                    object : ModernMethodHook() {
-                                        override fun beforeHookedMethod(param: ModernHookParam) {
-                                            // 长按窗口内拦官方震动：handled（弹泡后保持到
-                                            // 下次 DOWN）覆盖官方 Runnable 延迟触发场景；
-                                            // touch 标志覆盖长按进行中场景。我们的震动走
-                                            // Vibrator 直震（见 hapticFeedback），不受影响。
-                                            if ((runtimeCommentFreeCopyEnabled &&
-                                                    (commentTouchedView != null ||
-                                                        (commentLongPressHandled && isOfficialSuppressionActive()))) ||
-                                                (descLikeFreeCopyEnabled &&
-                                                    (descTouchedView != null ||
-                                                        (descLongPressHandled && isOfficialSuppressionActive())))
-                                            ) {
-                                                param.result = true // 拦官方震动（返回 true=已处理）
-                                            }
+                                    m
+                                ) {
+                                    before {
+                                        // 长按窗口内拦官方震动：handled（弹泡后保持到
+                                        // 下次 DOWN）覆盖官方 Runnable 延迟触发场景；
+                                        // touch 标志覆盖长按进行中场景。我们的震动走
+                                        // Vibrator 直震（见 hapticFeedback），不受影响。
+                                        if ((runtimeCommentFreeCopyEnabled &&
+                                                (commentTouchedView != null ||
+                                                    (commentLongPressHandled && isOfficialSuppressionActive()))) ||
+                                            (descLikeFreeCopyEnabled &&
+                                                (descTouchedView != null ||
+                                                    (descLongPressHandled && isOfficialSuppressionActive())))
+                                        ) {
+                                            result = true // 拦官方震动（返回 true=已处理）
                                         }
                                     }
-                                )
+                                }
                             }
                         }
                     }
@@ -5733,6 +5780,7 @@ class HookEntry : XposedModule() {
             }
             }
             }
+            }
 
             authorizedInstallerRef.set(::installAuthorizedHooks)
 
@@ -5828,8 +5876,11 @@ class HookEntry : XposedModule() {
                             com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRoamingStatus.registerHost(appContext)
                         }.onFailure { frameworkLog("[BIL] 漫游缓存查询不可用") }
                         if (live != null) runCatching {
+                            val artifact = loadedModuleArtifact ?: com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LoadedModuleArtifact.capture(
+                                moduleApkSourceDir ?: runCatching { moduleApplicationInfo.sourceDir }.getOrNull()
+                            ).also { loadedModuleArtifact = it }
                             com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchLiveConfig.registerHost(
-                                appContext, live, loadedModuleArtifact) {
+                                appContext, live, artifact) {
                                 runtimeCommentFreeCopyEnabled = live.getBoolean(PREF_FREE_COPY_ENABLED, true)
                                 runtimeDescriptionFreeCopyEnabled = live.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
                                 freeCopyLightMode = live.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
@@ -6024,6 +6075,7 @@ class HookEntry : XposedModule() {
                         accept = { result, activity ->
                             val installed = applyAdmission(application, result)
                             if (installed) {
+                                runCatching { installHostMemoryPressure(application) }
                                 HostThreadGuard.run("roaming.lifecycle-retry") {
                                     com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
                                         .initializeHost(activity)
@@ -6092,6 +6144,7 @@ class HookEntry : XposedModule() {
                         applicationOnCreateCompleted.set(true)
                         (args.firstOrNull() as? android.app.Application)?.let { application ->
                             runCatching { StartupTrace.measure("application.ready") { NPatchProcessDiagnostics.onApplicationReady(application) } }
+                            runCatching { installHostMemoryPressure(application) }
                         }
                         if (processName == TARGET_PACKAGE && authorizedHooksInstalled.get() &&
                             activeHookConfig.get()?.getBoolean(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED, false) == true) {

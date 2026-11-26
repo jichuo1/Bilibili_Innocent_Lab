@@ -36,15 +36,19 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FollowFeedFeatureInst
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostVideoCardStyleFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpGrpcWireChannel
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpMethodDescriptorResolver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossChannel
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortTestRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueModel
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.DanmakuWire
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.writeBytesField
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.writeVarintField
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.AiInsightFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightHostSnapshot
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.bapis.bilibili.app.view.v1.ViewReply
 import kmpfixture.modern.Descriptor
@@ -1014,6 +1018,132 @@ class Phase5To8CentralWiringTest {
         }
         invoke(finished, cb)
         assertTrue("Expected ensureAdapted to trigger adapt via requiresFeatureRefresh", started.get())
+    }
+
+    @Test
+    fun `Wave2 central integration falls back to publicSourceDir, skips disabled refreshCache probes, and dispatches idle memory trim cleanly`() {
+        val tmpDir = Files.createTempDirectory("bil-wave2-central").toFile()
+        try {
+            val baseApk = File(tmpDir, "base.apk").apply { writeBytes(ByteArray(64)) }
+            val splitApk = File(tmpDir, "split_config.arm64_v8a.apk").apply { writeBytes(ByteArray(32)) }
+            val cacheDir = File(tmpDir, "cache").apply { mkdirs() }
+            @Suppress("DEPRECATION")
+            val pkgInfo = PackageInfo().apply {
+                packageName = "tv.danmaku.bili"
+                this.versionCode = 9210200
+                this.versionName = "9.21.0"
+                applicationInfo = ApplicationInfo().apply {
+                    packageName = "tv.danmaku.bili"
+                    sourceDir = null
+                    publicSourceDir = baseApk.absolutePath
+                    splitSourceDirs = null
+                    splitPublicSourceDirs = arrayOf(splitApk.absolutePath)
+                }
+            }
+            val pm = createFakePackageManager(pkgInfo)
+            val context = object : ContextWrapper(null) {
+                override fun getPackageManager(): PackageManager = pm
+                override fun getCacheDir(): File = cacheDir
+            }
+            val readIdentity = VersionAdapter::class.java.declaredMethods
+                .single { it.name == "readHostIdentity" }
+                .apply { isAccessible = true }
+            val identity = readIdentity.invoke(VersionAdapter, context) as HostIdentity
+            assertEquals(9210200, identity.versionCode)
+            val expectedFingerprint = VersionAdapter.buildHostFingerprint(
+                versionCode = 9210200L,
+                versionName = "9.21.0",
+                baseLength = baseApk.length(),
+                baseLastModified = baseApk.lastModified(),
+                splits = listOf(VersionAdapter.SplitFileMeta(splitApk.name, splitApk.length(), splitApk.lastModified()))
+            )
+            assertEquals(expectedFingerprint, identity.fingerprint)
+            assertTrue(identity.fingerprint.contains("|splits="))
+
+            val baseline = invokeVersionAdapterAdapt(
+                context = context,
+                loader = javaClass.classLoader!!,
+                followFeedStyleEnabled = false,
+                playerSpeedSessionEnabled = false,
+                guestBrowsingEnabled = false,
+                dexSource = null,
+                vc = 9210200,
+                hostFingerprint = identity.fingerprint,
+                splashAutoNightEnabled = false
+            )
+            val probedClasses = mutableListOf<String>()
+            val probeLoader = object : ClassLoader(javaClass.classLoader) {
+                override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                    probedClasses += name
+                    if (name == PlayerSpeedSessionLocator.PARAMS ||
+                        name == PlayerSpeedLocator.THESEUS2_SPEED_SERVICE ||
+                        name == "com.tencent.mm.opensdk.openapi.IWXAPI"
+                    ) {
+                        throw ClassNotFoundException(name)
+                    }
+                    return super.loadClass(name, resolve)
+                }
+            }
+            val runningField = VersionAdapter::class.java.getDeclaredField("adaptationRunning").apply { isAccessible = true }
+            val runningAtomic = runningField.get(VersionAdapter) as AtomicBoolean
+            try {
+                runningAtomic.set(false)
+                val adaptStarted = AtomicBoolean(false)
+                VersionAdapter.ensureAdapted(
+                    context = context,
+                    classLoader = probeLoader,
+                    resetTimestamp = 0L,
+                    callback = object : AdaptCallback {
+                        override fun onAdaptStarted() { adaptStarted.set(true) }
+                        override fun onAdaptFinished(ok: Boolean) = Unit
+                    },
+                    startupCache = StartupCacheSnapshot(identity, 0L, baseline),
+                    playerSpeedSessionEnabled = false,
+                    playerSpeedCalculatorEnabled = false,
+                    weChatShareEnabled = false
+                )
+                assertFalse(adaptStarted.get())
+                assertFalse(PlayerSpeedSessionLocator.PARAMS in probedClasses)
+                assertFalse(PlayerSpeedLocator.THESEUS2_SPEED_SERVICE in probedClasses)
+                assertFalse("com.tencent.mm.opensdk.openapi.IWXAPI" in probedClasses)
+            } finally {
+                runningAtomic.set(false)
+            }
+
+            val installer = FrameInterpolationFeatureInstaller(
+                enabled = false,
+                verificationAllowed = false,
+                moduleApk = null
+            )
+            assertFalse(installer.releaseIfIdle())
+            var moderateTrimmed = 0
+            var criticalTrimmed = 0
+            try {
+                HostMemoryPressureBridge.resetForTests()
+                HostMemoryPressureBridge.registerTrimCallbacks(
+                    onModerate = {
+                        KmpMethodDescriptorResolver.clearCaches()
+                        moderateTrimmed++
+                    },
+                    onCritical = {
+                        KmpMethodDescriptorResolver.clearCaches()
+                        AudioRescueModel.releaseIfIdle()
+                        installer.releaseIfIdle()
+                        criticalTrimmed++
+                    }
+                )
+                HostMemoryPressureBridge.dispatchModerate()
+                assertEquals(1, moderateTrimmed)
+                assertEquals(0, criticalTrimmed)
+                HostMemoryPressureBridge.dispatchCritical()
+                assertEquals(2, moderateTrimmed)
+                assertEquals(1, criticalTrimmed)
+            } finally {
+                HostMemoryPressureBridge.resetForTests()
+            }
+        } finally {
+            tmpDir.deleteRecursively()
+        }
     }
 }
 
