@@ -230,7 +230,8 @@ internal object HostTopBarFxController {
                 materialColors = current
             }
             fusion?.refreshMaterial(current,
-                preserveHostArtwork = config.backgroundPreset == HostBackgroundPreset.OFF && current.garbAccent != null)
+                preserveHostArtwork = config.backgroundPreset == HostBackgroundPreset.OFF && current.garbAccent != null,
+                wallpaper = config.backgroundPreset != HostBackgroundPreset.OFF)
         }
         val artifacts = HostTopBarArtifactBinding(topBarDock)
         // 首页搜索区的主视觉在 Fragment 外；跟随宿主时保留装扮图及其原生底色。
