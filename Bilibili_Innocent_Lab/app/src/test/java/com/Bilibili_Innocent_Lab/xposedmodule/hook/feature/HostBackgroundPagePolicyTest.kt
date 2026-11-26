@@ -134,6 +134,14 @@ class HostBackgroundPagePolicyTest {
         assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(Float.NaN, 2340, density, 0f))
     }
 
+    fun wallpaperPagesClearAnyVisibleSystemBarTint() {
+        assertTrue(HostBackgroundPagePolicy.systemBarNeedsTransparency(0xff06083d.toInt()))
+        assertTrue(HostBackgroundPagePolicy.systemBarNeedsTransparency(0xffffffff.toInt()))
+        assertTrue(HostBackgroundPagePolicy.systemBarNeedsTransparency(0x80ffffff.toInt()))
+        assertFalse(HostBackgroundPagePolicy.systemBarNeedsTransparency(0x00ffffff))
+        assertFalse(HostBackgroundPagePolicy.systemBarNeedsTransparency(0))
+    }
+
     fun nativeComposePanelsKeepBusinessColorsAndThinLines() {
         fun packed(argb: Int) = argb.toLong() shl 32
         assertTrue(HostBackgroundPagePolicy.nativeComposePanel(packed(0xffffffff.toInt()), 211f, 3f))
@@ -160,6 +168,7 @@ class HostBackgroundPagePolicyTest {
         runIsolated { s -> s.nativeWindowsCoverUnlistedPagesAndKeepImmersiveWindows() }
         runIsolated { s -> s.composeButtonsAndInvalidGeometryKeepTheirBackgrounds() }
         runIsolated { s -> s.fixedComposeEdgeChromeIsSeparatedFromScrollingPanels() }
+        runIsolated { s -> s.wallpaperPagesClearAnyVisibleSystemBarTint() }
         runIsolated { s -> s.nativeComposePanelsKeepBusinessColorsAndThinLines() }
     
         HostBackgroundWorldCases().verifyAllCases()

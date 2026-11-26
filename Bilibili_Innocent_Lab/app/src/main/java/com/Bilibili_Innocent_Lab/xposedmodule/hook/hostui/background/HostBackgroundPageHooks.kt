@@ -193,8 +193,8 @@ internal object HostBackgroundPageHooks {
                         return@run
                     }
                     // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
-                    if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
-                    if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
+                    if (HostBackgroundPagePolicy.systemBarNeedsTransparency(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
+                    if (HostBackgroundPagePolicy.systemBarNeedsTransparency(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isStatusBarContrastEnforced = false
                     // 窗口原点涵盖状态栏和原生工具栏，避免窗口白底透出；夜空预设的系统栏文字保持可读。
                     if (pages.requiresNight) root.systemUiVisibility = root.systemUiVisibility and

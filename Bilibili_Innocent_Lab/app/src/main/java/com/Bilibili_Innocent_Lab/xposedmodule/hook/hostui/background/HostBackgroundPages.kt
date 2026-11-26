@@ -324,6 +324,13 @@ internal class HostBackgroundPages(
                     }
                 }
                 window.get()?.let { window ->
+                    if (kind == HostBackgroundPagePolicy.Kind.NATIVE && !mediaWindow) {
+                        // 宿主的抽屉/主题兼容层会在 Fragment 显示后重新 tint 系统栏；壁纸页必须持续保持透明。
+                        if (HostBackgroundPagePolicy.systemBarNeedsTransparency(window.statusBarColor))
+                            window.statusBarColor = android.graphics.Color.TRANSPARENT
+                        if (HostBackgroundPagePolicy.systemBarNeedsTransparency(window.navigationBarColor))
+                            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                    }
                     val drawable = page.background
                     if (drawable != null && windowBackground.get() !== drawable) {
                         // 通过 Window 同步 Decor 的底色/回退背景，避免旧页面仍用主题白色填充系统栏空隙。

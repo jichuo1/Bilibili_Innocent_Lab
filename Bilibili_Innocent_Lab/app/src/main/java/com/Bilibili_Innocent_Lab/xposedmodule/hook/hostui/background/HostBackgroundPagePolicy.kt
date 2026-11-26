@@ -58,6 +58,9 @@ internal object HostBackgroundPagePolicy {
         "com.bilibili.ship.theseus.united.page.TheseusIntroductionFragment"
     )
 
+    /** 壁纸接管普通页面时，任何仍会实际着色的系统栏底色都会截断壁纸；全透明值才保留。 */
+    fun systemBarNeedsTransparency(color: Int): Boolean = color ushr 24 != 0
+
     fun neutral(color: Int): Boolean {
         val r = color ushr 16 and 255
         val g = color ushr 8 and 255
