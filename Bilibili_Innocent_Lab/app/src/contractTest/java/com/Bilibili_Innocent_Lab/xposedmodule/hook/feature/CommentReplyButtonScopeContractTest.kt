@@ -11,14 +11,15 @@ import org.junit.Test
 class CommentReplyButtonScopeContractTest {
     fun relocatedRenderersStillNeedTheUniqueNativeBindingShape() {
         val installer = SourceContract.read("hook/feature/CommentReplyButtonFeatureInstaller.kt")
-        for ((family, owner) in listOf("legacy" to "dut", "next" to "bxu", "exp3" to "hzu")) {
-            assertTrue(Regex("NativeFamily\\(\"$family\", \"[^\"]+\", \"$owner\"\\)").containsMatchIn(installer))
+        val adapter = SourceContract.read("hook/adapter/CommentReplyButtonAdapter.kt")
+        for (owner in listOf("dut", "bxu", "hzu")) {
+            assertFalse("Must not hardcode $owner in installer", installer.contains("\"$owner\""))
+            assertFalse("Must not hardcode $owner in adapter", adapter.contains("\"$owner\""))
         }
-        val plan = installer.after("private fun nativePlans(").before("private fun bindingShape(")
-        assertTrue(plan.contains("+ relocatedOwner"))
-        assertTrue(plan.contains("shape == family"))
-        assertTrue(plan.contains("plans.map { it.binding }.distinct().size == 1"))
-        assertTrue(plan.contains("plans.map { it.method.declaringClass }.distinct().size == 1"))
+        assertTrue(installer.contains("CommentReplyButtonAdapter.resolvePlans("))
+        assertTrue(installer.contains("plans.map { it.binding }.distinct().size != 1"))
+        assertTrue(installer.contains("plans.map { it.method.declaringClass }.distinct().size != 1"))
+        assertTrue(adapter.contains("plans.map { it.binding }.distinct().size != 1"))
         assertTrue(installer.contains("getIdentifier(\"reply_button\", \"id\", TARGET_PACKAGE)"))
     }
 

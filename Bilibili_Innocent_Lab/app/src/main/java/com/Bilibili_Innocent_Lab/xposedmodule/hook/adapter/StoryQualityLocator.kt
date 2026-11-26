@@ -41,8 +41,8 @@ internal object StoryQualityLocator {
         val manual = Lookup.declaredMethods(service, true) { method ->
             val p = method.parameterTypes
             instance(method) && Modifier.isPublic(method.modifiers) && method.returnType == Any::class.java &&
-                p.size == 2 && p[0].name.startsWith("$PREFERENCE_PACKAGE.") && Modifier.isAbstract(p[0].modifiers) &&
-                p[1].name == CONTINUATION
+                p.size == 2 && (p[0].name.startsWith("$PREFERENCE_PACKAGE.") || flattenedQualityOwner(p[0].name)) &&
+                Modifier.isAbstract(p[0].modifiers) && p[1].name == CONTINUATION
         }.singleOrNull() ?: return null
         val field = Lookup.declaredFields(owner, true) { !Modifier.isStatic(it.modifiers) && it.type == service }
             .singleOrNull() ?: return null
@@ -105,8 +105,9 @@ internal object StoryQualityLocator {
         val members = candidates.filter { it.declaringClass === owner }.distinct()
         val policy = members.singleOrNull { policyAbi(it, points.preferenceClassName) } ?: return null
         val resource = members.singleOrNull(::resourceAbi) ?: return null
-        return points.copy(integerDefaultMethod = null, policyMethod = point(policy),
-            resourceSelectionMethod = point(resource), matchPreferenceMethod = point(match))
+        return points.copy(integerDefaultMethod = points.integerDefaultMethod?.takeIf { it.className == owner.name },
+            policyMethod = point(policy), resourceSelectionMethod = point(resource),
+            matchPreferenceMethod = point(match))
     }
 
     fun merge(live: StoryQualityPoints?, cached: StoryQualityPoints?): StoryQualityPoints? {
@@ -180,9 +181,11 @@ internal object StoryQualityLocator {
         Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge &&
             (method.declaringClass.name.startsWith("$QUALITY_PACKAGE.") ||
                 (allowFlattened && flattenedQualityOwner(method.declaringClass.name)))
-    internal fun integerAbi(method: Method) = staticQuality(method) && method.parameterCount == 0 && method.returnType == Int::class.javaPrimitiveType
+    internal fun integerAbi(method: Method) = staticQuality(method, allowFlattened = true) &&
+        method.parameterCount == 0 && method.returnType == Int::class.javaPrimitiveType
     internal fun policyAbi(method: Method, preference: String) = staticQuality(method, allowFlattened = true) && method.parameterCount == 0 &&
-        method.returnType.name == preference && method.returnType.name.startsWith("$PREFERENCE_PACKAGE.")
+        method.returnType.name == preference &&
+        (method.returnType.name.startsWith("$PREFERENCE_PACKAGE.") || flattenedQualityOwner(method.returnType.name))
     internal fun resourceAbi(method: Method) = staticQuality(method, allowFlattened = true) && method.returnType == Void.TYPE &&
         method.parameterTypes.map(Class<*>::getName) == listOf(MEDIA_RESOURCE)
     internal fun matchAbi(method: Method) = instance(method) && method.declaringClass.name == SERVICE &&

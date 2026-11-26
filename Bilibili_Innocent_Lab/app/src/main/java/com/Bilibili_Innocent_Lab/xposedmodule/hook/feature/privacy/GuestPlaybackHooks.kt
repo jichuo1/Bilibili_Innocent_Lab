@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.GuestPlayerCoreAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import android.os.Handler
 import android.os.Looper
@@ -11,7 +12,8 @@ import java.util.WeakHashMap
 /** Metadata never selects the current video; only a bound, advancing player can create history. */
 internal class GuestPlaybackHooks(
     private val library: GuestLibraryRuntime,
-    private val guest: () -> Boolean
+    private val guest: () -> Boolean,
+    private val cachedPlayerCore: String? = null
 ) {
     private data class Playback(val aid: Long, val cid: Long, var last: Long = -1,
         var restored: Boolean = false, var resume: Long? = null)
@@ -129,6 +131,8 @@ internal class GuestPlaybackHooks(
         val paramsConstructor = Lookup.declaredConstructors(params) {
             java.lang.reflect.Modifier.isPublic(it.modifiers) && !it.isSynthetic
         }.maxByOrNull { it.parameterCount }
+        val paramsGetAvid = Lookup.methodOrNull(params, "getAvid")
+        val paramsGetId = Lookup.methodOrNull(params, "getId")
         env.reportStatus("guest_player_lazy_binding",
             if (currentItem != null && itemId != null && paramsConstructor != null) "enabled"
             else "unavailable:${currentItem != null},${itemId != null},${paramsConstructor != null}")
@@ -139,8 +143,8 @@ internal class GuestPlaybackHooks(
                     diag(env, "params-built")
                     runCatching {
                         val built = instance ?: return@after
-                        val aid = (host.call(built, "getAvid") as Number).toLong()
-                        val cid = (host.call(built, "getId") as? String)?.toLongOrNull() ?: return@after
+                        val aid = ((paramsGetAvid?.invoke(built) ?: host.call(built, "getAvid")) as Number).toLong()
+                        val cid = ((paramsGetId?.invoke(built) ?: host.call(built, "getId")) as? String)?.toLongOrNull() ?: return@after
                         if (aid > 0 && cid > 0) synchronized(knownMedia) { knownMedia[cid] = aid }
                     }.onFailure {
                         env.logError("guest_player_params:${it.javaClass.simpleName}",
@@ -195,10 +199,16 @@ internal class GuestPlaybackHooks(
             }
             return fresh
         }
-        val coreNames = listOf("lf6.p0",
-            "com.bilibili.ship.theseus.united.player.oldway.playercontainer.TheseusPlayerContainerProvider\$providePlayerContainer\$playerContainer\$1\$1\$1")
+        val coreNames = buildList {
+            GuestPlayerCoreAdapter.resolve(host.loader, cachedPlayerCore)?.name?.let(::add)
+            add(GuestPlayerCoreAdapter.LEGACY_CORE_CLASS)
+            add("com.bilibili.ship.theseus.united.player.oldway.playercontainer.TheseusPlayerContainerProvider\$providePlayerContainer\$playerContainer\$1\$1\$1")
+        }.distinct()
         for (coreName in coreNames) {
             val core = Lookup.classOrNull(host.loader, coreName) ?: continue
+            val getDurationMethod = Lookup.methodOrNull(core, "getDuration")
+            val getRealPositionMethod = Lookup.methodOrNull(core, "getRealCurrentPosition")
+            val seekToMethod = Lookup.methodOrNull(core, "seekTo", classOf<Int>())
             for (types in listOf(arrayOf(resource, classOf<Boolean>(), params),
                 arrayOf(item, resource, classOf<Boolean>(), params))) {
                 if (Lookup.methodOrNull(core, "setMediaResource", *types) == null) continue
@@ -209,9 +219,9 @@ internal class GuestPlaybackHooks(
                         runCatching {
                             val player = instance ?: return@before
                             val p = argOrNull(types.lastIndex) ?: return@before
-                            val aid = (host.call(p, "getAvid") as Number).toLong()
+                            val aid = ((paramsGetAvid?.invoke(p) ?: host.call(p, "getAvid")) as Number).toLong()
                             // MediaItemParams.id is the media cid, validated against numeric UGC ids.
-                            val cid = (host.call(p, "getId") as? String)?.toLongOrNull() ?: return@before
+                            val cid = ((paramsGetId?.invoke(p) ?: host.call(p, "getId")) as? String)?.toLongOrNull() ?: return@before
                             if (aid <= 0 || cid <= 0) return@before
                             val state = synchronized(players) {
                                 players[player]?.takeIf { it.aid == aid && it.cid == cid }
@@ -244,7 +254,7 @@ internal class GuestPlaybackHooks(
                         val state = stateFor(player) ?: return@after
                         diag(env, "progress-with-state")
                         if (position <= 0) return@after
-                        val duration = (host.call(player, "getDuration") as Number).toLong()
+                        val duration = ((getDurationMethod?.invoke(player) ?: host.call(player, "getDuration")) as Number).toLong()
                         if (duration <= 0) return@after
                         val resume = synchronized(players) {
                             val target = state.resume
@@ -257,8 +267,12 @@ internal class GuestPlaybackHooks(
                             val weak = WeakReference(player)
                             main.post {
                                 weak.get()?.let { current ->
-                                    if (synchronized(players) { players[current] === state } && guest())
-                                        runCatching { host.call(current, "seekTo", resume.toInt()) }
+                                    if (synchronized(players) { players[current] === state } && guest()) {
+                                        runCatching {
+                                            if (seekToMethod != null) seekToMethod.invoke(current, resume.toInt())
+                                            else host.call(current, "seekTo", resume.toInt())
+                                        }
+                                    }
                                 }
                             }
                             return@after
@@ -283,8 +297,8 @@ internal class GuestPlaybackHooks(
                         if (!guest()) return@before
                         val player = instance ?: return@before
                         val state = stateFor(player) ?: return@before
-                        val position = (host.call(player, "getRealCurrentPosition") as Number).toLong()
-                        val duration = (host.call(player, "getDuration") as Number).toLong()
+                        val position = ((getRealPositionMethod?.invoke(player) ?: host.call(player, "getRealCurrentPosition")) as Number).toLong()
+                        val duration = ((getDurationMethod?.invoke(player) ?: host.call(player, "getDuration")) as Number).toLong()
                         if (position > 0 && duration > 0) library.recordProgress(state.aid, state.cid, position, duration)
                     }
                 }

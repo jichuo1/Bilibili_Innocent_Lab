@@ -1,9 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.content.Context
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailRelateGameAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
@@ -25,7 +25,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class DetailAppPromotionFeatureInstaller(
     private val enabled: Boolean,
-    private val relateAdEnabled: Boolean = enabled
+    private val relateAdEnabled: Boolean = enabled,
+    private val cachedRelateGameComponent: String? = null,
+    private val cachedRelateGameComponentProvider: () -> String? = { cachedRelateGameComponent }
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -41,6 +43,14 @@ internal class DetailAppPromotionFeatureInstaller(
         }
     }
 
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
+    private val facadeHookInstalled = AtomicBoolean(false)
+    private val relateGameInstalled = AtomicBoolean(false)
+    private var initialRun = false
+    private var retryConsumed = false
     private val attemptedVideoDetailClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val attemptedUnderPlayerClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val attemptedRelateVideoDetailClasses = ConcurrentHashMap.newKeySet<Class<*>>()
@@ -56,18 +66,44 @@ internal class DetailAppPromotionFeatureInstaller(
     @Volatile
     private var underPlayerRouteSummary: String? = null
 
+    private data class RelateGameInstallOutcome(val ready: Boolean, val installedHooks: Int)
+
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled && !relateAdEnabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
 
-        val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
-        val videoDetailClass = KavaMemberLookup.classOrNull(loader, G_AD_VIDEO_DETAIL)
-            ?: return missing(environment, "missing-video-detail-type")
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-class-loader")
+        }
+        if (facadeHookInstalled.get()) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+            val gameOutcome = if (relateAdEnabled && !relateGameInstalled.get()) {
+                installRelateGameComponentBlock(environment.forCapabilityRuntime("detail_promotion_related_game")).also {
+                    environment.reportCapabilityCoverage("detail_promotion_related_game", it.ready, it.installedHooks, 2)
+                }
+            } else if (relateGameInstalled.get()) {
+                RelateGameInstallOutcome(ready = true, installedHooks = 2)
+            } else {
+                RelateGameInstallOutcome(ready = false, installedHooks = 0)
+            }
+            val relateGameComplete = !relateAdEnabled || !DetailRelateGameAdapter.applicable(loader) ||
+                gameOutcome.installedHooks == 2
+            return FeatureInstallResult.Installed(1 + gameOutcome.installedHooks, complete = relateGameComplete)
+        }
+        val videoDetailClass = KavaMemberLookup.classOrNull(loader, G_AD_VIDEO_DETAIL) ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-video-detail-type")
+        }
         val types = if (enabled) resolveHostTypes(environment) else null
         val sceneAccess = types?.let(::resolveSceneAccess)
         val relateClass = if (relateAdEnabled) {
@@ -86,6 +122,7 @@ internal class DetailAppPromotionFeatureInstaller(
             environment.reportCapability("detail_promotion_related_ad", FeatureInstallResult.Skipped("missing-related-ad-dependency"))
         }
         if (!underPlayerAvailable && !relateAvailable) {
+            requiresAdaptationRetry = false
             return missing(environment, "missing-enabled-route")
         }
         if (enabled && !underPlayerAvailable) {
@@ -100,8 +137,10 @@ internal class DetailAppPromotionFeatureInstaller(
                 "[BIL] 广告推荐接口未定位，播放器下方推广拦截仍继续安装"
             )
         }
-        val facade = KavaMemberLookup.classOrNull(loader, G_AD_BIZ_FACADE)
-            ?: return missing(environment, "missing-ad-biz-facade")
+        val facade = KavaMemberLookup.classOrNull(loader, G_AD_BIZ_FACADE) ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-ad-biz-facade")
+        }
         val videoDetailGetter = KavaMemberLookup.declaredMethods(
             facade,
             makeAccessible = true
@@ -109,7 +148,10 @@ internal class DetailAppPromotionFeatureInstaller(
             it.name == GET_VIDEO_DETAIL && it.parameterCount == 0 &&
                 it.isStatic &&
                 (it.returnType isSubclassOf videoDetailClass)
-        }.singleOrNull() ?: return missing(environment, "ambiguous-video-detail-getter")
+        }.singleOrNull() ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "ambiguous-video-detail-getter")
+        }
 
         return runCatching {
             environment.registrar.exact(
@@ -145,6 +187,7 @@ internal class DetailAppPromotionFeatureInstaller(
                     }
                 }
             }
+            facadeHookInstalled.set(true)
             environment.postToMain?.invoke {
                 if ((underPlayerAvailable && !renderReady.get()) ||
                     (relateAvailable && !relateRenderReady.get())
@@ -188,15 +231,26 @@ internal class DetailAppPromotionFeatureInstaller(
                 "[BIL] 视频详细页广告门面拦截器已就绪" +
                     "(underPlayer=$underPlayerAvailable,relate=$relateAvailable)"
             )
-            val componentHooks = if (relateAdEnabled) {
+            val gameOutcome = if (relateAdEnabled) {
                 installRelateGameComponentBlock(environment.forCapabilityRuntime("detail_promotion_related_game")).also {
-                    environment.reportCapabilityCoverage("detail_promotion_related_game", true, it, 2)
+                    environment.reportCapabilityCoverage("detail_promotion_related_game", it.ready, it.installedHooks, 2)
                 }
             } else {
-                0
+                RelateGameInstallOutcome(ready = false, installedHooks = 0)
             }
-            FeatureInstallResult.Installed(1 + componentHooks)
+            val relateGameComplete = !relateAdEnabled || !DetailRelateGameAdapter.applicable(loader) ||
+                gameOutcome.installedHooks == 2
+            if (initialRun) {
+                retryConsumed = true
+                requiresAdaptationRetry = false
+            } else {
+                initialRun = true
+                requiresAdaptationRetry = !retryConsumed && relateAdEnabled && !relateGameInstalled.get() &&
+                    DetailRelateGameAdapter.applicable(loader)
+            }
+            FeatureInstallResult.Installed(1 + gameOutcome.installedHooks, complete = relateGameComplete)
         }.getOrElse { throwable ->
+            requiresAdaptationRetry = false
             environment.logError(
                 "detail_app_promotion_install",
                 "[BIL] 视频详细页话题推广入口注册失败: $throwable"
@@ -225,57 +279,24 @@ internal class DetailAppPromotionFeatureInstaller(
         return initializedLazyValueOfType(lazyCandidates, videoDetailClass)
     }
 
-    private fun installRelateGameComponentBlock(environment: HookEnvironment): Int {
+    private fun installRelateGameComponentBlock(environment: HookEnvironment): RelateGameInstallOutcome {
+        if (relateGameInstalled.get()) return RelateGameInstallOutcome(ready = true, installedHooks = 2)
         // 每个解析缺口都要留痕：父层照常上报 ready:relate，只有这里的日志能说明
         // "游戏卡兜底为什么一个都没装"。同文件其余降级路径都有 logError，口径一致。
-        fun missing(reason: String): Int {
+        fun missing(reason: String): RelateGameInstallOutcome {
             environment.logError(
                 "detail_promotion_game_missing",
                 "[BIL] 详情页游戏推荐组件兜底未安装: $reason"
             )
-            return 0
+            return RelateGameInstallOutcome(ready = false, installedHooks = 0)
         }
         val loader = environment.classLoader ?: return missing("no-class-loader")
-        val viewBindingClass = KavaMemberLookup.classOrNull(loader, ANDROIDX_VIEW_BINDING)
+        KavaMemberLookup.classOrNull(loader, ANDROIDX_VIEW_BINDING)
             ?: return missing("no-view-binding")
-        val baseComponent = GEMINI_BINDING_COMPONENT_CLASSES.firstNotNullOfOrNull { className ->
-            KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
-                // 接口的 isAbstract 同样为 true；gemini 包里的 UIComponent 正是接口，
-                // 必须显式排除，否则字母表候选会把它当成基类。
-                candidate.isAbstract && !candidate.isInterface &&
-                    KavaMemberLookup.methods(
-                        candidate,
-                        includeSuperclasses = true,
-                        makeAccessible = true
-                    ) { it.name == CREATE_VIEW_ENTRY && it.parameterCount == 2 }.isNotEmpty() &&
-                    KavaMemberLookup.methods(
-                        candidate,
-                        includeSuperclasses = true,
-                        makeAccessible = true
-                    ) { it.name == BIND_TO_VIEW && it.parameterCount == 2 }.isNotEmpty()
-            }
-        } ?: return missing("no-gemini-base-component")
-        val gameComponent = RELATE_GAME_COMPONENT_CLASSES.mapNotNull { className ->
-            KavaMemberLookup.classOrNull(loader, className)?.takeIf { candidate ->
-                candidate isSubclassOf baseComponent &&
-                    !candidate.isInterface &&
-                    !candidate.isAbstract &&
-                    KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) { method ->
-                        method.parameterTypes.contentEquals(
-                            arrayOf(
-                                classOf<Context>(),
-                                classOf<LayoutInflater>(),
-                                classOf<ViewGroup>()
-                            )
-                        ) && method.returnType isSubclassOf viewBindingClass
-                    }.isNotEmpty() &&
-                    KavaMemberLookup.declaredMethods(candidate, makeAccessible = true) { method ->
-                        method.parameterCount == 2 &&
-                            method.parameterTypes[0] isSubclassOf viewBindingClass &&
-                            method.parameterTypes[1].name == KOTLIN_CONTINUATION
-                    }.isNotEmpty()
-            }
-        }.distinctBy { it.name }.singleOrNull() ?: return missing("missing-or-ambiguous-game-component")
+        val resolvedPair = DetailRelateGameAdapter.resolvePair(loader, cachedRelateGameComponentProvider())
+            ?: return missing("missing-or-ambiguous-game-component")
+        val baseComponent = resolvedPair.baseComponent
+        val gameComponent = resolvedPair.gameComponent
         val simpleViewEntry = KavaMemberLookup.classOrNull(loader, GEMINI_SIMPLE_VIEW_ENTRY)
             ?: return missing("no-simple-view-entry")
         val simpleViewEntryConstructor = simpleViewEntry.declaredConstructors
@@ -346,13 +367,14 @@ internal class DetailAppPromotionFeatureInstaller(
                 "[BIL] 游戏推荐绑定入口注册失败，已放行该入口: $throwable"
             )
         }
+        if (installed == 2) relateGameInstalled.set(true)
         if (installed > 0) {
             environment.logInfo(
                 "detail_app_promotion_relate_game_ready",
                 "[BIL] 视频详细页游戏推荐组件兜底已安装(hooks=$installed)"
             )
         }
-        return installed
+        return RelateGameInstallOutcome(ready = true, installedHooks = installed)
     }
 
     private fun resolveCurrentUnderPlayer(
@@ -821,36 +843,6 @@ internal class DetailAppPromotionFeatureInstaller(
         private const val KOTLIN_CONTINUATION = "kotlin.coroutines.Continuation"
         private const val CREATE_VIEW_ENTRY = "createViewEntry"
         private const val BIND_TO_VIEW = "bindToView"
-        private const val RELATE_GAME_PACKAGE =
-            "com.bilibili.ship.theseus.united.page.intro.module.relate.game"
-        private const val GEMINI_UI_PACKAGE = "com.bilibili.app.gemini.ui"
-
-        /**
-         * 相关游戏推广组件的类名随混淆在单字母之间漂移，实测：8.84.0–8.96.0 为未混淆的
-         * `RelateGameComponent`、8.97.0=f、8.98.0=g、8.99.0=d、9.1.0/9.1.1=i、
-         * 9.2.0/9.3.0/9.5.0/9.9.0=g、9.4.0=f、9.6.0=h、9.7.0/9.10.0=e。
-         *
-         * 旧的 `e/d/f/RelateGameComponent` 固定名单因此在 8.98.0、9.1.0、9.1.1、9.2.0、9.3.0、
-         * 9.5.0、9.6.0、9.9.0 共 8 个宿主上全程未安装，而这些位置在别的版本上又分别是 synthetic
-         * lambda 或接口——名单命中与否纯属巧合，且失败完全不可观测。改为在稳定包内按有界字母表
-         * 列出候选，判定完全由 [installRelateGameComponentBlock] 的结构过滤承担（继承 gemini 基类
-         * + 非接口非抽象 + `(Context, LayoutInflater, ViewGroup) -> ViewBinding` +
-         * `(ViewBinding, Continuation)`），并保留 `singleOrNull()`：命中不唯一即按缺失处理。
-         */
-        private val RELATE_GAME_COMPONENT_CLASSES: List<String> =
-            ('a'..'z').map { letter -> "$RELATE_GAME_PACKAGE.$letter" } +
-                "$RELATE_GAME_PACKAGE.RelateGameComponent"
-
-        /**
-         * gemini 绑定基类同样漂移（8.84.0–8.96.0=k、8.97.0–9.6.0=m、9.7.0–9.10.0=l）。
-         * 这里必须保留原有的显式优先顺序：
-         * 同一个包里 `UIComponent`（接口）与 `DataBindingComponent` 也满足"两个双参方法"的形状，
-         * 只有靠 `isAbstract && !isInterface` 加上先命中已验证候选才不会选错基类。字母表候选只
-         * 追加在已验证名单之后，用于覆盖尚未遇到过的新字母。
-         */
-        private val GEMINI_BINDING_COMPONENT_CLASSES: List<String> = (
-            listOf("l", "m", "k", "j", "c", "d", "e") + ('a'..'z').map(Char::toString)
-            ).distinct().map { letter -> "$GEMINI_UI_PACKAGE.$letter" }
     }
 }
 

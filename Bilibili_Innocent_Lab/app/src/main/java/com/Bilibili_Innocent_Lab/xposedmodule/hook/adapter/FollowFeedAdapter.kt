@@ -196,11 +196,21 @@ internal object FollowFeedAdapter {
                 !p[3].isPrimitive && paintAbi(method, recycler, p[3])
         }.mapNotNull { method ->
             val module = method.parameterTypes[3]
-            val item = Lookup.declaredMethods(module, true) {
-                it.name == "M" && !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && !it.returnType.isPrimitive
-            }.singleOrNull()?.returnType ?: return@mapNotNull null
-            listOf("legacy", "current").singleOrNull { FollowFeedHostAccess.resolve(module, item, it) != null }
-                ?.let { family -> Triple(method, item, family) }
+            val itemCandidates = Lookup.declaredMethods(module, true) {
+                !Modifier.isStatic(it.modifiers) && !it.isBridge && !it.isSynthetic &&
+                    it.parameterCount == 0 && !it.returnType.isPrimitive
+            }
+            val namedItem = itemCandidates.singleOrNull { it.name == "M" }?.returnType
+            val resolved = if (namedItem != null) {
+                listOf("legacy", "current").singleOrNull { FollowFeedHostAccess.resolve(module, namedItem, it) != null }
+                    ?.let { family -> namedItem to family }
+            } else {
+                itemCandidates.map { it.returnType }.distinct().mapNotNull { candidate ->
+                    listOf("legacy", "current").singleOrNull { FollowFeedHostAccess.resolve(module, candidate, it) != null }
+                        ?.let { family -> candidate to family }
+                }.singleOrNull()
+            }
+            resolved?.let { (item, family) -> Triple(method, item, family) }
         }
         val (paint, item, family) = paints.singleOrNull() ?: return@runCatching null
         val homeNames = homeCandidates(owner.name)

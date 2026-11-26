@@ -198,8 +198,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.overlays.HostCopyBubbl
  *  ---- 第二管：渲染拦截（UI 层，即使数据判断被绕过也不渲染） ----
  *  5. GameVideoMentionedComponent.createViewEntry() -> 返回空 ViewEntry （★核心★
  *     非 suspend 方法，视频提及游戏卡的真正渲染入口，返回空 View 让卡片不出现）
- *  6. BottomGameBenefitWidgetKt.I()                -> 空实现 （Compose 福利提示渲染）
- *  7. MentionedSectionItem.getCards()/getHeight()  -> 空列表/0 （section 容器层）
+ *  6. MentionedSectionItem.getCards()/getHeight()  -> 空列表/0 （section 容器层）
  *
  * 每个 hook 单独 try-catch 保护，单点失败不影响其他点。
  *
@@ -2962,12 +2961,19 @@ class HookEntry : XposedModule() {
             val sponsorClassesRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.sponsorPlayer)
             val classicPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.commentClassicStyle)
             val pagePointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.pageBoundaries)
+            val pausedKmpWireRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.kmpGrpcWireEngine)
+            val cloudKeyFreezeContractRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.cloudKeyFreezeContract)
+            val homeTabsPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.homeTabs)
+            val commentPurifyPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.commentPurify)
             val searchHomeInstaller = SearchHomeRecommendFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false),
                 cachedPoints = { pagePointsRef.get() })
             val endPageInstaller = PlayerEndPageRecommendFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false),
-                cachedPoints = { pagePointsRef.get()?.endPageMerger })
+                cachedPoints = { pagePointsRef.get()?.endPageMerger },
+                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() }
+            )
             val popupPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerPopupPromotion)
             val popupInstaller = PlayerPopupPromotionFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
@@ -2978,6 +2984,17 @@ class HookEntry : XposedModule() {
                 cachedPoints = { classicPointsRef.get() }
             )
             val systemEnvPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.systemEnvironment)
+            val pausedPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.pause)
+            val blockUpdatePointRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.blockUpdate)
+            val playerSpeedMenuRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedMenu)
+            val playerSpeedSessionRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedSession)
+            val playerSpeedCalculatorRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedCalculator)
+            val playerSpeedTheseus2LongPressRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedTheseus2LongPress)
+            val homeEarlyLoadListenerRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.homeRecommendEarlyLoadListener)
+            val legacyStoryDanmakuBindRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.legacyStoryDanmakuBind)
+            val aiPlaylistDirectorRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.aiPlaylistDirector)
+            val detailRelateGameComponentRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.detailRelateGameComponent)
+            val followUpRecommendBodiesRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.followUpRecommendBodies.orEmpty())
             val systemEnvInstaller = SystemEnvironmentFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, false),
                 cachedPoints = { systemEnvPointsRef.get() }
@@ -3033,14 +3050,19 @@ class HookEntry : XposedModule() {
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_OUTPUT_BUDGET),
                 timeoutMs = prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_TIMEOUT_MS),
-                cachedClasses = { sponsorClassesRef.get() }
+                cachedClasses = { sponsorClassesRef.get() },
+                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
             )
             featureInstallCoordinator.installAll(
                 com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.PrivacyFeatureRuntime(
                     attachedContext,
                     prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false),
                     prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
-                    prefs.getBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, false)
+                    prefs.getBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, false),
+                    kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                    privacyIgnetHttp = hostAdaptResult?.privacyIgnetHttp,
+                    privacyKNeuron = hostAdaptResult?.privacyKNeuron,
+                    guestPlayerCore = hostAdaptResult?.guestPlayerCore
                 ).installers()
             )
             // 判定结果硬盘缓存：宿主私有 files/bil_semantic/<面>.bin。启动时先在后台删掉未启用面的文件，
@@ -3079,15 +3101,15 @@ class HookEntry : XposedModule() {
                 null
             }
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    PausedAdFeatureInstaller(
-                        enabled = prefs.getBoolean(PREF_ENABLED, true),
-                        points = hostAdaptResult?.pause,
-                        hostVersionCode = startupCache.identity.versionCode
-                    )
-                )
+            val pausedAdInstaller = PausedAdFeatureInstaller(
+                enabled = prefs.getBoolean(PREF_ENABLED, true),
+                points = hostAdaptResult?.pause,
+                hostVersionCode = startupCache.identity.versionCode,
+                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() },
+                pointsProvider = { pausedPointsRef.get() }
             )
+            featureInstallCoordinator.installAll(listOf(pausedAdInstaller))
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3097,36 +3119,34 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    DetailAppPromotionFeatureInstaller(
-                        enabled = prefs.getBoolean(
-                            FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
-                            false
-                        ),
-                        relateAdEnabled = prefs.getBoolean(
-                            FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
-                            false
-                        ) || (
-                            prefs.getBoolean(
-                                FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
-                                false
-                            ) && prefs.getBoolean(
-                                FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
-                                false
-                            )
-                        )
+            val detailAppPromotionInstaller = DetailAppPromotionFeatureInstaller(
+                enabled = prefs.getBoolean(
+                    FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+                    false
+                ),
+                relateAdEnabled = prefs.getBoolean(
+                    FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
+                    false
+                ) || (
+                    prefs.getBoolean(
+                        FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED,
+                        false
+                    ) && prefs.getBoolean(
+                        FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED,
+                        false
                     )
-                )
+                ),
+                cachedRelateGameComponent = hostAdaptResult?.detailRelateGameComponent,
+                cachedRelateGameComponentProvider = { detailRelateGameComponentRef.get() }
             )
+            featureInstallCoordinator.installAll(listOf(detailAppPromotionInstaller))
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    FollowUpRecommendFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, false)
-                    )
-                )
+            val followUpRecommendInstaller = FollowUpRecommendFeatureInstaller(
+                enabled = prefs.getBoolean(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, false),
+                cachedBodies = hostAdaptResult?.followUpRecommendBodies.orEmpty(),
+                cachedBodiesProvider = { followUpRecommendBodiesRef.get() }
             )
+            featureInstallCoordinator.installAll(listOf(followUpRecommendInstaller))
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3209,7 +3229,8 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
                             false
                         ),
-                        points = hostAdaptResult?.homeTopBar
+                        points = hostAdaptResult?.homeTopBar,
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     ),
                     HostTouchGlowFeatureInstaller(
                         enabled = (!prefs.getBoolean(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, false) &&
@@ -3257,14 +3278,12 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    BlockUpdateFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
-                        point = hostAdaptResult?.blockUpdate
-                    )
-                )
+            val blockUpdateInstaller = BlockUpdateFeatureInstaller(
+                enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
+                point = hostAdaptResult?.blockUpdate,
+                pointProvider = { blockUpdatePointRef.get() }
             )
+            featureInstallCoordinator.installAll(listOf(blockUpdateInstaller))
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3283,7 +3302,8 @@ class HookEntry : XposedModule() {
                                 FeaturePreferences.COMPONENT_POOL_BLOCKED_RULES,
                                 ""
                             ).orEmpty()
-                        )
+                        ),
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     )
                 )
             )
@@ -3350,7 +3370,8 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_RULES,
                             SemanticSurface.DYNAMIC
                         ),
-                        semanticLogDir = semanticLogDir
+                        semanticLogDir = semanticLogDir,
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     ),
                     searchHomeInstaller,
                     SearchPurifyFeatureInstaller(
@@ -3373,7 +3394,8 @@ class HookEntry : XposedModule() {
                         rawAuthorRules = prefs.getString(
                             FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES,
                             ""
-                        ).orEmpty()
+                        ).orEmpty(),
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     )
                 )
             )
@@ -3522,6 +3544,7 @@ class HookEntry : XposedModule() {
                 )
             )
 
+            lateinit var homeTabFilterInstaller: HomeTabFilterFeatureInstaller
             featureInstallCoordinator.installAll(
                 listOf(
                     HomeTabFilterFeatureInstaller(
@@ -3534,8 +3557,9 @@ class HookEntry : XposedModule() {
                             ""
                         ).orEmpty(),
                         points = hostAdaptResult?.homeTabs,
-                        centering = homeTopTabCentering
-                    ),
+                        centering = homeTopTabCentering,
+                        pointsProvider = { homeTabsPointsRef.get() }
+                    ).also { homeTabFilterInstaller = it },
                     HomeComponentFilterFeatureInstaller(
                         rules = prefs.getString(
                             FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES,
@@ -3561,6 +3585,7 @@ class HookEntry : XposedModule() {
                     bottomBarFxInstaller,
                     *HostVideoCardStyleFeatureInstaller.shared(
                         cardSurfaces = hostAdaptResult?.pageBoundaries?.cardSurfaces.orEmpty(),
+                        followFeedPoints = hostAdaptResult?.followFeedStyle,
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
                         radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
@@ -3640,15 +3665,18 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    StoryActionIconsFeatureInstaller(
-                        hidden = StoryActionIcon.entries.filterTo(linkedSetOf()) { icon ->
-                            prefs.getBoolean(icon.preferenceKey, false)
-                        }
+            val storyActionIconsInstaller = StoryActionIconsFeatureInstaller(
+                hidden = StoryActionIcon.entries.filterTo(linkedSetOf()) { icon ->
+                    prefs.getBoolean(icon.preferenceKey, false)
+                },
+                legacyResolver = {
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess.resolve(
+                        it,
+                        cachedBindMethod = legacyStoryDanmakuBindRef.get()
                     )
-                )
+                }
             )
+            featureInstallCoordinator.installAll(listOf(storyActionIconsInstaller))
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3669,7 +3697,8 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
                             false
                         ),
-                        points = hostAdaptResult?.playerInteractiveOverlays
+                        points = hostAdaptResult?.playerInteractiveOverlays,
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     ),
                     endPageInstaller,
                     popupInstaller
@@ -3680,7 +3709,8 @@ class HookEntry : XposedModule() {
                 listOf(
                     DetailModulePurifyFeatureInstaller(
                         enabledKeys = DetailModulePurifyPolicy.preferenceKeys
-                            .filterTo(linkedSetOf()) { prefs.getBoolean(it, false) }
+                            .filterTo(linkedSetOf()) { prefs.getBoolean(it, false) },
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     ),
                     // 同一个「详细页组件」面板，但这些项在 View 层，所以是独立安装器。
                     DetailViewPurifyFeatureInstaller(
@@ -3697,30 +3727,44 @@ class HookEntry : XposedModule() {
                         // 默认关的过滤；这一层是 GamePromotion 那 10+ 条渲染路由的协议层总闸。
                         hideVideoMentions = prefs.getBoolean(PREF_GAMECARD_ENABLED, true),
                         // 好物商品卡同理：协议层总闸，渲染层那条 MerchandiseComponent 保留作兜底。
-                        hideMerchandise = prefs.getBoolean(PREF_MERCH_ENABLED, true)
-                    ),
+                        hideMerchandise = prefs.getBoolean(PREF_MERCH_ENABLED, true),
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
+                    )
+                )
+            )
+            val detailSpecialTagMapperRef = java.util.concurrent.atomic.AtomicReference(
+                hostAdaptResult?.detailSpecialTagMapper
+            )
+            val detailPresentationInstaller = DetailUnitedPresentationPurifyFeatureInstaller(
+                hideHotSearchBadge = prefs.getBoolean(
+                    FeaturePreferences.REMOVE_DETAIL_HOT_BANNER,
+                    false
+                ),
+                hideSpecialTopicTags = prefs.getBoolean(
+                    FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS,
+                    false
+                ),
+                cachedSpecialTagMapperProvider = { detailSpecialTagMapperRef.get() }
+            )
+            // 与上面的 United 模块净化挂同一对 ViewMoss 方法，但只改 ecode/ecode_config
+            // 与相关推荐卡，两者互不依赖、各自降级；强力模式只在总开关开着时有意义。
+            val aiDeclaredVideoInstaller = AiDeclaredVideoFeatureInstaller(
+                enabled = prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, false),
+                strongMode = prefs.getBoolean(
+                    FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE,
+                    false
+                ),
+                precheck = aiDeclaredPrecheckEffective(prefs),
+                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                aiPlaylistDirector = hostAdaptResult?.aiPlaylistDirector,
+                aiPlaylistDirectorProvider = { aiPlaylistDirectorRef.get() }
+            )
+            featureInstallCoordinator.installAll(
+                listOf(
                     // United 详情页实际消费 viewunite 的渲染模型；复用既有两项开关，
                     // 不让旧 view.v1 路径的“已安装”冒充当前页面已经生效。
-                    DetailUnitedPresentationPurifyFeatureInstaller(
-                        hideHotSearchBadge = prefs.getBoolean(
-                            FeaturePreferences.REMOVE_DETAIL_HOT_BANNER,
-                            false
-                        ),
-                        hideSpecialTopicTags = prefs.getBoolean(
-                            FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS,
-                            false
-                        )
-                    ),
-                    // 与上面的 United 模块净化挂同一对 ViewMoss 方法，但只改 ecode/ecode_config
-                    // 与相关推荐卡，两者互不依赖、各自降级；强力模式只在总开关开着时有意义。
-                    AiDeclaredVideoFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, false),
-                        strongMode = prefs.getBoolean(
-                            FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_STRONG_MODE,
-                            false
-                        ),
-                        precheck = aiDeclaredPrecheckEffective(prefs)
-                    )
+                    detailPresentationInstaller,
+                    aiDeclaredVideoInstaller
                 )
             )
 
@@ -3890,6 +3934,11 @@ class HookEntry : XposedModule() {
                 )
             )
 
+            val commentReplyOwnersRef = java.util.concurrent.atomic.AtomicReference(
+                hostAdaptResult?.commentReplyButtonOwners.orEmpty()
+            )
+            lateinit var commentReplyButtonInstaller: CommentReplyButtonFeatureInstaller
+            lateinit var commentPurifyInstaller: CommentPurifyFeatureInstaller
             featureInstallCoordinator.installAll(
                 listOf(
                     CommentSectionFeatureInstaller(
@@ -3900,8 +3949,9 @@ class HookEntry : XposedModule() {
                         points = hostAdaptResult?.commentSection
                     ),
                     CommentReplyButtonFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, false)
-                    ),
+                        enabled = prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, false),
+                        cachedNativeOwnersProvider = { commentReplyOwnersRef.get() }
+                    ).also { commentReplyButtonInstaller = it },
                     CommentPurifyFeatureInstaller(
                         removeSearchLinks = prefs.getBoolean(
                             FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
@@ -3932,8 +3982,10 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.commentPurify,
-                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
-                    )
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                        pointsProvider = { commentPurifyPointsRef.get() },
+                        kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() }
+                    ).also { commentPurifyInstaller = it }
                 )
             )
 
@@ -4024,7 +4076,8 @@ class HookEntry : XposedModule() {
                             batchSize = DanmakuPurifyFeatureInstaller.SEMANTIC_BATCH_SIZE,
                             timeoutMs = DanmakuPurifyFeatureInstaller.SEMANTIC_TIMEOUT_MS
                         ),
-                        semanticLogDir = semanticLogDir
+                        semanticLogDir = semanticLogDir,
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     ),
                     LiveRoomWidgetFeatureInstaller(
                         blockRoomSwitch = prefs.getBoolean(
@@ -4039,13 +4092,40 @@ class HookEntry : XposedModule() {
                 )
             )
 
+            val weChatShareInstaller = WeChatShareCompatFeatureInstaller(
+                enabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
+                cachedClasses = hostAdaptResult?.weChatShare,
+                hostVersionCode = { startupCache.identity.versionCode }
+            )
+            val playerSpeedInstaller = PlayerSpeedFeatureInstaller(
+                disableLongPress = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
+                longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
+                defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
+                speedMenuSpec = prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "").orEmpty(),
+                cachedMenuPoints = hostAdaptResult?.playerSpeedMenu,
+                cachedSessionClasses = hostAdaptResult?.playerSpeedSession,
+                cachedCalculatorPoint = hostAdaptResult?.playerSpeedCalculator,
+                hostVersionCode = startupCache.identity.versionCode,
+                cachedMenuPointsProvider = { playerSpeedMenuRef.get() },
+                cachedSessionClassesProvider = { playerSpeedSessionRef.get() },
+                cachedCalculatorPointProvider = { playerSpeedCalculatorRef.get() },
+                cachedTheseus2LongPress = hostAdaptResult?.playerSpeedTheseus2LongPress,
+                cachedTheseus2LongPressProvider = { playerSpeedTheseus2LongPressRef.get() }
+            )
+            val homeRecommendEarlyLoadInstaller = HomeRecommendEarlyLoadFeatureInstaller(
+                enabled = prefs.getBoolean(
+                    FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
+                    false
+                ),
+                cachedRelocatedListenerProvider = { homeEarlyLoadListenerRef.get() },
+                adaptationAttemptedInCache = startupCache.isDiagnosticAttempted(
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter.DIAGNOSTIC
+                )
+            )
+            lateinit var cloudKeyFreezeInstaller: CloudKeyFreezeFeatureInstaller
             featureInstallCoordinator.installAll(
                 listOf(
-                    WeChatShareCompatFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
-                        cachedClasses = hostAdaptResult?.weChatShare,
-                        hostVersionCode = { VersionAdapter.biliVersionCode(authorizationContext) }
-                    ),
+                    weChatShareInstaller,
                     SharePurifyFeatureInstaller(
                         purifyContent = prefs.getBoolean(
                             FeaturePreferences.PURIFY_SHARE_CONTENT,
@@ -4062,11 +4142,14 @@ class HookEntry : XposedModule() {
                             false
                         )
                     ),
-                    PlayerCapabilityFeatureInstaller(PlayerCapabilityOptions(
-                        background = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_BACKGROUND, false),
-                        smallWindow = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW, false),
-                        cast = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_CAST, false)
-                    )),
+                    PlayerCapabilityFeatureInstaller(
+                        PlayerCapabilityOptions(
+                            background = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_BACKGROUND, false),
+                            smallWindow = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW, false),
+                            cast = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_CAST, false)
+                        ),
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
+                    ),
                     PlayerAiSubtitleFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.PLAYER_AI_SUBTITLE, false)
                     ),
@@ -4074,16 +4157,7 @@ class HookEntry : XposedModule() {
                         enabled = prefs.getBoolean(FeaturePreferences.PLAYER_SUBTITLE_STYLE, false),
                         moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull()
                     ),
-                    PlayerSpeedFeatureInstaller(
-                        disableLongPress = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
-                        longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
-                        defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
-                        speedMenuSpec = prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "").orEmpty(),
-                        cachedMenuPoints = hostAdaptResult?.playerSpeedMenu,
-                        cachedSessionClasses = hostAdaptResult?.playerSpeedSession,
-                        cachedCalculatorPoint = hostAdaptResult?.playerSpeedCalculator,
-                        hostVersionCode = startupCache.identity.versionCode
-                    ),
+                    playerSpeedInstaller,
                     sponsorInstaller,
                     sponsorStoryInstaller,
                     insightInstaller,
@@ -4099,12 +4173,7 @@ class HookEntry : XposedModule() {
                             false
                         )
                     ),
-                    HomeRecommendEarlyLoadFeatureInstaller(
-                        enabled = prefs.getBoolean(
-                            FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
-                            false
-                        )
-                    ),
+                    homeRecommendEarlyLoadInstaller,
                     CloudKeyFreezeFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED,
@@ -4121,8 +4190,10 @@ class HookEntry : XposedModule() {
                         picked = prefs.getString(
                             FeaturePreferences.CLOUD_KEY_FREEZE_PICKED,
                             ""
-                        ).orEmpty()
-                    ),
+                        ).orEmpty(),
+                        cachedFeatureFlagContract = hostAdaptResult?.cloudKeyFreezeContract,
+                        cachedFeatureFlagContractProvider = { cloudKeyFreezeContractRef.get() }
+                    ).also { cloudKeyFreezeInstaller = it },
                     systemEnvInstaller,
                     HostPredictiveBackFeatureInstaller(
                         enabled = prefs.getBoolean(
@@ -4138,13 +4209,17 @@ class HookEntry : XposedModule() {
                         )
                     ),
                     BrandSplashSkipFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false)
+                        enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
+                        kntrExitClass = hostAdaptResult?.brandSplashKntrExit
                     ),
                     BrandSplashCustomFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false),
                         context = attachedContext,
                         renderEnabled = !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
-                        decoderPoint = hostAdaptResult?.brandSplashDecoder
+                        decoderPoint = hostAdaptResult?.brandSplashDecoder,
+                        kntrDrawClass = hostAdaptResult?.brandSplashKntrDraw,
+                        kntrExitClass = hostAdaptResult?.brandSplashKntrExit,
+                        kntrPageMethod = hostAdaptResult?.brandSplashKntrPage
                     ),
                     BvToAvFeatureInstaller(
                         enabled = prefs.getBoolean(
@@ -4902,18 +4977,29 @@ class HookEntry : XposedModule() {
                                 }
                         }
                     }
-                    // 拦截官方「复制简介全文」实现（9.0.0：UgcHeadlineService$b.c(String,
-                    // boolean)；8.90.2：UgcHeadlineService$c.w(boolean,String)——均写剪贴板
-                    // + toast）。官方 postDelayed 的长按检测（约 400ms）可能早于我们的
-                    // 500ms 判定触发，故 desc 触摸期间（descTouchedView 非空，DOWN 后未
-                    // UP/未滑动）无条件拦截官方复制，由我们的气泡接管。双版本分别注册，
-                    // 类/方法不存在时静默跳过（runCatching + findClass 静默）。
+                    // 拦截官方「复制简介全文」实现（UgcHeadlineService 内部类里仅有的剪贴板双参 void 方法：
+                    // (String, boolean) / (boolean, String)），结构化发现替代写死 $b#c / $c#w / $c#o。
                     runCatching {
-                        val owner = KavaMemberLookup.classOrNull(
+                        val headlineService = KavaMemberLookup.classOrNull(
                             biliClassLoader,
-                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$b"
-                        ) ?: return@runCatching
-                        hookExactMethod(owner, "c", classOf<String>(), classOf<Boolean>()) {
+                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService"
+                        )
+                        val innerOwners = (headlineService?.declaredClasses.orEmpty().map { it.name } + listOf(
+                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$b",
+                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c"
+                        )).distinct().mapNotNull { KavaMemberLookup.classOrNull(biliClassLoader, it) }
+                        val clipboardHooks = innerOwners.flatMap { owner ->
+                            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                                !java.lang.reflect.Modifier.isStatic(method.modifiers) &&
+                                    !method.isSynthetic && !method.isBridge &&
+                                    method.returnType == Void.TYPE && (
+                                    method.parameterTypes.contentEquals(arrayOf(classOf<String>(), classOf<Boolean>())) ||
+                                        method.parameterTypes.contentEquals(arrayOf(classOf<Boolean>(), classOf<String>()))
+                                    )
+                            }.takeIf { it.size in 1..2 }.orEmpty()
+                        }.distinctBy { it.toGenericString() }
+                        clipboardHooks.forEach { method ->
+                            hookExactMethod(method.declaringClass, method.name, *method.parameterTypes) {
                                 before {
                                     if (runtimeDescriptionFreeCopyEnabled &&
                                         (descTouchedView != null || isOfficialSuppressionActive())
@@ -4921,39 +5007,7 @@ class HookEntry : XposedModule() {
                                         this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
                                     }
                                 }
-                        }
-                    }
-                    runCatching {
-                        val owner = KavaMemberLookup.classOrNull(
-                            biliClassLoader,
-                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c"
-                        ) ?: return@runCatching
-                        hookExactMethod(owner, "w", classOf<Boolean>(), classOf<String>()) {
-                                before {
-                                    if (runtimeDescriptionFreeCopyEnabled &&
-                                        (descTouchedView != null || isOfficialSuppressionActive())
-                                    ) {
-                                        this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
-                                    }
-                                }
-                        }
-                    }
-                    // 8.96.0 过渡版：同一 UgcIntroductionComponent 接口的剪贴板实现
-                    // 漂移为 o(boolean, String)。离线方法体已确认直接调用 setPrimaryClip；
-                    // 仍使用精确类名和参数签名，不按 void/双参数宽泛匹配其它业务方法。
-                    runCatching {
-                        val owner = KavaMemberLookup.classOrNull(
-                            biliClassLoader,
-                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c"
-                        ) ?: return@runCatching
-                        hookExactMethod(owner, "o", classOf<Boolean>(), classOf<String>()) {
-                                before {
-                                    if (runtimeDescriptionFreeCopyEnabled &&
-                                        (descTouchedView != null || isOfficialSuppressionActive())
-                                    ) {
-                                        this.result = null
-                                    }
-                                }
+                            }
                         }
                     }
                     descHookOk = true
@@ -5284,6 +5338,14 @@ class HookEntry : XposedModule() {
                             }
 
                             override fun onAdaptFinished(ok: Boolean) {
+                                applyAdaptOutcome(ok, showToast = true)
+                            }
+
+                            override fun onSilentCacheReady(ok: Boolean) {
+                                applyAdaptOutcome(ok, showToast = false)
+                            }
+
+                            private fun applyAdaptOutcome(ok: Boolean, showToast: Boolean) {
                                 if (ok) {
                                     // 成功回调只读一次缓存，各 installer 共用同一份不可变结果；
                                     // requiresAdaptationRetry 与主线程二次状态检查仍按各自分支判断。
@@ -5293,6 +5355,20 @@ class HookEntry : XposedModule() {
                                         hookEnvironment.postToMain?.invoke {
                                             if (qualityInstaller.requiresAdaptationRetry)
                                                 featureInstallCoordinator.installAll(listOf(qualityInstaller))
+                                        }
+                                    }
+                                    if (detailPresentationInstaller.requiresAdaptationRetry) {
+                                        detailSpecialTagMapperRef.set(adapted?.detailSpecialTagMapper)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (detailPresentationInstaller.requiresAdaptationRetry)
+                                                featureInstallCoordinator.installAll(listOf(detailPresentationInstaller))
+                                        }
+                                    }
+                                    if (commentReplyButtonInstaller.requiresAdaptationRetry) {
+                                        commentReplyOwnersRef.set(adapted?.commentReplyButtonOwners.orEmpty())
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (commentReplyButtonInstaller.requiresAdaptationRetry)
+                                                featureInstallCoordinator.installAll(listOf(commentReplyButtonInstaller))
                                         }
                                     }
                                     if (popupInstaller.requiresAdaptationRetry) {
@@ -5333,6 +5409,7 @@ class HookEntry : XposedModule() {
                                     }
                                     if (searchHomeInstaller.requiresAdaptationRetry || endPageInstaller.requiresAdaptationRetry) {
                                         pagePointsRef.set(adapted?.pageBoundaries)
+                                        adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
                                         hookEnvironment.postToMain?.invoke {
                                             if (searchHomeInstaller.requiresAdaptationRetry)
                                                 featureInstallCoordinator.installAll(listOf(searchHomeInstaller))
@@ -5356,6 +5433,112 @@ class HookEntry : XposedModule() {
                                             }
                                         }
                                     }
+                                    if (pausedAdInstaller.requiresAdaptationRetry) {
+                                        adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
+                                        adapted?.pause?.let(pausedPointsRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (pausedAdInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(pausedAdInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (blockUpdateInstaller.requiresAdaptationRetry) {
+                                        adapted?.blockUpdate?.let(blockUpdatePointRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (blockUpdateInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(blockUpdateInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (weChatShareInstaller.requiresAdaptationRetry) {
+                                        adapted?.weChatShare?.let(weChatShareInstaller::updateAdaptedClasses)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (weChatShareInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(weChatShareInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (playerSpeedInstaller.requiresAdaptationRetry) {
+                                        adapted?.playerSpeedMenu?.let(playerSpeedMenuRef::set)
+                                        adapted?.playerSpeedSession?.let(playerSpeedSessionRef::set)
+                                        adapted?.playerSpeedCalculator?.let(playerSpeedCalculatorRef::set)
+                                        adapted?.playerSpeedTheseus2LongPress?.let(playerSpeedTheseus2LongPressRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (playerSpeedInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(playerSpeedInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (homeRecommendEarlyLoadInstaller.requiresAdaptationRetry) {
+                                        adapted?.homeRecommendEarlyLoadListener?.let(homeEarlyLoadListenerRef::set)
+                                        val postToMain = hookEnvironment.postToMain
+                                        if (postToMain != null) {
+                                            postToMain.invoke {
+                                                if (homeRecommendEarlyLoadInstaller.requiresAdaptationRetry) {
+                                                    featureInstallCoordinator.installAll(listOf(homeRecommendEarlyLoadInstaller))
+                                                }
+                                            }
+                                        } else {
+                                            homeRecommendEarlyLoadInstaller.finishAdaptationWait()
+                                        }
+                                    }
+                                    if (aiDeclaredVideoInstaller.requiresAdaptationRetry) {
+                                        adapted?.aiPlaylistDirector?.let(aiPlaylistDirectorRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (aiDeclaredVideoInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(aiDeclaredVideoInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (followUpRecommendInstaller.requiresAdaptationRetry) {
+                                        adapted?.followUpRecommendBodies?.let(followUpRecommendBodiesRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (followUpRecommendInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(followUpRecommendInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (detailAppPromotionInstaller.requiresAdaptationRetry) {
+                                        adapted?.detailRelateGameComponent?.let(detailRelateGameComponentRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (detailAppPromotionInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(detailAppPromotionInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (storyActionIconsInstaller.requiresAdaptationRetry) {
+                                        adapted?.legacyStoryDanmakuBind?.let(legacyStoryDanmakuBindRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (storyActionIconsInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(storyActionIconsInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (cloudKeyFreezeInstaller.requiresAdaptationRetry) {
+                                        adapted?.cloudKeyFreezeContract?.let(cloudKeyFreezeContractRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (cloudKeyFreezeInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(cloudKeyFreezeInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (homeTabFilterInstaller.requiresAdaptationRetry) {
+                                        adapted?.homeTabs?.let(homeTabsPointsRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (homeTabFilterInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(homeTabFilterInstaller))
+                                            }
+                                        }
+                                    }
+                                    if (commentPurifyInstaller.requiresAdaptationRetry) {
+                                        adapted?.commentPurify?.let(commentPurifyPointsRef::set)
+                                        adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (commentPurifyInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(commentPurifyInstaller))
+                                            }
+                                        }
+                                    }
                                     run {
                                         val chrome = adapted?.homeChrome.orEmpty()
                                         hookEnvironment.postToMain?.invoke {
@@ -5370,15 +5553,20 @@ class HookEntry : XposedModule() {
                                         }
                                     }
                                     retryFreeCopyHooksAfterAdapt()
-                                    VersionAdapter.showAdaptToast(
-                                        attachedContext,
-                                        InjectedUiLocale.messages(attachedContext).adaptSucceeded
-                                    )
+                                    if (showToast) {
+                                        VersionAdapter.showAdaptToast(
+                                            attachedContext,
+                                            InjectedUiLocale.messages(attachedContext).adaptSucceeded
+                                        )
+                                    }
                                 } else {
-                                    VersionAdapter.showAdaptToast(
-                                        attachedContext,
-                                        InjectedUiLocale.messages(attachedContext).adaptFailed
-                                    )
+                                    homeRecommendEarlyLoadInstaller.finishAdaptationWait()
+                                    if (showToast) {
+                                        VersionAdapter.showAdaptToast(
+                                            attachedContext,
+                                            InjectedUiLocale.messages(attachedContext).adaptFailed
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -5414,6 +5602,7 @@ class HookEntry : XposedModule() {
                         weChatShareEnabled = prefs.getBoolean(FeaturePreferences.WECHAT_SHARE_COMPAT, false),
                         blockUpdateEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                         commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false),
+                        homeRecommendEarlyLoadEnabled = prefs.getBoolean(FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD, false),
                         kmpGrpcWireEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false) ||
                             prefs.getBoolean(FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED, false) ||
                             prefs.getBoolean(FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED, false) ||
@@ -5424,10 +5613,64 @@ class HookEntry : XposedModule() {
                             prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS, false) ||
                             prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE, false) ||
                             prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_QOE, false) ||
-                            prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_OPERATIONS, false),
+                            prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_OPERATIONS, false) ||
+                            prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false) ||
+                            prefs.getBoolean(PREF_ENABLED, true) ||
+                            prefs.getBoolean(FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY, false) ||
+                            prefs.getBoolean(FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS, false) ||
+                            prefs.getBoolean(FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES, false) ||
+                            prefs.getBoolean(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_SEARCH_COMMERCIAL, false) ||
+                            prefs.getBoolean(FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, false) ||
+                            prefs.getBoolean(FeaturePreferences.AI_INSIGHT_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU, false) ||
+                            prefs.getBoolean(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_BACKGROUND, false) ||
+                            prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW, false) ||
+                            prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_CAST, false) ||
+                            prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS, false) ||
+                            prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false) ||
+                            DetailModulePurifyPolicy.preferenceKeys.any { prefs.getBoolean(it, false) } ||
+                            DetailUnitedModulePurifyPolicy.preferenceKeys.any { prefs.getBoolean(it, false) } ||
+                            prefs.getBoolean(PREF_GAMECARD_ENABLED, true) ||
+                            prefs.getBoolean(PREF_MERCH_ENABLED, true) ||
+                            prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, false) ||
+                            prefs.getBoolean(FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD, false),
+                        incognitoPrivacyEnabled = prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
+                        guestBrowsingEnabled = prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
+                        detailSpecialTagEnabled = prefs.getBoolean(FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS, false),
+                        commentReplyButtonEnabled = prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, false),
+                        cloudKeyFreezeEnabled = prefs.getBoolean(FeaturePreferences.CLOUD_KEY_FREEZE_ENABLED, false) ||
+                            prefs.getBoolean(FeaturePreferences.CLOUD_KEY_FREEZE_OBSERVE, false),
+                        commentQuickReplyEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY, false),
+                        pausedAdEnabled = prefs.getBoolean(PREF_ENABLED, true),
+                        brandSplashSkipEnabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
+                        aiDeclaredVideoEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, false),
+                        followUpRecommendEnabled = prefs.getBoolean(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, false),
+                        detailRelateGameEnabled = prefs.getBoolean(FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION, false) || (
+                            prefs.getBoolean(FeaturePreferences.VIDEO_RELATE_MATCHING_ENHANCEMENT_ENABLED, false) &&
+                                prefs.getBoolean(FeaturePreferences.VIDEO_RELATE_STRONG_MODE_ENABLED, false)
+                            ),
+                        storyDanmakuToggleHidden = prefs.getBoolean(StoryActionIcon.DANMAKU_TOGGLE.preferenceKey, false),
+                        playerSpeedLongPressEnabled = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false) ||
+                            com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.multiplier(
+                                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.effectiveLongPressPercent(
+                                    prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
+                                    prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0)
+                                )
+                            ) != null,
                         plan = adaptPlan
                     ) }
                 }.onFailure { throwable ->
+                    homeRecommendEarlyLoadInstaller.finishAdaptationWait()
                     logError(
                         "version_adapt_err",
                         "[BIL] 版本适配触发失败: $throwable"

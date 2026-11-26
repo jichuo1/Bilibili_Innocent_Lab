@@ -2,7 +2,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter.REPACKAGED_TOP_CONTENT
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -26,27 +25,28 @@ internal object HomeChromeComposeLocator {
         accepts(family, owner.name, method.parameterTypes.map { it.name })
     }.getOrDefault(false)
 
+    private val primitives = setOf("boolean", "byte", "short", "char", "int", "long", "float", "double", "void")
+
     internal fun accepts(family: String, owner: String, p: List<String>): Boolean {
-        fun model(name: String) = name !in setOf("java.lang.Object", "java.lang.String", MODIFIER, COMPOSER) &&
-            !name.startsWith("java.") && !name.startsWith("kotlin.") && !name.startsWith("androidx.") &&
-            name.contains('.') && !name.startsWith('[')
-        val repackagedTop = owner in HomeChromeAdapter.repackagedOwners("top_backdrop")
-        val repackagedBottom = owner in HomeChromeAdapter.repackagedOwners("bottom")
-        fun topModel(name: String) = if (repackagedTop) name == "rco0" else owner == TOP && name == "rco0" || model(name)
-        fun bottomModel(name: String, flat: String) = if (repackagedBottom) name == flat else model(name)
+        fun model(name: String) = name.isNotEmpty() && name !in primitives &&
+            name !in setOf("java.lang.Object", "java.lang.String", MODIFIER, COMPOSER) &&
+            !name.startsWith("java.") && !name.startsWith("kotlin.") && !name.startsWith("kotlinx.") &&
+            !name.startsWith("androidx.") && !name.startsWith("android.") &&
+            !name.startsWith('[') && !name.startsWith("dalvik.")
         fun ownerMatches() = HomeChromeAdapter.acceptsOwner(family, owner)
         return when (family) {
-            "top" -> owner == TOP && p.size == 12 && topModel(p[0]) &&
+            "top" -> (owner == TOP || HomeChromeAdapter.flattenedOwner(owner, allowNested = false)) &&
+                p.size == 12 && model(p[0]) &&
                 p.subList(1, 7) == listOf(MODIFIER, "float", "float", "float", "long", "long") &&
                 (p.subList(7, 12) == listOf("boolean", F1, F1, COMPOSER, "int") ||
                     p.subList(7, 12) == listOf(F1, F1, COMPOSER, "int", "int"))
-            "top_right_actions" -> ownerMatches() && p.size in 5..6 && topModel(p[0]) &&
+            "top_right_actions" -> ownerMatches() && '$' !in owner && p.size in 5..6 && model(p[0]) &&
                 p.subList(1, 4) == listOf(MODIFIER, F1, COMPOSER) && p.drop(4).all { it == "int" }
             "top_backdrop" -> ownerMatches() && '$' !in owner &&
-                p.size in 4..5 && topModel(p[0]) && p.subList(1, 3) == listOf(F1, COMPOSER) &&
+                p.size in 4..5 && model(p[0]) && p.subList(1, 3) == listOf(F1, COMPOSER) &&
                 p.drop(3).all { it == "int" }
             "top_foreground" -> ownerMatches() && '$' !in owner &&
-                p.size in 8..9 && topModel(p[0]) &&
+                p.size in 8..9 && model(p[0]) &&
                 p.subList(1, 7) == listOf("float", MODIFIER, "boolean", "float", F1, COMPOSER) &&
                 p.drop(7).all { it == "int" }
             "top_layout" -> ownerMatches() && p.size in 12..13 &&
@@ -55,13 +55,12 @@ internal object HomeChromeComposeLocator {
                 p[9] in setOf("androidx.compose.runtime.internal.ComposableLambda", "kotlin.jvm.functions.Function2") &&
                 p[10] == COMPOSER && p.drop(11).all { it == "int" }
             "bottom_item" -> ownerMatches() && '$' !in owner && p.size in 8..9 && p[0] == "int" &&
-                (model(p[1]) && p[2].startsWith(BOTTOM) ||
-                    owner == "${BOTTOM}a" && p[1] == "i1o0" && p[2] == "h8k") &&
+                model(p[1]) && (p[2].startsWith(BOTTOM) || HomeChromeAdapter.flattenedOwner(p[2], allowNested = false)) &&
                 p[3] == MODIFIER && p[4] == "boolean" && p[5] == "kotlin.jvm.functions.Function3" &&
                 p[6] == COMPOSER && p.drop(7).all { it == "int" }
             "bottom" -> ownerMatches() && '$' !in owner && p.size in 11..12 &&
                 p.take(5) == listOf(MODIFIER, "java.util.List", F1, F1, "kotlin.jvm.functions.Function4") &&
-                bottomModel(p[5], "dlu1") && p[6] == "boolean" && p[7] == F1 && bottomModel(p[8], "klu1") &&
+                model(p[5]) && p[6] == "boolean" && p[7] == F1 && model(p[8]) &&
                 p[9] == COMPOSER && p.drop(10).all { it == "int" }
             else -> false
         }
@@ -81,27 +80,32 @@ internal object HomeChromeComposeLocator {
 
     internal fun acceptsTopContent(owner: String, static: Boolean, result: String, p: List<String>, fields: List<String>): Boolean {
         if (!HomeChromeAdapter.acceptsOwner("top_content", owner)) return false
-        if (owner == REPACKAGED_TOP_CONTENT) {
-            // 9.19 widens the tabs capture to Function2. The second Function2 is the optional divider.
-            return !static && result == "java.lang.Object" && p == List(2) { "java.lang.Object" } &&
-                fields.containsAll(repackagedTopContentFields) && fields.count { it == F2 } == 2
-        }
         if (static) return result in setOf("void", "kotlin.Unit") && p == listOf(
             "androidx.compose.foundation.ScrollState", "float", "kotlin.jvm.functions.Function2", "float",
             "androidx.compose.runtime.State", "kotlin.jvm.functions.Function2", "kotlin.jvm.functions.Function3", "int",
             "androidx.compose.runtime.MutableIntState", COMPOSER, "int")
-        return (result == "java.lang.Object" && p == List(2) { "java.lang.Object" } ||
+        val legacyShape = (result == "java.lang.Object" && p == List(2) { "java.lang.Object" } ||
             result == "void" && p == listOf(COMPOSER, "int")) && fields.containsAll(topContentFields)
+        // 9.19 widens the tabs capture to Function2. The second Function2 is the optional divider.
+        val modernShape = result == "java.lang.Object" && p == List(2) { "java.lang.Object" } &&
+            fields.containsAll(repackagedTopContentFields) && fields.count { it == F2 } == 2
+        return legacyShape || modernShape
     }
 
     fun topContentAccepts(method: Method, instance: Any?, argument: (Int) -> Any? = { null }): Boolean {
         if (Modifier.isStatic(method.modifiers)) return topContentStaticValues(method.parameterTypes, argument)
         if (instance == null || !method.declaringClass.isInstance(instance)) return false
         val fields = Lookup.declaredFields(method.declaringClass, makeAccessible = true).filterNot { Modifier.isStatic(it.modifiers) }
-        val required = if (method.declaringClass.name == REPACKAGED_TOP_CONTENT) {
-            if (fields.singleOrNull { it.name == "b" && it.type.name == F2 }?.get(instance) == null) return false
-            repackagedTopContentFields
-        } else topContentFields
+        val typeNames = fields.map { it.type.name }
+        val modern = typeNames.containsAll(repackagedTopContentFields) && typeNames.count { it == F2 } == 2
+        val required = when {
+            modern -> {
+                if (fields.none { it.type.name == F2 && it.get(instance) != null }) return false
+                repackagedTopContentFields
+            }
+            typeNames.containsAll(topContentFields) -> topContentFields
+            else -> return false
+        }
         return required.all { type -> fields.any { it.type.name == type && it.get(instance) != null } }
     }
 

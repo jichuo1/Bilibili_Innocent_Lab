@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.annotation.SuppressLint
 import android.os.Looper
 import android.view.View
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isFinal
@@ -30,24 +31,58 @@ internal fun commentReplyBindingShape(types: List<String>): String? {
 }
 
 /** 只解析三套原生操作栏及 Compose 的独立回复分支；不依赖正文复制或脉络开关。 */
-internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) : FeatureInstaller {
+internal class CommentReplyButtonFeatureInstaller(
+    private val enabled: Boolean,
+    private val cachedNativeOwnersProvider: () -> Map<String, String> = { emptyMap() }
+) : FeatureInstaller {
     override val id = ID
     override val capabilityIds: List<String> get() = if (enabled) listOf(CAPABILITY) else emptyList()
+    private val installedFamilies = hashSetOf<String>()
+    private val familyResults = linkedMapOf<String, FeatureInstallResult>()
+    private var comment2Attempted = false
+    private var comment2Result: FeatureInstallResult? = null
+    private var composeAttempted = false
+    private var composeResult: FeatureInstallResult? = null
+    private var initialRun = false
+    private var retryConsumed = false
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!enabled) return FeatureInstallResult.Skipped("disabled")
-        if (environment.processName != TARGET_PACKAGE) return FeatureInstallResult.Skipped("non-main-process")
-        val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-classloader")
+        if (!enabled) {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("disabled")
+        }
+        if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("non-main-process")
+        }
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("missing-classloader")
+        }
         val coverage = CommentFamilyCoverage()
         val visibility = CommentReplyButtonVisibility(environment)
-        var installed = 0
-        installComment2(environment, visibility)?.let { result ->
-            coverage.record("comment2", result)
-            installed += (result as? FeatureInstallResult.Installed)?.hookCount ?: 0
+        if (!comment2Attempted) {
+            comment2Attempted = true
+            comment2Result = installComment2(environment, visibility)
         }
-        for ((family, packageName, relocatedOwner) in NATIVE_FAMILIES) {
-            val plans = nativePlans(loader, family, packageName, relocatedOwner)
-            if (plans.isEmpty()) {
+        comment2Result?.let { coverage.record("comment2", it) }
+
+        val plansByFamily = CommentReplyButtonAdapter.resolvePlans(loader, cachedNativeOwnersProvider())
+        for (family in CommentReplyButtonAdapter.FAMILIES) {
+            if (family in installedFamilies) {
+                familyResults[family]?.let { coverage.record(family, it) }
+                continue
+            }
+            val plans = plansByFamily[family].orEmpty()
+            if (plans.isEmpty() ||
+                plans.map { it.binding }.distinct().size != 1 ||
+                plans.map { it.method.declaringClass }.distinct().size != 1
+            ) {
+                familyResults[family] = FeatureInstallResult.Skipped("missing-$family-structure")
                 coverage.record(family, false)
                 continue
             }
@@ -83,15 +118,30 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
                     environment.logError("comment_reply_button_$family", "[BIL] 评论回复按钮原生 Hook 注册失败($family): $throwable")
                 }
             }
-            val result = if (hooks == 0) FeatureInstallResult.Skipped("registration-failed")
+            val familyResult = if (hooks == 0) FeatureInstallResult.Skipped("registration-failed")
                 else FeatureInstallResult.Installed(hooks, hooks == plans.size)
-            coverage.record(family, result)
-            installed += hooks
+            familyResults[family] = familyResult
+            if (hooks == plans.size && hooks > 0) installedFamilies += family
+            coverage.record(family, familyResult)
         }
-        CommentReplyButtonCompose.install(environment)?.let { result ->
-            coverage.record("compose", result)
-            installed += (result as? FeatureInstallResult.Installed)?.hookCount ?: 0
+        if (!composeAttempted) {
+            composeAttempted = true
+            composeResult = CommentReplyButtonCompose.install(environment)
         }
+        composeResult?.let { coverage.record("compose", it) }
+
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialRun = true
+            requiresAdaptationRetry = !retryConsumed &&
+                installedFamilies.size < CommentReplyButtonAdapter.FAMILIES.size &&
+                CommentReplyButtonAdapter.applicable(loader)
+        }
+
+        val installed = (listOfNotNull(comment2Result, composeResult) + familyResults.values)
+            .sumOf { (it as? FeatureInstallResult.Installed)?.hookCount ?: 0 }
         val result = if (installed == 0) FeatureInstallResult.Skipped("missing-reply-button-structure")
             else FeatureInstallResult.Installed(installed, coverage.isComplete())
         environment.reportStatus("comment_reply_button_layers", coverage.describe())
@@ -102,9 +152,6 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
         }
         return result
     }
-
-    private data class NativePlan(val method: Method, val index: Int, val binding: Class<*>)
-    private data class NativeFamily(val name: String, val packageName: String, val relocatedOwner: String)
 
     private fun installComment2(
         environment: HookEnvironment,
@@ -130,42 +177,6 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
         }
         return if (installed == 0) FeatureInstallResult.Skipped("missing-comment2-reply-constructor")
             else FeatureInstallResult.Installed(installed, installed == constructors.size)
-    }
-
-    private fun nativePlans(loader: ClassLoader, family: String, packageName: String, relocatedOwner: String): List<NativePlan> {
-        val bindingShapes = hashMapOf<Class<*>, String?>()
-        val ownerNames = ('a'..'z').map { "$packageName.$it" } + relocatedOwner
-        val candidates = ownerNames.mapNotNull { KavaMemberLookup.classOrNull(loader, it) }.flatMap { owner ->
-            KavaMemberLookup.declaredMethods(owner).mapNotNull { method ->
-                if (method.isBridge || method.isSynthetic || method.returnType != Void.TYPE ||
-                    method.parameterCount !in 2..5 || method.parameterTypes[0].name != COMMENT_ITEM
-                ) return@mapNotNull null
-                val indexes = method.parameterTypes.indices.filter { index ->
-                    val type = method.parameterTypes[index]
-                    val shape = if (bindingShapes.containsKey(type)) bindingShapes[type] else {
-                        bindingShape(type).also { bindingShapes[type] = it }
-                    }
-                    shape == family
-                }
-                if (indexes.size != 1) null else NativePlan(method, indexes.single(), method.parameterTypes[indexes.single()])
-            }
-        }
-        // 不能把同包另一组件或拆分后的未知实现悄悄当成同一个操作栏。
-        return candidates.takeIf { plans ->
-            plans.map { it.binding }.distinct().size == 1 &&
-                plans.map { it.method.declaringClass }.distinct().size == 1
-        }.orEmpty()
-    }
-
-    private fun bindingShape(type: Class<*>): String? {
-        if (type.isPrimitive || type.isArray || type.isInterface) return null
-        if (type.interfaces.none { it.name == "androidx.viewbinding.ViewBinding" }) return null
-        if (KavaMemberLookup.declaredMethods(type).none {
-                it.name == "getRoot" && it.parameterCount == 0 && it.returnType isSubclassOf classOf<View>()
-            }) return null
-        val fields = KavaMemberLookup.declaredFields(type).filterNot { it.isStatic }
-        if (fields.any { !it.isFinal }) return null
-        return commentReplyBindingShape(fields.map { it.type.name })
     }
 
     private fun viewFields(type: Class<*>): List<Field> =
@@ -197,13 +208,6 @@ internal class CommentReplyButtonFeatureInstaller(private val enabled: Boolean) 
         const val ID = "comment_reply_button"
         const val CAPABILITY = "comments_reply_button_removed"
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
-        private const val COMMENT_ITEM = "com.bilibili.app.comment3.data.model.CommentItem"
         private const val COMMENT2_REPLY = "com.bilibili.app.comm.comment2.phoenix.view.CommentReplyWidget"
-        // 9.19.0 (9190200/9190400): the binding layouts still use reply_button; their renderers move to the root package.
-        private val NATIVE_FAMILIES = listOf(
-            NativeFamily("legacy", "com.bilibili.app.comment3.ui.holder.handle", "dut"),
-            NativeFamily("next", "com.bilibili.app.comment3.ui.nextholder.handle", "bxu"),
-            NativeFamily("exp3", "com.bilibili.app.comment3.ui.nextholderexp3.handle", "hzu")
-        )
     }
 }

@@ -119,7 +119,47 @@ internal enum class DexAssistQuery {
     /** Compose comment more-menu rows across bubble, grouped sheet/panel and legacy layouts. */
     COMMENT_COMPOSE_MORE_MENU,
     /** KMP GrpcEngine wire dispatch entry taking method descriptor, payload bytes and byte handler. */
-    KMP_GRPC_WIRE_ENGINE
+    KMP_GRPC_WIRE_ENGINE,
+    /** KMP brand splash BoxWithConstraints draw lambda capturing model and bitmap resources. */
+    BRAND_SPLASH_KNTR_DRAW,
+    /** TypedContract FeatureFlagContract subclass discovered via getWithDefault(String, Z)Z. */
+    CLOUD_KEY_FREEZE_CONTRACT,
+    /** KMP ighttp request boundary when obfuscated/renamed outside original package. */
+    PRIVACY_IGNET_HTTP,
+    /** KMP Neuron telemetry producer owner when obfuscated/relocated. */
+    PRIVACY_KNEURON,
+    /** 9.15+ normal video auto-quality preference switch method. */
+    NORMAL_QUALITY_AUTO_SWITCH,
+    /** 9.15+ detail SpecialTag to presentation UI model static mapper. */
+    DETAIL_SPECIAL_TAG_MAPPER,
+    /** 9.19+ comment native reply-button holder classes calling into ReplyButton/holder bind. */
+    COMMENT_REPLY_BUTTON_NATIVE,
+    /** Concrete obfuscated IPlayerCoreService implementation binding MediaResource/MediaItemParams. */
+    GUEST_PLAYER_CORE_SERVICE,
+    /** Relocated or renamed home recommend Pegasus load-more listener class. */
+    HOME_RECOMMEND_EARLY_LOAD_LISTENER,
+    /** Comment PublishDialogIntent FlowCollector invoked on quick-reply suppression boundary. */
+    COMMENT_QUICK_REPLY_COLLECTOR,
+    /** PausedPageService countdown coroutine SuspendLambda disambiguated via KPauseBar/label/this$0 or IVDPausedPage#getCountDownView. */
+    PAUSED_AD_COUNTDOWN,
+    /** 16-parameter AdPausedPageApi request entry returning Object. */
+    PAUSED_AD_REQUEST_API,
+    /** KMP brand splash SuspendLambda exit coroutine holding $onExit / $currentOnShow. */
+    BRAND_SPLASH_KNTR_EXIT,
+    /** KMP brand splash root Composable page function accepting BrandSplashModel. */
+    BRAND_SPLASH_KNTR_PAGE,
+    /** HomeFragmentV2 tab resource class resolved via List<T> -> List builder method facts. */
+    HOME_TAB_RESOURCE,
+    /** PlaylistDirectorSerialOperationsService$run$2 director class verified by switchToNext/hasNext/service/scope. */
+    AI_PLAYLIST_DIRECTOR,
+    /** RecommendUpRepository$requestRecommendUp$1 suspend lambda bodies across theseus/theseus2 families. */
+    FOLLOW_UP_RECOMMEND_BODY,
+    /** RelateGameComponent subclass discovered with its Gemini UI base component by ViewBinding/Continuation ABI. */
+    DETAIL_RELATE_GAME_COMPONENT,
+    /** StoryAbsController#bind(player, Int) method disambiguated via mDanmakuToggle field/accessor facts. */
+    LEGACY_STORY_DANMAKU_BIND,
+    /** theseus2 TripleSpeedService$beginTemporarySpeed$1 launch + float start port pair. */
+    PLAYER_SPEED_THESEUS2_LONG_PRESS
 }
 
 internal sealed interface DexAssistResult {
@@ -203,7 +243,7 @@ internal object DexAssistCandidateSelector {
             .values
             .mapNotNull { ownerMethods ->
                 val owner = ownerMethods.firstOrNull()?.declaringClass ?: return@mapNotNull null
-                val interfaceSignatures = owner.interfaces.flatMap { contract ->
+                val interfaceSignatures = inheritedInterfaces(owner).flatMap { contract ->
                     contract.declaredMethods.map { method ->
                         method.name to method.parameterTypes.toList()
                     }
@@ -214,5 +254,22 @@ internal object DexAssistCandidateSelector {
                 leaves.singleOrNull() ?: ownerMethods.singleOrNull()
             }
         return selectedByOwner.singleOrNull()
+    }
+
+    private fun inheritedInterfaces(root: Class<*>): Set<Class<*>> {
+        val visited = linkedSetOf<Class<*>>()
+        val queue = ArrayDeque<Class<*>>()
+        var current: Class<*>? = root
+        while (current != null) {
+            current.interfaces.forEach(queue::addLast)
+            current = current.superclass
+        }
+        while (queue.isNotEmpty()) {
+            val iface = queue.removeFirst()
+            if (visited.add(iface)) {
+                iface.interfaces.forEach(queue::addLast)
+            }
+        }
+        return visited
     }
 }

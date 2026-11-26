@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.os.Handler
 import android.os.Looper
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AiPlaylistDirectorAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
@@ -9,6 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.ref.WeakReference
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 
 /**
  * 连播（合集 / 稍后再看 / 收藏夹）里跳过 AI 声明视频，而不是整页离开播放列表。
@@ -39,6 +41,7 @@ internal interface AiPlaylistRoute {
 }
 
 internal class AiPlaylistSkipper private constructor(
+    val directorClass: Class<*>,
     private val switchToNext: Method,
     private val hasNext: Method,
     private val serviceField: Field,
@@ -142,9 +145,17 @@ internal class AiPlaylistSkipper private constructor(
         }
 
         /** 任一环节缺失返回 null：连播退回详情页那条行为，其余不受影响。 */
-        fun resolve(loader: ClassLoader): AiPlaylistSkipper? = runCatching {
+        fun resolve(loader: ClassLoader, cachedDirectorClass: String? = null): AiPlaylistSkipper? {
+            resolveDirector(loader, DIRECTOR_CLASS)?.let { return it }
+            val cached = cachedDirectorClass?.takeIf(AiPlaylistDirectorAdapter::allowedOwnerName) ?: return null
+            return resolveDirector(loader, cached)
+        }
+
+        internal fun resolveDirector(loader: ClassLoader, directorClassName: String): AiPlaylistSkipper? = runCatching {
             fun cls(name: String) = KavaMemberLookup.classOrNull(loader, name)
-            val director = cls(DIRECTOR_CLASS) ?: return null
+            val director = cls(directorClassName)?.takeIf {
+                !it.isInterface && !Modifier.isAbstract(it.modifiers) && it.declaredConstructors.isNotEmpty()
+            } ?: return null
             val service = cls(SERVICE_CLASS) ?: return null
             val scope = cls(SCOPE_CLASS) ?: return null
             val pojo = cls(POJO_CLASS) ?: return null
@@ -155,6 +166,7 @@ internal class AiPlaylistSkipper private constructor(
                     !it.isStatic && it.type == type
                 }.singleOrNull()
             AiPlaylistSkipper(
+                directorClass = director,
                 switchToNext = KavaMemberLookup.methodOrNull(director, "switchToNext", classOf<Boolean>())
                     ?.takeIf { it.returnType == Void.TYPE } ?: return null,
                 hasNext = KavaMemberLookup.methodOrNull(director, "hasNext", classOf<Boolean>())

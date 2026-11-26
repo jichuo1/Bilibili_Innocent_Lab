@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailSpecialTagAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -22,10 +24,15 @@ import java.util.concurrent.ConcurrentHashMap
  */
 internal class DetailUnitedPresentationPurifyFeatureInstaller(
     private val hideHotSearchBadge: Boolean,
-    private val hideSpecialTopicTags: Boolean
+    private val hideSpecialTopicTags: Boolean,
+    private val cachedSpecialTagMapperProvider: () -> VersionAdapter.HookPoint? = { null }
 ) : FeatureInstaller {
 
     override val id: String = DetailUnitedPresentationPurifyPolicy.ID
+    private var headlineInstalled = false
+    private var specialTagInstalled = false
+    val requiresAdaptationRetry: Boolean
+        get() = hideSpecialTopicTags && !specialTagInstalled
 
     override val capabilityIds: List<String>
         get() = buildList {
@@ -50,28 +57,32 @@ internal class DetailUnitedPresentationPurifyFeatureInstaller(
 
         if (hideHotSearchBadge) {
             expected += 1
-            val plan = HeadlineBadgeHookPlan.resolve(loader)
-            val registered = plan != null && registerHeadlineBadgeHook(environment, plan)
-            environment.reportCapabilityCoverage(
-                DetailUnitedPresentationPurifyPolicy.HOT_BADGE_CAPABILITY_ID,
-                ready = plan != null,
-                installedPaths = if (registered) 1 else 0,
-                expectedPaths = 1
-            )
-            if (registered) installed += 1 else failures += "headline"
+            if (!headlineInstalled) {
+                val plan = HeadlineBadgeHookPlan.resolve(loader)
+                headlineInstalled = plan != null && registerHeadlineBadgeHook(environment, plan)
+                environment.reportCapabilityCoverage(
+                    DetailUnitedPresentationPurifyPolicy.HOT_BADGE_CAPABILITY_ID,
+                    ready = plan != null,
+                    installedPaths = if (headlineInstalled) 1 else 0,
+                    expectedPaths = 1
+                )
+            }
+            if (headlineInstalled) installed += 1 else failures += "headline"
         }
 
         if (hideSpecialTopicTags) {
             expected += 1
-            val plan = SpecialTopicTagHookPlan.resolve(loader)
-            val registered = plan != null && registerSpecialTopicHook(environment, plan)
-            environment.reportCapabilityCoverage(
-                DetailUnitedPresentationPurifyPolicy.SPECIAL_TOPIC_CAPABILITY_ID,
-                ready = plan != null,
-                installedPaths = if (registered) 1 else 0,
-                expectedPaths = 1
-            )
-            if (registered) installed += 1 else failures += "special-tag"
+            if (!specialTagInstalled) {
+                val plan = DetailSpecialTagAdapter.resolve(loader, cachedSpecialTagMapperProvider())
+                specialTagInstalled = plan != null && registerSpecialTopicHook(environment, plan)
+                environment.reportCapabilityCoverage(
+                    DetailUnitedPresentationPurifyPolicy.SPECIAL_TOPIC_CAPABILITY_ID,
+                    ready = plan != null,
+                    installedPaths = if (specialTagInstalled) 1 else 0,
+                    expectedPaths = 1
+                )
+            }
+            if (specialTagInstalled) installed += 1 else failures += "special-tag"
         }
 
         val status = if (installed == expected) {
@@ -143,7 +154,7 @@ internal class DetailUnitedPresentationPurifyFeatureInstaller(
 
     private fun registerSpecialTopicHook(
         environment: HookEnvironment,
-        plan: SpecialTopicTagHookPlan
+        plan: DetailSpecialTagAdapter.Plan
     ): Boolean = runCatching {
         environment.registrar.exact(
             "detail_united_presentation.special_topic",
@@ -375,41 +386,6 @@ private data class HeadlineBadgeHookPlan(
                     HeadlineBadgeHookPlan(method, cleaner)
                 }
             }.distinctBy { it.method.toGenericString() }.singleOrNull()
-        }.getOrNull()
-    }
-}
-
-private data class SpecialTopicTagHookPlan(
-    val method: Method,
-    val cleaner: SpecialTopicTagsModelCleaner
-) {
-    companion object {
-        /**
-         * 8.84.0 / 8.89.0 的 `tags.f#c(SpecialTag)` 与 9.11.0 的
-         * `tags.j#a(SpecialTag)` 都已核对为 TagsData 映射。9.1.0 没有这两个形状，9.7.0
-         * 同名 `j` 是另一种 ViewTagInfo 模型；所有不匹配形状一律降级，不能用泛
-         * RecyclerView/文字规则冒充兼容。
-         */
-        fun resolve(classLoader: ClassLoader): SpecialTopicTagHookPlan? = runCatching {
-            val specialTag = KavaMemberLookup.classOrNull(
-                classLoader,
-                DetailUnitedPresentationPurifyPolicy.SPECIAL_TAG_CLASS
-            ) ?: return null
-            val candidates = DetailUnitedPresentationPurifyPolicy.specialTagMapperClasses.flatMap { className ->
-                val mapper = KavaMemberLookup.classOrNull(classLoader, className)
-                    ?: return@flatMap emptyList()
-                KavaMemberLookup.declaredMethods(mapper, makeAccessible = true) { method ->
-                    method.isStatic && method.parameterTypes.contentEquals(arrayOf(specialTag)) &&
-                        // 9.19.0: cg1.b reads SpecialTag's cells/refresh and constructs ose2.
-                        (className != DetailUnitedPresentationPurifyPolicy.RELOCATED_SPECIAL_TAG_MAPPER ||
-                            (method.name == "b" && method.returnType.name == "ose2" && !method.isSynthetic))
-                }.mapNotNull { method ->
-                    SpecialTopicTagsModelCleaner.resolve(method.returnType)?.let { cleaner ->
-                        SpecialTopicTagHookPlan(method, cleaner)
-                    }
-                }
-            }
-            candidates.distinctBy { it.method.toGenericString() }.singleOrNull()
         }.getOrNull()
     }
 }

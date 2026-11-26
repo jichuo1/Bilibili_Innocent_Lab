@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
 import java.lang.reflect.Field
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -17,31 +18,56 @@ internal class HomeTabFilterFeatureInstaller(
     selectors: String = "",
     private val points: VersionAdapter.HomeTabPoints?,
     private val frameResolver: (ClassLoader?) -> HomeFrameTabLocator.Resolution = HomeFrameTabLocator::resolve,
-    private val centering: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HomeTopTabCenteringHooks? = null
+    private val centering: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HomeTopTabCenteringHooks? = null,
+    private val pointsProvider: () -> VersionAdapter.HomeTabPoints? = { points }
 ) : FeatureInstaller {
 
     override val id: String = ID
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
     private val tokens = RuleSetCodec.parse(rules)
     private val selectorSet = MineComponentSelectionCodec.decode(selectors)
+    private var legacyInstalled = false
+    private var frameInstalled = false
+    private var centeringAttempted = false
+    private var initialRun = false
+    private var retryConsumed = false
 
     private fun hasHiddenConfiguration(): Boolean =
         tokens.isNotEmpty() || selectorSet.isNotEmpty()
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         // 即使一项都没勾也要装：不扫描就永远产不出勾选列表（沿用"我的"页的 scan / filter+scan 口径）。
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        runCatching { centering?.install(environment) }.onFailure {
-            environment.logError("home_tabs_centering_install", "[BIL] 首页标签居中注册失败: $it")
+        if (!centeringAttempted) {
+            centeringAttempted = true
+            runCatching { centering?.install(environment) }.onFailure {
+                environment.logError("home_tabs_centering_install", "[BIL] 首页标签居中注册失败: $it")
+            }
         }
         val publisher = ScanSnapshotPublisher(
             environment,
             MineComponentSnapshotCodec.SURFACE_HOME_TABS,
             setOf("home_tab_filter")
         )
-        val legacy = installLegacyLayer(environment, publisher)
-        val frame = installFrameLayer(environment, publisher)
+        val legacy = if (legacyInstalled) LayerState.OK
+        else installLegacyLayer(environment, publisher).also { if (it == LayerState.OK) legacyInstalled = true }
+        val frame = if (frameInstalled) LayerState.OK
+        else installFrameLayer(environment, publisher).also { if (it == LayerState.OK) frameInstalled = true }
+        val loader = environment.classLoader
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialRun = true
+            requiresAdaptationRetry = !retryConsumed && !legacyInstalled &&
+                loader != null && HomeTabResourceAdapter.applicable(loader)
+        }
         environment.reportStatus(CHANNEL_LAYERS, "legacy=${legacy.label},frame=${frame.label}")
         val installed = listOf(legacy, frame).count { it == LayerState.OK }
         if (installed == 0) {
@@ -60,7 +86,7 @@ internal class HomeTabFilterFeatureInstaller(
         environment: HookEnvironment,
         publisher: ScanSnapshotPublisher
     ): LayerState {
-        val adapted = points ?: return LayerState.absent("missing-adapter-point")
+        val adapted = pointsProvider() ?: return LayerState.absent("missing-adapter-point")
         val resource = environment.hookPoints.resolveClass(
             "home.tabs.resource",
             adapted.resourceClassName

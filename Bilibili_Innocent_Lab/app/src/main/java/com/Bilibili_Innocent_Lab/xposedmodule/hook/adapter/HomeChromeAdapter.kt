@@ -29,24 +29,14 @@ internal object HomeChromeAdapter {
         DexAssistQuery.HOME_CHROME_BOTTOM_ITEM to "tv.danmaku.bili.khome.widget.bottomtab.HomeBottomTabItemView (",
         DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT to "tv.danmaku.bili.khome.widget.bottomtab.HomeBottomTabContainer."
     )
-    // 9190200/9190400 retain the source trace markers while R8 repackages these declarations.
-    const val REPACKAGED_TOP_CONTENT = "h330"
-    private val repackaged = mapOf(
-        "top_layout" to setOf("k330"),
-        "top_backdrop" to setOf("ulo0"),
-        "top_right_actions" to setOf("ulo0"),
-        "top_content" to setOf(REPACKAGED_TOP_CONTENT),
-        "bottom" to setOf("w0o0"),
-        "bottom_content" to setOf("r0o0")
-    )
-
     fun ownerPackage(family: String) = "tv.danmaku.bili.khome.widget.${if (family.startsWith("top")) "topbar" else "bottomtab"}"
 
-    fun repackagedOwners(family: String): Set<String> =
-        repackaged[if (family == "top_foreground") "top_backdrop" else family].orEmpty()
+    fun flattenedOwner(owner: String, allowNested: Boolean = true): Boolean =
+        owner.isNotEmpty() && '.' !in owner && (allowNested || '$' !in owner)
 
     fun acceptsOwner(family: String, owner: String): Boolean =
-        owner.startsWith(ownerPackage(family) + ".") || owner in repackagedOwners(family)
+        owner.startsWith(ownerPackage(family) + ".") ||
+            flattenedOwner(owner, allowNested = family in setOf("top_content", "bottom_content"))
 
     fun diagnostic(query: DexAssistQuery) = "home.chrome.${families.getValue(query)}"
     fun applicable(loader: ClassLoader): Boolean = KavaMemberLookup.classOrNull(loader,

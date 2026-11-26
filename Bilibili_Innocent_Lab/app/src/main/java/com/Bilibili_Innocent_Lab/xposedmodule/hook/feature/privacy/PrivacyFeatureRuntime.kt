@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PrivacyChannelAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.*
@@ -9,7 +11,11 @@ internal class PrivacyFeatureRuntime(
     private val context: Context,
     private val noLogin: Boolean,
     private val incognito: Boolean,
-    private val skipOnboarding: Boolean = false
+    private val skipOnboarding: Boolean = false,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+    private val privacyIgnetHttp: VersionAdapter.HookPoint? = null,
+    private val privacyKNeuron: String? = null,
+    private val guestPlayerCore: String? = null
 ) {
     fun installers(): List<FeatureInstaller> = listOf(
         FunctionalFeatureInstaller("incognito_privacy") { env ->
@@ -18,30 +24,32 @@ internal class PrivacyFeatureRuntime(
                 val session = IncognitoSession()
                 // Broadcast switches may be cached while the remaining host surfaces are resolved.
                 // Install the protective disable first, before any preflight can initialize them.
-                val broadcast = runCatching { IncognitoBroadcastConfig().prepare(env)?.invoke() }.getOrNull() ?: run {
+                val broadcastPrepare = runCatching { IncognitoBroadcastConfig().prepare(env) }.getOrNull()
+                val broadcast = broadcastPrepare?.let { runCatching { it.invoke() }.getOrNull() } ?: run {
                     env.reportRuntimeEvidence("incognito_privacy", FeatureRuntimeStage.ERROR)
                     runCatching { env.reportStatus("incognito_broadcast_policy", "unavailable") }
                     0
                 }
+                val broadcastMissing = broadcastPrepare == null && IncognitoBroadcastConfig.hasBroadcastSurface(env.classLoader)
                 // Keep reads sealed until every account/identity adapter has installed. An optional
                 // host API disappearing must not leave an authenticated network path open.
                 val ready = java.util.concurrent.atomic.AtomicBoolean(false)
-                // ALL-OR-NOTHING PREFLIGHT for the remaining network, account and web isolation:
-                // the earlier independent broadcast disable is deliberately protective even if this
-                // preflight fails. Do not install any of these other boundaries on a missing anchor.
+                // ALL-OR-NOTHING PREFLIGHT for broadcast (when present), network, account, web, KMP, ignet:
+                // Do not start incognito if any critical channel cannot be routed cleanly.
                 val networkApply = IncognitoNetworkHooks(session) { ready.get() }.prepare(env)
                 val accountApply = prepareAccountIsolation(env, session)
                 val webApply = IncognitoWebHooks().prepare(env)
                 // The host's KMP gRPC pipeline bypasses the Java moss boundary above. If the build has
                 // one that cannot be routed, incognito must not start: that channel would stay open.
-                val kmpPrepared = KmpMossBoundary.prepare(env, session) { ready.get() }
+                val kmpPrepared = KmpMossBoundary.prepare(env, session, { ready.get() }, kmpGrpcWireEngine)
                 // KMP HTTP bypasses the OkHttp and moss boundaries. Broadcast uses the host's
                 // disabled-stream configuration when the relevant adapters can be located.
-                val ignetApply = IgnetHttpBoundary(session) { ready.get() }.prepare(env)
-                if (networkApply == null || accountApply == null || kmpPrepared == null || ignetApply == null) {
+                val ignetApply = IgnetHttpBoundary(session, cachedRequest = privacyIgnetHttp) { ready.get() }.prepare(env)
+                if (broadcastMissing || networkApply == null || accountApply == null || kmpPrepared == null || ignetApply == null) {
                     env.reportRuntimeEvidence("incognito_privacy", FeatureRuntimeStage.ADAPTED)
                     env.reportStatus("incognito_privacy_status",
                         "not-applicable-host:" + listOfNotNull(
+                            "broadcast".takeIf { broadcastMissing },
                             "network".takeIf { networkApply == null },
                             "account-isolation".takeIf { accountApply == null },
                             "kmp-moss".takeIf { kmpPrepared == null },
@@ -99,7 +107,7 @@ internal class PrivacyFeatureRuntime(
                     env.logError("guest_onboarding", "[BIL] Guest onboarding adapter unavailable")
                     0
                 } else 0
-                val playbackHooks = GuestPlaybackHooks(library, guest)
+                val playbackHooks = GuestPlaybackHooks(library, guest, cachedPlayerCore = guestPlayerCore)
                 val playback = runCatching { playbackHooks.install(env) }.getOrElse {
                     env.logError("guest_playback", "[BIL] Guest playback adapter unavailable")
                     0
@@ -108,20 +116,29 @@ internal class PrivacyFeatureRuntime(
                 // KMP gRPC pipeline (8.92+ history screen and other KMP services): shared with incognito
                 // when active, otherwise installed here only to serve the local library.
                 var kmpHooks = 0
-                val kmp = kmpBoundary ?: (KmpMossBoundary.prepare(env, null) { true } as? KmpMossBoundary.Prepared.Ready)
+                val kmp = kmpBoundary ?: (KmpMossBoundary.prepare(env, null, { true }, kmpGrpcWireEngine) as? KmpMossBoundary.Prepared.Ready)
                     ?.boundary?.also { kmpHooks = it.install() }
                 kmp?.attach(guest, { rpc, payload -> history.kmpReply(rpc, payload) },
                     playbackHooks.kmpViewObserver(env, host))
-                val hooks = onboarding + GuestLibraryHostHooks(library, guest, history).install(env) + playback +
+                val libraryHostHooks = GuestLibraryHostHooks(library, guest, history)
+                val hostHooks = libraryHostHooks.install(env)
+                val ignetResponses = GuestIgnetLibraryResponses(guest, { path, params ->
+                    library.nativeBlocking {
+                        if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid -> library.videoMetadata(aid, 0) }
+                        else NativeFavoriteProtocol.respond(path, params, it)
+                    }
+                })
+                val ignetHooks = ignetResponses.install(env)
+                val hostDialog = GuestHostFavoriteDialog {
+                    libraryHostHooks.localListsInstalled &&
+                        (ignetResponses.writeHookInstalled ||
+                            PrivacyChannelAdapter.resolveIgHttpRequest(host.loader, privacyIgnetHttp) == null)
+                }
+                val hooks = onboarding + hostHooks + playback +
                     kmpHooks + installMineOverlayGuard(env, guest) + GuestMineOverlayHooks(guest).install(env) +
                     GuestMineMenuHooks(guest).install(env) +
-                    GuestFavoritesRouteHooks(guest).install(env) + GuestVideoFavoriteHooks(GuestVideoFavoriteHooks.storeFor(library), guest, picker = GuestFavoriteFolderPicker(), storyStar = GuestStoryStar(), pageFavorite = GuestPageFavorite(), hostDialog = GuestHostFavoriteDialog(), interactionSource = GuestFavoriteInteraction(), hostSnackbar = GuestHostFavoriteSnackbar()).install(env) +
-                    GuestIgnetLibraryResponses(guest, { path, params ->
-                        library.nativeBlocking {
-                            if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid -> library.videoMetadata(aid, 0) }
-                            else NativeFavoriteProtocol.respond(path, params, it)
-                        }
-                    }).install(env)
+                    GuestFavoritesRouteHooks(guest).install(env) + GuestVideoFavoriteHooks(GuestVideoFavoriteHooks.storeFor(library), guest, picker = GuestFavoriteFolderPicker(), storyStar = GuestStoryStar(), pageFavorite = GuestPageFavorite(), hostDialog = hostDialog, interactionSource = GuestFavoriteInteraction(), hostSnackbar = GuestHostFavoriteSnackbar()).install(env) +
+                    ignetHooks
                 FeatureInstallResult.Installed(hooks + ((prompts as? FeatureInstallResult.Installed)?.hookCount ?: 0), complete = false)
             }
         }
@@ -227,55 +244,7 @@ internal class PrivacyFeatureRuntime(
                 count++
             }
         }
-        // The obfuscated RPC-metadata factory (serialized bytes + identify_v1 header) is host-build
-        // specific. It is NOT required: the setter hooks above plus the OkHttp/gRPC boundary already
-        // seal identity. Adapt it only when its 8.90.2 shape is present; never block the feature on it.
-        runCatching { host.type("hv2.a") }.getOrNull()?.let { metadataFactory ->
-            val stringFactories = mapOf("l" to { "" }, "a" to { session.identity()!!.buvid })
-                .filterKeys { Lookup.methodOrNull(metadataFactory, it) != null }
-            stringFactories.forEach { (method, value) ->
-                plan.step { env.registrar.exact("incognito.rpc.identity.$method", metadataFactory, method) {
-                    before { result = value() }
-                } }
-                count++
-            }
-            val metadataEvidence = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-            for ((method, typeName) in mapOf("p" to "com.bapis.bilibili.metadata.Metadata",
-                "m" to "com.bapis.bilibili.metadata.device.Device")) {
-                if (Lookup.methodOrNull(metadataFactory, method) == null) continue
-                val type = host.type(typeName)
-                plan.step { env.registrar.exact("incognito.rpc.metadata.$method", metadataFactory, method) {
-                    after {
-                        if (hasThrowable) return@after
-                        val bytes = result as? ByteArray
-                        // Set the safe fallback before reflection. PROTECT_HOST must never restore
-                        // the original credentials when a future host changes this adapter.
-                        result = byteArrayOf()
-                        runCatching {
-                            val original = requireNotNull(host.static(type, "parseFrom", requireNotNull(bytes)))
-                            val builder = requireNotNull(host.call(original, "toBuilder"))
-                            val buvid = requireNotNull(session.identity()).buvid
-                            host.call(builder, "setBuvid", buvid)
-                            if (method == "p") host.call(builder, "setAccessKey", "")
-                            else {
-                                for (setter in listOf("setFp", "setFpLocal", "setFpRemote", "setGuestId"))
-                                    host.call(builder, setter, buvid)
-                                host.call(builder, "setFts", 0L)
-                            }
-                            result = host.call(requireNotNull(host.call(builder, "build")), "toByteArray")
-                            if (metadataEvidence.add(method)) env.reportStatus("incognito_rpc_metadata_$method", "sanitized")
-                        }.onFailure {
-                            env.reportRuntimeEvidence("incognito_privacy", FeatureRuntimeStage.ERROR)
-                            if (metadataEvidence.add("error-$method")) env.logError("incognito_rpc_metadata_$method",
-                                "[BIL] RPC metadata adapter failed: ${it.javaClass.simpleName}; " +
-                                    if (it is IllegalArgumentException) it.message.orEmpty() else "host-call-failed")
-                        }
-                    }
-                } }
-                count++
-            }
-        }
-        val telemetryApply = requireNotNull(IncognitoTelemetryHooks(session).prepare(env))
+        val telemetryApply = requireNotNull(IncognitoTelemetryHooks(session, privacyKNeuron).prepare(env))
         val provider = host.type("com.bilibili.search2.provider.BiliSearchSuggestionProvider")
         requireNotNull(Lookup.methodOrNull(provider, "query", classOf<android.net.Uri>(),
             classOf<Array<String>>(), classOf<String>(), classOf<Array<String>>(), classOf<String>()))

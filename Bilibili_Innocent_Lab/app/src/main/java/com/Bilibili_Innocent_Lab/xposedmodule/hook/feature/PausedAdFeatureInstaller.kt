@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PausedAdDexAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Modifier
 
@@ -8,92 +10,181 @@ import java.lang.reflect.Modifier
 internal class PausedAdFeatureInstaller(
     private val enabled: Boolean,
     private val points: VersionAdapter.PausePoints?,
-    private val hostVersionCode: Int? = null
+    private val hostVersionCode: Int? = null,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+    private val kmpGrpcWireEngineProvider: () -> VersionAdapter.HookPoint? = { kmpGrpcWireEngine },
+    private val pointsProvider: () -> VersionAdapter.PausePoints? = { points }
 ) : FeatureInstaller {
     override val id: String = ID
 
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
+    private var initialInstallRun = false
+    private var retryConsumed = false
+    private var panelAttempted = false
+    private var panelExpected = false
+    private var panelInstalled = false
+    private var countdownAttempted = false
+    private var countdownExpected = false
+    private var countdownInstalled = false
+    private var javaAttempted = false
+    private var javaInstalledCount = 0
+    private var kotlinInstalled = false
+    private var responseExpected = 0
+
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
-        if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
-        val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
+        if (environment.processName != "tv.danmaku.bili") {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("non-main-process")
+        }
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("missing-class-loader")
+        }
 
+        val activePoints = pointsProvider()
         // 9.15 两条旧请求及新的 RequestResult 都承载 bar。识别点保留作缺失诊断，
         // 未证实纯广告的请求/Function0 不再一律 result=null，也不伪造 typed NO_AD。
-        val requestOwners = points?.requestMethods.orEmpty().map { it.className }.toMutableSet()
-        points?.legacyCallback?.let { requestOwners += it.className }
+        val requestOwners = activePoints?.requestMethods.orEmpty().map { it.className }.toMutableSet()
+        activePoints?.legacyCallback?.let { requestOwners += it.className }
         REQUEST_CARRIERS.forEach { if (KavaMemberLookup.classOrNull(loader, it) != null) requestOwners += it }
-        if (requestOwners.isNotEmpty()) environment.logInfo("paused_request_preserved",
+        if (!initialInstallRun && requestOwners.isNotEmpty()) environment.logInfo("paused_request_preserved",
             "[BIL] 暂停请求同时承载正常 bar，保留宿主请求和取消语义")
         val requestFamilies = PauseCountdownAdapter.requestFamilies(requestOwners)
-        var expected = requestFamilies.size
-        var hookCount = 0
 
-        val panel = KavaMemberLookup.classOrNull(loader, PANEL_REPOSITORY_CLASS)
-        if (panel != null || points?.panelShow != null) {
-            expected++
-            val show = panel?.let { KavaMemberLookup.declaredMethods(it, makeAccessible = true) { method ->
-                !Modifier.isStatic(method.modifiers) && method.name == "showPanel" && method.returnType == Void.TYPE &&
-                    method.parameterTypes.map(Class<*>::getName) == listOf("int", PANEL_DATA_INTERFACE, PANEL_LISTENER)
-            }.singleOrNull() }
-            val dismiss = panel?.let { KavaMemberLookup.methodOrNull(it, "dismissPanel") }
-                ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == Void.TYPE }
-            if (show != null && dismiss != null) runCatching {
-                environment.registrar.exact("paused.panel_show", show.declaringClass, show.name, *show.parameterTypes) {
-                    after {
-                        if (hasThrowable) return@after
-                        val data = args.getOrNull(1) ?: return@after
-                        if (data.javaClass.simpleName != PANEL_DATA_NAME) return@after
-                        val receiver = instance ?: return@after
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        runCatching { dismiss.invoke(receiver) }.onFailure {
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
-                            environment.logError("paused_p2_dismiss", "[BIL] 暂停广告面板关闭失败: $it")
+        if (!panelAttempted) {
+            panelAttempted = true
+            val panel = KavaMemberLookup.classOrNull(loader, PANEL_REPOSITORY_CLASS)
+            if (panel != null || activePoints?.panelShow != null) {
+                panelExpected = true
+                val show = panel?.let { KavaMemberLookup.declaredMethods(it, makeAccessible = true) { method ->
+                    !Modifier.isStatic(method.modifiers) && method.name == "showPanel" && method.returnType == Void.TYPE &&
+                        method.parameterTypes.map(Class<*>::getName) == listOf("int", PANEL_DATA_INTERFACE, PANEL_LISTENER)
+                }.singleOrNull() }
+                val dismiss = panel?.let { KavaMemberLookup.methodOrNull(it, "dismissPanel") }
+                    ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == Void.TYPE }
+                if (show != null && dismiss != null) {
+                    panelInstalled = runCatching {
+                        environment.registrar.exact("paused.panel_show", show.declaringClass, show.name, *show.parameterTypes) {
+                            after {
+                                if (hasThrowable) return@after
+                                val data = args.getOrNull(1) ?: return@after
+                                if (data.javaClass.simpleName != PANEL_DATA_NAME) return@after
+                                val receiver = instance ?: return@after
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                                runCatching { dismiss.invoke(receiver) }.onFailure {
+                                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
+                                    environment.logError("paused_p2_dismiss", "[BIL] 暂停广告面板关闭失败: $it")
+                                }
+                                // invoke 成功尚不证明窗口消失；APPLIED 由可回读的协议清理提供。
+                            }
                         }
-                        // invoke 成功尚不证明窗口消失；APPLIED 由可回读的协议清理提供。
-                    }
+                    }.onFailure {
+                        environment.logError("paused_p2_register", "[BIL] 暂停广告面板入口注册失败: $it")
+                    }.isSuccess
                 }
-            }.onSuccess { hookCount++ }.onFailure {
-                environment.logError("paused_p2_register", "[BIL] 暂停广告面板入口注册失败: $it")
             }
         }
 
-        val countdownOwner = KavaMemberLookup.classOrNull(loader, COUNTDOWN_CLASS)
-        if (countdownOwner != null || points?.countdown != null ||
-            KavaMemberLookup.classOrNull(loader, PAUSED_SERVICE) != null) {
-            expected++
+        if (!countdownAttempted) {
+            countdownAttempted = true
+            val directOwner = KavaMemberLookup.classOrNull(loader, COUNTDOWN_CLASS)
+            val cachedOwner = activePoints?.countdown?.className
+                ?.takeIf(PausedAdDexAdapter::allowedCountdownOwner)
+                ?.let { KavaMemberLookup.classOrNull(loader, it) }
             val service = KavaMemberLookup.classOrNull(loader, PAUSED_SERVICE)
-            val access = if (countdownOwner != null && service != null) {
-                PauseCountdownAdapter.resolve(loader, countdownOwner, service)
+            if (directOwner != null || cachedOwner != null || activePoints?.countdown != null || service != null) {
+                countdownExpected = true
+                val countdownOwner = directOwner ?: cachedOwner
+                val access = if (countdownOwner != null && service != null) {
+                    PauseCountdownAdapter.resolve(loader, countdownOwner, service)
+                } else null
+                if (access != null) {
+                    countdownInstalled = registerCountdownHook(environment, access)
+                } else environment.logInfo("paused_p3_preserved",
+                    "[BIL] 暂停倒计时广告来源/协程门禁不可用，保留正常 bar 与宿主倒计时")
+            }
+        } else if (!countdownInstalled && activePoints?.countdown != null) {
+            countdownExpected = true
+            val cachedOwner = activePoints.countdown.className
+                .takeIf(PausedAdDexAdapter::allowedCountdownOwner)
+                ?.let { KavaMemberLookup.classOrNull(loader, it) }
+            val service = KavaMemberLookup.classOrNull(loader, PAUSED_SERVICE)
+            val access = if (cachedOwner != null && service != null) {
+                PauseCountdownAdapter.resolve(loader, cachedOwner, service)
             } else null
-            if (access != null) runCatching {
-                val countdown = access.entry
-                environment.registrar.exact("paused.countdown", countdown.declaringClass,
-                    countdown.name, *countdown.parameterTypes) {
-                    before {
-                        if (!access.allows(instance, args.getOrNull(0))) return@before
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                        result = access.emptyResult()
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                    }
-                }
-            }.onSuccess { hookCount++ }.onFailure {
-                environment.logError("paused_p3_register", "[BIL] 暂停广告倒计时入口注册失败: $it")
-            } else environment.logInfo("paused_p3_preserved",
-                "[BIL] 暂停倒计时广告来源/协程门禁不可用，保留正常 bar 与宿主倒计时")
+            if (access != null) {
+                countdownInstalled = registerCountdownHook(environment, access)
+            }
         }
 
-        val response = PauseResponseAdapter.install(environment, PauseResponseAdapter.resolve(loader))
-        expected += response.expected
-        hookCount += response.installed
+        val resolvedResponsePoints = PauseResponseAdapter.resolve(loader)
+        if (!javaAttempted) {
+            val response = PauseResponseAdapter.install(
+                environment,
+                resolvedResponsePoints,
+                kmpGrpcWireEngineProvider(),
+                skipJava = false
+            )
+            javaAttempted = true
+            responseExpected = response.expected
+            kotlinInstalled = response.kotlinInstalled
+            javaInstalledCount = response.installed - (if (response.kotlinInstalled) 1 else 0)
+        } else if (!kotlinInstalled) {
+            val wireRetry = PauseResponseAdapter.install(
+                environment,
+                resolvedResponsePoints,
+                kmpGrpcWireEngineProvider(),
+                skipJava = true
+            )
+            responseExpected = maxOf(responseExpected, wireRetry.expected)
+            kotlinInstalled = wireRetry.kotlinInstalled
+        }
+
+        val responseInstalled = javaInstalledCount + (if (kotlinInstalled) 1 else 0)
+        val responseComplete = responseExpected > 0 && responseInstalled == responseExpected
+        val expected = requestFamilies.size +
+            (if (panelExpected) 1 else 0) +
+            (if (countdownExpected) 1 else 0) +
+            responseExpected
+        val hookCount = (if (panelInstalled) 1 else 0) +
+            (if (countdownInstalled) 1 else 0) +
+            responseInstalled
+
+        if (initialInstallRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialInstallRun = true
+            val cleanerReady = resolvedResponsePoints.reply?.let(PausePayloadCleaner::resolve) != null
+            val wireRetry = !kotlinInstalled && cleanerReady && KmpGrpcWireAdapter.applicable(loader)
+            val countdownRetry = countdownExpected && !countdownInstalled
+            val apiEntryRetry = ("ad-api" in requestFamilies || "theseus" in requestFamilies) &&
+                kotlinInstalled &&
+                !PauseRequestCoverage.hasVerifiedApiEntry(loader, hostVersionCode, cachedApiEntry = activePoints?.apiEntry)
+            requiresAdaptationRetry = !retryConsumed && (wireRetry || countdownRetry || apiEntryRetry)
+        }
+
         environment.reportStatus(CHANNEL_RESPONSE, when {
-            response.expected == 0 -> "not-applicable-host"
-            response.complete -> "success"
-            else -> "partial:${response.installed}/${response.expected}"
+            responseExpected == 0 -> "not-applicable-host"
+            responseComplete -> "success"
+            else -> "partial:$responseInstalled/$responseExpected"
         })
-        val protectedFamilies = PauseRequestCoverage.covered(loader, hostVersionCode, requestFamilies, response.kotlinInstalled)
+        val protectedFamilies = PauseRequestCoverage.covered(
+            loader,
+            hostVersionCode,
+            requestFamilies,
+            kotlinInstalled,
+            cachedApiEntry = activePoints?.apiEntry
+        )
         val ready = hookCount + protectedFamilies.size
         val complete = expected > 0 && ready == expected
         if (requestFamilies.isNotEmpty()) environment.reportStatus("adskip_request_routes",
@@ -105,12 +196,34 @@ internal class PausedAdFeatureInstaller(
             complete -> "success"
             else -> "partial:$ready/$expected"
         })
-        environment.logInfo("paused_coverage", "[BIL] 暂停广告覆盖=$ready/$expected，实际注册=$hookCount，响应=${response.installed}/${response.expected}，请求家族=${protectedFamilies.size}/${requestFamilies.size}、载体=${requestOwners.size}")
+        environment.logInfo("paused_coverage", "[BIL] 暂停广告覆盖=$ready/$expected，实际注册=$hookCount，响应=$responseInstalled/$responseExpected，请求家族=${protectedFamilies.size}/${requestFamilies.size}、载体=${requestOwners.size}")
         return if (hookCount > 0) {
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
             FeatureInstallResult.Installed(hookCount, complete)
         } else FeatureInstallResult.Skipped("no-safe-hook-point")
     }
+
+    private fun registerCountdownHook(
+        environment: HookEnvironment,
+        access: PauseCountdownAdapter.Access
+    ): Boolean = runCatching {
+        val countdown = access.entry
+        environment.registrar.exact(
+            "paused.countdown",
+            countdown.declaringClass,
+            countdown.name,
+            *countdown.parameterTypes
+        ) {
+            before {
+                if (!access.allows(instance, args.getOrNull(0))) return@before
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                result = access.emptyResult()
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+            }
+        }
+    }.onFailure {
+        environment.logError("paused_p3_register", "[BIL] 暂停广告倒计时入口注册失败: $it")
+    }.isSuccess
 
     companion object {
         const val ID = "paused_ad"

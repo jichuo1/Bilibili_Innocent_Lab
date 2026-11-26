@@ -73,8 +73,15 @@ internal class WeChatShareCompatAccess private constructor(
 
         fun locate(loader: ClassLoader?, versionCode: Int, cached: WeChatShareClasses? = null): WeChatShareCompatAccess? {
             if (loader == null) return null
-            val profile = WeChatShareVersionProfile.forVersion(versionCode) ?: cached?.toProfile() ?: return null
-            return locateWithProfile(loader, profile)
+            val direct = WeChatShareVersionProfile.forVersion(versionCode)
+                ?.let { locateWithProfile(loader, it) }
+            if (direct != null && direct.wrappers.size == direct.expectedWrappers) return direct
+            val fromCache = cached?.let { locateWithProfile(loader, it.toProfile()) }
+            return when {
+                direct == null -> fromCache
+                fromCache != null && fromCache.wrappers.size > direct.wrappers.size -> fromCache
+                else -> direct
+            }
         }
 
         /** 已验真落点（版本表或 DEX 发现）的缓存恢复：仍走完整结构验真。 */
@@ -110,25 +117,29 @@ internal class WeChatShareCompatAccess private constructor(
             val modernHits = mutableListOf<ModernHit>()
             var wxCandidateOwners = 0
             for ((owner, methods) in byOwner) {
-                // kntr 包内只要出现 createWXAPI 调用者，就必须恰有一个验真通过，不许静默丢弃现代包装。
-                if (owner.name.startsWith(WX_PACKAGE)) wxCandidateOwners++
+                val inWxPackage = owner.name.startsWith(WX_PACKAGE)
+                if (inWxPackage) wxCandidateOwners++
                 Lookup.declaredFields(owner, makeAccessible = true) {
                     !it.isStatic && it.type == api
                 }.singleOrNull() ?: continue
-                if (owner.name.startsWith(WX_PACKAGE)) {
+                var modernMatched = false
+                if (inWxPackage || '.' !in owner.name) {
                     for (usesLegacy in listOf(true, false)) {
                         val contextName = if (usesLegacy) "android.content.Context" else WX_PACKAGE + "WeChatShareActivity"
                         val context = Lookup.classOrNull(loader, contextName) ?: continue
                         val type = Lookup.classOrNull(loader, WX_PACKAGE + "WeChatShareType") ?: continue
                         if (!type.isEnum || Lookup.constructorOrNull(owner, context, type) == null) continue
-                        methods.filter { !it.isStatic && it.returnType == classOf<Boolean>() }.singleOrNull()
-                            ?.let { modernHits += ModernHit(owner, it, usesLegacy) }
+                        methods.filter { !it.isStatic && it.parameterCount == 0 && it.returnType == classOf<Boolean>() }.singleOrNull()
+                            ?.let { modernHits += ModernHit(owner, it, usesLegacy); modernMatched = true }
                     }
-                } else {
+                    if (!inWxPackage && modernMatched) wxCandidateOwners++
+                }
+                if (!inWxPackage && !modernMatched) {
                     val req = Lookup.classOrNull(loader, "com.tencent.mm.opensdk.modelmsg.SendMessageToWX\$Req") ?: continue
                     if (Lookup.declaredMethods(owner) { !it.isStatic &&
                             it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(req)) }.size != 1) continue
-                    val initialize = methods.filter { !it.isStatic && it.returnType == Void.TYPE }.singleOrNull() ?: continue
+                    val initialize = methods.filter { !it.isStatic && it.parameterCount == 0 && it.returnType == Void.TYPE }
+                        .singleOrNull() ?: continue
                     val activity = Lookup.classOrNull(loader, "android.app.Activity")
                     val config = Lookup.classOrNull(loader, "com.bilibili.socialize.share.core.BiliShareConfiguration")
                     val legacyCtor = activity != null && config != null && Lookup.constructorOrNull(owner, activity, config) != null
@@ -148,8 +159,12 @@ internal class WeChatShareCompatAccess private constructor(
             if (modern != null && modern.usesLegacyConstructors != legacy.usesLegacyConstructors) return null
             val classes = WeChatShareClasses(legacy.owner.name, legacy.initialize.name,
                 modern?.owner?.name, modern?.initialize?.name, legacy.usesLegacyConstructors)
-            // 发现结果必须再完整通过既有 locate 全量验真（含工厂与签名标志）才可缓存。
-            return classes.takeIf { locateWithProfile(loader, it.toProfile()) != null }
+            // 发现结果必须再完整通过既有 locate 全量验真（含工厂与签名标志、全部预期包装）才可缓存。
+            return classes.takeIf {
+                locateWithProfile(loader, it.toProfile())?.let { access ->
+                    access.wrappers.size == access.expectedWrappers
+                } == true
+            }
         }
 
         private fun locateWithProfile(loader: ClassLoader, profile: WeChatShareVersionProfile): WeChatShareCompatAccess? {

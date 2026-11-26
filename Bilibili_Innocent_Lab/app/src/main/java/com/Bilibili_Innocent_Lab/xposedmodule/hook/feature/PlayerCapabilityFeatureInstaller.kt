@@ -1,12 +1,17 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerCapabilityAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 
 /** 同步/异步播放响应只调整已选客户端能力；不创建播放地址、不更改服务器权限。 */
-internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapabilityOptions) : FeatureInstaller {
+internal class PlayerCapabilityFeatureInstaller(
+    private val options: PlayerCapabilityOptions,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
+) : FeatureInstaller {
     override val id = ID
     override val capabilityIds: List<String> get() = buildList {
         if (options.background) add("player_capability_background")
@@ -22,10 +27,14 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
         if (environment.processName != TARGET_PACKAGE) return FeatureInstallResult.Skipped("non-main-process")
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
         val handler = KavaMemberLookup.classOrNull(loader, MOSS_HANDLER)?.takeIf { it.isInterface }
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
         // 每个已选能力的两族同步/异步边界，以及小窗的两个菜单构造槽位。
         val expected = options.enabled.size * FAMILIES.size * 2 + if (options.smallWindow) 2 else 0
         var covered = 0
         var hooks = 0
+        var kmpHooks = 0
+        var kmpBridge: KotlinMossBridgeMembers? = null
+        var kmpBridgeChecked = false
         val coverage = options.enabled.associateWith { 0 }.toMutableMap()
         val observed: (PlayerCapability) -> Unit = {
             environment.reportRuntimeEvidence(capabilityId(it), FeatureRuntimeStage.OBSERVED)
@@ -37,7 +46,7 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
             val access = PlayerCapabilityAccess.resolve(loader, family.reply, family.shared, options.enabled)
             val owner = KavaMemberLookup.classOrNull(loader, family.moss)
             val request = KavaMemberLookup.classOrNull(loader, family.request)
-            if (access == null || owner == null || request == null) {
+            if (access == null) {
                 environment.logError("player_capability_missing_${family.id}",
                     "[BIL] 播放器能力缺少响应结构(${family.id})，保留该链路原行为")
                 continue
@@ -52,40 +61,99 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
                         "[BIL] 播放器能力改写失败(${family.id}): ${it.javaClass.simpleName}")
                 }
             }
-            val sync = listOf("execute${family.method.replaceFirstChar(Char::uppercaseChar)}", family.method)
-                .firstNotNullOfOrNull { name ->
-                    KavaMemberLookup.methodOrNull(owner, name, request)?.takeIf {
-                        !it.isStatic && it.returnType == access.replyClass
-                    }
-                }
-            if (sync != null && runCatching {
-                    environment.registrar.exact("player.capability.${family.id}.sync", owner,
-                        sync.name, *sync.parameterTypes) {
-                        after { if (!hasThrowable) result?.let(::apply) }
-                    }
-                }.isSuccess) {
-                hooks++
-                covered += access.capabilityCount
-                access.capabilities.forEach { coverage[it] = coverage.getValue(it) + 1 }
-            }
-            val async = handler?.let {
-                KavaMemberLookup.methodOrNull(owner, family.method, request, it)?.takeIf { method ->
-                    !method.isStatic && method.returnType == Void.TYPE
-                }
-            }
-            if (async != null && runCatching {
-                    environment.registrar.exact("player.capability.${family.id}.async", owner,
-                        async.name, *async.parameterTypes) {
-                        before {
-                            val delegate = argOrNull(1) ?: return@before
-                            val wrapped = MossResponseHandlerProxy.wrap(handler, delegate, ::apply) ?: return@before
-                            args[1] = wrapped
+            if (owner != null && request != null) {
+                val sync = listOf("execute${family.method.replaceFirstChar(Char::uppercaseChar)}", family.method)
+                    .firstNotNullOfOrNull { name ->
+                        KavaMemberLookup.methodOrNull(owner, name, request)?.takeIf {
+                            !it.isStatic && it.returnType == access.replyClass
                         }
                     }
-                }.isSuccess) {
-                hooks++
-                covered += access.capabilityCount
-                access.capabilities.forEach { coverage[it] = coverage.getValue(it) + 1 }
+                if (sync != null && runCatching {
+                        environment.registrar.exact("player.capability.${family.id}.sync", owner,
+                            sync.name, *sync.parameterTypes) {
+                            after { if (!hasThrowable) result?.let(::apply) }
+                        }
+                    }.isSuccess) {
+                    hooks++
+                    covered += access.capabilityCount
+                    access.capabilities.forEach { coverage[it] = coverage.getValue(it) + 1 }
+                }
+                val async = handler?.let {
+                    KavaMemberLookup.methodOrNull(owner, family.method, request, it)?.takeIf { method ->
+                        !method.isStatic && method.returnType == Void.TYPE
+                    }
+                }
+                if (async != null && runCatching {
+                        environment.registrar.exact("player.capability.${family.id}.async", owner,
+                            async.name, *async.parameterTypes) {
+                            before {
+                                val delegate = argOrNull(1) ?: return@before
+                                val wrapped = MossResponseHandlerProxy.wrap(handler, delegate, ::apply) ?: return@before
+                                args[1] = wrapped
+                            }
+                        }
+                    }.isSuccess) {
+                    hooks++
+                    covered += access.capabilityCount
+                    access.capabilities.forEach { coverage[it] = coverage.getValue(it) + 1 }
+                }
+            } else {
+                environment.logError("player_capability_missing_${family.id}",
+                    "[BIL] 播放器能力缺少响应结构(${family.id})，保留该链路原行为")
+            }
+            if (access.canCopy) {
+                val transformCopy: (Any) -> Any = copy@{ reply ->
+                    if (!access.replyClass.isInstance(reply)) return@copy reply
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    runCatching {
+                        val copied = access.applyCopy(reply, observed, applied)
+                        if (copied !== reply) {
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                        }
+                        copied
+                    }.getOrElse {
+                        environment.logError("player_capability_runtime_${family.id}",
+                            "[BIL] 播放器能力改写失败(${family.id}): ${it.javaClass.simpleName}")
+                        reply
+                    }
+                }
+                val wireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = family.moss,
+                    rpc = family.method,
+                    javaReplyClass = access.replyClass,
+                    what = "播放器能力",
+                    logKey = "player_capability_kmoss_${family.id}",
+                    transformJava = transformCopy
+                )
+                if (wireInstalled) {
+                    kmpHooks++
+                } else {
+                    val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(family.moss)
+                    if (kotlinName != null && KavaMemberLookup.classOrNull(loader, kotlinName) != null) {
+                        if (!kmpBridgeChecked) {
+                            kmpBridgeChecked = true
+                            kmpBridge = KotlinMossChannel.prepare(environment, loader, "播放器能力", "player_capability_kmoss")
+                        }
+                        val readyBridge = kmpBridge
+                        if (readyBridge != null && KotlinMossChannel.install(
+                                environment = environment,
+                                loader = loader,
+                                members = readyBridge,
+                                javaMossClassName = family.moss,
+                                rpc = family.method,
+                                javaReplyClass = access.replyClass,
+                                hookId = "player.capability.kmoss.${family.id}",
+                                what = "播放器能力",
+                                logKey = "player_capability_kmoss_${family.id}",
+                                transformJava = transformCopy
+                            )
+                        ) {
+                            kmpHooks++
+                        }
+                    }
+                }
             }
         }
         if (options.smallWindow) {
@@ -124,11 +192,12 @@ internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapab
         }
         val status = if (covered == expected) "success" else "partial:$covered/$expected"
         environment.reportStatus(CHANNEL, status)
-        if (hooks == 0) return FeatureInstallResult.Skipped("missing-player-capability-points")
+        val totalHooks = hooks + if (hooks == 0) kmpHooks else 0
+        if (totalHooks == 0) return FeatureInstallResult.Skipped("missing-player-capability-points")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.logInfo("player_capability_installed",
-            "[BIL] 播放器客户端能力已安装($status, hooks=$hooks)，仅含 ${options.enabled.joinToString { it.name }}")
-        return FeatureInstallResult.Installed(hooks, complete = covered == expected)
+            "[BIL] 播放器客户端能力已安装($status, hooks=$totalHooks, kmp=$kmpHooks)，仅含 ${options.enabled.joinToString { it.name }}")
+        return FeatureInstallResult.Installed(totalHooks, complete = covered == expected)
     }
 
     private data class Family(val id: String, val moss: String, val request: String,

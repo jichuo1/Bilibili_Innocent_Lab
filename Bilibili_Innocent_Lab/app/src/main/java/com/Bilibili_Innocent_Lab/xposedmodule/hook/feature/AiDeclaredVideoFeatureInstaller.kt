@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AiPlaylistDirectorAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -9,6 +10,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 详情页「含AI生成内容」拦截 + 补位。
@@ -32,10 +35,27 @@ internal class AiDeclaredVideoFeatureInstaller(
     /** 强力模式 · 屏蔽发布者。 */
     private val strongMode: Boolean,
     /** 强力模式 · 获取 access_key 推荐预检；宿主入口已按「预检开 且 已授权」合成。 */
-    private val precheck: Boolean = false
+    private val precheck: Boolean = false,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+    private val aiPlaylistDirector: String? = null,
+    private val aiPlaylistDirectorProvider: () -> String? = { aiPlaylistDirector }
 ) : FeatureInstaller {
 
     override val id: String = AiDeclaredVideoPolicy.ID
+
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
+    private val mainRoutesInstalled = AtomicBoolean(false)
+    private val playlistInstalled = AtomicBoolean(false)
+    private val playlistRef = AtomicReference<AiPlaylistSkipper?>(null)
+    private var initialInstallDone = false
+    private var retryConsumed = false
+    private var lastRoutes = 0
+    private var lastFeedRoutes = 0
+    private var hasPrechecker = false
+    private var relateStripReady = false
 
     override val capabilityIds: List<String>
         get() = if (!enabled) emptyList() else buildList {
@@ -43,21 +63,67 @@ internal class AiDeclaredVideoFeatureInstaller(
             if (strongMode) add(AiDeclaredVideoPolicy.CAPABILITY_AUTHOR)
         }
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
-        val interceptor = AiDeclaredReplyInterceptor.resolve(loader)
-            ?: return missing(environment, "not-applicable-host")
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-class-loader")
+        }
+        if (mainRoutesInstalled.get()) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+            val playlist = if (!playlistInstalled.get()) {
+                installPlaylistSkipper(environment, loader, aiPlaylistDirectorProvider())
+            } else {
+                playlistRef.get()
+            }
+            environment.reportCapabilityCoverage(
+                AiDeclaredVideoPolicy.CAPABILITY_DETAIL, ready = true, lastRoutes, PATHS
+            )
+            if (strongMode) {
+                environment.reportCapabilityCoverage(
+                    AiDeclaredVideoPolicy.CAPABILITY_AUTHOR,
+                    ready = environment.writeScanSnapshot != null, lastRoutes, PATHS
+                )
+            }
+            val partial = buildList {
+                if (lastRoutes < PATHS) add("routes:$lastRoutes/$PATHS")
+                if (!relateStripReady) add("missing-relate-writeback")
+                if (lastFeedRoutes == 0) add("missing-relates-feed")
+                if (precheck && !hasPrechecker) add("missing-precheck")
+                if (playlist == null) add("missing-playlist-skip")
+                if (strongMode && environment.writeScanSnapshot == null) add("missing-snapshot-sink")
+            }
+            environment.reportRuntimeEvidence(id, FeatureRuntimeStage.ADAPTED)
+            environment.reportStatus(
+                CHANNEL_STATUS,
+                if (partial.isEmpty()) "success" else partial.joinToString(prefix = "partial:", separator = "+")
+            )
+            return FeatureInstallResult.Installed(lastRoutes, complete = partial.isEmpty())
+        }
+        val interceptor = AiDeclaredReplyInterceptor.resolve(loader) ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "not-applicable-host")
+        }
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val kotlinMossName = KotlinMossBridgeMembers.kotlinMossClassName(DetailUnitedModulePurifyPolicy.MOSS_CLASS)
+        val hasKotlinMoss = kotlinMossName != null && KavaMemberLookup.classOrNull(loader, kotlinMossName) != null
         val mossClass = KavaMemberLookup.classOrNull(loader, DetailUnitedModulePurifyPolicy.MOSS_CLASS)
-            ?: return missing(environment, "not-applicable-host")
         val requestClass = KavaMemberLookup.classOrNull(loader, DetailUnitedModulePurifyPolicy.REQUEST_CLASS)
-            ?: return missing(environment, "not-applicable-host")
+        val replyClass = KavaMemberLookup.classOrNull(loader, DetailUnitedModulePurifyPolicy.REPLY_CLASS)
+        if (((mossClass == null || requestClass == null) && wireSurface == null && !hasKotlinMoss) || replyClass == null) {
+            requiresAdaptationRetry = false
+            return missing(environment, "not-applicable-host")
+        }
         val handlerClass = KavaMemberLookup.classOrNull(loader, HANDLER_CLASS)
 
         AiDeclaredVideoRegistry.loadAsync {
@@ -71,23 +137,23 @@ internal class AiDeclaredVideoFeatureInstaller(
         }
         val guard = AiRedirectGuard()
         // 缺了就一律按详情页处理：退化成"历史页也会拦"，不会退化成"详情页不拦"。
-        val spmidGetter = KavaMemberLookup.methodOrNull(requestClass, "getSpmid")
+        val spmidGetter = requestClass?.let { KavaMemberLookup.methodOrNull(it, "getSpmid") }
             ?.takeIf { it.returnType == classOf<String>() }
-        if (spmidGetter == null) {
+        if (requestClass != null && spmidGetter == null) {
             environment.logError("ai_declared_spmid_absent", "[BIL] ViewReq#getSpmid 不可用，无法区分历史页后台请求")
         }
         fun passive(request: Any?): Boolean = runCatching {
             request != null && spmidGetter != null &&
                 AiDeclaredVideoPolicy.isPassiveRequest(spmidGetter.invoke(request) as? String)
         }.getOrDefault(false)
-        val playlist = installPlaylistSkipper(environment, loader)
+        val playlist = installPlaylistSkipper(environment, loader, aiPlaylistDirectorProvider())
         // 连播的连锁保险单独计数：一个列表里连着几集 AI 很常见，额度比详情页补位宽。
         val playlistGuard = AiRedirectGuard(maxRedirects = PLAYLIST_SKIPS, windowMillis = 60_000L)
         val prechecker = if (precheck) installPrechecker(environment, loader, interceptor) else null
         val handle: (Any, Boolean) -> Any = { reply, passive ->
             interceptor.process(
                 reply, environment, guard, passive,
-                playlist = playlist, playlistGuard = playlistGuard,
+                playlist = playlistRef.get(), playlistGuard = playlistGuard,
                 onRelateCandidates = prechecker?.let { it::submit }
             ) { name, mid ->
                 authors?.let { recordAuthor(environment, it, name, mid) }
@@ -95,54 +161,107 @@ internal class AiDeclaredVideoFeatureInstaller(
         }
 
         var routes = 0
-        runCatching {
-            environment.registrar.exact(
-                "ai_declared.sync.${DetailUnitedModulePurifyPolicy.SYNC_METHOD}",
-                mossClass,
-                DetailUnitedModulePurifyPolicy.SYNC_METHOD,
-                requestClass
-            ) {
-                after {
-                    if (hasThrowable) return@after
-                    val original = result ?: return@after
-                    val updated = handle(original, passive(argOrNull(0)) || AiRelatePrechecker.isQueryThread())
-                    if (updated !== original) result = updated
-                }
-            }
-            routes++
-        }.onFailure {
-            environment.logError("ai_declared_sync", "[BIL] AI 声明拦截同步响应 Hook 注册失败: $it")
-        }
-        if (handlerClass != null) {
+        if (mossClass != null && requestClass != null) {
             runCatching {
                 environment.registrar.exact(
-                    "ai_declared.async.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
+                    "ai_declared.sync.${DetailUnitedModulePurifyPolicy.SYNC_METHOD}",
                     mossClass,
-                    DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
-                    requestClass,
-                    handlerClass
+                    DetailUnitedModulePurifyPolicy.SYNC_METHOD,
+                    requestClass
                 ) {
-                    before {
-                        val original = argOrNull(1) ?: return@before
-                        val isPassive = passive(argOrNull(0)) || AiRelatePrechecker.isQueryThread()
-                        val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, original) { reply ->
-                            handle(reply, isPassive)
-                        } ?: return@before
-                        args[1] = proxy
+                    after {
+                        if (hasThrowable) return@after
+                        val original = result ?: return@after
+                        val updated = handle(original, passive(argOrNull(0)) || AiRelatePrechecker.isQueryThread())
+                        if (updated !== original) result = updated
                     }
                 }
                 routes++
             }.onFailure {
-                environment.logError("ai_declared_async", "[BIL] AI 声明拦截异步响应 Hook 注册失败: $it")
+                environment.logError("ai_declared_sync", "[BIL] AI 声明拦截同步响应 Hook 注册失败: $it")
             }
-        } else {
-            environment.logError(
-                "ai_declared_handler_absent",
-                "[BIL] 未找到 MossResponseHandler，AI 声明拦截只覆盖同步路径"
-            )
+            if (handlerClass != null) {
+                runCatching {
+                    environment.registrar.exact(
+                        "ai_declared.async.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
+                        mossClass,
+                        DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                        requestClass,
+                        handlerClass
+                    ) {
+                        before {
+                            val original = argOrNull(1) ?: return@before
+                            val isPassive = passive(argOrNull(0)) || AiRelatePrechecker.isQueryThread()
+                            val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, original) { reply ->
+                                handle(reply, isPassive)
+                            } ?: return@before
+                            args[1] = proxy
+                        }
+                    }
+                    routes++
+                }.onFailure {
+                    environment.logError("ai_declared_async", "[BIL] AI 声明拦截异步响应 Hook 注册失败: $it")
+                }
+            } else {
+                environment.logError(
+                    "ai_declared_handler_absent",
+                    "[BIL] 未找到 MossResponseHandler，AI 声明拦截只覆盖同步路径"
+                )
+            }
         }
-        if (routes == 0) return missing(environment, "no-safe-united-path")
-        val feedRoutes = installRelatesFeed(environment, loader, mossClass, handlerClass, interceptor)
+
+        val kmpViewWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
+            environment = environment,
+            surface = wireSurface,
+            javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+            rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+            javaReplyClass = replyClass,
+            what = "AI 声明拦截",
+            logKey = "ai_declared_kmoss",
+            javaRequestClass = requestClass,
+            transformWithRequest = { req, reply ->
+                handle(reply, passive(req) || AiRelatePrechecker.isQueryThread())
+            },
+            transformJava = { reply -> handle(reply, AiRelatePrechecker.isQueryThread()) }
+        )
+        val kmpViewInstalled = kmpViewWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
+            environment, loader, "AI 声明拦截", "ai_declared_kmoss"
+        )?.let { bridge ->
+            KotlinMossChannel.install(
+                environment = environment,
+                loader = loader,
+                members = bridge,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                hookId = "$id.kmoss.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
+                what = "AI 声明拦截",
+                logKey = "ai_declared_kmoss",
+                transformJava = { reply -> handle(reply, AiRelatePrechecker.isQueryThread()) }
+            )
+        } == true)
+        if (routes == 0 && kmpViewInstalled) routes = 1
+
+        if (routes == 0) {
+            requiresAdaptationRetry = false
+            return missing(environment, "no-safe-united-path")
+        }
+        val feedRoutes = installRelatesFeed(
+            environment, loader, mossClass, handlerClass, interceptor, wireSurface, hasKotlinMoss
+        )
+
+        lastRoutes = routes
+        lastFeedRoutes = feedRoutes
+        hasPrechecker = prechecker != null
+        relateStripReady = interceptor.relateStripReady
+        mainRoutesInstalled.set(true)
+        if (initialInstallDone) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialInstallDone = true
+            requiresAdaptationRetry = !retryConsumed && !playlistInstalled.get() && AiPlaylistDirectorAdapter.applicable(loader)
+        }
 
         environment.reportCapabilityCoverage(
             AiDeclaredVideoPolicy.CAPABILITY_DETAIL, ready = true, routes, PATHS
@@ -219,13 +338,16 @@ internal class AiDeclaredVideoFeatureInstaller(
     private fun installRelatesFeed(
         environment: HookEnvironment,
         loader: ClassLoader,
-        mossClass: Class<*>,
+        mossClass: Class<*>?,
         handlerClass: Class<*>?,
-        interceptor: AiDeclaredReplyInterceptor
+        interceptor: AiDeclaredReplyInterceptor,
+        wireSurface: com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.WireSurface?,
+        hasKotlinMoss: Boolean
     ): Int {
         val stripper = AiRelatesFeedStripper.resolve(loader)
         val requestClass = KavaMemberLookup.classOrNull(loader, AiRelatesFeedStripper.REQUEST_CLASS)
-        if (stripper == null || requestClass == null) {
+        val replyClass = KavaMemberLookup.classOrNull(loader, AiRelatesFeedStripper.REPLY_CLASS)
+        if (stripper == null || (requestClass == null && wireSurface == null && !hasKotlinMoss) || replyClass == null) {
             environment.logError("ai_declared_feed_missing", "[BIL] 推荐续页结构缺失，加载更多的推荐不做 AI 声明过滤")
             return 0
         }
@@ -244,36 +366,65 @@ internal class AiDeclaredVideoFeatureInstaller(
             }
         }
         var installed = 0
-        runCatching {
-            environment.registrar.exact(
-                "ai_declared.feed.sync", mossClass, AiRelatesFeedStripper.SYNC_METHOD, requestClass
-            ) {
-                after {
-                    if (hasThrowable) return@after
-                    val original = result ?: return@after
-                    val updated = transform(original)
-                    if (updated !== original) result = updated
-                }
-            }
-            installed++
-        }.onFailure {
-            environment.logError("ai_declared_feed_sync", "[BIL] 推荐续页同步 Hook 注册失败: $it")
-        }
-        if (handlerClass != null) {
+        if (mossClass != null && requestClass != null) {
             runCatching {
                 environment.registrar.exact(
-                    "ai_declared.feed.async", mossClass, AiRelatesFeedStripper.ASYNC_METHOD, requestClass, handlerClass
+                    "ai_declared.feed.sync", mossClass, AiRelatesFeedStripper.SYNC_METHOD, requestClass
                 ) {
-                    before {
-                        val original = argOrNull(1) ?: return@before
-                        args[1] = MossResponseHandlerProxy.wrapTransform(handlerClass, original, transform) ?: return@before
+                    after {
+                        if (hasThrowable) return@after
+                        val original = result ?: return@after
+                        val updated = transform(original)
+                        if (updated !== original) result = updated
                     }
                 }
                 installed++
             }.onFailure {
-                environment.logError("ai_declared_feed_async", "[BIL] 推荐续页异步 Hook 注册失败: $it")
+                environment.logError("ai_declared_feed_sync", "[BIL] 推荐续页同步 Hook 注册失败: $it")
+            }
+            if (handlerClass != null) {
+                runCatching {
+                    environment.registrar.exact(
+                        "ai_declared.feed.async", mossClass, AiRelatesFeedStripper.ASYNC_METHOD, requestClass, handlerClass
+                    ) {
+                        before {
+                            val original = argOrNull(1) ?: return@before
+                            args[1] = MossResponseHandlerProxy.wrapTransform(handlerClass, original, transform) ?: return@before
+                        }
+                    }
+                    installed++
+                }.onFailure {
+                    environment.logError("ai_declared_feed_async", "[BIL] 推荐续页异步 Hook 注册失败: $it")
+                }
             }
         }
+        val kmpWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
+            environment = environment,
+            surface = wireSurface,
+            javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+            rpc = AiRelatesFeedStripper.ASYNC_METHOD,
+            javaReplyClass = replyClass,
+            what = "推荐续页 AI 卡过滤",
+            logKey = "ai_declared_feed_kmoss",
+            transformJava = transform
+        )
+        val kmpFeedInstalled = kmpWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
+            environment, loader, "推荐续页 AI 卡过滤", "ai_declared_feed_kmoss"
+        )?.let { bridge ->
+            KotlinMossChannel.install(
+                environment = environment,
+                loader = loader,
+                members = bridge,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = AiRelatesFeedStripper.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                hookId = "${AiDeclaredVideoPolicy.ID}.feed.kmoss.${AiRelatesFeedStripper.ASYNC_METHOD}",
+                what = "推荐续页 AI 卡过滤",
+                logKey = "ai_declared_feed_kmoss",
+                transformJava = transform
+            )
+        } == true)
+        if (kmpFeedInstalled && installed == 0) installed++
         return installed
     }
 
@@ -281,13 +432,18 @@ internal class AiDeclaredVideoFeatureInstaller(
      * 连播跳过的两个 Hook：记下最新的连播调度对象、在条目构造时给已知 AI 标失效。
      * 任一环节缺失返回 null，连播退回详情页那条行为（离开列表跳转补位），状态报 partial。
      */
-    private fun installPlaylistSkipper(environment: HookEnvironment, loader: ClassLoader): AiPlaylistSkipper? {
-        val skipper = AiPlaylistSkipper.resolve(loader) ?: run {
+    private fun installPlaylistSkipper(
+        environment: HookEnvironment,
+        loader: ClassLoader,
+        cachedDirector: String?
+    ): AiPlaylistSkipper? {
+        if (playlistInstalled.get()) return playlistRef.get()
+        val skipper = AiPlaylistSkipper.resolve(loader, cachedDirector) ?: run {
             environment.logError("ai_declared_playlist_missing", "[BIL] 连播跳过锚点缺失，连播中将按详情页方式改道")
             return null
         }
         return runCatching {
-            val director = checkNotNull(KavaMemberLookup.classOrNull(loader, AiPlaylistSkipper.DIRECTOR_CLASS))
+            val director = skipper.directorClass
             val descriptor = checkNotNull(KavaMemberLookup.classOrNull(loader, AiPlaylistSkipper.MEDIA_DESCRIPTOR_CLASS))
             director.declaredConstructors.forEachIndexed { index, constructor ->
                 environment.registrar.constructor("ai_declared.playlist.director.$index", constructor) {
@@ -306,6 +462,8 @@ internal class AiDeclaredVideoFeatureInstaller(
                     }
                 }
             }
+            playlistRef.set(skipper)
+            playlistInstalled.set(true)
             skipper
         }.getOrElse {
             environment.logError("ai_declared_playlist_register", "[BIL] 连播跳过 Hook 注册失败: $it")

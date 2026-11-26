@@ -73,7 +73,8 @@ internal object HostDirectFeatureAudit {
             val scroll = requireNotNull(Lookup.classOrNull(loader, "$RECYCLER\$OnScrollListener"))
             val attach = requireNotNull(Lookup.classOrNull(loader, "$RECYCLER\$OnChildAttachStateChangeListener"))
             val function = requireNotNull(Lookup.classOrNull(loader, "kotlin.jvm.functions.Function0"))
-            val shape = requireNotNull(PegasusLoadMoreShape.of(watcher, scroll, attach, function))
+            val relocated = PegasusLoadMoreShape.resolveRelocatedListener(loader, scroll, attach, function)
+            val shape = requireNotNull(PegasusLoadMoreShape.of(watcher, scroll, attach, function, relocated))
             listOf(shape.callback.toGenericString(), shape.enabled.toGenericString())
         }
         checkMembers("player_default_speed_percent", "deferred-prepared-members") {

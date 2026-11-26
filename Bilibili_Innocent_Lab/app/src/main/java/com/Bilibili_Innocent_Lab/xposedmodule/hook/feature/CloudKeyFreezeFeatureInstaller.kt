@@ -38,10 +38,21 @@ internal class CloudKeyFreezeFeatureInstaller(
     private val observe: Boolean,
     /** 扫描勾选面板写出的固定值（`键名=true|false` 每行一条）；同一个键手填规则优先。 */
     private val picked: String = "",
-    private val scanFlushDelayMs: Long = CloudKeyScanCollector.DEFAULT_FLUSH_DELAY_MS
+    private val scanFlushDelayMs: Long = CloudKeyScanCollector.DEFAULT_FLUSH_DELAY_MS,
+    private val cachedFeatureFlagContract: String? = null,
+    private val cachedFeatureFlagContractProvider: () -> String? = { cachedFeatureFlagContract }
 ) : FeatureInstaller {
 
     override val id: String = ID
+
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
+    private val registeredMethods = HashSet<Method>()
+    private var sharedGate: Gate? = null
+    private var initialRun = false
+    private var retryConsumed = false
 
     /** 一个被挂钩的读取入口；`defaultIndex < 0` 表示该入口没有默认值参数。 */
     private class Target(
@@ -55,12 +66,15 @@ internal class CloudKeyFreezeFeatureInstaller(
         val hasDefault: Boolean get() = defaultIndex >= 0 || constantDefault != null
     }
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val ruleSet = CloudKeyFreezeRules.parse(picked, CloudKeyFreezeRules.MAX_PICKED)
@@ -73,21 +87,48 @@ internal class CloudKeyFreezeFeatureInstaller(
             )
         }
         if (ruleSet.isEmpty && !observe) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "no-rules")
             return FeatureInstallResult.Skipped("no-rules")
         }
-        val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-class-loader")
+        }
         val targets = collectTargets(loader)
-        if (targets.isEmpty()) return missing(environment, "missing-config-boundary")
+        if (targets.isEmpty()) {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-config-boundary")
+        }
 
-        val gate = Gate(environment, ruleSet.rules, observe, if (observe) startScan(environment) else null)
+        val gate = sharedGate ?: Gate(
+            environment,
+            ruleSet.rules,
+            observe,
+            if (observe) startScan(environment) else null
+        ).also { sharedGate = it }
         var installed = 0
         targets.forEachIndexed { index, target ->
-            if (register(environment, gate, "cloud_key_freeze.${target.family}.$index", target)) {
+            if (target.method in registeredMethods) {
+                installed += 1
+            } else if (register(environment, gate, "cloud_key_freeze.${target.family}.$index", target)) {
+                registeredMethods += target.method
                 installed += 1
             }
         }
-        if (installed == 0) return missing(environment, "registration-failed")
+        if (installed == 0) {
+            requiresAdaptationRetry = false
+            return missing(environment, "registration-failed")
+        }
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialRun = true
+            requiresAdaptationRetry = !retryConsumed &&
+                targets.none { it.family == FAMILY_CONTRACT_FF } &&
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CloudKeyFreezeAdapter.applicable(loader)
+        }
 
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         val families = targets.map(Target::family).distinct().joinToString(",")
@@ -350,7 +391,8 @@ internal class CloudKeyFreezeFeatureInstaller(
     private fun discoverFeatureFlagContracts(loader: ClassLoader): List<Class<*>> {
         val base = KavaMemberLookup.classOrNull(loader, TYPED_CONTRACT_CLASS) ?: return emptyList()
         val flag = KavaMemberLookup.classOrNull(loader, FEATURE_FLAG_CONTRACT_CLASS) ?: return emptyList()
-        return scanLeafClasses(loader, BLCONFIG_INTERNAL_PACKAGE).filter { candidate ->
+        val extra = cachedFeatureFlagContractProvider()?.let { KavaMemberLookup.classOrNull(loader, it) }
+        return (scanLeafClasses(loader, BLCONFIG_INTERNAL_PACKAGE) + listOfNotNull(extra)).distinct().filter { candidate ->
             candidate.superclass == base && flag.isAssignableFrom(candidate)
         }
     }

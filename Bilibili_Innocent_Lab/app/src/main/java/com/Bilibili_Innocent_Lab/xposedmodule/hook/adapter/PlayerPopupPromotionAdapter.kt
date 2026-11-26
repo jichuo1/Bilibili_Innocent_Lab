@@ -24,7 +24,8 @@ data class PlayerPopupPromotionPoints(val freeDataGuide: HookPoint? = null, val 
                 require(raw.has("params") && raw.getJSONArray("params").length() == if (key == "free_data_guide") 1 else 0)
                 return HookPoint.fromJson(raw).also { point ->
                     val params = requireNotNull(point.paramClassNames)
-                    require(point.viewField == null && point.className.startsWith("$family.") &&
+                    require(point.viewField == null && (point.className.startsWith("$family.") ||
+                        PlayerSpeedMenuAdapter.flattenedOwner(point.className)) &&
                         point.className.length <= 512 && point.methodName.length in 1..256 &&
                         validClassName(point.className) && validMethodName(point.methodName) &&
                         params.all { it.length in 1..512 })
@@ -82,8 +83,10 @@ internal object PlayerPopupPromotionAdapter {
     }
 
     fun verifiedFreeDataGuide(method: Method): Boolean {
+        val owner = method.declaringClass.name
         if (!safeInstance(method) || method.returnType != Any::class.java || method.parameterCount != 1 ||
-            method.parameterTypes[0].name !in CONTINUATIONS || !method.declaringClass.name.startsWith("$NETWORK_PACKAGE.")) return false
+            method.parameterTypes[0].name !in CONTINUATIONS ||
+            (!owner.startsWith("$NETWORK_PACKAGE.") && !PlayerSpeedMenuAdapter.flattenedOwner(owner))) return false
         val fields = Lookup.declaredFields(method.declaringClass) { !Modifier.isStatic(it.modifiers) }
         return fields.count { it.type.name == "android.content.Context" } == 1 &&
             fields.count { it.type.name == TOAST_SERVICE } == 1 &&
@@ -91,7 +94,8 @@ internal object PlayerPopupPromotionAdapter {
     }
 
     fun verifiedAdvertFloat(method: Method): Boolean = safeInstance(method) && method.returnType == List::class.java &&
-        method.parameterCount == 0 && method.declaringClass.name.startsWith("$MODEL_PACKAGE.")
+        method.parameterCount == 0 &&
+        (method.declaringClass.name.startsWith("$MODEL_PACKAGE.") || PlayerSpeedMenuAdapter.flattenedOwner(method.declaringClass.name))
 
     fun resolveFreeDataGuide(loader: ClassLoader, point: HookPoint?): Method? = resolve(loader, point, ::verifiedFreeDataGuide)
     fun resolveAdvertFloat(loader: ClassLoader, point: HookPoint?): Method? = resolve(loader, point, ::verifiedAdvertFloat)

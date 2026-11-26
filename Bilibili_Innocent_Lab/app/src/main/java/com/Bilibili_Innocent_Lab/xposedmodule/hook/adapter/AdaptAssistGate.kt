@@ -43,17 +43,37 @@ internal object AdaptAssistGate {
 
     private val retryableReasons = setOf(
         "no_code_path", "native_unavailable", "query_failed", "too_many_archives",
-        "previous_attempt_unfinished", "no-dex-source"
+        "previous_attempt_unfinished", "crashed_or_killed", "no-dex-source"
     )
+
+    fun isRetryableDetail(detail: String): Boolean {
+        val raw = detail.substringBefore(':')
+        val suffix = detail.substringAfter(':').substringBefore(':')
+        return raw in retryableReasons || suffix in retryableReasons
+    }
+
+    fun isConclusiveMissing(diagnostic: AdaptDiagnostic): Boolean =
+        diagnostic.state == AdaptState.MISSING && !isRetryableDetail(diagnostic.detail)
+
+    /**
+     * 缓存快路径（`VersionAdapter.requiresFeatureRefresh`）用的「本宿主已尝试过（含可重试失败）」判定。
+     *
+     * 与 [isConclusiveMissing] 的分工同 [needsSupplementalScan] vs [needsQuery]：
+     * - 快路径只对从未尝试过的家族拉起整轮补适配并弹提示；
+     * - 已尝试但遇到 `query_failed` / `native_unavailable` / `previous_attempt_unfinished` / `no-dex-source` 等
+     *   可重试失败时（无论诊断状态是 `MISSING` 还是 `HomeChrome`/`SystemEnvironment` 写入的 `NOT_APPLICABLE`），
+     *   快路径不再每次冷启动反复重适配；真正因换版、手动重适配或新开功能进入 `adapt()` 时，
+     *   仍由 [isConclusiveMissing] 放行搭车重试。
+     */
+    fun isAttemptedInCache(diagnostic: AdaptDiagnostic): Boolean =
+        diagnostic.state == AdaptState.MISSING ||
+            (diagnostic.state == AdaptState.NOT_APPLICABLE && isRetryableDetail(diagnostic.detail))
 
     fun attempt(diagnostics: List<AdaptDiagnostic>?, family: Family): Attempt {
         val diagnostic = diagnostics?.lastOrNull { it.id == family.diagnosticId } ?: return Attempt.NOT_REQUESTED
         return when (diagnostic.state) {
             AdaptState.FOUND -> Attempt.FOUND
-            AdaptState.MISSING -> {
-                val reason = diagnostic.detail.removePrefix(family.prefix).substringBefore(':')
-                if (reason in retryableReasons) Attempt.RETRYABLE else Attempt.CONCLUSIVE_MISSING
-            }
+            AdaptState.MISSING -> if (isConclusiveMissing(diagnostic)) Attempt.CONCLUSIVE_MISSING else Attempt.RETRYABLE
             else -> Attempt.NOT_REQUESTED
         }
     }

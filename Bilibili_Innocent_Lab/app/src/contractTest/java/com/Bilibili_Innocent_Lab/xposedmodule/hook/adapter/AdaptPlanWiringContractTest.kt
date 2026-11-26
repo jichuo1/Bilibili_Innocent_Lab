@@ -59,8 +59,14 @@ class AdaptPlanWiringContractTest {
     /** 不在同步定位计划里的字段：各自有按功能开关与历史门控的后台流程（DexKit 兜底家族）。 */
     private val outsidePlan = setOf(
         "homeChrome", "homeChromeSemantics", "pageBoundaries", "followFeedStyle", "playerSpeedMenu",
-        "brandSplashDecoder", "systemEnvironment", "sponsorPlayer", "playerSpeedSession", "playerSpeedCalculator",
-        "weChatShare", "commentClassicStyle", "playerPopupPromotion", "commentComposeMenu", "kmpGrpcWireEngine"
+        "brandSplashDecoder", "brandSplashKntrDraw", "brandSplashKntrExit", "brandSplashKntrPage",
+        "cloudKeyFreezeContract", "systemEnvironment",
+        "sponsorPlayer", "playerSpeedSession", "playerSpeedCalculator", "weChatShare",
+        "commentClassicStyle", "playerPopupPromotion", "commentComposeMenu", "kmpGrpcWireEngine",
+        "privacyIgnetHttp", "privacyKNeuron", "guestPlayerCore", "detailSpecialTagMapper", "commentReplyButtonOwners",
+        "homeRecommendEarlyLoadListener",
+        "aiPlaylistDirector", "followUpRecommendBodies", "detailRelateGameComponent",
+        "legacyStoryDanmakuBind", "playerSpeedTheseus2LongPress"
     )
 
     private fun locatorCalls(text: String): List<Triple<PointFamily, String, String?>> {
@@ -114,14 +120,15 @@ class AdaptPlanWiringContractTest {
 
     fun `ensureAdapted judges completeness by coverage and keeps supplement scans silent`() {
         val ensure = adapter.after("internal fun ensureAdapted(").before("fun quickLocate(loader: ClassLoader)")
-        assertTrue(ensure.contains("AdaptPlanner.missing(usable.coverage, adaptPlan)"))
-        assertTrue(ensure.contains("refreshRequested || coverageMissing.isNotEmpty()"))
-        assertTrue(ensure.contains("adaptDecision(usable, refreshRequested, coverageMissing) == AdaptDecision.SUPPLEMENT_SILENTLY"))
-        assertTrue(ensure.contains("if (!silentSupplement) runCatching { callback?.onAdaptStarted() }"))
-        assertTrue(ensure.contains("if (!silentSupplement) runCatching { callback?.onAdaptFinished(result != null) }"))
-        // 补适配用同一份有效缓存当历史，局部结果的沿用与覆盖范围都由 adapt 负责。
+        assertTrue(ensure.contains("AdaptPlanner.missing(effectiveUsable.coverage, adaptPlan)"))
+        assertTrue(ensure.contains("refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty()"))
+        assertTrue(ensure.contains("adaptDecision(usable, refreshRequested, coverageMissing, staleDomains) == AdaptDecision.SUPPLEMENT_SILENTLY"))
+        assertTrue(ensure.contains("runCatching { callback?.onAdaptStarted() }"))
+        assertTrue(ensure.contains("runCatching { callback?.onAdaptFinished(succeeded) }"))
+        assertTrue(ensure.contains("runCatching { callback?.onSilentCacheReady(succeeded) }"))
+        // 补适配与增量重绑定复用同一份带历史拆包入口，局部结果的沿用与覆盖范围都由 adapt 负责。
         assertTrue(ensure.contains("val vc = startup.identity.versionCode"))
-        assertTrue(ensure.contains("adaptPlan, popupHistory, dexSource, vc) }.getOrNull()"))
+        assertTrue(ensure.contains("adaptPlan, history, dexSource, vc"))
         // 缓存只在整轮适配成功后写入，实时 quickLocate 的结果（版本号为 0）从不写盘。
         assertEquals(1, Regex("""writeCache\(adapted\)""").findAll(ensure).count())
         val usable = adapter.after("fun usableCache(highCandidateExists: Boolean, plan: AdaptPlan)").before("fun missingCoverage(")

@@ -47,12 +47,13 @@ data class StoryQualityPoints(
     fun isStructurallyValid(): Boolean {
         fun identifier(value: String) = value.length in 1..256 && value.all { it.isLetterOrDigit() || it == '_' || it == '$' }
         val flattenedOwner = policyMethod?.className?.takeIf(StoryQualityLocator::flattenedQualityOwner)
-        if (flattenedOwner != null && (integerDefaultMethod != null || resourceSelectionMethod?.className != flattenedOwner ||
+        if (flattenedOwner != null && (resourceSelectionMethod?.className != flattenedOwner ||
                 matchPreferenceMethod == null)) return false
         fun quality(point: HookPoint?) = point == null ||
             (point.className.startsWith(StoryQualityLocator.QUALITY_PACKAGE + ".") || point.className == flattenedOwner) &&
                 identifier(point.methodName) && point.paramClassNames != null && point.viewField == null
-        return preferenceClassName.startsWith(StoryQualityLocator.PREFERENCE_PACKAGE + ".") &&
+        return (preferenceClassName.startsWith(StoryQualityLocator.PREFERENCE_PACKAGE + ".") ||
+            StoryQualityLocator.flattenedQualityOwner(preferenceClassName)) &&
             preferenceClassName.length <= 512 && identifier(serviceFieldName) &&
             manualMethod.className == StoryQualityLocator.SERVICE && identifier(manualMethod.methodName) &&
             manualMethod.viewField == null && manualMethod.paramClassNames == listOf(preferenceClassName, StoryQualityLocator.CONTINUATION) &&

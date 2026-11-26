@@ -20,16 +20,26 @@ class AdaptCompletionSnapshotContractTest {
         .before("startupCache = startupCache,")
 
     fun successCallbackReadsTheCacheExactlyOnce() {
-        val success = finished().before("} else {\n                                    VersionAdapter.showAdaptToast(")
+        val body = finished()
+        val success = body.after("if (ok) {").before("InjectedUiLocale.messages(attachedContext).adaptSucceeded")
+        val failure = body.after("InjectedUiLocale.messages(attachedContext).adaptSucceeded")
+            .after("} else {")
+            .before("InjectedUiLocale.messages(attachedContext).adaptFailed")
         assertEquals(1, Regex("""VersionAdapter\.loadCached\(""").findAll(success).count())
         // 读取发生在所有 installer 分支之前，而不是藏在某个条件分支里。
         assertTrue(success.indexOf("VersionAdapter.loadCached(") < success.indexOf("qualityInstaller.requiresAdaptationRetry"))
+        assertTrue(failure.contains("homeRecommendEarlyLoadInstaller.finishAdaptationWait()"))
+        assertTrue(body.contains("override fun onSilentCacheReady(ok: Boolean)"))
+        assertTrue(body.contains("applyAdaptOutcome(ok, showToast = false)"))
     }
 
     fun everyInstallerConsumesTheSharedSnapshot() {
         val body = finished()
         for (field in listOf("playerQuality", "playerPopupPromotion", "commentClassicStyle", "sponsorPlayer",
-            "pageBoundaries", "homeChrome", "homeChromeSemantics")) {
+            "pageBoundaries", "homeChrome", "homeChromeSemantics",
+            "blockUpdate", "weChatShare", "playerSpeedCalculator", "homeRecommendEarlyLoadListener",
+            "cloudKeyFreezeContract", "homeTabs", "commentPurify",
+            "aiPlaylistDirector", "followUpRecommendBodies", "detailRelateGameComponent", "legacyStoryDanmakuBind")) {
             assertTrue("adapted?.$field", body.contains("adapted?.$field"))
         }
         assertFalse(body.contains("adaptedChrome"))
@@ -37,7 +47,11 @@ class AdaptCompletionSnapshotContractTest {
 
     fun retryGuardsAndMainThreadInstallationRemain() {
         val body = finished()
-        for (installer in listOf("qualityInstaller", "popupInstaller", "classicInstaller", "sponsorInstaller")) {
+        for (installer in listOf("qualityInstaller", "popupInstaller", "classicInstaller", "sponsorInstaller",
+            "pausedAdInstaller", "blockUpdateInstaller", "weChatShareInstaller", "playerSpeedInstaller",
+            "homeRecommendEarlyLoadInstaller", "cloudKeyFreezeInstaller", "homeTabFilterInstaller",
+            "commentPurifyInstaller", "aiDeclaredVideoInstaller", "followUpRecommendInstaller",
+            "detailAppPromotionInstaller", "storyActionIconsInstaller")) {
             // 进入分支前一次、主线程提交前再核对一次。
             assertEquals(installer, 2, Regex("""$installer\.requiresAdaptationRetry""").findAll(body).count())
         }

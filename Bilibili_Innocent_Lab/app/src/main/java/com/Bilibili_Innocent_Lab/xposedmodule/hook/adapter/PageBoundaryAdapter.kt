@@ -44,8 +44,10 @@ internal object PageBoundaryAdapter {
 
 
     fun ready(loader: ClassLoader, cached: PageBoundaryPoints?, query: DexAssistQuery): Boolean = when (query) {
-        DexAssistQuery.SEARCH_HOME_DELIVERY -> SearchHomeRecommendLocator.locate(loader, cached)?.delivery != null
-        DexAssistQuery.SEARCH_HOME_STATE -> SearchHomeRecommendLocator.locate(loader, cached)?.let { !it.stateExpected || it.state != null } == true
+        DexAssistQuery.SEARCH_HOME_DELIVERY -> SearchHomeRecommendLocator.fastCachedDelivery(loader, cached) ||
+            SearchHomeRecommendLocator.locate(loader, cached)?.delivery != null
+        DexAssistQuery.SEARCH_HOME_STATE -> SearchHomeRecommendLocator.fastCachedState(loader, cached) ||
+            SearchHomeRecommendLocator.locate(loader, cached)?.let { !it.stateExpected || it.state != null } == true
         DexAssistQuery.PLAYER_END_PAGE_MERGER -> PlayerEndPageRecommendLocator.resolve(loader, cached?.endPageMerger)?.mergedList != null
         else -> HostCardSemanticAdapter.ready(loader, cached?.cardSurfaces.orEmpty(), query)
     }
@@ -56,9 +58,15 @@ internal object PageBoundaryAdapter {
             query !in attempted && HostCardSemanticAdapter.applicable(loader, query) &&
                 !HostCardSemanticAdapter.ready(loader, cached?.cardSurfaces.orEmpty(), query)
         }
-        if (searchEnabled) SearchHomeRecommendLocator.locate(loader, cached)?.let { search ->
-            if (search.delivery == null && DexAssistQuery.SEARCH_HOME_DELIVERY !in attempted) add(DexAssistQuery.SEARCH_HOME_DELIVERY)
-            if (search.stateExpected && search.state == null && DexAssistQuery.SEARCH_HOME_STATE !in attempted) add(DexAssistQuery.SEARCH_HOME_STATE)
+        if (searchEnabled) {
+            val deliveryResolved = DexAssistQuery.SEARCH_HOME_DELIVERY in attempted ||
+                SearchHomeRecommendLocator.fastCachedDelivery(loader, cached)
+            val stateResolved = DexAssistQuery.SEARCH_HOME_STATE in attempted ||
+                SearchHomeRecommendLocator.fastCachedState(loader, cached)
+            if (!deliveryResolved || !stateResolved) SearchHomeRecommendLocator.locate(loader, cached)?.let { search ->
+                if (!deliveryResolved && search.delivery == null) add(DexAssistQuery.SEARCH_HOME_DELIVERY)
+                if (!stateResolved && search.stateExpected && search.state == null) add(DexAssistQuery.SEARCH_HOME_STATE)
+            }
         }
         if (endPageEnabled && Lookup.classOrNull(loader, PlayerEndPageRecommendLocator.SERVICE) != null &&
             PlayerEndPageRecommendLocator.resolve(loader, cached?.endPageMerger)?.mergedList == null &&
@@ -75,7 +83,7 @@ internal object PageBoundaryAdapter {
             .filter { SearchHomeRecommendLocator.acceptsStateOwner(it.name) }
             .filter { SearchHomeRecommendLocator.state(it) != null }.singleOrNull()?.name
         val merger = candidates(DexAssistQuery.PLAYER_END_PAGE_MERGER)?.methods.orEmpty()
-            .filter(PlayerEndPageRecommendLocator::mergerAbi).distinct().singleOrNull()
+            .filter { PlayerEndPageRecommendLocator.mergerAbi(it, loader) }.distinct().singleOrNull()
             ?.let { HookPoint(it.declaringClass.name, it.name, it.parameterTypes.map(Class<*>::getName)) }
         // Revalidate every stored owner with the current host loader; never trust a deserialized name.
         return PageBoundaryPoints(delivery ?: cached?.searchDelivery?.takeIf { name ->

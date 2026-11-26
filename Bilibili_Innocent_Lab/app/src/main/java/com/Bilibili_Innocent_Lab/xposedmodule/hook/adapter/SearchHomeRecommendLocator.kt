@@ -19,17 +19,12 @@ internal object SearchHomeRecommendLocator {
     const val DISCOVER = "com.bilibili.search2.discover."
     const val STATE = "com.bilibili.search2.main.data."
 
-    // 9.19.0 (9190200/9190400): onViewCreated creates pl22; MainSearchViewModel publishes v642.
-    private const val RELOCATED_DELIVERY = "pl22"
-    private const val RELOCATED_STATE = "v642"
-    private const val RELOCATED_CACHE_OWNER = "${DISCOVER}c"
-    private const val RELOCATED_CACHE_PAYLOAD = "zbm0"
-
-    // 9.19 起投递 owner 扁平到根包且逐构建改名（pl22/fnc2/yrc2 等），逐版登记类名不可持续；
-    // 根包（无点号）类名一律放行到 delivery() 全图验真 + singleOrNull，名称本身不作准入依据。
+    // 9.19 起投递/状态/缓存 owner 扁平到根包且逐构建改名（pl22/v642/zbm0 等），逐版登记类名不可持续；
+    // 根包（无点号）类名一律放行到结构全图验真 + singleOrNull，名称本身不作准入依据。
     fun acceptsDeliveryOwner(name: String): Boolean =
         name.startsWith(DISCOVER) || ('.' !in name && name.isNotEmpty())
-    fun acceptsStateOwner(name: String): Boolean = name == RELOCATED_STATE || name.startsWith(STATE)
+    fun acceptsStateOwner(name: String): Boolean =
+        name.startsWith(STATE) || ('.' !in name && name.isNotEmpty())
 
     /** 一级候选：宿主 discover 包的稳定短名（R8 混淆池 a-z + 未混淆的 ViewModel 名）。 */
     private val ROOT_NAMES: List<String> =
@@ -58,11 +53,23 @@ internal object SearchHomeRecommendLocator {
         /** 投递候选数，仅用于区分「宿主没有该结构」与「候选歧义」，不参与功能判定。 */
         val deliveryCandidateCount: Int = 0)
 
+    internal fun fastCachedDelivery(loader: ClassLoader, cached: PageBoundaryPoints?): Boolean {
+        val name = cached?.searchDelivery?.takeIf(::acceptsDeliveryOwner) ?: return false
+        if (Lookup.classOrNull(loader, SQUARE) == null) return false
+        return Lookup.classOrNull(loader, name)?.takeIf { !it.isInterface && !it.isAbstract }?.let(::delivery) != null
+    }
+
+    internal fun fastCachedState(loader: ClassLoader, cached: PageBoundaryPoints?): Boolean {
+        if (Lookup.classOrNull(loader, SQUARE) == null) return false
+        if (Lookup.classOrNull(loader, "com.bilibili.search2.main.MainSearchViewModel") == null) return true
+        val name = cached?.searchState?.takeIf(::acceptsStateOwner) ?: return false
+        return Lookup.classOrNull(loader, name)?.takeIf { !it.isInterface && !it.isAbstract }?.let(::state) != null
+    }
+
     fun locate(loader: ClassLoader, cached: PageBoundaryPoints? = null): Points? = runCatching {
         val square = Lookup.classOrNull(loader, SQUARE) ?: return null
         val type = Lookup.methodOrNull(square, "getType")
             ?.takeIf { !it.isStatic && it.returnType == classOf<String>() } ?: return null
-        val relocatedDelivery = Lookup.classOrNull(loader, RELOCATED_DELIVERY)
         val roots = ROOT_NAMES.mapNotNull { Lookup.classOrNull(loader, it) }
 
         // 投递宿主是页面 ViewModel 里的回调实现：可能是顶级类（8.97.0+，即根类自身），也可能是
@@ -84,13 +91,12 @@ internal object SearchHomeRecommendLocator {
         }
         val cachedDelivery = cached?.searchDelivery?.takeIf(::acceptsDeliveryOwner)
             ?.let { Lookup.classOrNull(loader, it) }
-        val callbacks = (listOfNotNull(relocatedDelivery, cachedDelivery) + roots + enumerated + declared).distinct()
+        val callbacks = (listOfNotNull(cachedDelivery) + roots + enumerated + declared).distinct()
             .filter { !it.isInterface && !it.isAbstract }
             .mapNotNull(::delivery)
 
-        val relocatedState = Lookup.classOrNull(loader, RELOCATED_STATE)
         val cachedState = cached?.searchState?.takeIf(::acceptsStateOwner)?.let { Lookup.classOrNull(loader, it) }
-        val states = (listOfNotNull(relocatedState, cachedState) +
+        val states = (listOfNotNull(cachedState) +
             ('a'..'z').mapNotNull { Lookup.classOrNull(loader, STATE + it) }).distinct()
             .filter { !it.isInterface && !it.isAbstract }.mapNotNull(::state)
         Points(square, type, callbacks.singleOrNull(), states.singleOrNull(),
@@ -109,12 +115,11 @@ internal object SearchHomeRecommendLocator {
         val receive = members.filter { typedList(it.genericParameterTypes[0], SQUARE) }.singleOrNull() ?: return null
         val refresh = members.filter { typedList(it.genericParameterTypes[0], GUESS) }.singleOrNull()
         val carriers = Lookup.declaredFields(owner, true) {
-            !it.isStatic && it.type.name.startsWith(DISCOVER)
+            !it.isStatic && !it.type.isPrimitive && acceptsDeliveryOwner(it.type.name)
         }.mapNotNull { field -> squareField(field.type)?.let { field to it } }
         val carrier = carriers.singleOrNull() ?: return null
         val ownerType = carrier.first.type
-        val allowRelocatedCache = acceptsDeliveryOwner(owner.name) && ownerType.name == RELOCATED_CACHE_OWNER
-        Delivery(receive, refresh, carrier.first, carrier.second, discoveryCache(ownerType, allowRelocatedCache))
+        Delivery(receive, refresh, carrier.first, carrier.second, discoveryCache(ownerType))
     }.getOrNull()
 
     internal fun state(owner: Class<*>): StatePoint? = runCatching {
@@ -130,7 +135,7 @@ internal object SearchHomeRecommendLocator {
         !it.isStatic && it.type == classOf<List<*>>() && typedList(it.genericType, SQUARE)
     }.singleOrNull()
 
-    private fun discoveryCache(owner: Class<*>, allowRelocatedCache: Boolean): DiscoveryCache? = Lookup.declaredFields(owner, true) {
+    private fun discoveryCache(owner: Class<*>): DiscoveryCache? = Lookup.declaredFields(owner, true) {
         !it.isStatic
     }.mapNotNull { field -> runCatching {
         // R8 widens LiveData.setValue to public in some hosts. Its read-only alias is
@@ -138,8 +143,7 @@ internal object SearchHomeRecommendLocator {
         if (!writableObservable(field.type)) return@runCatching null
         val generic = field.genericType as? ParameterizedType ?: return@runCatching null
         val payload = generic.actualTypeArguments.singleOrNull() as? Class<*> ?: return@runCatching null
-        val relocated = allowRelocatedCache && payload.name == RELOCATED_CACHE_PAYLOAD
-        if (!payload.name.startsWith(DISCOVER) && !relocated) return@runCatching null
+        if (!acceptsDeliveryOwner(payload.name)) return@runCatching null
         val values = Lookup.declaredFields(payload, true) { !it.isStatic && typedList(it.genericType, GUESS) }.singleOrNull()
             ?: return@runCatching null
         val feedback = Lookup.declaredFields(payload, true) {

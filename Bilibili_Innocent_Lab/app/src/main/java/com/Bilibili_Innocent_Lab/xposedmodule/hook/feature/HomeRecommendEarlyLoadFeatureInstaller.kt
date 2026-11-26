@@ -1,15 +1,18 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 首页推荐提前加载下一页。
@@ -28,22 +31,73 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class HomeRecommendEarlyLoadFeatureInstaller(
     private val enabled: Boolean,
-    private val names: HostNames = HostNames()
+    private val names: HostNames = HostNames(),
+    private val cachedRelocatedListenerProvider: () -> String? = { null },
+    private val adaptationAttemptedInCache: Boolean = false
 ) : FeatureInstaller {
 
     override val id: String = ID
 
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
+    private var hookRegistered = false
+    private var retryConsumed = false
+    private var activeWatcher: LoadMoreWatcher? = null
+    private var activeAccess: RecyclerAccess? = null
+
+    @Synchronized
+    fun finishAdaptationWait() {
+        activeWatcher?.updateRelocatedListener(null)
+        retryConsumed = true
+        requiresAdaptationRetry = false
+    }
+
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
-        val recycler = RecyclerAccess.resolve(loader, names) ?: return missing(environment, "missing-recycler-boundary")
-        val watcher = LoadMoreWatcher(recycler, environment)
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-class-loader")
+        }
+        if (hookRegistered) {
+            val access = activeAccess
+            val watcher = activeWatcher
+            val resolved = access?.relocatedListener ?: if (access != null) {
+                resolveVerifiedListener(loader, cachedRelocatedListenerProvider(), access)
+            } else null
+            watcher?.updateRelocatedListener(resolved)
+            retryConsumed = true
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Installed(1)
+        }
+        val recycler = RecyclerAccess.resolve(loader, names) ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-recycler-boundary")
+        }
+        val initialRelocated = recycler.relocatedListener
+            ?: resolveVerifiedListener(loader, cachedRelocatedListenerProvider(), recycler)
+        val shouldAwaitRetry = initialRelocated == null &&
+            !adaptationAttemptedInCache &&
+            !retryConsumed &&
+            names == HostNames() &&
+            HomeRecommendEarlyLoadAdapter.applicable(loader) &&
+            HomeRecommendEarlyLoadAdapter.direct(loader) == null
+        val watcher = LoadMoreWatcher(
+            recycler = recycler,
+            environment = environment,
+            initialRelocatedListener = initialRelocated,
+            initialAwaitingRelocated = shouldAwaitRetry
+        )
         val registered = runCatching {
             environment.registrar.exact(
                 LISTENER_HOOK_ID,
@@ -58,12 +112,31 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
         }.onFailure { throwable ->
             environment.logError("home_recommend_early_load_register", "[BIL] 首页推荐提前加载 Hook 注册失败: $throwable")
         }.isSuccess
-        if (!registered) return missing(environment, "registration-failed")
+        if (!registered) {
+            requiresAdaptationRetry = false
+            return missing(environment, "registration-failed")
+        }
 
+        hookRegistered = true
+        activeAccess = recycler
+        activeWatcher = watcher
+        requiresAdaptationRetry = shouldAwaitRetry
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(CHANNEL_STATUS, "installed")
         environment.logInfo("home_recommend_early_load_ok", "[BIL] 首页推荐提前加载已安装")
         return FeatureInstallResult.Installed(1)
+    }
+
+    private fun resolveVerifiedListener(
+        loader: ClassLoader,
+        className: String?,
+        access: RecyclerAccess
+    ): Class<*>? {
+        val candidateName = className?.takeIf(HomeRecommendEarlyLoadAdapter::allowedClassName) ?: return null
+        val type = KavaMemberLookup.classOrNull(loader, candidateName) ?: return null
+        if (type.isInterface || Modifier.isAbstract(type.modifiers)) return null
+        if (type.superclass != access.scrollListener || !access.attachListener.isAssignableFrom(type)) return null
+        return type.takeIf { PegasusLoadMoreShape.hasValidFields(it, access.function0) != null }
     }
 
     private fun missing(environment: HookEnvironment, reason: String): FeatureInstallResult.Skipped {
@@ -76,7 +149,10 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
     internal data class HostNames(
         val recyclerView: String = "androidx.recyclerview.widget.RecyclerView",
         val gridLayoutManager: String = "androidx.recyclerview.widget.GridLayoutManager",
-        val function0: String = "kotlin.jvm.functions.Function0"
+        val function0: String = "kotlin.jvm.functions.Function0",
+        val pegasusFragment: String = PegasusLoadMoreShape.PEGASUS_FRAGMENT,
+        val initFeedsContinuation: String = PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION,
+        val continuation: String = PegasusLoadMoreShape.CONTINUATION
     )
 
     /** 安装期一次解析的宿主 androidx 列表成员；全部是公开 API 名。 */
@@ -95,7 +171,8 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
         private val spanCount: Method,
         private val spanSizeLookup: Method,
         private val spanSize: Method,
-        private val invoke: Method
+        private val invoke: Method,
+        val relocatedListener: Class<*>? = null
     ) {
         fun addAttachListener(recycler: Any, listener: Any) {
             addAttachListener.invoke(recycler, listener)
@@ -160,7 +237,16 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
                         ?.takeIf { it.returnType == lookup } ?: return null,
                     spanSize = KavaMemberLookup.methodOrNull(lookup, "getSpanSize", int)
                         ?.takeIf { it.returnType == int } ?: return null,
-                    invoke = KavaMemberLookup.methodOrNull(function0, "invoke") ?: return null
+                    invoke = KavaMemberLookup.methodOrNull(function0, "invoke") ?: return null,
+                    relocatedListener = PegasusLoadMoreShape.resolveRelocatedListener(
+                        loader = loader,
+                        scrollListener = scroll,
+                        childAttachListener = attach,
+                        function0 = function0,
+                        pegasusFragmentName = names.pegasusFragment,
+                        initFeedsContinuationName = names.initFeedsContinuation,
+                        continuationName = names.continuation
+                    )
                 )
             }
         }
@@ -172,16 +258,44 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
      */
     internal class LoadMoreWatcher(
         private val recycler: RecyclerAccess,
-        private val environment: HookEnvironment
+        private val environment: HookEnvironment,
+        initialRelocatedListener: Class<*>? = recycler.relocatedListener,
+        initialAwaitingRelocated: Boolean = false
     ) {
         private val shapes = ConcurrentHashMap<Class<*>, Any>()
         private val watched = WeakHashMap<Any, Watch>()
         private val firstObserved = AtomicBoolean(false)
         private val firstApplied = AtomicBoolean(false)
+        private val relocatedListenerRef = AtomicReference<Class<*>?>(initialRelocatedListener)
+        private val awaitingRelocatedListener = AtomicBoolean(initialAwaitingRelocated)
+        private val pendingLock = Any()
+        private val pendingCandidates = WeakHashMap<ViewGroup, WeakReference<Any>>()
 
         fun onScrollListenerAdded(list: Any?, listener: Any?) {
             if (list !is ViewGroup || listener == null) return
-            val shape = shapeOf(listener.javaClass) ?: return
+            var shape = shapeOf(listener.javaClass)
+            if (shape == null) {
+                val resolvedNow = synchronized(pendingLock) {
+                    val type = listener.javaClass
+                    if (awaitingRelocatedListener.get()) {
+                        if (type.superclass == recycler.scrollListener &&
+                            recycler.attachListener.isAssignableFrom(type) &&
+                            PegasusLoadMoreShape.hasValidFields(type, recycler.function0) != null &&
+                            (pendingCandidates.size < MAX_PENDING_CANDIDATES || pendingCandidates.containsKey(list))
+                        ) {
+                            pendingCandidates[list] = WeakReference(listener)
+                        }
+                        false
+                    } else if (relocatedListenerRef.get() === type) {
+                        true
+                    } else {
+                        shapes.putIfAbsent(type, NOT_A_LOAD_MORE_LISTENER)
+                        false
+                    }
+                }
+                if (!resolvedNow) return
+                shape = shapeOf(listener.javaClass) ?: return
+            }
             val watch = synchronized(watched) {
                 if (watched.containsKey(list)) return
                 Watch(list, listener, shape).also { watched[list] = it }
@@ -196,12 +310,52 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
             }
         }
 
+        internal fun updateRelocatedListener(resolved: Class<*>?) {
+            val pending = synchronized(pendingLock) {
+                if (resolved != null) {
+                    relocatedListenerRef.set(resolved)
+                }
+                awaitingRelocatedListener.set(false)
+                pendingCandidates.entries.mapNotNull { (list, ref) ->
+                    ref.get()?.let { list to it }
+                }.also { pendingCandidates.clear() }
+            }
+            if (resolved != null) {
+                shapes.remove(resolved, NOT_A_LOAD_MORE_LISTENER)
+                for ((list, listener) in pending) {
+                    if (listener.javaClass === resolved) {
+                        onScrollListenerAdded(list, listener)
+                    }
+                }
+            }
+        }
+
+        internal fun pendingCandidateCountForTest(): Int = synchronized(pendingLock) { pendingCandidates.size }
+
         internal fun shapeOf(type: Class<*>): PegasusLoadMoreShape? {
             val cached = shapes[type]
             if (cached != null) return cached as? PegasusLoadMoreShape
-            val shape = PegasusLoadMoreShape.of(type, recycler.scrollListener, recycler.attachListener, recycler.function0)
-            shapes.putIfAbsent(type, shape ?: NOT_A_LOAD_MORE_LISTENER)
-            return shape
+            val (resolvedRelocated, isAwaiting) = synchronized(pendingLock) {
+                relocatedListenerRef.get() to awaitingRelocatedListener.get()
+            }
+            val shape = PegasusLoadMoreShape.of(
+                type,
+                recycler.scrollListener,
+                recycler.attachListener,
+                recycler.function0,
+                resolvedRelocated
+            )
+            if (shape != null) {
+                shapes.putIfAbsent(type, shape)
+                return shape
+            }
+            if (!isAwaiting ||
+                type.superclass != recycler.scrollListener ||
+                !recycler.attachListener.isAssignableFrom(type)
+            ) {
+                shapes.putIfAbsent(type, NOT_A_LOAD_MORE_LISTENER)
+            }
+            return null
         }
 
         private fun requested(watch: Watch) {
@@ -267,6 +421,7 @@ internal class HomeRecommendEarlyLoadFeatureInstaller(
         }
 
         private companion object {
+            const val MAX_PENDING_CANDIDATES = 8
             val NOT_A_LOAD_MORE_LISTENER = Any()
         }
     }

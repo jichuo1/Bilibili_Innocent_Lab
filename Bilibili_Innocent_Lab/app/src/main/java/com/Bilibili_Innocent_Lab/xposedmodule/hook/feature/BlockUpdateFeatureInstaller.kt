@@ -50,39 +50,73 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
  */
 internal class BlockUpdateFeatureInstaller(
     private val enabled: Boolean,
-    private val point: VersionAdapter.HookPoint?
+    private val point: VersionAdapter.HookPoint?,
+    private val pointProvider: () -> VersionAdapter.HookPoint? = { point }
 ) : FeatureInstaller {
 
     override val id: String = ID
 
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
+    private var callerAttempted = false
+    private var callerInstalledCount = 0
+    private var supplierInstalled = false
+    private var retryConsumed = false
+
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             environment.reportStatus(CHANNEL_CALLER, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
 
-        // 第二道先装：它不依赖 VersionAdapter 定位，也不该被第一道的失败拖下水。
-        val callerHooks = installCallerLayer(environment)
-        val supplier = installSupplierLayer(environment)
+        val isRetryRun = callerAttempted
+        // 第二道先装且只装一次：热补装绝不重挂 UpdateHelper 三个入口。
+        if (!callerAttempted) {
+            callerInstalledCount = installCallerLayer(environment)
+            callerAttempted = true
+        }
+        val currentPoint = if (!supplierInstalled) pointProvider() else null
+        if (!supplierInstalled && currentPoint != null) {
+            supplierInstalled = installSupplierLayer(environment, currentPoint)
+        } else if (!supplierInstalled && !isRetryRun) {
+            environment.logInfo(
+                "block_update_supplier_absent",
+                "[BIL] 更新检查 supplier 层未适配（无 VersionAdapter 点位），仅保留调用方层"
+            )
+        }
 
-        if (!supplier && callerHooks == 0) {
+        if (isRetryRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            requiresAdaptationRetry = !supplierInstalled && !retryConsumed && currentPoint == null
+        }
+
+        val totalHooks = (if (supplierInstalled) 1 else 0) + callerInstalledCount
+        if (totalHooks == 0) {
             return FeatureInstallResult.Skipped("registration-failed")
         }
         environment.reportStatus(
             CHANNEL_STATUS,
-            if (supplier) "success" else "caller-only"
+            if (supplierInstalled) "success" else "caller-only"
         )
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.logInfo(
             "block_update_ok",
-            "[BIL] 官方客户端更新检查屏蔽已安装，supplier 层=$supplier，调用方层 hooks=$callerHooks"
+            "[BIL] 官方客户端更新检查屏蔽已安装，supplier 层=$supplierInstalled，调用方层 hooks=$callerInstalledCount"
         )
         return FeatureInstallResult.Installed(
-            (if (supplier) 1 else 0) + callerHooks,
-            complete = supplier && callerHooks == CALLER_METHODS.size
+            totalHooks,
+            complete = supplierInstalled && callerInstalledCount == CALLER_METHODS.size
         )
     }
 
@@ -144,14 +178,10 @@ internal class BlockUpdateFeatureInstaller(
     }
 
     /** 第一道：supplier 层。定位或注册失败只影响它自己。 */
-    private fun installSupplierLayer(environment: HookEnvironment): Boolean {
-        val adapted = point ?: run {
-            environment.logInfo(
-                "block_update_supplier_absent",
-                "[BIL] 更新检查 supplier 层未适配（无 VersionAdapter 点位），仅保留调用方层"
-            )
-            return false
-        }
+    private fun installSupplierLayer(
+        environment: HookEnvironment,
+        adapted: VersionAdapter.HookPoint
+    ): Boolean {
         val exceptionConstructor = environment.hookPoints.resolveConstructor(
             "update.block.latest_exception",
             LATEST_VERSION_EXCEPTION_CLASS,

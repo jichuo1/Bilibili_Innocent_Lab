@@ -21,15 +21,21 @@ class AdaptationCacheMaintenanceContractTest {
         assertTrue(worker.contains("dexAuditRunning.compareAndSet(false, true)"))
     }
 
-    fun `repack reuse is background only and respects actual framework priority`() {
+    fun `repack reuse is background only and verifies content and protocol across all modes`() {
         val source = SourceContract.read("hook/VersionAdapter.kt")
         val startup = source.after("internal fun readStartupCache(").before("fun cacheStatus()")
         assertFalse(startup.contains("rebindRepackedCache("))
         assertFalse(startup.contains("inspectHostDexSource("))
+        val ensureBeforeWorker = source.after("internal fun ensureAdapted(").before("Thread({")
+        assertFalse("onAdaptStarted must be decided inside worker after rebind check", ensureBeforeWorker.contains("onAdaptStarted("))
         val worker = source.after("HostThreadGuard.run(\"adapter.adapt_worker\")").before("result = repacked ?:")
-        assertTrue(worker.contains("NoRootRuntimeDetector.detect(context,"))
-        assertTrue(worker.contains("HookRuntimeMode.NPATCH_LEGACY &&"))
-        assertTrue(worker.contains("rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value)"))
+        assertFalse("All-mode rebind must not be gated to NPatch only", worker.contains("HookRuntimeMode.NPATCH_LEGACY"))
+        assertTrue(worker.contains("readRawCacheCandidates(context, resetTimestamp)"))
+        assertTrue(worker.contains("verifyProtocolFingerprint(classLoader, previous)"))
+        assertTrue(worker.contains("rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value, actualProtocol)"))
+        assertTrue(worker.contains("AdaptDomainCatalog.staleDomains("))
+        val startupRead = source.after("internal fun readStartupCache(").before("fun cacheStatus()")
+        assertFalse(startupRead.contains("readRawCacheCandidates("))
     }
 
     @org.junit.Test
@@ -39,6 +45,6 @@ class AdaptationCacheMaintenanceContractTest {
             block(s)
         }
         runIsolated { s -> s.`cache hit schedules maintenance without synchronous file operations`() }
-        runIsolated { s -> s.`repack reuse is background only and respects actual framework priority`() }
+        runIsolated { s -> s.`repack reuse is background only and verifies content and protocol across all modes`() }
     }
 }

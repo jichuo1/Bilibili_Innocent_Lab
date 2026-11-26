@@ -19,7 +19,9 @@ internal class PlayerQualityFeatureInstaller(
     private val normal = NormalQualityFeatureHooks { story.globalTarget(normalizedQn) }
     private var globalInstalled = false
     private var storyApplicable = true
-    private var normalApplicable = false
+    private var legacyNormalApplicable = false
+    private var modernNormalApplicable = false
+    private val normalApplicable: Boolean get() = legacyNormalApplicable || modernNormalApplicable
     val requiresAdaptationRetry: Boolean get() = normalizedQn != 0 &&
         (!globalInstalled || storyApplicable && !story.complete || normalApplicable && !normal.complete)
 
@@ -33,9 +35,14 @@ internal class PlayerQualityFeatureInstaller(
         }
         val current = pointsProvider()
         val loader = environment.classLoader
-        normalApplicable = NormalQualityLocator.applicable(current?.defaultQualityMethod)
-        if (normalApplicable && !normal.complete && loader != null) {
+        legacyNormalApplicable = NormalQualityLocator.applicable(current?.defaultQualityMethod)
+        modernNormalApplicable = !legacyNormalApplicable &&
+            NormalQualityLocator.applicableModern(loader, current?.defaultQualityMethod, current?.normalAutoSwitch)
+        if (legacyNormalApplicable && !normal.complete && loader != null) {
             NormalQualityLocator.resolve(loader)?.let { normal.install(environment, it) }
+        } else if (modernNormalApplicable && !normal.complete && loader != null) {
+            NormalQualityLocator.resolveAutoSwitch(loader, current?.normalAutoSwitch)
+                ?.let { normal.installAutoSwitch(environment, it) }
         }
         storyApplicable = loader == null || StoryQualityLocator.applicable(loader)
         if (storyApplicable && !story.complete && loader != null) {

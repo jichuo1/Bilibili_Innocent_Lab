@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isGone
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -21,29 +22,45 @@ internal class StoryActionIconsFeatureInstaller(
     /** 单测替换：把宿主实例变成可折叠的盒子；真机走 [ViewActionIconBox]。 */
     private val boxOf: (Any) -> ActionIconBox? = { (it as? View)?.let(::ViewActionIconBox) },
     /** 单测替换：构造后延迟到下一帧执行；真机走 `View.post`。 */
-    private val postToView: (Any, () -> Unit) -> Unit = { target, block -> (target as? View)?.post { block() } },
+    private val postToView: (Any, () -> Unit) -> Unit = { target, block ->
+        (target as? View)?.post(HostThreadGuard.runnable("story.action_icons.post") { block() })
+    },
     private val legacyResolver: (ClassLoader) -> LegacyStoryDanmakuAccess? = { LegacyStoryDanmakuAccess.resolve(it) }
 ) : FeatureInstaller {
 
     override val id: String = ID
 
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
     /** 已排过构造后折叠的实例；弱引用，不让组件活过它的页面。 */
     private val posted: MutableSet<Any> = java.util.Collections.newSetFromMap(java.util.WeakHashMap())
     private val legacyReady = java.util.concurrent.atomic.AtomicBoolean(false)
     private val legacyRegistered = hashSetOf<String>()
+    private val registeredWidgets = hashSetOf<String>()
+    private var initialRun = false
+    private var retryConsumed = false
     override val capabilityIds: List<String> get() = hidden.map { it.capabilityId }
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (hidden.isEmpty()) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return missing(environment, "missing-class-loader")
+        }
         var total = 0
         var expected = 0
+        var legacyRetryNeeded = false
         val degraded = mutableListOf<String>()
         StoryActionIcon.entries.filter { it in hidden }.forEach { icon ->
             var installedForIcon = 0
@@ -62,6 +79,7 @@ internal class StoryActionIconsFeatureInstaller(
                 val legacyAccessorPresent = KavaMemberLookup.declaredMethods(legacyOwner) {
                     it.name == "getMDanmakuToggle" && it.parameterCount == 0
                 }.isNotEmpty()
+                if (legacy == null && legacyAccessorPresent) legacyRetryNeeded = true
                 // 新版可能已移除旧访问器；有新版 widget 时不把已删除的旧形态算成缺失。
                 if (legacy != null || legacyAccessorPresent || !hasWidgets) {
                     expectedForIcon += 1
@@ -88,6 +106,13 @@ internal class StoryActionIconsFeatureInstaller(
             )
             total += installedForIcon
             expected += expectedForIcon.coerceAtLeast(1)
+        }
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialRun = true
+            requiresAdaptationRetry = !retryConsumed && legacyRetryNeeded
         }
         if (total == 0) return missing(environment, "missing-host-structure")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
@@ -122,10 +147,12 @@ internal class StoryActionIconsFeatureInstaller(
         register("$ID.legacy_danmaku.setter", access.setter) {
             after {
                 if (hasThrowable || !legacyReady.get()) return@after
-                argOrNull(0)?.let { collapse(environment, icon, it) }
+                val toggle = argOrNull(0)
+                toggle?.let { collapse(environment, icon, it) }
                 val controller = instance ?: return@after
+                val postTarget = toggle ?: controller
                 if (synchronized(posted) { posted.add(controller) }) {
-                    postToView(controller) { collapseController(controller) }
+                    postToView(postTarget) { collapseController(controller) }
                 }
             }
         }
@@ -141,6 +168,7 @@ internal class StoryActionIconsFeatureInstaller(
 
     /** 一个组件类：`onStart(int)` 必须装上才算这个类可用；构造后的提前折叠是锦上添花。 */
     private fun installWidget(environment: HookEnvironment, icon: StoryActionIcon, widget: Class<*>): Boolean {
+        if (widget.name in registeredWidgets) return true
         val onStart = KavaMemberLookup.declaredMethods(widget, makeAccessible = true) {
             !it.isStatic && it.name == ON_START && it.parameterTypes.contentEquals(arrayOf(classOf<Int>()))
         }.singleOrNull() ?: run {
@@ -176,6 +204,7 @@ internal class StoryActionIconsFeatureInstaller(
                 }
             }
         }
+        registeredWidgets += widget.name
         return true
     }
 

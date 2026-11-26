@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapability
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ProtobufBuilderPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -14,6 +15,8 @@ internal class PlayerCapabilityAccess private constructor(
     private val hasVideo: Method,
     private val readContainer: Method,
     private val writeContainer: Method,
+    private val replyPlan: ProtobufBuilderPlan?,
+    private val builderWriteContainer: Method?,
     private val containerCopy: BuilderCopy,
     private val arcCopy: BuilderCopy,
     private val defaultArc: Any,
@@ -27,6 +30,7 @@ internal class PlayerCapabilityAccess private constructor(
 ) {
     val capabilityCount: Int get() = slots.size
     val capabilities: List<PlayerCapability> = slots.map { it.capability }
+    val canCopy: Boolean get() = replyPlan != null && builderWriteContainer != null
     private data class Slot(val capability: PlayerCapability, val getter: Method?, val setter: Method?)
     private data class BuilderCopy(val newBuilder: Method, val build: Method) {
         fun copy(value: Any): Any = checkNotNull(newBuilder.invoke(null, value))
@@ -39,10 +43,34 @@ internal class PlayerCapabilityAccess private constructor(
         onObserved: ((PlayerCapability) -> Unit)? = null,
         onApplied: ((PlayerCapability) -> Unit)? = null
     ): Int {
-        if (!replyClass.isInstance(reply) || reply === defaultReply || hasVideo.invoke(reply) != true) return 0
-        val originalContainer = readContainer.invoke(reply) ?: return 0
+        val (updated, changed) = buildUpdatedContainer(reply, onObserved) ?: return 0
+        // 全部副本准备完成后才改顶层字段，失败不会留下半份配置；其他 reply 字段不动。
+        writeContainer.invoke(reply, updated)
+        return confirmApplied(reply, changed, onApplied)
+    }
+
+    /** 返回经 builder 改写并回读确认后的新回复副本；未改动或无法副本构建时返回原对象。 */
+    fun applyCopy(
+        reply: Any,
+        onObserved: ((PlayerCapability) -> Unit)? = null,
+        onApplied: ((PlayerCapability) -> Unit)? = null
+    ): Any {
+        val plan = replyPlan ?: return reply
+        val setter = builderWriteContainer ?: return reply
+        val (updated, changed) = buildUpdatedContainer(reply, onObserved) ?: return reply
+        val copied = plan.edit(reply) { builder -> setter.invoke(builder, updated) }
+        if (copied === reply) return reply
+        return if (confirmApplied(copied, changed, onApplied) > 0) copied else reply
+    }
+
+    private fun buildUpdatedContainer(
+        reply: Any,
+        onObserved: ((PlayerCapability) -> Unit)?
+    ): Pair<Any, List<Slot>>? {
+        if (!replyClass.isInstance(reply) || reply === defaultReply || hasVideo.invoke(reply) != true) return null
+        val originalContainer = readContainer.invoke(reply) ?: return null
         val originalMap = readMap?.invoke(originalContainer) as? Map<*, *>
-        if (readMap != null && originalMap == null) return 0
+        if (readMap != null && originalMap == null) return null
         var builder: Any? = null
         val changed = ArrayList<Slot>(slots.size)
         for (slot in slots) {
@@ -64,10 +92,16 @@ internal class PlayerCapabilityAccess private constructor(
             else slot.setter?.invoke(targetBuilder, updatedArc)
             changed += slot
         }
-        val updated = builder?.let(containerCopy::finish) ?: return 0
+        val updated = builder?.let(containerCopy::finish) ?: return null
         check(updated !== originalContainer)
-        // 全部副本准备完成后才改顶层字段，失败不会留下半份配置；其他 reply 字段不动。
-        writeContainer.invoke(reply, updated)
+        return updated to changed
+    }
+
+    private fun confirmApplied(
+        reply: Any,
+        changed: List<Slot>,
+        onApplied: ((PlayerCapability) -> Unit)?
+    ): Int {
         val actual = readContainer.invoke(reply) ?: return 0
         val actualMap = readMap?.invoke(actual) as? Map<*, *>
         return changed.count { slot ->
@@ -96,6 +130,8 @@ internal class PlayerCapabilityAccess private constructor(
                 ?.takeIf { it.returnType == container } ?: return null
             val writeContainer = method(reply, if (shared) "setPlayArcConf" else "setPlayArc", container)
                 ?.takeIf { it.returnType == Void.TYPE } ?: return null
+            val replyPlan = ProtobufBuilderPlan.resolve(reply)
+            val builderWriteContainer = replyPlan?.method(if (shared) "setPlayArcConf" else "setPlayArc", container)
             val hasVideo = method(reply, if (shared) "hasVodInfo" else "hasVideoInfo")
                 ?.takeIf { it.returnType == classOf<Boolean>() } ?: return null
             val disabled = method(arc, "getDisabled")?.takeIf { it.returnType == classOf<Boolean>() } ?: return null
@@ -117,7 +153,8 @@ internal class PlayerCapabilityAccess private constructor(
             }
             if (slots.isEmpty()) return null
             PlayerCapabilityAccess(reply, defaultInstance(reply) ?: return null, hasVideo,
-                readContainer, writeContainer, containerCopy, arcCopy, defaultInstance(arc) ?: return null,
+                readContainer, writeContainer, replyPlan, builderWriteContainer,
+                containerCopy, arcCopy, defaultInstance(arc) ?: return null,
                 disabled, supported, setDisabled, setSupported, readMap, putMap, slots)
         }.getOrNull()
 

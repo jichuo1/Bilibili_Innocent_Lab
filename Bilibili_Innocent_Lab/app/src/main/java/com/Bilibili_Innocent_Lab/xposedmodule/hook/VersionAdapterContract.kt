@@ -92,7 +92,43 @@ internal object VersionAdapterContract {
     /** 90 → 91：局部 Root/Hook 结果新增后台语义定位与可选缓存键，快路径必须重新验真后才能注册。 */
     /** 91 → 92：9.20.0 三构建（9200100/9200200/9200300）ReplyInfo -> CommentItem 根包映射器搬迁入库，抬 rule 使已缓存缺失结论重定位。 */
     /** 92 → 93：新增 Compose 更多菜单与 KMP GrpcEngine 线格式可选缓存键及 DexMeguviz 兜底查询，旧缓存缺键降级、不抬 schema。 */
-    const val RULE_VERSION = 93
+    /** 93 → 94：Wave 1 引擎防锁死重试、根包扁平化跨版本泛化，新增 brand_splash_kntr_draw 与 cloud_key_freeze_contract 可选缓存键，不抬 schema。 */
+    /** 94 → 95：Wave 2 新增 privacy_ignet_http 与 privacy_kneuron 可选缓存键及后台 DexMeguviz 兜底，不抬 schema。 */
+    /** 95 → 96：Wave 3 新增 normal_auto、detail_special_tag_mapper 与 comment_reply_button_owners 可选缓存键及后台 DexMeguviz 兜底，并移除失效硬编码与死候选，不抬 schema。 */
+    /** 96 → 97：Wave 4 新增 guest_player_core 可选缓存键及后台 DexMeguviz 兜底，不抬 schema。 */
+    /** 97 → 98：补齐 9.21.0 双构建（9210100 / 9210200）已验真表项，并泛化首页早加载与故事弹幕控制器混淆适配，不抬 schema。 */
+    /** 98 → 99：Phase 1 为首页提前加载接入共享后台 DEX 图发现缓存键 home_recommend_early_load_listener，不抬 schema。 */
+    const val RULE_VERSION = 99
+
+    /**
+     * Phase 2 按功能域拆分的规则版本号（相对于当前 [RULE_VERSION] 从 0 起算）：
+     * Phase 3 升级（图原语硬化 + Tier-A + Tier-B）仅递增受影响的 8 个域到 1，
+     * 其余 5 个未修改功能域保留基准 0 与既有热缓存。
+     */
+    val DOMAIN_RULE_VERSIONS: Map<String, Int> = mapOf(
+        "update" to 0,
+        "player_quality" to 1,
+        "player_speed" to 1,
+        "player_ui" to 1,
+        "comment" to 1,
+        "home_feed" to 1,
+        "home_chrome" to 0,
+        "detail_relate" to 1,
+        "follow_page" to 1,
+        "mine" to 0,
+        "splash" to 1,
+        "kmp_wire" to 0,
+        "privacy_compat" to 0
+    )
+
+    /** 用于 DEX 崩溃保护标记的域版本摘要；全 0 时为 `"0"`，任一域递增立即轮转标记键。 */
+    fun domainRulesSignature(versions: Map<String, Int> = DOMAIN_RULE_VERSIONS): String =
+        versions.entries
+            .asSequence()
+            .filter { it.value != 0 }
+            .sortedBy { it.key }
+            .joinToString(",") { "${it.key}=${it.value}" }
+            .ifEmpty { "0" }
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

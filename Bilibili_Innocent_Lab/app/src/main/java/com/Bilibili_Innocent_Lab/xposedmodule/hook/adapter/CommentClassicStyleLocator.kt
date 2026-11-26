@@ -115,12 +115,22 @@ internal object CommentClassicStyleLocator {
         if (kotlinApplicable(loader) && readers(loader, cached, Family.KOTLIN).isEmpty()) add(Family.KOTLIN)
     }
 
-    fun locate(loader: ClassLoader, session: DexAssistSession?, enabled: Boolean): CommentClassicStylePoints {
+    fun locate(
+        loader: ClassLoader,
+        session: DexAssistSession?,
+        enabled: Boolean,
+        previous: CommentClassicStylePoints? = null,
+        planned: Set<Family> = if (enabled) Family.entries.toSet() else emptySet()
+    ): CommentClassicStylePoints {
         fun family(family: Family): List<HookPoint> {
             if (family == Family.KOTLIN && !kotlinApplicable(loader)) return emptyList()
-            val methods = direct(loader, family).ifEmpty {
-                if (!enabled) emptyList() else select((session?.result(family.query) as? DexAssistResult.Candidates)?.methods.orEmpty(), family)
-            }
+            val prior = if (family == Family.NATIVE) previous?.nativeReaders.orEmpty() else previous?.kotlinReaders.orEmpty()
+            val methods = direct(loader, family)
+                .ifEmpty { if (prior.isEmpty()) emptyList() else resolve(loader, prior, family) }
+                .ifEmpty {
+                    if (!enabled || family !in planned) emptyList()
+                    else select((session?.result(family.query) as? DexAssistResult.Candidates)?.methods.orEmpty(), family)
+                }
             return methods.map { HookPoint(it.declaringClass.name, it.name, it.parameterTypes.map(Class<*>::getName)) }
         }
         return CommentClassicStylePoints(family(Family.NATIVE), family(Family.KOTLIN))

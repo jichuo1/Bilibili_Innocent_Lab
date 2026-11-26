@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -8,10 +10,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class PlayerEndPageRecommendFeatureInstaller(
     private val enabled: Boolean,
     private val cachedPoints: () -> HookPoint? = { null },
+    private val kmpGrpcWireEngine: HookPoint? = null,
+    private val kmpGrpcWireEngineProvider: () -> HookPoint? = { kmpGrpcWireEngine },
     private val resolve: (ClassLoader?) -> PlayerEndPageRecommendLocator.Access? = PlayerEndPageRecommendLocator::resolve
 ) : FeatureInstaller {
     override val id = ID
     private val registered = linkedSetOf<Method>()
+    private var kmpRegistered = false
+    private var initialRun = false
+    private var retryConsumed = false
     @Volatile var requiresAdaptationRetry = false
         private set
     override val capabilityIds: List<String> get() = if (enabled) listOf(ID) else emptyList()
@@ -19,6 +26,7 @@ internal class PlayerEndPageRecommendFeatureInstaller(
     @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         fun skipped(reason: String): FeatureInstallResult.Skipped {
+            requiresAdaptationRetry = false
             environment.reportStatus(STATUS, reason)
             val result = FeatureInstallResult.Skipped(reason)
             environment.reportCapability(ID, result)
@@ -29,7 +37,7 @@ internal class PlayerEndPageRecommendFeatureInstaller(
         val direct = resolve(environment.classLoader) ?: return skipped("missing-host-structure")
         val access = if (direct.mergedList != null) direct else direct.copy(
             mergedList = PlayerEndPageRecommendLocator.cachedMerger(environment.classLoader, cachedPoints()))
-        requiresAdaptationRetry = access.mergedList == null
+        val loader = environment.classLoader
         val policy = PlayerEndPageRecommendPolicy(access)
         val errorLogged = AtomicBoolean(false)
         var installed = 0
@@ -67,6 +75,42 @@ internal class PlayerEndPageRecommendFeatureInstaller(
                     args[1] = proxy
                 }
             }
+            if (!kmpRegistered && loader != null) {
+                val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngineProvider())
+                val wireOk = wireSurface != null && KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = PlayerEndPageRecommendLocator.MOSS,
+                    rpc = "viewEndPage",
+                    javaReplyClass = access.reply,
+                    what = "结束页推荐",
+                    logKey = "player_end_page_kmoss",
+                    transformJava = ::transform
+                )
+                if (wireOk) {
+                    kmpRegistered = true
+                } else {
+                    val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(PlayerEndPageRecommendLocator.MOSS)
+                    if (kotlinName != null && KavaMemberLookup.classOrNull(loader, kotlinName) != null) {
+                        val bridge = KotlinMossChannel.prepare(environment, loader, "结束页推荐", "player_end_page_kmoss")
+                        if (bridge != null && KotlinMossChannel.install(
+                                environment = environment,
+                                loader = loader,
+                                members = bridge,
+                                javaMossClassName = PlayerEndPageRecommendLocator.MOSS,
+                                rpc = "viewEndPage",
+                                javaReplyClass = access.reply,
+                                hookId = "$ID.kmoss.viewEndPage",
+                                what = "结束页推荐",
+                                logKey = "player_end_page_kmoss",
+                                transformJava = ::transform
+                            )
+                        ) {
+                            kmpRegistered = true
+                        }
+                    }
+                }
+            }
         }
         register("merged-list", access.mergedList) {
             after {
@@ -98,12 +142,22 @@ internal class PlayerEndPageRecommendFeatureInstaller(
                 if (original > 0) { result = 0; if (result == 0) applied(original) }
             }
         }
-        if (installed == 0) return skipped("no-safe-hook-point")
+        val kmpRetryNeeded = access.canCopy && !kmpRegistered && loader != null &&
+            KmpGrpcWireAdapter.applicable(loader)
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialRun = true
+            requiresAdaptationRetry = !retryConsumed && (access.mergedList == null || kmpRetryNeeded)
+        }
+        if (installed == 0 && !kmpRegistered) return skipped("no-safe-hook-point")
+        val reportedInstalled = if (installed > 0) installed else 1
         val expected = PlayerEndPageRecommendLocator.EXPECTED_PATHS
-        environment.reportCapabilityCoverage(ID, true, installed, expected)
-        environment.reportStatus(STATUS, if (installed == expected) "success" else "partial:$installed/$expected")
+        environment.reportCapabilityCoverage(ID, true, reportedInstalled, expected)
+        environment.reportStatus(STATUS, if (reportedInstalled == expected) "success" else "partial:$reportedInstalled/$expected")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
-        return FeatureInstallResult.Installed(installed, complete = installed == expected)
+        return FeatureInstallResult.Installed(reportedInstalled, complete = reportedInstalled == expected)
     }
 
     companion object {

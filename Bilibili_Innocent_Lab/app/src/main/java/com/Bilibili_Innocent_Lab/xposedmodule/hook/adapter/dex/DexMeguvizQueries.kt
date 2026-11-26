@@ -1,13 +1,20 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CloudKeyFreezeAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentQuickReplyAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.GuestPlayerCoreAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.NormalQualityLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
@@ -15,6 +22,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SearchHomeRecommendLo
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PauseRequestCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PegasusLoadMoreShape
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerEndPageRecommendLocator
 import org.json.JSONArray
 import org.json.JSONObject
@@ -44,9 +54,8 @@ internal object DexMeguvizQueries {
             }
         }
         DexAssistQuery.STORY_QUALITY_DEFAULT -> listOf(
-            // 老宿主可能只含 key 或只调用 helper。保留两个分支的候选及各自的上限检查。
+            // 老宿主可能只含 key 或只调用 helper；不限制包以兼容 R8 扁平化到根包。
             rule {
-                within(StoryQualityLocator.QUALITY_PACKAGE)
                 modifiers(Modifier.STATIC)
                 paramCount(0)
                 strings(StoryQualityLocator.WIFI_KEY)
@@ -59,6 +68,21 @@ internal object DexMeguvizQueries {
             }
         )
         DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> composeMenuRules()
+        DexAssistQuery.GUEST_PLAYER_CORE_SERVICE -> listOf(
+            rule {
+                name = "setMediaResource"
+                params(GuestPlayerCoreAdapter.MEDIA_RESOURCE, "boolean", GuestPlayerCoreAdapter.MEDIA_ITEM_PARAMS)
+            },
+            rule {
+                name = "setMediaResource"
+                params(
+                    GuestPlayerCoreAdapter.MEDIA_ITEM,
+                    GuestPlayerCoreAdapter.MEDIA_RESOURCE,
+                    "boolean",
+                    GuestPlayerCoreAdapter.MEDIA_ITEM_PARAMS
+                )
+            }
+        )
         DexAssistQuery.SPONSOR_RUN_PLAYABLE -> sponsorRunPlayableRules()
         DexAssistQuery.SPONSOR_PLAYER_WRAPPER -> sponsorPlayerWrapperRules()
         DexAssistQuery.COMMENT_REPLY_MAPPER -> listOf(
@@ -74,13 +98,27 @@ internal object DexMeguvizQueries {
                 addInvoke("com.bilibili.app.comment3.data.model.CommentItem", "<init>", "void") {}
             }
         )
-        else -> listOf(rule { configure(query) })
+        DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER -> homeRecommendEarlyLoadRules()
+        DexAssistQuery.COMMENT_QUICK_REPLY_COLLECTOR,
+        DexAssistQuery.PAUSED_AD_COUNTDOWN,
+        DexAssistQuery.BRAND_SPLASH_KNTR_EXIT,
+        DexAssistQuery.AI_PLAYLIST_DIRECTOR,
+        DexAssistQuery.FOLLOW_UP_RECOMMEND_BODY,
+        DexAssistQuery.DETAIL_RELATE_GAME_COMPONENT,
+        DexAssistQuery.LEGACY_STORY_DANMAKU_BIND,
+        DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS -> emptyList()
+        else -> listOf(rule { configure(query) }) + fallbackRules(query)
     }
 
     fun ownerMembers(ownerDescriptor: String): ByteArray = rule { descriptor("owner", ownerDescriptor) }
 
     fun declaration(ownerDescriptor: String, name: String, prototype: String): ByteArray = rule {
         descriptor("owner", ownerDescriptor)
+        descriptor("name", name)
+        descriptor("prototype", prototype)
+    }
+
+    fun methodByNameAndPrototype(name: String, prototype: String): ByteArray = rule {
         descriptor("name", name)
         descriptor("prototype", prototype)
     }
@@ -103,21 +141,19 @@ internal object DexMeguvizQueries {
                 strings(*HomeChromeAdapter.SEMANTICS_MARKS.toTypedArray())
             }
             DexAssistQuery.HOME_CHROME_TOP_CONTENT, DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT -> {
-                chromeOwners(query)
                 paramCount(2..12)
                 strings(HomeChromeAdapter.marks.getValue(query), contains = true)
             }
             DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_TOP_LAYOUT,
             DexAssistQuery.HOME_CHROME_TOP_BACKDROP, DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS,
             DexAssistQuery.HOME_CHROME_BOTTOM, DexAssistQuery.HOME_CHROME_BOTTOM_ITEM -> {
-                chromeOwners(query)
                 modifiers(Modifier.STATIC)
                 returnType = "void"
                 paramCount(4..20)
                 strings(HomeChromeAdapter.marks.getValue(query), contains = true)
             }
             DexAssistQuery.PEGASUS_DIVIDER -> {
-                within("com.bilibili.pegasus.widget", setOf(HostCardSemanticAdapter.REPACKAGED_PEGASUS_DIVIDER))
+                within("com.bilibili.pegasus.widget")
                 name = "onDrawOver"
                 returnType = "void"
                 params("android.graphics.Canvas", "androidx.recyclerview.widget.RecyclerView", "androidx.recyclerview.widget.RecyclerView\$State")
@@ -141,7 +177,6 @@ internal object DexMeguvizQueries {
                 returnType = "java.util.List"
             }
             DexAssistQuery.STORY_QUALITY_RESOURCE -> {
-                within(StoryQualityLocator.QUALITY_PACKAGE)
                 storyResource()
             }
             DexAssistQuery.STORY_QUALITY_MATCH -> {
@@ -237,18 +272,120 @@ internal object DexMeguvizQueries {
                 paramCount(4..6)
                 strings(*KmpGrpcWireAdapter.ENTRY_MARKS.toTypedArray())
             }
+            DexAssistQuery.BRAND_SPLASH_KNTR_DRAW -> {
+                name = "invoke"
+                paramCount(3)
+                strings(BrandSplashKntrAdapter.TRACE_MARK, contains = true)
+            }
+            DexAssistQuery.CLOUD_KEY_FREEZE_CONTRACT -> {
+                name = "getWithDefault"
+                returnType = "boolean"
+                params("java.lang.String", "boolean")
+            }
+            DexAssistQuery.PRIVACY_IGNET_HTTP -> {
+                name = "execute"
+                paramCount(0)
+                returnType = "com.bilibili.lib.ighttp.IgHttpResponse"
+            }
+            DexAssistQuery.PRIVACY_KNEURON -> {
+                name = "simpleTrackT"
+                returnType = "void"
+            }
+            DexAssistQuery.NORMAL_QUALITY_AUTO_SWITCH -> {
+                modifiers(Modifier.STATIC)
+                paramCount(0)
+                returnType = "boolean"
+                strings(NormalQualityLocator.AUTO_KEY)
+            }
+            DexAssistQuery.DETAIL_SPECIAL_TAG_MAPPER -> {
+                modifiers(Modifier.STATIC)
+                params(DetailUnitedPresentationPurifyPolicy.SPECIAL_TAG_CLASS)
+            }
+            DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE -> {
+                within(CommentReplyButtonAdapter.HOLDER_PACKAGE)
+                returnType = "void"
+                paramCount(5)
+                addInvoke(CommentReplyButtonAdapter.PLANT_SEEDS_VIEW, returnType = "void") { paramCount(2) }
+            }
+            DexAssistQuery.PAUSED_AD_REQUEST_API -> {
+                returnType = "java.lang.Object"
+                params(*PauseRequestCoverage.API_REQUEST_PARAMETERS.toTypedArray())
+            }
+            DexAssistQuery.BRAND_SPLASH_KNTR_PAGE -> {
+                modifiers(Modifier.STATIC)
+                returnType = "void"
+                paramCount(6..7)
+                strings(BrandSplashKntrAdapter.PAGE_TRACE_MARK, contains = true)
+            }
+            DexAssistQuery.HOME_TAB_RESOURCE -> {
+                owner = HomeTabResourceAdapter.HOME_FRAGMENT_V2
+                params("java.util.List")
+                returnType = "java.util.List"
+            }
+            DexAssistQuery.COMMENT_QUICK_REPLY_COLLECTOR,
+            DexAssistQuery.PAUSED_AD_COUNTDOWN,
+            DexAssistQuery.BRAND_SPLASH_KNTR_EXIT,
+            DexAssistQuery.AI_PLAYLIST_DIRECTOR,
+            DexAssistQuery.FOLLOW_UP_RECOMMEND_BODY,
+            DexAssistQuery.DETAIL_RELATE_GAME_COMPONENT,
+            DexAssistQuery.LEGACY_STORY_DANMAKU_BIND,
+            DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS -> error("Expected a graph-only query: $query")
             DexAssistQuery.PLAYER_SPEED_MENU, DexAssistQuery.STORY_QUALITY_DEFAULT,
             DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY,
             DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS,
             DexAssistQuery.SPONSOR_RUN_PLAYABLE,
             DexAssistQuery.SPONSOR_PLAYER_WRAPPER,
-            DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> error("Expected a multi-rule query")
+            DexAssistQuery.COMMENT_COMPOSE_MORE_MENU,
+            DexAssistQuery.GUEST_PLAYER_CORE_SERVICE,
+            DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER -> error("Expected a multi-rule query")
         }
     }
 
-    private fun MethodRule.chromeOwners(query: DexAssistQuery) {
-        val family = HomeChromeAdapter.families.getValue(query)
-        within(HomeChromeAdapter.ownerPackage(family), HomeChromeAdapter.repackagedOwners(family))
+    private fun fallbackRules(query: DexAssistQuery): List<ByteArray> = when (query) {
+        DexAssistQuery.PEGASUS_DIVIDER -> listOf(rule {
+            owner = "com.bilibili.pegasus.PegasusFragment"
+            addInvoke("androidx.recyclerview.widget.RecyclerView", "addItemDecoration") {
+                params("androidx.recyclerview.widget.RecyclerView\$ItemDecoration")
+            }
+        })
+        DexAssistQuery.SEARCH_HOME_STATE -> listOf(rule {
+            owner = "com.bilibili.search2.main.MainSearchViewModel"
+            name = "<init>"
+            addInvoke(name = "<init>", returnType = "void") { params("java.util.List") }
+        })
+        DexAssistQuery.PLAYER_END_PAGE_MERGER -> listOf(rule {
+            owner = PlayerEndPageRecommendLocator.SERVICE
+            addInvoke(returnType = "java.util.List") { params("java.util.List", "java.util.List") }
+        })
+        DexAssistQuery.PLAYER_POPUP_FREE_DATA_GUIDE -> listOf(rule {
+            returnType = "java.lang.Object"
+            paramCount(1)
+            strings(PlayerPopupPromotionAdapter.GUIDE_FLOW_MARK, contains = true)
+        })
+        DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT -> listOf(rule {
+            returnType = "java.util.List"
+            paramCount(0)
+            addInvoke(PlayerPopupPromotionAdapter.CARD_CLASS, "isValidCommon") { paramCount(0) }
+            addInvoke(PlayerPopupPromotionAdapter.CARD_CLASS, "isValidCommerce") { paramCount(0) }
+            addInvoke(PlayerPopupPromotionAdapter.CARD_CLASS, "isValidGuide") { paramCount(0) }
+        })
+        DexAssistQuery.SPONSOR_CONTAINER_SCOPE -> listOf(rule {
+            owner = "com.bilibili.ship.theseus.united.player.oldway.playercontainer.TheseusPlayerContainerProvider"
+            addInvoke(name = "<init>", returnType = "void") { paramCount(3..16) }
+        })
+        DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN -> listOf(rule {
+            returnType = "void"
+            paramCount(4)
+            addInvoke(name = KotlinDefaultWordsLocator.DESCRIPTOR_GETTER) { paramCount(0) }
+        })
+        DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE -> listOf(
+            rule {
+                returnType = "void"
+                paramCount(5)
+                addInvoke(CommentReplyButtonAdapter.PLANT_SEEDS_VIEW, returnType = "void") { paramCount(2) }
+            }
+        )
+        else -> emptyList()
     }
 
     private fun composeMenuRules(): List<ByteArray> = listOf(
@@ -304,7 +441,6 @@ internal object DexMeguvizQueries {
         listOf("java.util.List", "java.util.ArrayList").flatMap { clearOwner ->
             listOf(listOf("float"), listOf("float", "java.util.List")).map { parameters ->
                 rule {
-                    within(PlayerSpeedLocator.SPEED_WIDGET_PKG)
                     returnType = "void"
                     params(*parameters.toTypedArray())
                     addInvoke(clearOwner, "clear") { paramCount(0) }
@@ -388,6 +524,26 @@ internal object DexMeguvizQueries {
         rule { sponsorPlayerWrapper() }
     )
 
+    private fun homeRecommendEarlyLoadRules(): List<ByteArray> = listOf(
+        rule {
+            owner = PegasusLoadMoreShape.PEGASUS_FRAGMENT
+            addInvoke("androidx.recyclerview.widget.RecyclerView", "addOnScrollListener") {
+                params("androidx.recyclerview.widget.RecyclerView\$OnScrollListener")
+            }
+            addInvoke("androidx.recyclerview.widget.RecyclerView", "addOnChildAttachStateChangeListener") {
+                params("androidx.recyclerview.widget.RecyclerView\$OnChildAttachStateChangeListener")
+            }
+        },
+        rule {
+            descriptor("owner", text("prefix", "Lcom/bilibili/pegasus/PegasusFragment\$"))
+            name = "<init>"
+            paramCount(3)
+            addInvoke("kotlin.coroutines.jvm.internal.SuspendLambda", "<init>") {
+                params("int", "kotlin.coroutines.Continuation")
+            }
+        }
+    )
+
     private fun rule(configure: MethodRule.() -> Unit): ByteArray =
         JSONObject()
             .put("schema_version", 1)
@@ -412,12 +568,10 @@ internal object DexMeguvizQueries {
             get() = fields.getString("return_type")
             set(value) { descriptor("return_type", dexType(value)) }
 
-        fun descriptor(field: String, value: String) { fields.put(field, value) }
-        fun within(packageName: String, exactOwners: Set<String> = emptySet()) {
-            val prefix = text("prefix", "L${packageName.trimEnd('.').replace('.', '/')}/")
-            if (exactOwners.isEmpty()) fields.put("owner", prefix)
-            else fields.put("any", JSONArray(listOf(JSONObject().put("owner", prefix)) +
-                exactOwners.map { JSONObject().put("owner", dexType(it)) }))
+        fun descriptor(field: String, value: Any) { fields.put(field, value) }
+        // MethodBatchQuery 与 NativeEngine.queryMethods 仅接受 query:v1:；顶层 where 不得发 any/all/not（composite-v10）。
+        fun within(packageName: String) {
+            fields.put("owner", text("prefix", "L${packageName.trimEnd('.').replace('.', '/')}/"))
         }
         fun modifiers(flags: Int) { fields.put("flags_contains", flags) }
         fun paramCount(count: Int) { fields.put("param_count", count) }
@@ -428,9 +582,9 @@ internal object DexMeguvizQueries {
         fun strings(vararg marks: String, contains: Boolean = false) {
             fields.put("using_strings", all(JSONArray(marks.map { if (contains) text("contains", it) else it })))
         }
-        fun addInvoke(owner: String? = null, name: String, returnType: String? = null, configure: MethodRule.() -> Unit) {
+        fun addInvoke(owner: String? = null, name: String? = null, returnType: String? = null, configure: MethodRule.() -> Unit) {
             val target = MethodRule()
-            target.name = name
+            if (name != null) target.name = name
             if (owner != null) target.owner = owner
             if (returnType != null) target.returnType = returnType
             invokes.put(target.apply(configure).where())
@@ -447,7 +601,10 @@ internal object DexMeguvizQueries {
         "void" -> "V"
         "boolean" -> "Z"
         "int" -> "I"
+        "long" -> "J"
         "float" -> "F"
         else -> "L${type.replace('.', '/')};"
     }
+
+    fun graphPlans(query: DexAssistQuery): List<DexGraphPlan> = DexMeguvizGraphPlans.plans(query)
 }

@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PrivacyChannelAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
@@ -10,23 +11,27 @@ import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Stop producers before Neurons can persist a queue for replay outside the session. */
-internal class IncognitoTelemetryHooks(private val session: IncognitoSession) {
+internal class IncognitoTelemetryHooks(
+    private val session: IncognitoSession,
+    private val cachedKNeuron: String? = null
+) {
     /**
-     * Resolve the Java Neurons producers and, when the build has it, the KMP `KNeuron` producers;
-     * a missing anchor returns null so the whole feature can skip. KNeuron keeps its own Room event
-     * queue and uploads it over the native ighttp channel, so withholding the upload alone would
-     * only defer it: the events must never be recorded in the first place.
+     * Resolve the Java Neurons producers and, when the build has it (or looks like a KMP host),
+     * the KMP `KNeuron` producers; a missing anchor returns null so the whole feature skips fail-closed.
      */
     fun prepare(env: HookEnvironment): (() -> Int)? = runCatching {
-        val owner = PrivacyHostAccess(requireNotNull(env.classLoader))
+        val loader = requireNotNull(env.classLoader)
+        val owner = PrivacyHostAccess(loader)
             .type("com.bilibili.lib.neuron.api.Neurons")
         val producers = Lookup.declaredMethods(owner) {
             it.returnType == Void.TYPE && (it.name.startsWith("report") || it.name.startsWith("track"))
         }
         require(producers.any { it.name == "trackT" } && producers.any { it.name == "reportClick" })
-        val kmp = Lookup.classOrNull(env.classLoader, KMP_NEURON)
+        val kmp = PrivacyChannelAdapter.resolveKNeuron(loader, cachedKNeuron)
         val kmpProducers = kmp?.let { kmpProducers(it) }
-        if (kmp != null) require(!kmpProducers.isNullOrEmpty()) { "KNeuron producers" }
+        if (kmp != null || hasKmpTelemetrySurface(loader)) {
+            require(!kmpProducers.isNullOrEmpty()) { "KNeuron producers" }
+        }
         return@runCatching {
             val evidence = AtomicBoolean()
             applyProducers(env, owner, producers, "incognito.neurons", evidence) +
@@ -76,6 +81,12 @@ internal class IncognitoTelemetryHooks(private val session: IncognitoSession) {
          * reportClick/Custom/Exposure/Ijk/PageView/Player/System, simpleTrackT, trackT, trackXCrash).
          * Both must-haves are required so a renamed build skips instead of half-discarding.
          */
+        fun hasKmpTelemetrySurface(loader: ClassLoader?): Boolean = loader != null && (
+            Lookup.hasClass(loader, "kntr.base.config.KConfig") ||
+                Lookup.hasClass(loader, "kntr.base.moss.MossInterceptor") ||
+                Lookup.hasClass(loader, PrivacyChannelAdapter.IGNET_ENGINE)
+            )
+
         fun kmpProducers(owner: Class<*>): List<Method>? = Lookup.declaredMethods(owner) {
             it.returnType == Void.TYPE && Modifier.isPublic(it.modifiers) && !Modifier.isStatic(it.modifiers) &&
                 !it.isSynthetic && listOf("report", "track", "simpleTrack").any(it.name::startsWith)

@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -25,14 +26,26 @@ internal object BrandSplashKntrAccess {
     private const val FUNCTION = "kotlin.jvm.functions.Function0"
     private val readyExitNames = listOf(CURRENT_EXIT, BITMAP_EXIT)
 
-    fun present(loader: ClassLoader): Boolean =
+    fun present(loader: ClassLoader, cachedExitClass: String? = null): Boolean =
         Lookup.hasClass(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT) ||
-            readyExitNames.any { Lookup.hasClass(loader, it) }
+            readyExitNames.any { Lookup.hasClass(loader, it) } ||
+            cachedExitClass?.takeIf(BrandSplashKntrAdapter::allowedOwnerName)?.let {
+                Lookup.hasClass(loader, it)
+            } == true
 
-    fun exit(loader: ClassLoader): BrandSplashKntrExit? {
+    fun exit(loader: ClassLoader, cachedExitClass: String? = null): BrandSplashKntrExit? {
         val ready = readyExitNames.mapNotNull { resolve(loader, it, true) }
-        return if (ready.isNotEmpty()) ready.singleOrNull()
-            else resolve(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT, false)
+        if (ready.isNotEmpty()) return ready.singleOrNull()
+        resolve(loader, BrandSplashSkipFeatureInstaller.KNTR_EXIT, false)?.let { return it }
+        return cachedExitClass?.let { resolveVerified(loader, it) }
+    }
+
+    internal fun resolveVerified(loader: ClassLoader, name: String): BrandSplashKntrExit? {
+        if (!BrandSplashKntrAdapter.allowedOwnerName(name)) return null
+        resolve(loader, name, true)?.let { return it }
+        val legacyAllowed = name == BrandSplashSkipFeatureInstaller.KNTR_EXIT ||
+            name.startsWith("kntr.srcs.app.splash.brand.startup.BrandSplashPageKt\$BrandSplashPage\$")
+        return if (legacyAllowed) resolve(loader, name, false) else null
     }
 
     private fun resolve(loader: ClassLoader, name: String, current: Boolean): BrandSplashKntrExit? = runCatching {
@@ -55,7 +68,9 @@ internal object BrandSplashKntrAccess {
                     fields.singleOrNull { it.name == key }?.type != mutable
                 } || fields.singleOrNull { it.name == "\$currentOnShow" }?.type != state) return null
             // 9.18/9.19 persist the shown model only if this image state holds a bitmap.
-            if (name == BITMAP_EXIT && fields.singleOrNull { it.name == "\$customBitmap\$delegate" }?.type != mutable) return null
+            val bitmapStateFields = fields.filter { it.name == "\$customBitmap\$delegate" }
+            if (name == BITMAP_EXIT && bitmapStateFields.singleOrNull()?.type != mutable) return null
+            if (bitmapStateFields.isNotEmpty() && bitmapStateFields.singleOrNull()?.type != mutable) return null
             val intrinsics = Lookup.classOrNull(loader, "kotlin.coroutines.intrinsics.IntrinsicsKt") ?: return null
             waiting = Lookup.inheritedMethodOrNull(intrinsics, "getCOROUTINE_SUSPENDED")?.invoke(null) ?: return null
             failure = Lookup.classOrNull(loader, "kotlin.Result\$Failure") ?: return null
@@ -70,7 +85,10 @@ internal fun brandSplashPageAbi(parameters: List<String>): BrandSplashPageAbi? {
     val p = parameters
     if (p.size !in 6..7 || p[1] != "kotlin.jvm.functions.Function0" ||
         p[2] != "androidx.compose.ui.Modifier") return null
-    if (p[0] == "bgk" && p.drop(3) == listOf("kotlin.jvm.functions.Function0", "androidx.compose.runtime.Composer", "int"))
+    val compactModel = p[0].isNotEmpty() && !p[0].startsWith('[') &&
+        p[0] !in setOf("boolean", "byte", "short", "char", "int", "long", "float", "double", "void") &&
+        (p[0].startsWith("kntr.srcs.app.splash.brand.") || '.' !in p[0])
+    if (compactModel && p.drop(3) == listOf("kotlin.jvm.functions.Function0", "androidx.compose.runtime.Composer", "int"))
         return BrandSplashPageAbi(4, 5)
     if (p[3] != "java.lang.String") return null
     return when {

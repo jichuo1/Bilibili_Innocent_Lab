@@ -7,7 +7,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 /** 同步/异步响应为主路径；getter 补充缓存读取。各入口共用字段白名单和副本清理器。 */
 internal class PlayerInteractiveOverlayFeatureInstaller(
     private val enabled: Boolean,
-    private val points: VersionAdapter.PlayerInteractiveOverlayPoints?
+    private val points: VersionAdapter.PlayerInteractiveOverlayPoints?,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
     override val id = ID
     override val capabilityIds: List<String> get() =
@@ -107,18 +108,16 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                 environment.reportCapability(capability.id, FeatureInstallResult.Installed(1, complete = false))
             } else environment.reportCapabilityCoverage(capability.id, paths > 0, paths, 2)
         }
-        if (hooks == 0) return missing(environment, "no-safe-interactive-path")
+        if (hooks == 0 && kotlinPaths == 0) return missing(environment, "no-safe-interactive-path")
         val complete = installed == expected && expected > 0
         environment.reportStatus(CHANNEL_STATUS, if (complete) "success" else "partial:$installed/$expected")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.logInfo("player_interactive_installed", "[BIL] 互动层响应覆盖=$installed/$expected，注册点=$hooks，Kotlin 通道=$kotlinPaths，getter 仅作后备")
-        return FeatureInstallResult.Installed(hooks, complete)
+        return FeatureInstallResult.Installed(if (hooks > 0) hooks else kotlinPaths, complete)
     }
     /**
-     * Kotlin 版 moss（`K*Moss`）通道：`dmView` 从 9.5.0 起、统一版 `viewProgress` 从 9.13.0 起，宿主里都有走 Kotlin
-     * 版的调用者（2026-10-01 dexq 对 9.10.0 / 9.13.0 / 9.14.0 核对），与 Java 通道并行。它们的响应是被混淆字段的数据类，
-     * 所以经 protobuf 线格式往返到同一 proto 的 Java 响应上，**原样复用 [PlayerInteractiveReplyCleaner]**，见
-     * [KotlinMossReplyBridge]。每个 Java 入口对应的 Kotlin 类/方法都按名字与形状判存，缺哪个跳过哪个；运行期异常放行原响应。
+     * Kotlin 版 moss（`K*Moss`）与 KMP gRPC wire 通道：优先经 `KmpGrpcWireChannel` 在字节边界清理，
+     * 兜底再挂 `K*Moss` 回调入口（含 9.20 起 4 参 legacyCallbackEntry），与 Java 通道并行。
      */
     private fun installKotlinMoss(
         environment: HookEnvironment,
@@ -127,18 +126,24 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
         owners: Map<String, String>,
         points: VersionAdapter.PlayerInteractiveOverlayPoints
     ): Int {
-        val members = KotlinMossBridgeMembers.resolve(loader)
-        if (members == null) {
-            environment.logInfo("player_interactive_kmoss_skip", "[BIL] 互动层 Kotlin 通道未安装: kotlinx.serialization 成员缺失")
-            return 0
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val adaptedPairs = (points.mossAsync + points.mossExecutes).distinct().mapNotNull { point ->
+            val replyName = owners[point.className] ?: return@mapNotNull null
+            Triple(point.className, replyName, KotlinMossBridgeMembers.rpcName(point.methodName))
         }
-        if (!KotlinMossBridgeSelfTest.allows(environment, loader, members, "互动层")) return 0
+        val knownPairs = VersionAdapter.PLAYER_INTERACTIVE_MOSS_FAMILIES.map {
+            Triple(it.mossClassName, it.replyClassName, "viewProgress")
+        } + Triple(
+            VersionAdapter.PLAYER_INTERACTIVE_DM_MOSS_CLASS,
+            VersionAdapter.PLAYER_INTERACTIVE_DM_REPLY_CLASS,
+            "dmView"
+        )
         val seen = hashSetOf<String>()
         var installed = 0
-        (points.mossAsync + points.mossExecutes).distinct().forEach { point ->
-            val replyName = owners[point.className] ?: return@forEach
-            val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(point.className) ?: return@forEach
-            val rpc = KotlinMossBridgeMembers.rpcName(point.methodName)
+        var members: KotlinMossBridgeMembers? = null
+        var membersChecked = false
+        (adaptedPairs + knownPairs).forEach { (javaMossName, replyName, rpc) ->
+            val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(javaMossName) ?: return@forEach
             if (!seen.add("$kotlinName#$rpc")) return@forEach
             if (cleaner.responseIds(replyName).isEmpty()) return@forEach
             // 装不上不能再静默：每个候选只在真的缺东西时记一条原因（有界：候选个数）。
@@ -146,10 +151,40 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                 "player_interactive_kmoss_skip_$rpc",
                 "[BIL] 互动层 Kotlin 通道跳过 ${kotlinName.substringAfterLast('.')}#$rpc: $reason"
             )
-            val kotlinMoss = KavaMemberLookup.classOrNull(loader, kotlinName) ?: return@forEach skip("no-kotlin-class")
             val replyClass = KavaMemberLookup.classOrNull(loader, replyName) ?: return@forEach skip("no-reply-class")
+            if (wireSurface != null && KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = javaMossName,
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    what = "互动层",
+                    logKey = "player_interactive_kmoss"
+                ) { reply ->
+                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                    cleaner.cleanResponse(reply, environment)
+                }
+            ) {
+                installed++
+                return@forEach
+            }
+            val kotlinMoss = KavaMemberLookup.classOrNull(loader, kotlinName) ?: return@forEach skip("no-kotlin-class")
+            if (!membersChecked) {
+                membersChecked = true
+                val resolved = KotlinMossBridgeMembers.resolve(loader)
+                if (resolved == null) {
+                    environment.logInfo("player_interactive_kmoss_skip", "[BIL] 互动层 Kotlin 通道未安装: kotlinx.serialization 成员缺失")
+                } else if (KotlinMossBridgeSelfTest.allows(environment, loader, resolved, "互动层")) {
+                    members = resolved
+                }
+            }
+            val readyMembers = members ?: return@forEach
             val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(replyClass) ?: return@forEach skip("no-java-codec")
-            val entry = KotlinMossBridgeMembers.callbackEntry(kotlinMoss, rpc) ?: return@forEach skip("no-callback-entry")
+            val entry = KotlinMossBridgeMembers.callbackEntry(kotlinMoss, rpc)
+                ?: KotlinMossBridgeMembers.legacyCallbackEntry(kotlinMoss, rpc)
+                ?: return@forEach skip("no-callback-entry")
+            val legacy = entry.parameterCount == 4
+            val fallbackProtoBuf = if (legacy) readyMembers.defaultProtoBuf() ?: return@forEach skip("no-default-protobuf") else null
             val handlerClass = entry.parameterTypes[3]
             val reported = java.util.concurrent.atomic.AtomicBoolean(false)
             val called = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -166,7 +201,8 @@ internal class PlayerInteractiveOverlayFeatureInstaller(
                             )
                         }
                         val delegate = args.getOrNull(3) ?: return@before
-                        val bridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(2), codec) ?: return@before
+                        val format = if (legacy) fallbackProtoBuf else args.getOrNull(4)
+                        val bridge = readyMembers.bridgeFor(format, args.getOrNull(2), codec) ?: return@before
                         val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) { reply ->
                             if (reported.compareAndSet(false, true)) {
                                 environment.logInfo(

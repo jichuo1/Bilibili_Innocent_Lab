@@ -18,7 +18,8 @@ internal object KotlinDefaultWordsLocator {
         KavaMemberLookup.hasClass(loader, MOSS) || KavaMemberLookup.hasClass(loader, REQUEST)
 
     fun direct(loader: ClassLoader): Method? = KavaMemberLookup.classOrNull(loader, MOSS)?.let {
-        KotlinMossBridgeMembers.callbackEntry(it, "defaultWords")?.takeIf(::verified)
+        (KotlinMossBridgeMembers.callbackEntry(it, "defaultWords")
+            ?: KotlinMossBridgeMembers.legacyCallbackEntry(it, "defaultWords"))?.takeIf(::verified)
     }
 
     fun select(candidates: Collection<Method>): Method? = candidates.filter {
@@ -31,17 +32,19 @@ internal object KotlinDefaultWordsLocator {
 
     fun resolve(loader: ClassLoader, point: VersionAdapter.HookPoint): Method? = runCatching {
         val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return@runCatching null
-        val names = point.paramClassNames?.takeIf { it.size == 5 } ?: return@runCatching null
+        val names = point.paramClassNames?.takeIf { it.size in 4..5 } ?: return@runCatching null
         val types = names.map { KavaMemberLookup.classOrNull(loader, it) ?: return@runCatching null }
         KavaMemberLookup.methodOrNull(owner, point.methodName, *types.toTypedArray())
             ?.takeIf(::verified)
     }.getOrNull()
 
-    private fun verified(method: Method): Boolean = KotlinMossBridgeMembers.isCallbackEntry(method) &&
-        method.parameterTypes[3].methods.any {
-            it.name == "onNext" && it.returnType == Void.TYPE &&
-                it.parameterTypes.contentEquals(arrayOf(classOf<Any>()))
-        }
+    private fun verified(method: Method): Boolean =
+        (KotlinMossBridgeMembers.isCallbackEntry(method) ||
+            KotlinMossBridgeMembers.isLegacyCallbackEntry(method)) &&
+            method.parameterTypes[3].methods.any {
+                it.name == "onNext" && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(arrayOf(classOf<Any>()))
+            }
 
     fun needsQuery(enabled: Boolean, applicable: Boolean, directFound: Boolean): Boolean =
         enabled && applicable && !directFound

@@ -54,7 +54,17 @@ class AdaptAssistGateWiringContractTest {
         val refreshCheck = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
             .before("val refreshRequested = usable?.let(::requiresFeatureRefresh)")
         assertTrue(refreshCheck.contains("assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)"))
-        assertTrue(adapter.contains("val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() }"))
+        // 冷启动快路径只能查「从未尝试过」的家族（isAttemptedInCache），禁止因可重试失败反复弹适配提示。
+        assertTrue(refreshCheck.contains("AdaptAssistGate.isAttemptedInCache(it)"))
+        assertFalse(refreshCheck.contains("AdaptAssistGate.isConclusiveMissing("))
+        assertTrue(refreshCheck.contains("val valueChromeAttempted ="))
+        assertTrue(refreshCheck.contains("val valueSemanticsAttempted ="))
+        val ensureHistory = adapter.after("internal fun ensureAdapted(")
+            .before("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
+        assertTrue(ensureHistory.contains("AdaptAssistGate.isConclusiveMissing(it)"))
+        assertTrue(adapt.contains("semanticsPlanned && dexAssist == null -> \"no-dex-source\""))
+        assertTrue(adapt.contains("query in chromePlanned && dexAssist == null -> \"no-dex-source\""))
+        assertTrue(adapter.contains("val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() }"))
         // 功能关闭时 internal 判定在求值直接定位前就短路。
         val gate = SourceContract.read("hook/adapter/AdaptAssistGate.kt")
         assertTrue(gate.contains("enabled && !cachedPresent && attempt != Attempt.CONCLUSIVE_MISSING && !directFound()"))

@@ -21,7 +21,7 @@ data class PlayerSpeedMenuPoints(
             (adapter == null || validPoint(adapter, PlayerSpeedLocator.SPEED_WIDGET_PKG, allowFlattened = true) &&
                 adapter.paramClassNames in listOf(listOf("float"), listOf("float", "java.util.List"))) &&
             (factory == null || validPoint(factory, PlayerSpeedLocator.SPEED_UTILS_PKG, allowFlattened = true) &&
-                factory.paramClassNames == PlayerSpeedMenuAdapter.factoryParameters(factory.className)) &&
+                PlayerSpeedMenuAdapter.factoryParametersAllowed(factory.className, factory.paramClassNames)) &&
             ((factory == null && optionClass == null) || factory != null && optionClass != null &&
                 PlayerSpeedMenuAdapter.optionOwnerMatches(factory.className, optionClass)) &&
             (compactOwner == null || validClass(compactOwner, PlayerSpeedLocator.THESEUS_SPEED_PKG, allowFlattened = true))
@@ -73,6 +73,13 @@ internal object PlayerSpeedMenuAdapter {
         owner.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.") -> legacyFactoryParameters
         flattenedOwner(owner) -> flattenedFactoryParameters
         else -> null
+    }
+
+    internal fun factoryParametersAllowed(owner: String, params: List<String>?): Boolean = when {
+        params == null -> false
+        owner.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.") -> params == legacyFactoryParameters
+        flattenedOwner(owner) -> params == flattenedFactoryParameters || params == legacyFactoryParameters
+        else -> false
     }
 
     internal fun optionOwnerMatches(factoryOwner: String, optionOwner: String): Boolean =
@@ -133,11 +140,12 @@ internal object PlayerSpeedMenuAdapter {
         resolved.compactRoute?.openMethod?.declaringClass?.name)
 
     internal fun adapterAbi(method: Method) = !Modifier.isStatic(method.modifiers) && !method.isBridge &&
-        method.declaringClass.name.startsWith("${PlayerSpeedLocator.SPEED_WIDGET_PKG}.") &&
+        (method.declaringClass.name.startsWith("${PlayerSpeedLocator.SPEED_WIDGET_PKG}.") ||
+            flattenedOwner(method.declaringClass.name)) &&
         method.returnType == Void.TYPE && method.parameterTypes.map(Class<*>::getName) in
         listOf(listOf("float"), listOf("float", "java.util.List"))
     internal fun factoryAbi(method: Method) = Modifier.isStatic(method.modifiers) && method.returnType == List::class.java &&
-        method.parameterTypes.map(Class<*>::getName) == factoryParameters(method.declaringClass.name)
+        factoryParametersAllowed(method.declaringClass.name, method.parameterTypes.map(Class<*>::getName))
     internal fun openAbi(method: Method) = Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE &&
         (method.declaringClass.name.startsWith("${PlayerSpeedLocator.THESEUS_SPEED_PKG}.") ||
             flattenedOwner(method.declaringClass.name)) &&

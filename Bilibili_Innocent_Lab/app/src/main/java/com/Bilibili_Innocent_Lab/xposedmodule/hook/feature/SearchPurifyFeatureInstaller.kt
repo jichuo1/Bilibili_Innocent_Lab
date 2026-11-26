@@ -30,7 +30,8 @@ internal class SearchPurifyFeatureInstaller(
     keywordFilterEnabled: Boolean,
     rawKeywords: String,
     authorFilterEnabled: Boolean,
-    rawAuthorRules: String
+    rawAuthorRules: String,
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -175,8 +176,10 @@ internal class SearchPurifyFeatureInstaller(
         rpc: String = "searchAll",
         stem: String = "Item"
     ): Boolean? {
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
         val kotlinMossName = SEARCH_MOSS_CLASS.replace(".SearchMoss", ".KSearchMoss")
-        if (KavaMemberLookup.classOrNull(loader, kotlinMossName) == null) return null
+        val hasKotlinMoss = KavaMemberLookup.classOrNull(loader, kotlinMossName) != null
+        if (wireSurface == null && !hasKotlinMoss) return null
         // 装不上要留下原因，否则诊断输出与"压根没尝试接入"完全无法区分（有界：三条）。
         fun skip(reason: String): Boolean {
             environment.logInfo("search_purify_kmoss_skip_$rpc", "[BIL] 搜索结果过滤 $rpc 新通道未接入: $reason")
@@ -185,16 +188,7 @@ internal class SearchPurifyFeatureInstaller(
         val builder = ProtobufBuilderPlan.resolve(responseClass) ?: return skip("no-response-builder")
         val clearItem = builder.method("clear$stem") ?: return skip("no-clear-item")
         val addAllItem = builder.method("addAll$stem", classOf<Iterable<*>>()) ?: return skip("no-add-all-item")
-        val bridge = KotlinMossChannel.prepare(environment, loader, "搜索结果过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
-        val installed = KotlinMossChannel.install(
-            environment, loader, bridge,
-            javaMossClassName = SEARCH_MOSS_CLASS,
-            rpc = rpc,
-            javaReplyClass = responseClass,
-            hookId = "search.purify.kmoss.$rpc",
-            what = "搜索结果过滤",
-            logKey = KMOSS_LOG_KEY
-        ) transform@{ javaReply ->
+        val transformJava: (Any) -> Any = transform@{ javaReply ->
             val source = KotlinMossChannel.raw { itemListGetter.invoke(javaReply) as? List<*> }
             if (source.isNullOrEmpty()) return@transform javaReply
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
@@ -206,6 +200,32 @@ internal class SearchPurifyFeatureInstaller(
                 addAllItem.invoke(target, filtered)
             }
         }
+        if (wireSurface != null && KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = wireSurface,
+                javaMossClassName = SEARCH_MOSS_CLASS,
+                rpc = rpc,
+                javaReplyClass = responseClass,
+                what = "搜索结果过滤",
+                logKey = KMOSS_LOG_KEY,
+                transformJava = transformJava
+            )
+        ) {
+            environment.logInfo("search_purify_kmoss_$rpc", "[BIL] 搜索结果过滤 $rpc：线格式新通道已接入")
+            return true
+        }
+        if (!hasKotlinMoss) return false
+        val bridge = KotlinMossChannel.prepare(environment, loader, "搜索结果过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
+        val installed = KotlinMossChannel.install(
+            environment, loader, bridge,
+            javaMossClassName = SEARCH_MOSS_CLASS,
+            rpc = rpc,
+            javaReplyClass = responseClass,
+            hookId = "search.purify.kmoss.$rpc",
+            what = "搜索结果过滤",
+            logKey = KMOSS_LOG_KEY,
+            transformJava = transformJava
+        )
         environment.logInfo("search_purify_kmoss_$rpc", "[BIL] 搜索结果过滤 $rpc：Kotlin 新通道${if (installed) "已接入" else "未接入"}")
         return installed
     }

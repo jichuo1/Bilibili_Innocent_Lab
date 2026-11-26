@@ -1,12 +1,14 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowUpRecommendAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.io.IOException
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -29,7 +31,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * 回调只做预解析成员的读取与比较：无磁盘、网络、IPC 或 DEX 扫描；读取失败一律放行宿主原行为。
  */
-internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) : FeatureInstaller {
+internal class FollowUpRecommendFeatureInstaller(
+    private val enabled: Boolean,
+    private val cachedBodies: Map<String, String> = emptyMap(),
+    private val cachedBodiesProvider: () -> Map<String, String> = { cachedBodies }
+) : FeatureInstaller {
     override val id: String = ID
     override val capabilityIds: List<String> get() = if (enabled) listOf(CAP_REQUEST, CAP_NETWORK) else emptyList()
 
@@ -49,14 +55,32 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
         }
     }
 
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+
     private val observed = AtomicBoolean(false)
     private val applied = AtomicBoolean(false)
+    private val installedUnits = ConcurrentHashMap.newKeySet<String>()
+    private var initialRun = false
+    private var retryConsumed = false
 
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!enabled) return FeatureInstallResult.Skipped("disabled")
-        if (environment.processName != TARGET_PACKAGE) return FeatureInstallResult.Skipped("non-main-process")
-        val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
+        if (!enabled) {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("disabled")
+        }
+        if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("non-main-process")
+        }
+        val loader = environment.classLoader ?: run {
+            requiresAdaptationRetry = false
+            return FeatureInstallResult.Skipped("missing-class-loader")
+        }
 
+        val cachedMap = cachedBodiesProvider()
         val states = linkedMapOf<String, String>()
         var requestExpected = 0
         var requestInstalled = 0
@@ -64,7 +88,7 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
         for (family in Family.entries) {
             val repository = KavaMemberLookup.classOrNull(loader, family.repository) ?: continue
             requestExpected++
-            val state = installRequestFamily(environment, loader, family, repository, unit)
+            val state = installRequestFamily(environment, loader, family, repository, unit, cachedMap[family.key])
             states[family.key] = state
             if (state == STATE_INSTALLED) requestInstalled++
         }
@@ -75,6 +99,14 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
         val networkExpected = if (networkState == STATE_ABSENT) 0 else 1
         val networkInstalled = if (networkState == STATE_INSTALLED) 1 else 0
         environment.reportCapability(CAP_NETWORK, coverage(networkExpected, networkInstalled, listOf(networkState)))
+
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+        } else {
+            initialRun = true
+            requiresAdaptationRetry = !retryConsumed && requestInstalled < requestExpected
+        }
 
         environment.reportStatus(STATUS, states.entries.joinToString(",") { "${it.key}:${it.value}" })
         val installed = requestInstalled + networkInstalled
@@ -89,11 +121,22 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
         loader: ClassLoader,
         family: Family,
         repository: Class<*>,
-        unit: Any?
+        unit: Any?,
+        cachedBodyName: String?
     ): String {
+        if (family.key in installedUnits) return STATE_INSTALLED
         if (unit == null) return STATE_MISSING_UNIT
-        val body = KavaMemberLookup.classOrNull(loader, family.requestBody) ?: return STATE_MISSING_BODY
-        val invokeSuspend = requestBodyEntry(loader, body, repository) ?: return STATE_MISSING_BODY
+        val directBody = KavaMemberLookup.classOrNull(loader, family.requestBody)
+        val directEntry = directBody?.let { requestBodyEntry(loader, it, repository) }
+        val resolved = if (directBody != null && directEntry != null) {
+            directBody to directEntry
+        } else {
+            val cachedBody = cachedBodyName?.takeIf(FollowUpRecommendAdapter::allowedOwnerName)
+                ?.let { KavaMemberLookup.classOrNull(loader, it) }
+            val cachedEntry = cachedBody?.let { requestBodyEntry(loader, it, repository) }
+            if (cachedBody != null && cachedEntry != null) cachedBody to cachedEntry else null
+        } ?: return STATE_MISSING_BODY
+        val (body, invokeSuspend) = resolved
         return try {
             environment.registrar.exact("$HOOK_REQUEST.${family.key}", body, invokeSuspend.name,
                 *invokeSuspend.parameterTypes) {
@@ -104,6 +147,7 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
                     markApplied(environment)
                 }
             }
+            installedUnits.add(family.key)
             STATE_INSTALLED
         } catch (failure: Throwable) {
             environment.logError("follow_up_recommend_request_${family.key}",
@@ -113,6 +157,7 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
     }
 
     private fun installKtorGuard(environment: HookEnvironment, loader: ClassLoader): String {
+        if (TRANSPORT_KTOR in installedUnits) return STATE_INSTALLED
         val statement = KavaMemberLookup.classOrNull(loader, KTOR_STATEMENT) ?: return STATE_ABSENT
         val access = ktorAccess(loader, statement) ?: return STATE_MISSING_TRANSPORT
         return try {
@@ -133,6 +178,7 @@ internal class FollowUpRecommendFeatureInstaller(private val enabled: Boolean) :
                     markApplied(environment)
                 }
             }
+            installedUnits.add(TRANSPORT_KTOR)
             STATE_INSTALLED
         } catch (failure: Throwable) {
             environment.logError("follow_up_recommend_network_ktor",

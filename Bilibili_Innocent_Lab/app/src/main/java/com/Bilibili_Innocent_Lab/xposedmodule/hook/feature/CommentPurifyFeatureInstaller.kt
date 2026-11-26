@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentQuickReplyAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import io.github.jichuo1.meguviz.android.extensions.child
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -23,10 +24,21 @@ internal class CommentPurifyFeatureInstaller(
     private val removeOperations: Boolean,
     private val blockQuickReply: Boolean = false,
     private val points: VersionAdapter.CommentPurifyPoints?,
-    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+    private val pointsProvider: () -> VersionAdapter.CommentPurifyPoints? = { points },
+    private val kmpGrpcWireEngineProvider: () -> VersionAdapter.HookPoint? = { kmpGrpcWireEngine }
 ) : FeatureInstaller {
 
     override val id: String = ID
+    @Volatile
+    var requiresAdaptationRetry: Boolean = false
+        private set
+    private var initialRun = false
+    private var baseInstalled = false
+    private var retryConsumed = false
+    private val installedQuickReplyKeys = hashSetOf<String>()
+    private var kmpWireInstalled = false
+
     override val capabilityIds: List<String> get() = buildList {
         if (removeSearchLinks) add("comments_search_links_removed")
         if (removeEmptyGuide) add("comments_empty_guide_removed")
@@ -40,23 +52,65 @@ internal class CommentPurifyFeatureInstaller(
     private val textFields = ConcurrentHashMap<Class<*>, List<Field>>()
     private val quickReplyFields = ConcurrentHashMap<Class<*>, QuickReplyIntentFields>()
 
+    private fun updateRetryState(loader: ClassLoader?) {
+        if (initialRun) {
+            retryConsumed = true
+            requiresAdaptationRetry = false
+            return
+        }
+        initialRun = true
+        val quickReplyRetry = blockQuickReply && installedQuickReplyKeys.isEmpty() &&
+            loader != null && CommentQuickReplyAdapter.applicable(loader)
+        val kmpRetry = (removeSearchLinks || removeEmptyGuide || removeQoe || removeOperations) &&
+            !kmpWireInstalled && loader != null && KmpGrpcWireAdapter.applicable(loader)
+        requiresAdaptationRetry = !retryConsumed && (quickReplyRetry || kmpRetry)
+    }
+
+    @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!removeSearchLinks && !removeEmptyGuide && !removeVoteWidgets &&
             !removeFollowButtons && !removeQoe && !removeOperations && !blockQuickReply) {
+            requiresAdaptationRetry = false
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
         if (environment.processName != TARGET_PACKAGE) {
+            requiresAdaptationRetry = false
             return FeatureInstallResult.Skipped("non-main-process")
         }
+        if (baseInstalled) {
+            var retryInstalled = 0
+            val quickReplyPoints = pointsProvider()?.quickReplyDialogMethods.orEmpty()
+            if (blockQuickReply && quickReplyPoints.isNotEmpty()) {
+                val quickInstalled = registerQuickReplyMethods(environment, quickReplyPoints)
+                retryInstalled += quickInstalled
+                if (installedQuickReplyKeys.isNotEmpty()) {
+                    environment.reportCapabilityCoverage(
+                        "comments_quick_reply_blocked",
+                        true,
+                        installedQuickReplyKeys.size,
+                        maxOf(quickReplyPoints.size, installedQuickReplyKeys.size)
+                    )
+                }
+            }
+            if (!kmpWireInstalled && kmpGrpcWireEngineProvider() != null) {
+                installKotlinChannel(environment, wireOnly = true)
+                if (kmpWireInstalled) retryInstalled += 1
+            }
+            updateRetryState(environment.classLoader)
+            return if (retryInstalled > 0) FeatureInstallResult.Installed(retryInstalled)
+            else FeatureInstallResult.Skipped("no-new-retry-hooks")
+        }
+        baseInstalled = true
         val compose = CommentComposePurifyBridge(removeVoteWidgets, removeFollowButtons, blockQuickReply).install(environment)
         val baseEnvironment = environment
         val environment = environment.copy(capabilityEvidence = { id, result ->
             baseEnvironment.capabilityEvidence?.invoke(id, mergeCommentLayer(result, compose[id]))
         })
-        val adapted = points ?: run {
+        val adapted = pointsProvider() ?: run {
             compose.forEach { (id, result) -> baseEnvironment.capabilityEvidence?.invoke(id, result) }
             installKotlinChannel(environment)
+            updateRetryState(environment.classLoader)
             val active = compose.values.filterIsInstance<FeatureInstallResult.Installed>()
             return if (active.isEmpty()) missing(environment, "missing-adapter-point")
             else FeatureInstallResult.Installed(active.sumOf { it.hookCount }, complete = false)
@@ -410,27 +464,7 @@ internal class CommentPurifyFeatureInstaller(
             val quickReplyPoints = adapted.quickReplyDialogMethods
             if (quickReplyPoints.isEmpty()) missingGroups += "quick-reply"
             expectedCount += quickReplyPoints.size
-            quickReplyPoints.forEachIndexed { index, point ->
-                runCatching {
-                    environment.registrar.adapted("comment.purify.quick_reply.$index", point) {
-                        before {
-                            val intent = args.firstOrNull() ?: return@before
-                            environment.reportRuntimeEvidence("comments_quick_reply_blocked", FeatureRuntimeStage.OBSERVED)
-                            if (shouldBlockQuickReply(intent)) {
-                                result = Unit
-                                environment.reportRuntimeEvidence("comments_quick_reply_blocked", FeatureRuntimeStage.APPLIED)
-                            }
-                        }
-                    }
-                    installedCount += 1
-                }.onFailure { throwable ->
-                    environment.logError(
-                        "comment_purify_quick_reply_$index",
-                        "[BIL] 评论快速回复 Hook 注册失败(" +
-                            "${point.className}#${point.methodName}): $throwable"
-                    )
-                }
-            }
+            installedCount += registerQuickReplyMethods(environment, quickReplyPoints)
             val installedPaths = installedCount - beforeInstalled
             val expectedPaths = (expectedCount - beforeExpected).coerceAtLeast(1)
             val missingUncounted = missingGroups.size > beforeMissing && installedPaths == expectedPaths
@@ -444,6 +478,7 @@ internal class CommentPurifyFeatureInstaller(
         // KMP 评论页走 Kotlin KReplyMoss：协议层子项在那条通道上再做一遍；兜底通道不计入覆盖单位，
         // Java 边界一个都装不上时也照装。
         installKotlinChannel(environment)
+        updateRetryState(environment.classLoader)
         if (installedCount == 0) return missing(environment, "registration-failed")
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         val status = if (missingGroups.isEmpty() && installedCount == expectedCount) {
@@ -506,17 +541,56 @@ internal class CommentPurifyFeatureInstaller(
         return shouldBlockQuickReply(isReply, position)
     }
 
+    private fun registerQuickReplyMethods(
+        environment: HookEnvironment,
+        quickReplyPoints: List<VersionAdapter.HookPoint>
+    ): Int {
+        var added = 0
+        quickReplyPoints.forEachIndexed { index, point ->
+            val key = "${point.className}#${point.methodName}#${point.paramClassNames.orEmpty().joinToString(",")}"
+            if (key in installedQuickReplyKeys) return@forEachIndexed
+            val hookId = if (index == installedQuickReplyKeys.size) {
+                "comment.purify.quick_reply.$index"
+            } else {
+                "comment.purify.quick_reply.${installedQuickReplyKeys.size}"
+            }
+            runCatching {
+                environment.registrar.adapted(hookId, point) {
+                    before {
+                        val intent = args.firstOrNull() ?: return@before
+                        environment.reportRuntimeEvidence("comments_quick_reply_blocked", FeatureRuntimeStage.OBSERVED)
+                        if (shouldBlockQuickReply(intent)) {
+                            result = Unit
+                            environment.reportRuntimeEvidence("comments_quick_reply_blocked", FeatureRuntimeStage.APPLIED)
+                        }
+                    }
+                }
+                installedQuickReplyKeys += key
+                added += 1
+            }.onFailure { throwable ->
+                environment.logError(
+                    "comment_purify_quick_reply_$index",
+                    "[BIL] 评论快速回复 Hook 注册失败(" +
+                        "${point.className}#${point.methodName}): $throwable"
+                )
+            }
+        }
+        return added
+    }
+
     /**
      * Kotlin 评论列表、折叠/热点页与广播补插通道：见 [CommentKotlinPurifier]。
      * 搜索跳转开着时，`mainList` 的请求也往返一次，在 `extra` 里声明 `disable_underline=true`（第 0 道防线）。
      */
-    private fun installKotlinChannel(environment: HookEnvironment) {
+    private fun installKotlinChannel(environment: HookEnvironment, wireOnly: Boolean = false) {
         if (!removeSearchLinks && !removeEmptyGuide && !removeQoe && !removeOperations) return
         // 装不上要留下原因（按 RPC 有界）；否则末尾那句"N 个"读起来像"不适用"，而不是"类没找到"。
         fun skip(reason: String) {
             environment.logInfo("comment_purify_kmoss_skip", "[BIL] 评论净化新通道未接入: $reason")
         }
         val loader = environment.classLoader ?: return skip("no-class-loader")
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngineProvider())
+        if (wireOnly && wireSurface == null) return
         val replyInfoClass = KavaMemberLookup.classOrNull(loader, "$REPLY_PACKAGE.ReplyInfo")
             ?: return skip("no-reply-info")
         val payloads = buildMap {
@@ -569,7 +643,6 @@ internal class CommentPurifyFeatureInstaller(
                 pending.forEach { (capability, count) -> environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED, count) }
             }
         }
-        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
         if (wireSurface != null) {
             var wireHooks = 0
             KMOSS_RPCS.forEach { (rpc, replyName) ->
@@ -591,10 +664,12 @@ internal class CommentPurifyFeatureInstaller(
                 if (installed) wireHooks += 1
             }
             if (wireHooks > 0) {
+                kmpWireInstalled = true
                 environment.logInfo("comment_purify_kmoss", "[BIL] 评论净化：线格式通道 $wireHooks 个")
                 return
             }
         }
+        if (wireOnly) return
         val members = KotlinMossChannel.prepare(environment, loader, "评论净化", KMOSS_LOG_KEY) ?: return skip("no-bridge")
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->

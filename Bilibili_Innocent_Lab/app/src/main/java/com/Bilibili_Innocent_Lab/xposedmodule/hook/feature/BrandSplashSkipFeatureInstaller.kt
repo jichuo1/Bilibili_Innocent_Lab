@@ -10,6 +10,7 @@ import java.util.WeakHashMap
 /** Keep the host's first-layout/exit handoff; shorten only the active brand page's dwell. */
 internal class BrandSplashSkipFeatureInstaller(
     private val enabled: Boolean,
+    private val kntrExitClass: String? = null,
     private val isMainThread: () -> Boolean = { Looper.myLooper() == Looper.getMainLooper() }
 ) : FeatureInstaller {
     override val id = ID
@@ -22,8 +23,8 @@ internal class BrandSplashSkipFeatureInstaller(
         if (environment.processName != TARGET_PACKAGE) return FeatureInstallResult.Skipped("non-main-process")
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
         val native = KavaMemberLookup.classOrNull(loader, NATIVE_FRAGMENT)
-        val kntr = BrandSplashKntrAccess.exit(loader)
-        val kntrPresent = kntr != null || BrandSplashKntrAccess.present(loader)
+        val kntr = BrandSplashKntrAccess.exit(loader, kntrExitClass)
+        val kntrPresent = kntr != null || BrandSplashKntrAccess.present(loader, kntrExitClass)
         val expected = (if (native != null) 1 else 0) + (if (kntrPresent) 1 else 0)
         var installed = 0
         if (native != null && runCatching { installNative(environment, native) }.getOrElse {

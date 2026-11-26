@@ -15,7 +15,6 @@ internal object PlayerEndPageRecommendLocator {
     const val HANDLER = "com.bilibili.lib.moss.api.MossResponseHandler"
     const val SERVICE = "com.bilibili.ship.theseus.ugc.endpage.relatedrecommand.UGCEndPageRelatedRecommendService"
     const val PACKAGE = "com.bilibili.ship.theseus.ugc.endpage.relatedrecommand."
-    private const val REPACKAGED_MERGER = "afk2"
     const val EXPECTED_PATHS = 5
 
     data class Access(val reply: Class<*>, val sync: Method?, val async: Method?, val handler: Class<*>?,
@@ -89,22 +88,40 @@ internal object PlayerEndPageRecommendLocator {
             .singleOrNull()
     }
 
-    // 9190200/9190400：服务字段 r 的实际类型是 afk2，服务与 selectedRelatedCardsFlow 都调用其 a(List, List)。
-    private fun repackagedMerger(service: Class<*>): Method? =
-        KavaMemberLookup.fieldOrNull(service, "r")
-            ?.takeIf { !Modifier.isStatic(it.modifiers) && it.type.name == REPACKAGED_MERGER }
-            ?.let { KavaMemberLookup.methodOrNull(it.type, "a", List::class.java, List::class.java) }
-            ?.takeIf { !Modifier.isStatic(it.modifiers) && mergerShape(it) }
+    // 9.19+：R8 将 merger 类扁平化到根包，通过 service 非静态字段类型与 `(List, List) -> List` 唯一性定位。
+    private fun serviceFieldMergers(service: Class<*>): List<Method> =
+        KavaMemberLookup.declaredFields(service, makeAccessible = true)
+            .asSequence()
+            .filter {
+                !Modifier.isStatic(it.modifiers) && !it.type.isPrimitive && it.type != Any::class.java &&
+                    ('.' !in it.type.name || it.type.name.startsWith(PACKAGE))
+            }
+            .map { it.type }
+            .distinct()
+            .flatMap { type ->
+                KavaMemberLookup.declaredMethods(type, makeAccessible = true) {
+                    !Modifier.isStatic(it.modifiers) && mergerShape(it)
+                }.asSequence()
+            }
+            .distinct()
+            .toList()
+
+    private fun repackagedMerger(service: Class<*>): Method? = serviceFieldMergers(service).singleOrNull()
 
     internal fun mergerOwnerSupported(owner: String): Boolean =
-        owner.startsWith(PACKAGE) || owner == REPACKAGED_MERGER
+        owner.startsWith(PACKAGE) || (owner.isNotEmpty() && '.' !in owner)
 
-    internal fun mergerAbi(method: Method): Boolean {
+    internal fun mergerAbi(method: Method, loader: ClassLoader? = method.declaringClass.classLoader): Boolean {
         if (!mergerShape(method)) return false
         val owner = method.declaringClass
         if (owner.name.startsWith(PACKAGE)) return true
-        return owner.name == REPACKAGED_MERGER &&
-            KavaMemberLookup.classOrNull(owner.classLoader, SERVICE)?.let(::repackagedMerger) == method
+        if (Modifier.isStatic(method.modifiers) || '.' in owner.name) return false
+        val service = KavaMemberLookup.classOrNull(loader, SERVICE) ?: return false
+        return serviceFieldMergers(service).contains(method) ||
+            (serviceFieldMergers(service).isEmpty() && KavaMemberLookup.declaredFields(service, true).any {
+                !Modifier.isStatic(it.modifiers) && it.type != Any::class.java && !it.type.isPrimitive &&
+                    ('.' !in it.type.name || it.type.name.startsWith(PACKAGE)) && it.type.isAssignableFrom(owner)
+            })
     }
 
     private fun mergerShape(method: Method): Boolean = method.returnType == classOf<List<*>>() && method.parameterTypes.contentEquals(arrayOf(classOf<List<*>>(), classOf<List<*>>())) &&
@@ -114,7 +131,9 @@ internal object PlayerEndPageRecommendLocator {
         point ?: return null
         if (point.viewField != null || point.paramClassNames != listOf("java.util.List", "java.util.List")) return null
         val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return null
-        return KavaMemberLookup.declaredMethods(owner, true) { it.name == point.methodName && mergerAbi(it) }.singleOrNull()
+        return KavaMemberLookup.declaredMethods(owner, true) {
+            it.name == point.methodName && mergerAbi(it, loader)
+        }.singleOrNull()
     }
 
     private fun exact(owner: Class<*>, name: String, returns: Class<*>, vararg params: Class<*>): Method? =

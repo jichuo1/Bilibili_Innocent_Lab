@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.graphics.Bitmap
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.lang.ref.WeakReference
@@ -13,7 +15,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Replace only the brand page's first painter; logos and every other resource consumer stay native. */
 internal class BrandSplashKntrRenderer(
     private val runtime: BrandSplashSelectionRuntime,
-    private val environment: HookEnvironment
+    private val environment: HookEnvironment,
+    private val cachedDrawClass: String? = null,
+    private val cachedExitClass: String? = null,
+    private val cachedPageMethod: VersionAdapter.HookPoint? = null
 ) {
     private class PaintFrame(val photo: BrandSplashImageCache.Photo?, var mainConsumed: Boolean = false)
     private class CachedPage(val photo: BrandSplashImageCache.Photo, val model: Any)
@@ -23,6 +28,7 @@ internal class BrandSplashKntrRenderer(
     private val modelBindings = ArrayList<ModelBinding>()
     private val loader = requireNotNull(environment.classLoader)
     private val active = AtomicBoolean(false)
+    private val stateLock = Any()
     private var painterBitmap: Bitmap? = null
     private var painter: Any? = null
     private val painterFactories = HashMap<Class<*>, Constructor<*>>()
@@ -39,26 +45,20 @@ internal class BrandSplashKntrRenderer(
             ?.takeIf { it.returnType == Void.TYPE } ?: return false
         val owners = (('a'..'z').map { PACKAGE + it } + PACKAGE + "BrandSplashPageKt")
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-        val page = owners.flatMap(KavaMemberLookup::declaredMethods).singleOrNull { method ->
-            Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE &&
-                brandSplashPageAbi(method.parameterTypes.map { it.name })?.let { abi ->
-                    method.parameterTypes[1] == function0 && method.parameterTypes[2] == modifier &&
-                        method.parameterTypes[abi.composerIndex] == composer &&
-                        (method.parameterTypes[3] != function0 ||
-                            method.declaringClass.name == COMPACT_PAGE && method.name == "a")
-                } == true &&
-                brandSplashKntrModelConstructor(method.parameterTypes[0]) != null
-        } ?: return false
+        val page = BrandSplashKntrAdapter.directPage(loader)
+            ?: BrandSplashKntrAdapter.resolvePage(loader, cachedPageMethod)
+            ?: return false
         val abi = requireNotNull(brandSplashPageAbi(page.parameterTypes.map { it.name }))
         val composerIndex = abi.composerIndex
         val flagsIndex = abi.flagsIndex
         val constructor = brandSplashKntrModelConstructor(page.parameterTypes[0]) ?: return false
-        val exitPoint = BrandSplashKntrAccess.exit(loader) ?: return false
+        val exitPoint = BrandSplashKntrAccess.exit(loader, cachedExitClass) ?: return false
         val exitOwner = exitPoint.owner
         val exitMethod = exitPoint.resume
-        // 9.19's compact brand page constructs the exact repackaged BoxWithConstraints draw lambda.
-        val drawOwners = if (page.parameterTypes[3] == function0)
-            listOfNotNull(KavaMemberLookup.classOrNull(loader, COMPACT_DRAW)) else owners
+        // 9.19+ 的紧凑版开屏将 draw lambda 扁平到根包，优先使用 DEX 定位结果并保留 legacy 兜底。
+        val drawOwners = (listOfNotNull(cachedDrawClass?.let { KavaMemberLookup.classOrNull(loader, it) }) +
+            if (page.parameterTypes[3] == function0) listOfNotNull(KavaMemberLookup.classOrNull(loader, COMPACT_DRAW)) else owners)
+            .distinct()
         val draw = drawOwners.singleOrNull { owner ->
             KavaMemberLookup.declaredFields(owner).count { it.type == page.parameterTypes[0] } == 1 &&
                 KavaMemberLookup.declaredMethods(owner).count { it.name == "invoke" && it.parameterCount == 3 } == 1
@@ -86,12 +86,19 @@ internal class BrandSplashKntrRenderer(
                 before {
                     if (!active.get()) return@before
                     val model = argOrNull(1) ?: return@before
-                    val photo = modelBindings.firstOrNull { it.model.get() === model }?.photo?.get()
-                        ?.takeIf { runtime.isSelectionCurrent(it.signature) } ?: return@before
-                    val value = if (wrappedBitmap === photo.bitmap && wrappedImage != null) requireNotNull(wrappedImage)
-                        else requireNotNull(wrapImage.invoke(null, photo.bitmap)).also {
-                            wrappedBitmap = photo.bitmap; wrappedImage = it
+                    val (photo, cachedWrapped) = synchronized(stateLock) {
+                        val p = modelBindings.firstOrNull { it.model.get() === model }?.photo?.get()
+                            ?.takeIf { runtime.isSelectionCurrent(it.signature) }
+                        val w = if (p != null && wrappedBitmap === p.bitmap) wrappedImage else null
+                        p to w
+                    }
+                    if (photo == null) return@before
+                    val value = cachedWrapped ?: requireNotNull(wrapImage.invoke(null, photo.bitmap)).also { created ->
+                        synchronized(stateLock) {
+                            wrappedBitmap = photo.bitmap
+                            wrappedImage = created
                         }
+                    }
                     args[0] = value
                     setObjectExtra("brand.custom.bitmap.photo", photo)
                     setObjectExtra("brand.custom.bitmap.value", value)
@@ -101,8 +108,10 @@ internal class BrandSplashKntrRenderer(
                     val photo = getObjectExtra("brand.custom.bitmap.photo") as? BrandSplashImageCache.Photo ?: return@after
                     val target = instance ?: return@after
                     if (bitmapField?.get(target) !== getObjectExtra("brand.custom.bitmap.value")) return@after
-                    if (nativeDrawPhotos.size >= 16) nativeDrawPhotos.keys.firstOrNull()?.let(nativeDrawPhotos::remove)
-                    nativeDrawPhotos[target] = WeakReference(photo)
+                    synchronized(stateLock) {
+                        if (nativeDrawPhotos.size >= 16) nativeDrawPhotos.keys.firstOrNull()?.let(nativeDrawPhotos::remove)
+                        nativeDrawPhotos[target] = WeakReference(photo)
+                    }
                 }
             }
         }
@@ -130,8 +139,10 @@ internal class BrandSplashKntrRenderer(
                 // Resolve its captured immutable model rather than relying on an outer thread-local lifetime.
                 val photo = if (active.get()) runCatching {
                     val value = instance?.let(drawModel::get)
-                    modelBindings.removeAll { it.model.get() == null || it.photo.get() == null }
-                    val stored = modelBindings.firstOrNull { it.model.get() === value }?.photo?.get()
+                    val stored = synchronized(stateLock) {
+                        modelBindings.removeAll { it.model.get() == null || it.photo.get() == null }
+                        modelBindings.firstOrNull { it.model.get() === value }?.photo?.get()
+                    }
                     val composition = argOrNull(1)?.takeIf(composer::isInstance)
                     composition?.let(scopeGetter::invoke)?.let { runtime.observeScope(it, invalidate) }
                     stored?.takeIf { runtime.isSelectionCurrent(it.signature) } ?: runtime.photo()
@@ -139,7 +150,7 @@ internal class BrandSplashKntrRenderer(
                 // The modern page draws its background bitmap first and its Logo later.
                 // Resource painters in that branch must always stay native.
                 paints.enter(PaintFrame(photo, mainConsumed = bitmapConstructor != null))
-                val owned = instance?.let { nativeDrawPhotos[it]?.get() }
+                val owned = instance?.let { target -> synchronized(stateLock) { nativeDrawPhotos[target]?.get() } }
                 if (owned != null && photo === owned && runtime.isSelectionCurrent(owned.signature)) {
                     setObjectExtra("brand.custom.draw.photo", owned)
                 }
@@ -161,7 +172,9 @@ internal class BrandSplashKntrRenderer(
                     val scope = scopeGetter.invoke(composition)
                     if (scope != null) runtime.observeScope(scope, invalidate)
                     val key = scope ?: composition
-                    val existing = bindings[key]?.takeIf { runtime.isSelectionCurrent(it.photo.signature) }
+                    val existing = synchronized(stateLock) {
+                        bindings[key]?.takeIf { runtime.isSelectionCurrent(it.photo.signature) }
+                    }
                     val cached = existing ?: runtime.photo()?.let { bind(key, it, constructor) } ?: return@runCatching
                     args[0] = cached.model
                     // The callee uses 4 for a changed model (2 means unchanged). Keep the callback's bits intact.
@@ -175,10 +188,23 @@ internal class BrandSplashKntrRenderer(
             after {
                 if (!active.get() || hasThrowable || !exitPoint.exited(instance, result)) return@after
                 runtime.photo()?.let(runtime::exited)
+                releaseTransientBitmaps()
             }
         }
         active.set(true)
         return true
+    }
+
+    private fun releaseTransientBitmaps() {
+        synchronized(stateLock) {
+            painterBitmap = null
+            painter = null
+            wrappedBitmap = null
+            wrappedImage = null
+            bindings.clear()
+            modelBindings.clear()
+            nativeDrawPhotos.clear()
+        }
     }
 
     private fun bind(key: Any, photo: BrandSplashImageCache.Photo, constructor: Constructor<*>): CachedPage {
@@ -190,11 +216,13 @@ internal class BrandSplashKntrRenderer(
         // R8 retains the serialization constructor with a leading presence mask on these APKs.
         val arguments = if (offset == 1) arrayOf<Any?>(0x1ff, *values) else values
         val model = constructor.newInstance(*arguments)
-        if (bindings.size >= 4) bindings.keys.firstOrNull()?.let(bindings::remove)
-        modelBindings.removeAll { it.model.get() == null || it.photo.get() == null }
-        if (modelBindings.size >= 16) modelBindings.removeAt(0)
-        modelBindings.add(ModelBinding(WeakReference(model), WeakReference(photo)))
-        return CachedPage(photo, model).also { bindings[key] = it }
+        return synchronized(stateLock) {
+            if (bindings.size >= 4) bindings.keys.firstOrNull()?.let(bindings::remove)
+            modelBindings.removeAll { it.model.get() == null || it.photo.get() == null }
+            if (modelBindings.size >= 16) modelBindings.removeAt(0)
+            modelBindings.add(ModelBinding(WeakReference(model), WeakReference(photo)))
+            CachedPage(photo, model).also { bindings[key] = it }
+        }
     }
 
     private fun enumValue(type: Class<*>, value: String): Any = type.enumConstants?.singleOrNull {
@@ -202,15 +230,19 @@ internal class BrandSplashKntrRenderer(
     } ?: error("unknown-brand-enum")
 
     private fun nativePainter(bitmap: Bitmap, owner: Class<*>, wrapImage: Method, imageBitmap: Class<*>): Any {
-        if (painterBitmap === bitmap && painter != null && owner.isInstance(painter)) return requireNotNull(painter)
-        val constructor = painterFactories[owner] ?: KavaMemberLookup.declaredConstructors(owner).filter { c ->
-            val p = c.parameterTypes
-            p.isNotEmpty() && p[0] == imageBitmap && (p.size == 1 ||
-                (p.size in 3..5 && p[1] == Long::class.javaPrimitiveType && p[2] == Long::class.javaPrimitiveType &&
-                    (p.size == 3 || (p.size == 4 && p[3].name == "kotlin.jvm.internal.DefaultConstructorMarker") ||
-                        (p.size == 5 && p[3] == Int::class.javaPrimitiveType && p[4].name == "kotlin.jvm.internal.DefaultConstructorMarker"))))
-        }.minByOrNull { it.parameterCount }?.also { painterFactories[owner] = it }
-            ?: error("missing-host-bitmap-painter")
+        val constructor = synchronized(stateLock) {
+            if (painterBitmap === bitmap && painter != null && owner.isInstance(painter)) {
+                return requireNotNull(painter)
+            }
+            painterFactories[owner] ?: KavaMemberLookup.declaredConstructors(owner).filter { c ->
+                val p = c.parameterTypes
+                p.isNotEmpty() && p[0] == imageBitmap && (p.size == 1 ||
+                    (p.size in 3..5 && p[1] == Long::class.javaPrimitiveType && p[2] == Long::class.javaPrimitiveType &&
+                        (p.size == 3 || (p.size == 4 && p[3].name == "kotlin.jvm.internal.DefaultConstructorMarker") ||
+                            (p.size == 5 && p[3] == Int::class.javaPrimitiveType && p[4].name == "kotlin.jvm.internal.DefaultConstructorMarker"))))
+            }.minByOrNull { it.parameterCount }?.also { painterFactories[owner] = it }
+                ?: error("missing-host-bitmap-painter")
+        }
         val nativeBitmap = wrapImage.invoke(null, bitmap)
         val size = (bitmap.width.toLong() shl 32) or (bitmap.height.toLong() and 0xffffffffL)
         val args: Array<Any?> = when (constructor.parameterCount) {
@@ -220,14 +252,18 @@ internal class BrandSplashKntrRenderer(
             5 -> arrayOf(nativeBitmap, 0L, size, 6, null)
             else -> error("unsupported-painter-constructor")
         }
-        return constructor.newInstance(*args).also { painterBitmap = bitmap; painter = it }
+        return constructor.newInstance(*args).also { created ->
+            synchronized(stateLock) {
+                painterBitmap = bitmap
+                painter = created
+            }
+        }
     }
 
     companion object {
         const val PAGE = "kntr.srcs.app.splash.brand.startup.c"
         private const val PACKAGE = "kntr.srcs.app.splash.brand.startup."
-        private const val COMPACT_PAGE = PACKAGE + "a"
-        private const val COMPACT_DRAW = "ckk"
+        const val COMPACT_DRAW = "ckk"
     }
 }
 

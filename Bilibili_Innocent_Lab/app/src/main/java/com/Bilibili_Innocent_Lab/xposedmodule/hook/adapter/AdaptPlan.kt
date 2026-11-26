@@ -150,6 +150,9 @@ class AdaptCoverage internal constructor(source: Map<PointFamily, Attempt>) {
 
     internal val attempted: Set<PointFamily> get() = attempts.keys
 
+    internal fun without(families: Set<PointFamily>): AdaptCoverage =
+        if (families.isEmpty()) this else AdaptCoverage(attempts.filterKeys { it !in families })
+
     fun toJson(): JSONObject = JSONObject().also { json ->
         attempts.forEach { (family, attempt) -> json.put(family.key, attempt.name) }
     }

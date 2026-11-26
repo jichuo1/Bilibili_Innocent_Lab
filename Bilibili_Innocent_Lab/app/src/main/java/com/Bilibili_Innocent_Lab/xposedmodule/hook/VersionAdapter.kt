@@ -20,6 +20,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.Theseus2LongPressPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AiPlaylistDirectorAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailRelateGameAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowUpRecommendAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareClasses
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionProfile
@@ -27,20 +32,36 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LongPressCalculatorPo
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentQuickReplyAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomain
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomainCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SyncLocatorRun
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.withoutDomains
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.GuestPlayerCoreAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PausedAdDexAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CloudKeyFreezeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailSpecialTagAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.NormalQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PrivacyChannelAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PauseRequestCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
@@ -135,6 +156,9 @@ object VersionAdapter {
 
         /** 适配完成（主线程） */
         fun onAdaptFinished(ok: Boolean)
+
+        /** 静默重绑定或静默补适配完成（不弹提示；成功时触发待重试安装器，失败时释放等待状态） */
+        fun onSilentCacheReady(ok: Boolean = true) {}
     }
 
     /** 单个 hook 点定位结果 */
@@ -205,9 +229,9 @@ object VersionAdapter {
      * `dex.assist` 保持为 block-update 的历史 id，不改名以兼容既有缓存。
      */
     private const val DEX_ASSIST_ID_PREFIX = AdaptAssistGate.ID_PREFIX
-    private const val DEX_ASSIST_BLOCK_UPDATE_ID = AdaptAssistGate.BLOCK_UPDATE_ID
-    private const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = AdaptAssistGate.COMMENT_TOPOLOGY_ID
-    private const val DEX_ASSIST_PLAYER_QUALITY_ID = AdaptAssistGate.PLAYER_QUALITY_ID
+    internal const val DEX_ASSIST_BLOCK_UPDATE_ID = AdaptAssistGate.BLOCK_UPDATE_ID
+    internal const val DEX_ASSIST_COMMENT_TOPOLOGY_ID = AdaptAssistGate.COMMENT_TOPOLOGY_ID
+    internal const val DEX_ASSIST_PLAYER_QUALITY_ID = AdaptAssistGate.PLAYER_QUALITY_ID
     private const val DEX_SOURCE_UNAVAILABLE = "unavailable"
 
     /** 计划没有要求该家族：诊断里的「未请求」，既不是 FOUND 也不是 MISSING，更不是为了补全诊断而重新探测。 */
@@ -280,17 +304,19 @@ object VersionAdapter {
         val requestMethods: List<HookPoint>,
         val legacyCallback: HookPoint?,
         val panelShow: HookPoint?,
-        val countdown: HookPoint?
+        val countdown: HookPoint?,
+        val apiEntry: HookPoint? = null
     ) {
-        /** 四个子点都没有定位到；被计划裁剪的暂停页家族就是这个值。 */
+        /** 五个子点都没有定位到；被计划裁剪的暂停页家族就是这个值。 */
         fun isEmpty(): Boolean = requestMethods.isEmpty() && legacyCallback == null &&
-            panelShow == null && countdown == null
+            panelShow == null && countdown == null && apiEntry == null
 
         fun toJson(): JSONObject = JSONObject().apply {
             put("requests", JSONArray().apply { requestMethods.forEach { put(it.toJson()) } })
             legacyCallback?.let { put("legacy", it.toJson()) }
             panelShow?.let { put("panel", it.toJson()) }
             countdown?.let { put("countdown", it.toJson()) }
+            apiEntry?.let { put("api_entry", it.toJson()) }
         }
 
         companion object {
@@ -301,7 +327,8 @@ object VersionAdapter {
                         (0 until requests.length()).map { HookPoint.fromJson(requests.getJSONObject(it)) },
                     legacyCallback = o.optJSONObject("legacy")?.let(HookPoint::fromJson),
                     panelShow = o.optJSONObject("panel")?.let(HookPoint::fromJson),
-                    countdown = o.optJSONObject("countdown")?.let(HookPoint::fromJson)
+                    countdown = o.optJSONObject("countdown")?.let(HookPoint::fromJson),
+                    apiEntry = o.optJSONObject("api_entry")?.let(HookPoint::fromJson)
                 )
             }
         }
@@ -1660,17 +1687,19 @@ object VersionAdapter {
         }
     }
 
-    /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
+    /** 播放器默认画质计算边界；保存无参 Int 默认入口、Story 角色与 9.15+ 自动画质开关。 */
     data class PlayerQualityPoints(
         val defaultQualityMethod: HookPoint?,
         /** 只读结构证据，不注册额外播放响应 Hook。 */
         val capabilitySignals: List<String> = emptyList(),
-        val story: StoryQualityPoints? = null
+        val story: StoryQualityPoints? = null,
+        val normalAutoSwitch: HookPoint? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             defaultQualityMethod?.let { put("default", it.toJson()) }
             put("capabilities", JSONArray(capabilitySignals))
             story?.let { put("story", it.toJson()) }
+            normalAutoSwitch?.let { put("normal_auto", it.toJson()) }
         }
 
         companion object {
@@ -1679,7 +1708,8 @@ object VersionAdapter {
                 capabilitySignals = o.optJSONArray("capabilities")?.let { values ->
                     (0 until values.length()).map(values::getString)
                 }.orEmpty(),
-                story = o.optJSONObject("story")?.let(StoryQualityPoints::fromJson)
+                story = o.optJSONObject("story")?.let(StoryQualityPoints::fromJson),
+                normalAutoSwitch = o.optJSONObject("normal_auto")?.let(HookPoint::fromJson)
             )
         }
     }
@@ -1939,11 +1969,28 @@ object VersionAdapter {
         val systemEnvironment: SystemEnvironmentPoints? = null,
         val commentComposeMenu: CommentComposeMenuPoints? = null,
         val kmpGrpcWireEngine: HookPoint? = null,
+        val brandSplashKntrDraw: String? = null,
+        val brandSplashKntrExit: String? = null,
+        val brandSplashKntrPage: HookPoint? = null,
+        val cloudKeyFreezeContract: String? = null,
+        val privacyIgnetHttp: HookPoint? = null,
+        val privacyKNeuron: String? = null,
+        val guestPlayerCore: String? = null,
+        val detailSpecialTagMapper: HookPoint? = null,
+        val aiPlaylistDirector: String? = null,
+        val followUpRecommendBodies: Map<String, String> = emptyMap(),
+        val detailRelateGameComponent: String? = null,
+        val commentReplyButtonOwners: Map<String, String> = emptyMap(),
+        val homeRecommendEarlyLoadListener: String? = null,
+        val legacyStoryDanmakuBind: HookPoint? = null,
+        val playerSpeedTheseus2LongPress: Theseus2LongPressPoint? = null,
         /**
          * 同步定位家族的覆盖范围与尝试状态；`null` = 旧缓存（没有 `cov` 键），覆盖范围未知，**不等于**覆盖完整。
          * 只描述「这一轮尝试过什么」，不描述数据是否有效：被计划裁剪的家族即使带着此前缓存的点，也要看这里。
          */
-        val coverage: AdaptCoverage? = null
+        val coverage: AdaptCoverage? = null,
+        /** Phase 2 按功能域拆分的规则版本映射（缺失时按各域基线 0 对待，与旧缓存向后兼容）。 */
+        val domainRuleVersions: Map<String, Int> = emptyMap()
     ) {
         /** 该家族此刻是否带有定位结果（暂停页含四个子点，任一有值即算）。 */
         internal fun hasPoint(family: PointFamily): Boolean = when (family) {
@@ -2029,7 +2076,31 @@ object VersionAdapter {
             systemEnvironment?.let { put("system_environment", it.toJson()) }
             commentComposeMenu?.let { put("comment_compose_menu", it.toJson()) }
             kmpGrpcWireEngine?.let { put("kmp_grpc_wire_engine", it.toJson()) }
+            brandSplashKntrDraw?.let { put("brand_splash_kntr_draw", it) }
+            brandSplashKntrExit?.let { put("brand_splash_kntr_exit", it) }
+            brandSplashKntrPage?.let { put("brand_splash_kntr_page", it.toJson()) }
+            cloudKeyFreezeContract?.let { put("cloud_key_freeze_contract", it) }
+            privacyIgnetHttp?.let { put("privacy_ignet_http", it.toJson()) }
+            privacyKNeuron?.let { put("privacy_kneuron", it) }
+            guestPlayerCore?.let { put("guest_player_core", it) }
+            detailSpecialTagMapper?.let { put("detail_special_tag_mapper", it.toJson()) }
+            aiPlaylistDirector?.let { put("ai_playlist_director", it) }
+            if (followUpRecommendBodies.isNotEmpty()) {
+                put("follow_up_recommend_bodies", FollowUpRecommendAdapter.toJson(followUpRecommendBodies))
+            }
+            detailRelateGameComponent?.let { put("detail_relate_game_component", it) }
+            if (commentReplyButtonOwners.isNotEmpty()) {
+                put("comment_reply_button_owners", CommentReplyButtonAdapter.toJson(commentReplyButtonOwners))
+            }
+            homeRecommendEarlyLoadListener?.let { put("home_recommend_early_load_listener", it) }
+            legacyStoryDanmakuBind?.let { put("legacy_story_danmaku_bind", it.toJson()) }
+            playerSpeedTheseus2LongPress?.let { put("player_speed_theseus2_long_press", it.toJson()) }
             coverage?.let { put("cov", it.toJson()) }
+            if (domainRuleVersions.isNotEmpty()) {
+                put("drv", JSONObject().apply {
+                    domainRuleVersions.toSortedMap().forEach { (k, v) -> put(k, v) }
+                })
+            }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
             put("dex_fp", dexSourceFingerprint)
@@ -2053,323 +2124,381 @@ object VersionAdapter {
             className.isNotBlank() && methodName.isNotBlank() &&
                 paramClassNames?.all { it.isNotBlank() } != false
 
-        private fun isStructurallyValid(): Boolean =
+        private fun isCoreMetadataValid(): Boolean =
             startupExcluded.isEmpty() && diagnostics.none { it.state == AdaptState.NOT_REQUESTED } &&
                 biliVersionCode >= 0 && hostFingerprint.isNotBlank() &&
                 (dexSourceFingerprint == DEX_SOURCE_UNAVAILABLE ||
                     dexSourceFingerprint.matches(DEX_SOURCE_FINGERPRINT_PATTERN)) &&
-                protocolFingerprint.matches(PROTOCOL_FINGERPRINT_PATTERN) &&
-                commentLow?.isValid() != false && commentHigh?.isValid() != false &&
-                mineEntry?.let { mine ->
-                    mine.groupListField.isNotBlank() && mine.buildMethods.all { it.isValid() } &&
-                        mine.clickMethod.isValid()
-                } != false &&
-                pause.requestMethods.all { it.isValid() } &&
-                pause.legacyCallback?.isValid() != false &&
-                pause.panelShow?.isValid() != false &&
-                pause.countdown?.isValid() != false &&
-                banner?.let { value ->
-                    value.bannerClassName.isNotBlank() && value.lifecycleMethods.all { it.isValid() }
-                } != false &&
-                homeTopBar?.let { value ->
-                    value.gameMenu?.let { point ->
-                        point.isValid() && !point.viewField.isNullOrBlank()
-                    } != false &&
-                        // Compose 层按元素字段判定 action，不需要 viewField。
-                        value.composeGameMenu?.isValid() != false &&
-                        value.baseOnViewCreated?.let { point ->
-                            point.isValid() && !point.viewField.isNullOrBlank()
-                        } != false &&
-                        value.defaultWordMethods.all { it.isValid() } &&
-                        value.kotlinDefaultWords?.let { it.isValid() && it.paramClassNames?.size == 5 } != false
-                } != false &&
-                mineVip?.let { value ->
-                    value.onResume.isValid() && !value.onResume.viewField.isNullOrBlank() &&
-                        value.bindingField.isNotBlank() && value.rootGetter.isValid()
-                } != false &&
-                blockUpdate?.isValid() != false &&
-                dynamicTabs?.let { value ->
-                    value.listGetter.isValid() && value.addTab.isValid() &&
-                        value.tabCustomViewGetter.isValid() &&
-                        value.mediatorTabClassName.isNotBlank() &&
-                        value.itemClassName.isNotBlank() &&
-                        value.itemTitleField.isNotBlank() && value.itemNameField.isNotBlank()
-                } != false &&
-                fullNumbers?.formatterMethods?.let { methods ->
-                    methods.isNotEmpty() && methods.all { it.isValid() }
-                } != false &&
-                playerPortrait?.visibilityMethods?.let { methods ->
-                    methods.isNotEmpty() && methods.all { it.isValid() }
-                } != false &&
-                pgcAutoActivityPopup?.isValid() != false &&
-                playerInteractiveOverlays?.let { value ->
-                    value.families.all { family ->
-                        family.replyClassName.isNotBlank() &&
-                            (family.guideGetter?.isValid() != false) &&
-                            family.guideClears.all { it.isValid() } &&
-                            family.guideClears.none {
-                                it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
-                            } &&
-                            family.guideDefault?.isValid() != false &&
-                            family.dmGetter?.isValid() != false &&
-                            family.dmClears.all { it.isValid() } &&
-                            family.dmDefault?.isValid() != false &&
-                            (family.dmGetter != null || family.dmClears.isEmpty())
-                    } &&
-                        value.mossExecutes.all { it.isValid() } && value.mossAsync.all { it.isValid() } &&
-                        value.commandGetter?.isValid() != false &&
-                        value.commandClear?.isValid() != false &&
-                        value.commandDefault?.isValid() != false &&
-                        value.commandActivityMetaClear?.isValid() != false &&
-                        (value.families.isNotEmpty() || value.commandClear != null)
-                } != false &&
-                playerStatusBar?.onCreateMethods?.let { methods ->
-                    methods.isNotEmpty() && methods.all { it.isValid() }
-                } != false &&
-                homeRecommendFeed?.let { value ->
-                    value.responseItemGetters.isNotEmpty() &&
-                        value.responseItemGetters.all { it.isValid() } &&
-                        value.holderTypeGetter.isValid() &&
-                        value.bizTypeGetter?.isValid() != false &&
-                        value.adInfoGetter?.isValid() != false &&
-                        value.cardGotoGetter?.isValid() != false &&
-                        value.goToGetter?.isValid() != false &&
-                        value.uriGetter?.isValid() != false &&
-                        value.paramGetter?.isValid() != false &&
-                        value.titleGetter?.isValid() != false &&
-                        value.subtitleGetter?.isValid() != false &&
-                        value.descGetter?.isValid() != false &&
-                        value.playerArgsGetter?.isValid() != false &&
-                        value.cardTypeGetter?.isValid() != false &&
-                        value.playerArgsDurationGetter?.isValid() != false &&
-                        value.argsGetter?.isValid() != false &&
-                        value.argsTidGetter?.isValid() != false &&
-                        value.argsTnameGetter?.isValid() != false &&
-                        value.dislikeReasonSetter?.isValid() != false &&
-                        value.dislikeRecordSetter?.isValid() != false &&
-                        value.dislikeAnchorGetter?.isValid() != false &&
-                        value.dislikeTypeGetter?.isValid() != false &&
-                        value.argsRidGetter?.isValid() != false &&
-                        value.feedbackItemExtendGetter?.isValid() != false &&
-                        value.feedbackItemIdGetter?.isValid() != false &&
-                        value.feedbackDialogFragmentCreate?.isValid() != false &&
-                        value.feedbackGroupItemsGetter?.isValid() != false &&
-                        value.feedbackGroupStyleGetter?.isValid() != false &&
-                        value.feedbackGroupTitleGetter?.isValid() != false &&
-                        value.feedbackGroupCopy?.isValid() != false &&
-                        value.feedbackItemConstructor?.isValid() != false &&
-                        value.feedbackItemTitleGetter?.isValid() != false &&
-                        value.feedbackItemTypeGetter?.isValid() != false &&
-                        value.feedbackItemOnClickGetter?.isValid() != false &&
-                        value.argsUpIdGetter?.isValid() != false &&
-                        value.argsUpNameGetter?.isValid() != false &&
-                        // UP 读取链也挂在 argsGetter 下面；外层缺了内层就作废。
-                        (value.argsGetter != null ||
-                            (value.argsUpIdGetter == null && value.argsUpNameGetter == null)) &&
-                        // rid/tid 是两级分区，都挂在 argsGetter 这条链下面；外层缺了内层就作废。
-                        (value.argsGetter != null || value.argsRidGetter == null) &&
-                        // 占位卡回指原卡是读分区的唯一路径；缺了就把两个 setter 一起作废，
-                        // 否则安装器会以为能读分区，实际每次都拿 null，静默变成"从不命中"。
-                        (value.dislikeAnchorGetter != null ||
-                            (value.dislikeReasonSetter == null && value.dislikeRecordSetter == null)) &&
-                        // tid 读取是两级链，缺内层就整维度作废——留着外层会让安装器
-                        // 以为能读分区，实际每张卡都拿 null，静默变成"从不命中"。
-                        (value.argsGetter != null || value.argsTidGetter == null) &&
-                        value.intentHandlerOnCreate?.isValid() != false &&
-                        if (value.playerArgsGetter == null) {
-                            value.playerArgsDurationField.isNullOrBlank() &&
-                                value.playerArgsDurationGetter == null
-                        } else {
-                            !value.playerArgsDurationField.isNullOrBlank() ||
-                                value.playerArgsDurationGetter != null
-                        }
-                } != false &&
-                videoRelate?.let { value ->
-                    value.responseItemGetters.isNotEmpty() &&
-                        value.responseItemGetters.all { it.isValid() } &&
-                        (value.cardCaseGetters.isNotEmpty() || value.gotoGetters.isNotEmpty() ||
-                            value.cardTypeGetters.isNotEmpty() ||
-                            value.relateCardTypeGetters.isNotEmpty() ||
-                            value.fromSourceTypeGetters.isNotEmpty() ||
-                            value.fromSourceTypeChains.isNotEmpty() ||
-                            value.relateCardTypeValueGetters.isNotEmpty() ||
-                            value.directDurationGetters.isNotEmpty() ||
-                            value.durationChains.isNotEmpty() ||
-                            value.reasonChains.isNotEmpty() ||
-                            value.commercialEvidenceChains.isNotEmpty()) &&
-                        value.cardCaseGetters.all { it.isValid() } &&
-                        value.gotoGetters.all { it.isValid() } &&
-                        value.cardTypeGetters.all { it.isValid() } &&
-                        value.relateCardTypeGetters.all { it.isValid() } &&
-                        value.fromSourceTypeGetters.all { it.isValid() } &&
-                        value.fromSourceTypeChains.all { chain ->
-                            chain.itemGetter.isValid() && chain.sourceTypeGetter.isValid()
+                protocolFingerprint.matches(PROTOCOL_FINGERPRINT_PATTERN)
+
+        private fun isPlayerAndUiPointsValid(): Boolean {
+            if (!pause.requestMethods.all { it.isValid() }) return false
+            if (pause.legacyCallback?.isValid() == false || pause.panelShow?.isValid() == false ||
+                pause.countdown?.isValid() == false
+            ) return false
+            pause.apiEntry?.let {
+                if (!it.isValid() || it.viewField != null ||
+                    !PauseRequestCoverage.allowedApiOwnerName(it.className)
+                ) return false
+            }
+            playerPortrait?.visibilityMethods?.let { methods ->
+                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
+            }
+            if (pgcAutoActivityPopup?.isValid() == false) return false
+            playerInteractiveOverlays?.let { value ->
+                val familiesValid = value.families.all { family ->
+                    family.replyClassName.isNotBlank() &&
+                        family.guideGetter?.isValid() != false &&
+                        family.guideClears.all { it.isValid() } &&
+                        family.guideClears.none {
+                            it.methodName == PLAYER_INTERACTIVE_PRESERVED_VIDEO_POINT_CLEAR
                         } &&
-                        value.relateCardTypeValueGetters.all { it.isValid() } &&
-                        value.directDurationGetters.all { it.isValid() } &&
-                        value.durationChains.all { chain ->
-                            chain.itemGetter.isValid() && chain.durationGetter.isValid()
-                        } &&
-                        value.reasonChains.all { chain ->
-                            chain.steps.size in 1..3 && chain.steps.all { it.isValid() }
-                        } &&
-                        value.commercialEvidenceChains.all { chain ->
-                            chain.steps.size in 1..2 && chain.steps.all { it.isValid() }
-                        } &&
-                        (value.authorNameChains + value.authorMidChains + value.tagNameChains +
-                            value.publishTextChains)
-                            .all { chain ->
-                                chain.steps.size in 1..3 && chain.steps.all { it.isValid() }
-                            } &&
-                        value.detailRelateService?.let { service ->
-                            service.componentFactory.isValid() &&
-                                service.typeField?.isNotBlank() != false &&
-                                service.typeGetter?.isValid() != false &&
-                                service.titleGetter?.isValid() != false
-                        } != false
-                } != false &&
-                homeTabs?.let { value ->
-                    value.buildMethod.isValid() && value.resourceClassName.isNotBlank() &&
-                        value.idField.isNotBlank() && value.titleField.isNotBlank() &&
-                        value.uriField.isNotBlank()
-                } != false &&
-                homeComponents?.let { value ->
-                    value.onViewCreated.isValid() && value.parentFragmentGetter.isValid()
-                } != false &&
-                mineComponents?.let { value ->
-                    val getterPathValid = value.itemListGetters.isNotEmpty() &&
-                        value.itemTitleGetters.isNotEmpty() &&
-                        value.itemListGetters.all { it.isValid() } &&
-                        value.itemTitleGetters.all { it.isValid() }
-                    val legacyPathValid = value.legacyBuildMethods.isNotEmpty() &&
-                        value.legacyBuildMethods.all { it.isValid() } &&
-                        !value.legacyGroupListField.isNullOrBlank() &&
-                        !value.legacyGroupClassName.isNullOrBlank() &&
-                        !value.legacyItemListField.isNullOrBlank() &&
-                        !value.legacyItemClassName.isNullOrBlank() &&
-                        !value.legacyItemTitleField.isNullOrBlank()
-                    getterPathValid || legacyPathValid
-                } != false &&
-                storyFeed?.let { value ->
-                    (value.responseItemGetters.isNotEmpty() || value.pagerListMethods.isNotEmpty()) &&
-                        value.responseItemGetters.all { it.isValid() } &&
-                        value.pagerListMethods.all { it.isValid() } &&
-                        (value.adGetter != null || value.liveGetter != null ||
-                            value.gameGetter != null || value.bangumiGetter != null ||
-                            value.courseGetter != null || value.musicGetter != null ||
-                            value.cartInfoGetter != null || value.dramaPromptGetter != null ||
-                            value.seasonInfoGetter != null) &&
-                        value.adGetter?.isValid() != false &&
-                        value.liveGetter?.isValid() != false &&
-                        value.gameGetter?.isValid() != false &&
-                        value.bangumiGetter?.isValid() != false &&
-                        value.courseGetter?.isValid() != false &&
-                        value.musicGetter?.isValid() != false &&
-                        value.cartInfoGetter?.isValid() != false &&
-                        value.dramaPromptGetter?.isValid() != false &&
-                        value.seasonInfoGetter?.isValid() != false &&
-                        value.seasonTypeGetter?.isValid() != false &&
-                        (value.seasonInfoGetter == null) == (value.seasonTypeGetter == null)
-                } != false &&
-                bottomBar?.let { value ->
-                    value.tabsGetter.isValid() && value.bindTabMethod.isValid() &&
-                        value.itemClassName.isNotBlank() && value.itemStringFields.isNotEmpty() &&
-                        value.itemStringFields.all { it.isNotBlank() }
-                } != false &&
-                playerQuality?.let { value ->
-                    (value.defaultQualityMethod != null || value.story != null) &&
-                        value.defaultQualityMethod?.isValid() != false &&
-                        value.capabilitySignals.all { it in PLAYER_QUALITY_CAPABILITY_SIGNALS } &&
-                        value.story?.isStructurallyValid() != false
-                } != false &&
-                teenagersMode?.onCreateMethods?.let { methods ->
-                    methods.isNotEmpty() && methods.all { it.isValid() }
-                } != false &&
-                commentPurify?.let { value ->
-                    (value.urlMapGetters.isNotEmpty() || value.emptyPageGetters.isNotEmpty() ||
-                        value.voteWidgetMethods.isNotEmpty() || value.follow != null ||
-                        value.qoe != null || value.operations.isNotEmpty() ||
-                        value.quickReplyDialogMethods.isNotEmpty() ||
-                        value.urlSchemaGetters.isNotEmpty()) &&
-                        value.urlMapGetters.all { it.isValid() } &&
-                        value.urlSchemaGetters.all { it.isValid() } &&
-                        value.emptyPageGetters.all {
-                            it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
-                        } && value.voteWidgetMethods.all { it.isValid() } &&
-                        value.follow?.let { follow ->
-                            (follow.widgetStateMethods.isNotEmpty() || follow.headerBindMethods.isNotEmpty()) &&
-                                follow.widgetStateMethods.all { it.isValid() } &&
-                                follow.headerBindMethods.all { it.isValid() } &&
-                                (follow.headerBindMethods.isEmpty() ||
-                                    !follow.followButtonClassName.isNullOrBlank())
-                        } != false && value.qoe?.let { qoe ->
-                            qoe.presenceGetter.isValid() && qoe.contentGetter.isValid() &&
-                                qoe.defaultInstanceGetter.isValid()
-                        } != false && value.operations.all { operation ->
-                            operation.presenceGetter.isValid() &&
-                                operation.contentGetter.isValid() &&
-                                operation.defaultInstanceGetter.isValid()
-                        } && value.quickReplyDialogMethods.all { it.isValid() }
-                } != false &&
-                commentFilter?.let { value ->
-                    value.replyListGetters.isNotEmpty() &&
-                        value.replyListGetters.all { it.isValid() } &&
-                        value.contentGetter?.isValid() != false && value.messageGetter?.isValid() != false &&
-                        value.memberGetter?.isValid() != false &&
-                        value.levelGetter?.isValid() != false &&
-                        value.memberV2Getter?.isValid() != false &&
-                        value.memberV2BasicGetter?.isValid() != false &&
-                        value.memberV2LevelGetter?.isValid() != false &&
-                        value.atNameCountGetter?.isValid() != false &&
-                        value.atNameMapGetter?.isValid() != false &&
-                        value.memberNameGetter?.isValid() != false &&
-                        value.memberMidGetter?.isValid() != false &&
-                        value.memberV2NameGetter?.isValid() != false &&
-                        value.memberV2MidGetter?.isValid() != false &&
-                        value.topReplyGetters.all { it.isValid() } &&
-                        value.replyDefaultInstanceGetter?.isValid() != false
-                } != false &&
-                commentTopology?.let { value ->
-                    value.mapperMethods.isNotEmpty() &&
-                        value.mapperMethods.size <= CommentTopologyPoints.MAX_MAPPER_METHODS &&
-                        value.mapperMethods.all { it.isValid() } &&
-                        value.replyMossClassName.isNotBlank() &&
-                        value.hasRequiredMethods() && value.methods.values.all { it.isValid() }
-                } != false &&
-                commentSection?.let { value ->
-                    value.listConstructors.isNotEmpty() &&
-                        value.listConstructors.all { point ->
-                            point.className.isNotBlank() && point.paramClassNames.isNotEmpty() &&
-                                point.paramClassNames.all { it.isNotBlank() } &&
-                                point.listParameterIndex in point.paramClassNames.indices
-                        } && value.locatableTagGetter.isValid()
-                } != false &&
-                splashAds?.listGetters?.let { getters ->
-                    getters.isNotEmpty() && getters.all { it.isValid() } &&
-                        splashAds.itemSignalGetters.all {
-                            it.role in SPLASH_SIGNAL_METHOD_NAMES && it.getter.isValid()
-                        }
-                } != false &&
-                brandSplashDecoder?.let { it.isValid() && it.viewField == null &&
-                    it.paramClassNames == listOf(BrandSplashDecoderAdapter.INFO) } != false &&
-                playerSpeedMenu?.isStructurallyValid() != false &&
-                pageBoundaries?.isValid() != false &&
-                HomeChromeAdapter.validCache(homeChrome) && systemEnvironment?.isStructurallyValid() != false &&
-                homeChromeSemantics?.isStructurallyValid() != false &&
-                commentComposeMenu?.isStructurallyValid() != false &&
-                kmpGrpcWireEngine?.let { it.isValid() && it.viewField == null && it.paramClassNames?.size in 4..6 } != false &&
-                // 声称「找到」的家族必须真的带着点；否则这份覆盖范围不可信，整份缓存按无效处理（重新适配）。
-                coverage?.let { cov ->
-                    cov.attempted.all { cov.attempt(it) != AdaptAssistGate.Attempt.FOUND || hasPoint(it) }
-                } != false &&
-                diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
+                        family.guideDefault?.isValid() != false &&
+                        family.dmGetter?.isValid() != false &&
+                        family.dmClears.all { it.isValid() } &&
+                        family.dmDefault?.isValid() != false &&
+                        (family.dmGetter != null || family.dmClears.isEmpty())
+                }
+                if (!familiesValid || !value.mossExecutes.all { it.isValid() } ||
+                    !value.mossAsync.all { it.isValid() } ||
+                    value.commandGetter?.isValid() == false ||
+                    value.commandClear?.isValid() == false ||
+                    value.commandDefault?.isValid() == false ||
+                    value.commandActivityMetaClear?.isValid() == false ||
+                    (value.families.isEmpty() && value.commandClear == null)
+                ) return false
+            }
+            playerStatusBar?.onCreateMethods?.let { methods ->
+                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
+            }
+            playerQuality?.let { value ->
+                if ((value.defaultQualityMethod == null && value.story == null && value.normalAutoSwitch == null) ||
+                    value.defaultQualityMethod?.isValid() == false ||
+                    !value.capabilitySignals.all { it in PLAYER_QUALITY_CAPABILITY_SIGNALS } ||
+                    value.story?.isStructurallyValid() == false
+                ) return false
+                value.normalAutoSwitch?.let {
+                    if (!it.isValid() || it.viewField != null || it.paramClassNames != emptyList<String>() ||
+                        !NormalQualityLocator.allowedAutoSwitchOwner(it.className)
+                    ) return false
+                }
+            }
+            teenagersMode?.onCreateMethods?.let { methods ->
+                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
+            }
+            return true
+        }
+
+        private fun HomeRecommendFeedPoints.isFeedPointsValid(): Boolean =
+            responseItemGetters.isNotEmpty() && responseItemGetters.all { it.isValid() } &&
+                holderTypeGetter.isValid() && bizTypeGetter?.isValid() != false &&
+                adInfoGetter?.isValid() != false && cardGotoGetter?.isValid() != false &&
+                goToGetter?.isValid() != false && uriGetter?.isValid() != false &&
+                paramGetter?.isValid() != false && titleGetter?.isValid() != false &&
+                subtitleGetter?.isValid() != false && descGetter?.isValid() != false &&
+                playerArgsGetter?.isValid() != false && cardTypeGetter?.isValid() != false &&
+                playerArgsDurationGetter?.isValid() != false && argsGetter?.isValid() != false &&
+                argsTidGetter?.isValid() != false && argsTnameGetter?.isValid() != false &&
+                dislikeReasonSetter?.isValid() != false && dislikeRecordSetter?.isValid() != false &&
+                dislikeAnchorGetter?.isValid() != false && dislikeTypeGetter?.isValid() != false &&
+                argsRidGetter?.isValid() != false && feedbackItemExtendGetter?.isValid() != false &&
+                feedbackItemIdGetter?.isValid() != false && feedbackDialogFragmentCreate?.isValid() != false &&
+                feedbackGroupItemsGetter?.isValid() != false && feedbackGroupStyleGetter?.isValid() != false &&
+                feedbackGroupTitleGetter?.isValid() != false && feedbackGroupCopy?.isValid() != false &&
+                feedbackItemConstructor?.isValid() != false && feedbackItemTitleGetter?.isValid() != false &&
+                feedbackItemTypeGetter?.isValid() != false && feedbackItemOnClickGetter?.isValid() != false &&
+                argsUpIdGetter?.isValid() != false && argsUpNameGetter?.isValid() != false &&
+                // UP 读取链也挂在 argsGetter 下面；外层缺了内层就作废。
+                (argsGetter != null || (argsUpIdGetter == null && argsUpNameGetter == null)) &&
+                // rid/tid 是两级分区，都挂在 argsGetter 这条链下面；外层缺了内层就作废。
+                (argsGetter != null || argsRidGetter == null) &&
+                // 占位卡回指原卡是读分区的唯一路径；缺了就把两个 setter 一起作废，
+                // 否则安装器会以为能读分区，实际每次都拿 null，静默变成"从不命中"。
+                (dislikeAnchorGetter != null || (dislikeReasonSetter == null && dislikeRecordSetter == null)) &&
+                // tid 读取是两级链，缺内层就整维度作废——留着外层会让安装器
+                // 以为能读分区，实际每张卡都拿 null，静默变成"从不命中"。
+                (argsGetter != null || argsTidGetter == null) &&
+                intentHandlerOnCreate?.isValid() != false &&
+                if (playerArgsGetter == null) {
+                    playerArgsDurationField.isNullOrBlank() && playerArgsDurationGetter == null
+                } else {
+                    !playerArgsDurationField.isNullOrBlank() || playerArgsDurationGetter != null
+                }
+
+        private fun VideoRelatePoints.isRelatePointsValid(): Boolean =
+            responseItemGetters.isNotEmpty() && responseItemGetters.all { it.isValid() } &&
+                (cardCaseGetters.isNotEmpty() || gotoGetters.isNotEmpty() ||
+                    cardTypeGetters.isNotEmpty() || relateCardTypeGetters.isNotEmpty() ||
+                    fromSourceTypeGetters.isNotEmpty() || fromSourceTypeChains.isNotEmpty() ||
+                    relateCardTypeValueGetters.isNotEmpty() || directDurationGetters.isNotEmpty() ||
+                    durationChains.isNotEmpty() || reasonChains.isNotEmpty() ||
+                    commercialEvidenceChains.isNotEmpty()) &&
+                cardCaseGetters.all { it.isValid() } && gotoGetters.all { it.isValid() } &&
+                cardTypeGetters.all { it.isValid() } && relateCardTypeGetters.all { it.isValid() } &&
+                fromSourceTypeGetters.all { it.isValid() } &&
+                fromSourceTypeChains.all { it.itemGetter.isValid() && it.sourceTypeGetter.isValid() } &&
+                relateCardTypeValueGetters.all { it.isValid() } && directDurationGetters.all { it.isValid() } &&
+                durationChains.all { it.itemGetter.isValid() && it.durationGetter.isValid() } &&
+                reasonChains.all { it.steps.size in 1..3 && it.steps.all { s -> s.isValid() } } &&
+                commercialEvidenceChains.all { it.steps.size in 1..2 && it.steps.all { s -> s.isValid() } } &&
+                (authorNameChains + authorMidChains + tagNameChains + publishTextChains)
+                    .all { it.steps.size in 1..3 && it.steps.all { s -> s.isValid() } } &&
+                detailRelateService?.let { service ->
+                    service.componentFactory.isValid() && service.typeField?.isNotBlank() != false &&
+                        service.typeGetter?.isValid() != false && service.titleGetter?.isValid() != false
+                } != false
+
+        private fun isFeedAndMinePointsValid(): Boolean {
+            banner?.let {
+                if (it.bannerClassName.isBlank() || !it.lifecycleMethods.all { m -> m.isValid() }) return false
+            }
+            homeTopBar?.let { value ->
+                if (value.gameMenu?.let { p -> p.isValid() && !p.viewField.isNullOrBlank() } == false) return false
+                // Compose 层按元素字段判定 action，不需要 viewField。
+                if (value.composeGameMenu?.isValid() == false) return false
+                if (value.baseOnViewCreated?.let { p -> p.isValid() && !p.viewField.isNullOrBlank() } == false) return false
+                if (!value.defaultWordMethods.all { it.isValid() }) return false
+                if (value.kotlinDefaultWords?.let { it.isValid() && it.paramClassNames?.size in 4..5 } == false) return false
+            }
+            mineEntry?.let { mine ->
+                if (mine.groupListField.isBlank() || !mine.buildMethods.all { it.isValid() } ||
+                    !mine.clickMethod.isValid()
+                ) return false
+            }
+            mineVip?.let { value ->
+                if (!value.onResume.isValid() || value.onResume.viewField.isNullOrBlank() ||
+                    value.bindingField.isBlank() || !value.rootGetter.isValid()
+                ) return false
+            }
+            dynamicTabs?.let { value ->
+                if (!value.listGetter.isValid() || !value.addTab.isValid() || !value.tabCustomViewGetter.isValid() ||
+                    value.mediatorTabClassName.isBlank() || value.itemClassName.isBlank() ||
+                    value.itemTitleField.isBlank() || value.itemNameField.isBlank()
+                ) return false
+            }
+            fullNumbers?.formatterMethods?.let { methods ->
+                if (methods.isEmpty() || !methods.all { it.isValid() }) return false
+            }
+            if (homeRecommendFeed?.isFeedPointsValid() == false) return false
+            if (videoRelate?.isRelatePointsValid() == false) return false
+            homeTabs?.let { value ->
+                if (!value.buildMethod.isValid() || value.resourceClassName.isBlank() ||
+                    value.idField.isBlank() || value.titleField.isBlank() || value.uriField.isBlank()
+                ) return false
+            }
+            homeComponents?.let { value ->
+                if (!value.onViewCreated.isValid() || !value.parentFragmentGetter.isValid()) return false
+            }
+            mineComponents?.let { value ->
+                val getterPathValid = value.itemListGetters.isNotEmpty() && value.itemTitleGetters.isNotEmpty() &&
+                    value.itemListGetters.all { it.isValid() } && value.itemTitleGetters.all { it.isValid() }
+                val legacyPathValid = value.legacyBuildMethods.isNotEmpty() &&
+                    value.legacyBuildMethods.all { it.isValid() } &&
+                    !value.legacyGroupListField.isNullOrBlank() && !value.legacyGroupClassName.isNullOrBlank() &&
+                    !value.legacyItemListField.isNullOrBlank() && !value.legacyItemClassName.isNullOrBlank() &&
+                    !value.legacyItemTitleField.isNullOrBlank()
+                if (!getterPathValid && !legacyPathValid) return false
+            }
+            storyFeed?.let { value ->
+                if ((value.responseItemGetters.isEmpty() && value.pagerListMethods.isEmpty()) ||
+                    !value.responseItemGetters.all { it.isValid() } || !value.pagerListMethods.all { it.isValid() } ||
+                    (value.adGetter == null && value.liveGetter == null && value.gameGetter == null &&
+                        value.bangumiGetter == null && value.courseGetter == null && value.musicGetter == null &&
+                        value.cartInfoGetter == null && value.dramaPromptGetter == null &&
+                        value.seasonInfoGetter == null) ||
+                    value.adGetter?.isValid() == false || value.liveGetter?.isValid() == false ||
+                    value.gameGetter?.isValid() == false || value.bangumiGetter?.isValid() == false ||
+                    value.courseGetter?.isValid() == false || value.musicGetter?.isValid() == false ||
+                    value.cartInfoGetter?.isValid() == false || value.dramaPromptGetter?.isValid() == false ||
+                    value.seasonInfoGetter?.isValid() == false || value.seasonTypeGetter?.isValid() == false ||
+                    (value.seasonInfoGetter == null) != (value.seasonTypeGetter == null)
+                ) return false
+            }
+            bottomBar?.let { value ->
+                if (!value.tabsGetter.isValid() || !value.bindTabMethod.isValid() ||
+                    value.itemClassName.isBlank() || value.itemStringFields.isEmpty() ||
+                    !value.itemStringFields.all { it.isNotBlank() }
+                ) return false
+            }
+            return true
+        }
+
+        private fun isCommentAndSplashPointsValid(): Boolean {
+            if (commentLow?.isValid() == false || commentHigh?.isValid() == false ||
+                blockUpdate?.isValid() == false
+            ) return false
+            commentPurify?.let { value ->
+                if ((value.urlMapGetters.isEmpty() && value.emptyPageGetters.isEmpty() &&
+                        value.voteWidgetMethods.isEmpty() && value.follow == null &&
+                        value.qoe == null && value.operations.isEmpty() &&
+                        value.quickReplyDialogMethods.isEmpty() && value.urlSchemaGetters.isEmpty()) ||
+                    !value.urlMapGetters.all { it.isValid() } || !value.urlSchemaGetters.all { it.isValid() } ||
+                    !value.emptyPageGetters.all { it.contentGetter.isValid() && it.defaultInstanceGetter.isValid() } ||
+                    !value.voteWidgetMethods.all { it.isValid() } ||
+                    !value.quickReplyDialogMethods.all { it.isValid() }
+                ) return false
+                value.follow?.let { follow ->
+                    if ((follow.widgetStateMethods.isEmpty() && follow.headerBindMethods.isEmpty()) ||
+                        !follow.widgetStateMethods.all { it.isValid() } ||
+                        !follow.headerBindMethods.all { it.isValid() } ||
+                        (follow.headerBindMethods.isNotEmpty() && follow.followButtonClassName.isNullOrBlank())
+                    ) return false
+                }
+                value.qoe?.let { qoe ->
+                    if (!qoe.presenceGetter.isValid() || !qoe.contentGetter.isValid() ||
+                        !qoe.defaultInstanceGetter.isValid()
+                    ) return false
+                }
+                if (!value.operations.all {
+                        it.presenceGetter.isValid() && it.contentGetter.isValid() && it.defaultInstanceGetter.isValid()
+                    }
+                ) return false
+            }
+            commentFilter?.let { value ->
+                if (value.replyListGetters.isEmpty() || !value.replyListGetters.all { it.isValid() } ||
+                    value.contentGetter?.isValid() == false || value.messageGetter?.isValid() == false ||
+                    value.memberGetter?.isValid() == false || value.levelGetter?.isValid() == false ||
+                    value.memberV2Getter?.isValid() == false || value.memberV2BasicGetter?.isValid() == false ||
+                    value.memberV2LevelGetter?.isValid() == false || value.atNameCountGetter?.isValid() == false ||
+                    value.atNameMapGetter?.isValid() == false || value.memberNameGetter?.isValid() == false ||
+                    value.memberMidGetter?.isValid() == false || value.memberV2NameGetter?.isValid() == false ||
+                    value.memberV2MidGetter?.isValid() == false || !value.topReplyGetters.all { it.isValid() } ||
+                    value.replyDefaultInstanceGetter?.isValid() == false
+                ) return false
+            }
+            commentTopology?.let { value ->
+                if (value.mapperMethods.isEmpty() || value.mapperMethods.size > CommentTopologyPoints.MAX_MAPPER_METHODS ||
+                    !value.mapperMethods.all { it.isValid() } || value.replyMossClassName.isBlank() ||
+                    !value.hasRequiredMethods() || !value.methods.values.all { it.isValid() }
+                ) return false
+            }
+            commentSection?.let { value ->
+                val ctorsValid = value.listConstructors.isNotEmpty() && value.listConstructors.all { p ->
+                    p.className.isNotBlank() && p.paramClassNames.isNotEmpty() &&
+                        p.paramClassNames.all { it.isNotBlank() } && p.listParameterIndex in p.paramClassNames.indices
+                }
+                if (!ctorsValid || !value.locatableTagGetter.isValid()) return false
+            }
+            splashAds?.listGetters?.let { getters ->
+                if (getters.isEmpty() || !getters.all { it.isValid() } ||
+                    !splashAds.itemSignalGetters.all { it.role in SPLASH_SIGNAL_METHOD_NAMES && it.getter.isValid() }
+                ) return false
+            }
+            return true
+        }
+
+        private fun isDexAssistPointsValid(): Boolean {
+            brandSplashDecoder?.let {
+                if (!it.isValid() || it.viewField != null || it.paramClassNames != listOf(BrandSplashDecoderAdapter.INFO)) return false
+            }
+            if (playerSpeedMenu?.isStructurallyValid() == false || pageBoundaries?.isValid() == false ||
+                !HomeChromeAdapter.validCache(homeChrome) || systemEnvironment?.isStructurallyValid() == false ||
+                homeChromeSemantics?.isStructurallyValid() == false || commentComposeMenu?.isStructurallyValid() == false
+            ) return false
+            kmpGrpcWireEngine?.let {
+                if (!it.isValid() || it.viewField != null || it.paramClassNames?.size !in 4..6) return false
+            }
+            if (brandSplashKntrDraw?.let(BrandSplashKntrAdapter::allowedOwnerName) == false ||
+                brandSplashKntrExit?.let(BrandSplashKntrAdapter::allowedOwnerName) == false
+            ) return false
+            brandSplashKntrPage?.let {
+                if (!it.isValid() || it.viewField != null || it.paramClassNames?.size !in 6..7 ||
+                    !BrandSplashKntrAdapter.allowedOwnerName(it.className)
+                ) return false
+            }
+            if (cloudKeyFreezeContract?.let(CloudKeyFreezeAdapter::allowedOwnerName) == false ||
+                privacyKNeuron?.let(PrivacyChannelAdapter::allowedKNeuronOwnerName) == false ||
+                guestPlayerCore?.let(GuestPlayerCoreAdapter::allowedOwnerName) == false ||
+                homeRecommendEarlyLoadListener?.let(HomeRecommendEarlyLoadAdapter::allowedClassName) == false ||
+                aiPlaylistDirector?.let(AiPlaylistDirectorAdapter::allowedOwnerName) == false ||
+                !FollowUpRecommendAdapter.validCache(followUpRecommendBodies) ||
+                detailRelateGameComponent?.let(DetailRelateGameAdapter::allowedComponentName) == false ||
+                legacyStoryDanmakuBind?.let(::isValidLegacyStoryDanmakuBind) == false
+            ) return false
+            privacyIgnetHttp?.let {
+                if (!it.isValid() || it.viewField != null || !it.paramClassNames.isNullOrEmpty() ||
+                    !PrivacyChannelAdapter.allowedIgnetOwnerName(it.className)
+                ) return false
+            }
+            detailSpecialTagMapper?.let {
+                if (!it.isValid() || it.viewField != null ||
+                    it.paramClassNames != listOf(DetailUnitedPresentationPurifyPolicy.SPECIAL_TAG_CLASS) ||
+                    !DetailSpecialTagAdapter.allowedOwnerName(it.className)
+                ) return false
+            }
+            if (!CommentReplyButtonAdapter.validCache(commentReplyButtonOwners)) return false
+            playerSpeedTheseus2LongPress?.let {
+                if (!PlayerSpeedLocator.allowedTheseus2Owner(it.launchClass) ||
+                    !PlayerSpeedLocator.allowedTheseus2Owner(it.portClass) ||
+                    it.portMethod.isBlank() || it.portMethod == "<init>" || it.portMethod == "<clinit>"
+                ) return false
+            }
+            return true
+        }
+
+        private fun isCoverageAndDiagnosticsValid(): Boolean {
+            // 声称「找到」的家族必须真的带着点；否则这份覆盖范围不可信，整份缓存按无效处理（重新适配）。
+            coverage?.let { cov ->
+                if (!cov.attempted.all { cov.attempt(it) != AdaptAssistGate.Attempt.FOUND || hasPoint(it) }) return false
+            }
+            if (!domainRuleVersions.all { (key, version) ->
+                    key in VersionAdapterContract.DOMAIN_RULE_VERSIONS && version >= 0
+                }
+            ) return false
+            return diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
+        }
+
+        private fun isStructurallyValid(): Boolean =
+            isCoreMetadataValid() &&
+                isPlayerAndUiPointsValid() &&
+                isFeedAndMinePointsValid() &&
+                isCommentAndSplashPointsValid() &&
+                isDexAssistPointsValid() &&
+                isCoverageAndDiagnosticsValid()
 
         companion object {
+            private fun JSONObject.strictStringOrNull(key: String): String? =
+                if (isNull(key)) null else opt(key) as? String
+
+            private fun isValidLegacyStoryDanmakuBind(point: HookPoint): Boolean =
+                point.className.isNotBlank() &&
+                    point.methodName.isNotBlank() &&
+                    point.paramClassNames?.all { it.isNotBlank() } != false &&
+                    point.className == LegacyStoryDanmakuAdapter.OWNER &&
+                    point.viewField == null &&
+                    point.paramClassNames?.size == 2 &&
+                    point.paramClassNames[1] == "int" &&
+                    point.paramClassNames[0].isNotBlank()
+
             fun fromJson(o: JSONObject): AdaptResult? {
                 if (o.optInt("sv", 0) != SCHEMA_VERSION) return null
                 val diagnosticsArray = o.optJSONArray("diag") ?: return null
                 val diagnostics = (0 until diagnosticsArray.length()).map { index ->
                     AdaptDiagnostic.fromJson(diagnosticsArray.getJSONObject(index)) ?: return null
+                }
+                val drvObj: JSONObject? = if (o.has("drv")) {
+                    if (o.isNull("drv")) return null
+                    o.optJSONObject("drv") ?: return null
+                } else {
+                    null
+                }
+                val domainRuleVersions: Map<String, Int> = if (drvObj == null) {
+                    emptyMap()
+                } else {
+                    val parsed = linkedMapOf<String, Int>()
+                    val keys = drvObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        if (key !in VersionAdapterContract.DOMAIN_RULE_VERSIONS) continue
+                        val version = when (val raw = drvObj.get(key)) {
+                            is Int -> raw
+                            is Long -> if (raw in 0L..Int.MAX_VALUE.toLong()) raw.toInt() else return null
+                            else -> return null
+                        }
+                        if (version < 0) return null
+                        parsed[key] = version
+                    }
+                    parsed
                 }
                 return AdaptResult(
                     biliVersionCode = o.getInt("v"),
@@ -2434,10 +2563,13 @@ object VersionAdapter {
                         CommentClassicStylePoints.fromJson(o.getJSONObject("comment_classic")) ?: return null else null,
                     playerPopupPromotion = if (o.has("player_popup_promotion"))
                         PlayerPopupPromotionPoints.fromJson(o.getJSONObject("player_popup_promotion")) ?: return null else null,
-                    brandSplashDecoder = if (o.has("brand_splash_decoder"))
-                        HookPoint.fromJson(o.getJSONObject("brand_splash_decoder")).also { point ->
+                    brandSplashDecoder = if (o.has("brand_splash_decoder")) {
+                        if (o.isNull("brand_splash_decoder")) return null
+                        val rawObj = o.optJSONObject("brand_splash_decoder") ?: return null
+                        HookPoint.fromJson(rawObj).also { point ->
                             if (point.viewField != null || point.paramClassNames != listOf(BrandSplashDecoderAdapter.INFO)) return null
-                        } else null,
+                        }
+                    } else null,
                     followFeedStyle = if (o.has("follow_feed_style"))
                         FollowFeedPoints.fromJson(o.getJSONObject("follow_feed_style")) ?: return null else null,
                     playerSpeedMenu = if (o.has("player_speed_menu"))
@@ -2452,12 +2584,87 @@ object VersionAdapter {
                         SystemEnvironmentPoints.fromJson(o.getJSONObject("system_environment")) ?: return null else null,
                     commentComposeMenu = if (o.has("comment_compose_menu"))
                         CommentComposeMenuPoints.fromJson(o.getJSONObject("comment_compose_menu")) ?: return null else null,
-                    kmpGrpcWireEngine = if (o.has("kmp_grpc_wire_engine"))
-                        HookPoint.fromJson(o.getJSONObject("kmp_grpc_wire_engine")).also { point ->
+                    kmpGrpcWireEngine = if (o.has("kmp_grpc_wire_engine")) {
+                        if (o.isNull("kmp_grpc_wire_engine")) return null
+                        val rawObj = o.optJSONObject("kmp_grpc_wire_engine") ?: return null
+                        HookPoint.fromJson(rawObj).also { point ->
                             if (point.viewField != null || point.paramClassNames?.size !in 4..6) return null
-                        } else null,
+                        }
+                    } else null,
+                    brandSplashKntrDraw = if (o.has("brand_splash_kntr_draw"))
+                        o.strictStringOrNull("brand_splash_kntr_draw")
+                            ?.takeIf(BrandSplashKntrAdapter::allowedOwnerName) ?: return null else null,
+                    brandSplashKntrExit = if (o.has("brand_splash_kntr_exit"))
+                        o.strictStringOrNull("brand_splash_kntr_exit")
+                            ?.takeIf(BrandSplashKntrAdapter::allowedOwnerName) ?: return null else null,
+                    brandSplashKntrPage = if (o.has("brand_splash_kntr_page")) {
+                        if (o.isNull("brand_splash_kntr_page")) return null
+                        val rawObj = o.optJSONObject("brand_splash_kntr_page") ?: return null
+                        HookPoint.fromJson(rawObj).also { point ->
+                            if (point.viewField != null || point.paramClassNames?.size !in 6..7 ||
+                                !BrandSplashKntrAdapter.allowedOwnerName(point.className)) return null
+                        }
+                    } else null,
+                    cloudKeyFreezeContract = if (o.has("cloud_key_freeze_contract"))
+                        o.strictStringOrNull("cloud_key_freeze_contract")
+                            ?.takeIf(CloudKeyFreezeAdapter::allowedOwnerName) ?: return null else null,
+                    privacyIgnetHttp = if (o.has("privacy_ignet_http")) {
+                        if (o.isNull("privacy_ignet_http")) return null
+                        val rawObj = o.optJSONObject("privacy_ignet_http") ?: return null
+                        HookPoint.fromJson(rawObj).also { point ->
+                            if (point.viewField != null || !point.paramClassNames.isNullOrEmpty() ||
+                                !PrivacyChannelAdapter.allowedIgnetOwnerName(point.className)) return null
+                        }
+                    } else null,
+                    privacyKNeuron = if (o.has("privacy_kneuron"))
+                        o.strictStringOrNull("privacy_kneuron")
+                            ?.takeIf(PrivacyChannelAdapter::allowedKNeuronOwnerName) ?: return null else null,
+                    guestPlayerCore = if (o.has("guest_player_core"))
+                        o.strictStringOrNull("guest_player_core")
+                            ?.takeIf(GuestPlayerCoreAdapter::allowedOwnerName) ?: return null else null,
+                    detailSpecialTagMapper = if (o.has("detail_special_tag_mapper")) {
+                        if (o.isNull("detail_special_tag_mapper")) return null
+                        val rawObj = o.optJSONObject("detail_special_tag_mapper") ?: return null
+                        HookPoint.fromJson(rawObj).also { point ->
+                            if (point.viewField != null ||
+                                point.paramClassNames != listOf(DetailUnitedPresentationPurifyPolicy.SPECIAL_TAG_CLASS) ||
+                                !DetailSpecialTagAdapter.allowedOwnerName(point.className)) return null
+                        }
+                    } else null,
+                    aiPlaylistDirector = if (o.has("ai_playlist_director"))
+                        o.strictStringOrNull("ai_playlist_director")
+                            ?.takeIf(AiPlaylistDirectorAdapter::allowedOwnerName) ?: return null else null,
+                    followUpRecommendBodies = if (o.has("follow_up_recommend_bodies")) {
+                        if (o.isNull("follow_up_recommend_bodies")) return null
+                        o.optJSONObject("follow_up_recommend_bodies")
+                            ?.let(FollowUpRecommendAdapter::fromJson) ?: return null
+                    } else emptyMap(),
+                    detailRelateGameComponent = if (o.has("detail_relate_game_component"))
+                        o.strictStringOrNull("detail_relate_game_component")
+                            ?.takeIf(DetailRelateGameAdapter::allowedComponentName) ?: return null else null,
+                    commentReplyButtonOwners = if (o.has("comment_reply_button_owners")) {
+                        if (o.isNull("comment_reply_button_owners")) return null
+                        o.optJSONObject("comment_reply_button_owners")
+                            ?.let(CommentReplyButtonAdapter::fromJson) ?: return null
+                    } else emptyMap(),
+                    homeRecommendEarlyLoadListener = if (o.has("home_recommend_early_load_listener"))
+                        o.strictStringOrNull("home_recommend_early_load_listener")
+                            ?.takeIf(HomeRecommendEarlyLoadAdapter::allowedClassName) ?: return null else null,
+                    legacyStoryDanmakuBind = if (o.has("legacy_story_danmaku_bind")) {
+                        if (o.isNull("legacy_story_danmaku_bind")) return null
+                        val rawObj = o.optJSONObject("legacy_story_danmaku_bind") ?: return null
+                        HookPoint.fromJson(rawObj).also { point ->
+                            if (!isValidLegacyStoryDanmakuBind(point)) return null
+                        }
+                    } else null,
+                    playerSpeedTheseus2LongPress = if (o.has("player_speed_theseus2_long_press")) {
+                        if (o.isNull("player_speed_theseus2_long_press")) return null
+                        o.optJSONObject("player_speed_theseus2_long_press")
+                            ?.let(Theseus2LongPressPoint::fromJson) ?: return null
+                    } else null,
                     // 旧缓存没有 cov：覆盖范围未知（null），不会被当成覆盖完整。
-                    coverage = o.optJSONObject("cov")?.let(AdaptCoverage::fromJson)
+                    coverage = o.optJSONObject("cov")?.let(AdaptCoverage::fromJson),
+                    domainRuleVersions = domainRuleVersions
                 ).takeIf { it.isStructurallyValid() }
             }
         }
@@ -2533,12 +2740,10 @@ object VersionAdapter {
     private const val HOME_TOP_RIGHT_LAMBDA_CLASS =
         "tv.danmaku.bili.home.components.topbar.TopRightComponent\$initTopRight\$1\$1"
     private val HOME_BASE_FRAGMENT_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
-        "tv.danmaku.p9138bili.p9228ui.main2.basic.BaseMainFrameFragment"
+        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment"
     )
     private val HOME_MAIN_FRAGMENT_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.MainFragment",
-        "tv.danmaku.p9138bili.p9228ui.main2.MainFragment"
+        "tv.danmaku.bili.ui.main2.MainFragment"
     )
     private val HOME_DEFAULT_WORD_CLASS_CANDIDATES = setOf(
         // 8.90.2
@@ -2558,7 +2763,7 @@ object VersionAdapter {
         "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
-    // 已按包装层、真实调用与方法体逐构建验真；9.19/9.20 的根包短名只在对应版本上使用。
+    // 已按包装层、真实调用与方法体逐构建验真；9.19–9.21 的根包短名只在对应版本上使用。
     private val VERIFIED_MEDIA_OWNERS = mapOf(
         9180100 to ("zy1.c" to "qA1.g"),
         9180200 to ("yy1.c" to "pA1.h"),
@@ -2571,6 +2776,11 @@ object VersionAdapter {
         9200100 to ("lr72" to "mg12"),
         9200200 to ("rt72" to "oh12"),
         9200300 to ("jv72" to "wj12"),
+        // 9.21.0 双构建远端 dexq 验真：block update 为 *72#a(Context)BiliUpgradeInfo（306 条指令，
+        // 含 'Do sync http request.'），ep01/ps01（54 条）为缓存包装层；默认画质 t612/l212#a()I
+        // （55 条指令，含 'quality settings:'）。
+        9210100 to ("jg72" to "t612"),
+        9210200 to ("dd72" to "l212"),
     )
 
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
@@ -2622,7 +2832,6 @@ object VersionAdapter {
         "kntr.base.localization.NumberFormat_androidKt"
     private val FULL_NUMBER_CLASS_CANDIDATES = listOf(
         "com.bilibili.base.util.NumberFormat",
-        "com.bilibili.p4566base.p4568util.NumberFormat",
         "com.bilibili.n9.util.NumberFormat",
         "com.bilibili.lib.utils.NumberFormat",
         KNTR_NUMBER_FORMAT_CLASS
@@ -2720,14 +2929,11 @@ object VersionAdapter {
     private const val HOME_VERTICAL_INTENT_HANDLER_CLASS =
         "tv.danmaku.bili.ui.intent.IntentHandlerActivity"
     private val PEGASUS_RESPONSE_CLASS_CANDIDATES = listOf(
-        "com.bilibili.pegasus.data.base.PegasusResponse",
-        "com.bilibili.pegasus.p5730data.p5731base.PegasusResponse",
-        "com.bilibili.pegasus.p5730data.request.PegasusResponseWrapper"
+        "com.bilibili.pegasus.data.base.PegasusResponse"
     )
     private const val PEGASUS_HOLDER_DATA_CLASS = "com.bilibili.pegasus.PegasusHolderData"
     private val BASE_PEGASUS_DATA_CLASS_CANDIDATES = listOf(
-        "com.bilibili.pegasus.data.base.BasePegasusData",
-        "com.bilibili.pegasus.p5730data.p5731base.BasePegasusData"
+        "com.bilibili.pegasus.data.base.BasePegasusData"
     )
     private val VIDEO_RELATE_RESPONSE_CLASS_CANDIDATES = listOf(
         "com.bapis.bilibili.app.viewunite.common.Relates",
@@ -2767,16 +2973,14 @@ object VersionAdapter {
         "com.bapis.bilibili.app.view.v1.Relate"
     )
     private val HOME_FRAGMENT_V2_CLASS_CANDIDATES = listOf(
-        "tv.danmaku.bili.ui.main2.HomeFragmentV2",
-        "tv.danmaku.p9138bili.p9228ui.main2.HomeFragmentV2"
+        "tv.danmaku.bili.ui.main2.HomeFragmentV2"
     )
     // 主路径取 HomeFragmentV2 构建方法的泛型实参；这里只是泛型不可读时的兜底。
     // 9.17.0(9170300) 的 Tab 模型由 resource.z 重排为 resource.y，字段布局不变；z 变成无字符串字段的 lambda，
     // 会被 locateHomeTabs 的字符串字段数量检查拒绝。
     private val HOME_TAB_RESOURCE_CLASS_CANDIDATES = listOf(
         "tv.danmaku.bili.ui.main2.resource.y",
-        "tv.danmaku.bili.ui.main2.resource.z",
-        "tv.danmaku.p9138bili.p9228ui.main2.resource.z"
+        "tv.danmaku.bili.ui.main2.resource.z"
     )
     private const val HOST_FRAGMENT_CLASS = "androidx.fragment.app.Fragment"
     private val MINE_MENU_GROUP_CLASS_CANDIDATES = listOf(
@@ -2793,8 +2997,7 @@ object VersionAdapter {
     private const val STORY_PAGER_PLAYER_CLASS =
         "com.bilibili.video.story.player.StoryPagerPlayer"
     private val THESEUS_TAB_PAGER_SERVICE_CLASS_CANDIDATES = listOf(
-        "com.bilibili.ship.theseus.united.page.tab.TheseusTabPagerService",
-        "com.bilibili.p5797ship.theseus.united.p5850page.p5861tab.TheseusTabPagerService"
+        "com.bilibili.ship.theseus.united.page.tab.TheseusTabPagerService"
     )
     private val SPLASH_RESPONSE_CLASS_CANDIDATES = listOf(
         "tv.danmaku.bili.splash.ad.model.SplashListResponse",
@@ -2825,10 +3028,7 @@ object VersionAdapter {
         "tv.danmaku.bili.ui.splash.ad.model.SplashItem"
     )
     private val BOTTOM_TAB_HOST_CLASS_CANDIDATES = listOf(
-        "com.bilibili.lib.homepage.widget.TabHost",
-        "com.bilibili.p5690lib.p5708homepage.widget.TabHost",
-        "tv.danmaku.bili.ui.main2.widget.TabHost",
-        "tv.danmaku.p9138bili.p9228ui.main2.widget.TabHost"
+        "com.bilibili.lib.homepage.widget.TabHost"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
         // 9.17.0(9170100)：quality settings 日志、登录/能力限制和绕过稳定包装层的直接调用已核。
@@ -2891,31 +3091,25 @@ object VersionAdapter {
     )
     private val PLAYER_SHARED_CLASS_CANDIDATES = mapOf(
         "stream_info" to listOf(
-            "com.bapis.bilibili.playershared.StreamInfo",
-            "com.bapis.bilibili.p4308playershared.StreamInfo"
+            "com.bapis.bilibili.playershared.StreamInfo"
         ),
         "dash_video" to listOf(
-            "com.bapis.bilibili.playershared.DashVideo",
-            "com.bapis.bilibili.p4308playershared.DashVideo"
+            "com.bapis.bilibili.playershared.DashVideo"
         ),
         "video_vod" to listOf(
-            "com.bapis.bilibili.playershared.VideoVod",
-            "com.bapis.bilibili.p4308playershared.VideoVod"
+            "com.bapis.bilibili.playershared.VideoVod"
         ),
         "vod_info" to listOf(
-            "com.bapis.bilibili.playershared.VodInfo",
-            "com.bapis.bilibili.p4308playershared.VodInfo"
+            "com.bapis.bilibili.playershared.VodInfo"
         )
     )
     private val TEENAGERS_MODE_ACTIVITY_CANDIDATES = listOf(
         "com.bilibili.teenagersmode.ui.TeenagersModeDialogActivity",
         "com.bilibili.app.preferences.TeenagersModeDialogActivity",
-        "com.bilibili.p4439app.preferences.TeenagersModeDialogActivity",
         "tv.danmaku.bili.ui.teenagersmode.TeenagersModeDialogActivity"
     )
     private val COMMENT_CONTENT_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.Content",
-        "com.bapis.bilibili.p4311main.community.reply.p4312v1.Content"
+        "com.bapis.bilibili.main.community.reply.v1.Content"
     )
 
     /**
@@ -2928,48 +3122,39 @@ object VersionAdapter {
      * `pc_url(13)`＝网页版地址。
      *
      * 31 个本地宿主逐版核对：类名恒为 `com.bapis...reply.v1.Url`（`com.bapis` 不混淆），
-     * `Url` 恒有 14 个字段号。`p4311main` 那种拼法是 jadx 的重命名产物，
-     * **没有任何一个真实 APK 用过**，保留只为兼容历史缓存里可能写进去的值。
+     * `Url` 恒有 14 个字段号；Wave 3 已移除不存在的 jadx 重定位伪包候选。
      */
     private val COMMENT_URL_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.Url",
-        "com.bapis.bilibili.p4311main.community.reply.p4312v1.Url"
+        "com.bapis.bilibili.main.community.reply.v1.Url"
     )
     private val COMMENT_EMPTY_PAGE_OWNER_CANDIDATES = listOf(
         "com.bapis.bilibili.main.community.reply.v1.SubjectControl",
-        "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply",
-        "com.bapis.bilibili.p4311main.community.reply.p4312v1.SubjectControl",
-        "com.bapis.bilibili.p4311main.community.reply.p4313v2.SubjectDescriptionReply"
+        "com.bapis.bilibili.main.community.reply.v2.SubjectDescriptionReply"
     )
     private val COMMENT_VOTE_WIDGET_CLASS_CANDIDATES = listOf(
         "com.bilibili.app.comment.ext.widgets.CmtVoteWidget",
-        "com.bilibili.p4439app.comment.p4511ext.widgets.CmtVoteWidget",
         "com.bilibili.app.comment.ext.widgets.CmtMountWidget",
-        "com.bilibili.p4439app.comment.p4511ext.widgets.CmtMountWidget",
-        "com.bilibili.app.comment3.ui.widget.CommentVoteView",
-        "com.bilibili.p4439app.comment3.p4518ui.widget.CommentVoteView"
+        "com.bilibili.app.comment3.ui.widget.CommentVoteView"
     )
     private val COMMENT_FOLLOW_WIDGET_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget",
-        "com.bilibili.p4439app.p4450comm.comment2.phoenix.p4467view.CommentFollowWidget"
+        "com.bilibili.app.comm.comment2.phoenix.view.CommentFollowWidget"
     )
     private val COMMENT_HEADER_DECORATIVE_CLASS_CANDIDATES = listOf(
-        "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView",
-        "com.bilibili.p4439app.comment3.p4518ui.widget.CommentHeaderDecorativeView"
+        "com.bilibili.app.comment3.ui.widget.CommentHeaderDecorativeView"
     )
     private val COMMENT_FOLLOW_BUTTON_CLASS_CANDIDATES = listOf(
         "com.bilibili.relation.widget.FollowButton"
     )
     private val COMMENT_MAIN_LIST_REPLY_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.MainListReply",
-        "com.bapis.bilibili.p4311main.community.reply.p4312v1.MainListReply"
+        "com.bapis.bilibili.main.community.reply.v1.MainListReply"
     )
     private val COMMENT_REPLY_INFO_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.main.community.reply.v1.ReplyInfo",
-        "com.bapis.bilibili.p4311main.community.reply.p4312v1.ReplyInfo"
+        "com.bapis.bilibili.main.community.reply.v1.ReplyInfo"
     )
     private val PROTOCOL_FINGERPRINT_PATTERN =
         Regex("protocol-v1:[0-9]+:[0-9a-f]{24}")
+    private val REBIND_PROTOCOL_FINGERPRINT_PATTERN =
+        Regex("^protocol-v1:[1-9][0-9]*:[0-9a-f]{24}$")
 
     /** [buildProtocolStructureFingerprint] 的六个证据来源，对应的定位家族。 */
     private val PROTOCOL_FINGERPRINT_FAMILIES = listOf(
@@ -2985,13 +3170,15 @@ object VersionAdapter {
         val fifthParamClassName: String
     )
 
-    // 9.19/9.20 的五参 ReplyInfo -> CommentItem 根包混淆映射器逐构建验真，禁止跨构建串用。
+    // 9.19–9.21 的五参 ReplyInfo -> CommentItem 根包混淆映射器逐构建验真，禁止跨构建串用。
     private val VERIFIED_COMMENT_REPLY_MAPPERS: Map<Int, VerifiedCommentReplyMapper> = mapOf(
         9190200 to VerifiedCommentReplyMapper("rg40", "B", "tev"),
         9190400 to VerifiedCommentReplyMapper("rg40", "B", "tev"),
         9200100 to VerifiedCommentReplyMapper("w360", "B", "caw"),
         9200200 to VerifiedCommentReplyMapper("v260", "B", "m9w"),
-        9200300 to VerifiedCommentReplyMapper("l260", "B", "z8w")
+        9200300 to VerifiedCommentReplyMapper("l260", "B", "z8w"),
+        9210100 to VerifiedCommentReplyMapper("ot50", "B", "y1w"),
+        9210200 to VerifiedCommentReplyMapper("kt50", "B", "b4w")
     )
 
     /**
@@ -3014,15 +3201,12 @@ object VersionAdapter {
     private val COMMENT_REPLY_MAPPER_CLASS_CANDIDATES: List<String> =
         ('a'..'z').map { letter -> "$COMMENT_REPLY_MAPPER_PACKAGE.$letter" }
     private val FEED_PAGINATION_CLASS_CANDIDATES = listOf(
-        "com.bapis.bilibili.pagination.FeedPagination",
-        "com.bapis.bilibili.p4309pagination.FeedPagination"
+        "com.bapis.bilibili.pagination.FeedPagination"
     )
     private val COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES = (4..40).flatMap { index ->
         listOf(
             "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index",
-            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index\$2",
-            "com.bilibili.p4439app.comment3.p4518ui.CommentContainerImpl\$attachRepository\$$index",
-            "com.bilibili.p4439app.comment3.p4518ui.CommentContainerImpl\$attachRepository\$$index\$2"
+            "com.bilibili.app.comment3.ui.CommentContainerImpl\$attachRepository\$$index\$2"
         )
     }
 
@@ -3035,35 +3219,145 @@ object VersionAdapter {
 
     internal data class HostIdentity(val versionCode: Int, val fingerprint: String)
 
-    /** 启动时对适配缓存的处置：沿用 / 只因计划新增家族而静默补一轮 / 完整适配（缓存缺失、失效或有功能需要补扫）。 */
+    internal data class SplitFileMeta(val name: String, val length: Long, val lastModified: Long)
+
+    internal data class ParsedHostFingerprint(
+        val packageName: String,
+        val versionCode: Long,
+        val versionName: String,
+        val baseLength: Long,
+        val baseLastModified: Long,
+        val splitsHash: String?,
+        val ruleVersion: Int
+    )
+
+    private val SPLITS_FINGERPRINT_SEGMENT = Regex("^splits=[0-9a-f]{16}$")
+
+    internal fun buildHostFingerprint(
+        versionCode: Long,
+        versionName: String,
+        baseLength: Long,
+        baseLastModified: Long,
+        splits: Collection<SplitFileMeta> = emptyList(),
+        ruleVersion: Int = ADAPTER_RULE_VERSION
+    ): String {
+        if (splits.isEmpty()) {
+            return listOf(
+                "tv.danmaku.bili",
+                versionCode.toString(),
+                versionName,
+                baseLength.toString(),
+                baseLastModified.toString(),
+                ruleVersion.toString()
+            ).joinToString("|")
+        }
+        val canonicalSplits = splits
+            .sortedWith(compareBy<SplitFileMeta>({ it.name }, { it.length }, { it.lastModified }))
+            .joinToString("\n") { "${it.name}:${it.length}:${it.lastModified}" }
+        val splitsHash = MessageDigest.getInstance("SHA-256")
+            .digest(canonicalSplits.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            .take(16)
+        return listOf(
+            "tv.danmaku.bili",
+            versionCode.toString(),
+            versionName,
+            baseLength.toString(),
+            baseLastModified.toString(),
+            "splits=$splitsHash",
+            ruleVersion.toString()
+        ).joinToString("|")
+    }
+
+    internal fun parseHostFingerprint(fingerprint: String): ParsedHostFingerprint? {
+        val parts = fingerprint.split('|')
+        if (parts.size != 6 && parts.size != 7) return null
+        if (parts[0] != "tv.danmaku.bili") return null
+        val versionCode = parts[1].toLongOrNull() ?: return null
+        val baseLength = parts[3].toLongOrNull()?.takeIf { it > 0L } ?: return null
+        val baseLastModified = parts[4].toLongOrNull()?.takeIf { it > 0L } ?: return null
+        val splitsHash = if (parts.size == 7) {
+            if (!parts[5].matches(SPLITS_FINGERPRINT_SEGMENT)) return null
+            parts[5].removePrefix("splits=")
+        } else {
+            null
+        }
+        val ruleVersion = parts.last().toIntOrNull() ?: return null
+        return ParsedHostFingerprint(
+            packageName = parts[0],
+            versionCode = versionCode,
+            versionName = parts[2],
+            baseLength = baseLength,
+            baseLastModified = baseLastModified,
+            splitsHash = splitsHash,
+            ruleVersion = ruleVersion
+        )
+    }
+
+    /** 启动时对适配缓存的处置：沿用 / 静默补适配（新增计划家族或局部域规则升级） / 完整适配。 */
     internal enum class AdaptDecision { REUSE, SUPPLEMENT_SILENTLY, ADAPT }
 
     internal fun adaptDecision(
         usable: AdaptResult?,
         refreshRequested: Boolean,
-        coverageMissing: Set<PointFamily>
+        coverageMissing: Set<PointFamily>,
+        staleDomains: Set<AdaptDomain> = emptySet()
     ): AdaptDecision = when {
         usable == null || refreshRequested -> AdaptDecision.ADAPT
-        coverageMissing.isNotEmpty() -> AdaptDecision.SUPPLEMENT_SILENTLY
+        coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() -> AdaptDecision.SUPPLEMENT_SILENTLY
         else -> AdaptDecision.REUSE
     }
 
-    /** Only called after current NPatch authorization, on the adaptation worker; never an admission cache. */
+    internal fun verifyProtocolFingerprint(loader: ClassLoader, previous: AdaptResult): String? {
+        val computed = buildProtocolStructureFingerprint(
+            loader,
+            previous.homeRecommendFeed,
+            previous.videoRelate,
+            previous.commentFilter,
+            previous.playerQuality,
+            previous.splashAds,
+            previous.mineAccountMine
+        )
+        if (computed.evidenceCount <= 0) return null
+        var liveVerified = computed.liveResolvedCount
+        previous.mineAccountMine?.let { mine ->
+            val owner = KavaMemberLookup.classOrNull(loader, mine.accountMineClass) ?: return null
+            var cur: Class<*>? = owner
+            var hasSectionField = false
+            while (cur != null && !hasSectionField) {
+                hasSectionField = KavaMemberLookup.declaredFields(cur, true) { field ->
+                    !field.isStatic && field.name == mine.sectionListV2Field
+                }.isNotEmpty()
+                cur = cur.superclass
+            }
+            if (!hasSectionField || mine.buildMethods.any { resolveProtocolMethod(loader, it) == null }) {
+                return null
+            }
+            liveVerified++
+        }
+        return computed.value.takeIf { liveVerified > 0 }
+    }
+
+    /** Only called on the adaptation worker after verifying both DEX source and live protocol structure; never an admission cache. */
     internal fun rebindRepackedCache(
-        previous: AdaptResult, identity: HostIdentity, resetTimestamp: Long, actualDex: String?
+        previous: AdaptResult,
+        identity: HostIdentity,
+        resetTimestamp: Long,
+        actualDex: String?,
+        actualProtocol: String?
     ): AdaptResult? {
         if (previous.hostFingerprint == identity.fingerprint || previous.ts < resetTimestamp.coerceAtLeast(0L) ||
-            previous.biliVersionCode != identity.versionCode || !previous.isUsableWith(previous.hostFingerprint)) return null
-        fun logicalIdentity(fingerprint: String): List<String>? {
-            val parts = fingerprint.split('|')
-            if (parts.size != 6 || parts[0] != "tv.danmaku.bili" ||
-                parts[1].toLongOrNull() != identity.versionCode.toLong() || parts[3].toLongOrNull()?.let { it > 0L } != true ||
-                parts[4].toLongOrNull()?.let { it > 0L } != true || parts[5] != ADAPTER_RULE_VERSION.toString()) return null
-            return parts.take(3) + parts.last()
-        }
-        val expected = logicalIdentity(identity.fingerprint) ?: return null
-        if (logicalIdentity(previous.hostFingerprint) != expected || actualDex == null ||
-            !actualDex.matches(DEX_SOURCE_FINGERPRINT_PATTERN) || previous.dexSourceFingerprint != actualDex) return null
+            identity.versionCode <= 0 || previous.biliVersionCode != identity.versionCode ||
+            !previous.isUsableWith(previous.hostFingerprint)) return null
+        val prev = parseHostFingerprint(previous.hostFingerprint) ?: return null
+        val curr = parseHostFingerprint(identity.fingerprint) ?: return null
+        if (prev.versionCode != identity.versionCode.toLong() || curr.versionCode != identity.versionCode.toLong() ||
+            prev.versionName != curr.versionName || prev.ruleVersion != ADAPTER_RULE_VERSION ||
+            curr.ruleVersion != ADAPTER_RULE_VERSION) return null
+        if (actualDex == null || !actualDex.matches(DEX_SOURCE_FINGERPRINT_PATTERN) ||
+            previous.dexSourceFingerprint != actualDex) return null
+        if (actualProtocol == null || !actualProtocol.matches(REBIND_PROTOCOL_FINGERPRINT_PATTERN) ||
+            previous.protocolFingerprint != actualProtocol) return null
         // Preserve the original timestamp so a manual reset cannot be bypassed by renewing old results.
         return previous.copy(hostFingerprint = identity.fingerprint)
     }
@@ -3091,21 +3385,38 @@ object VersionAdapter {
         /** 有效缓存里计划要求、却从未尝试过的家族；缓存本身无效时返回 null（整轮重新适配，不是补扫）。 */
         fun missingCoverage(highCandidateExists: Boolean, plan: AdaptPlan): Set<PointFamily>? =
             usableCache(highCandidateExists)?.let { AdaptPlanner.missing(it.coverage, plan) }
+
+        /** 经过身份/重置/结构校验后，按域规则版本剔除过期域，再查询指定后台诊断 ID 是否在本宿主尝试过。 */
+        internal fun isDiagnosticAttempted(id: String): Boolean {
+            val value = usableCache(highCandidateExists = false) ?: return false
+            val stale = AdaptDomainCatalog.staleDomains(value.domainRuleVersions)
+            val active = if (stale.isEmpty()) value else value.withoutDomains(stale)
+            return active.diagnostics.any { it.id == id && AdaptAssistGate.isAttemptedInCache(it) }
+        }
     }
 
     @Suppress("DEPRECATION")
     private fun readHostIdentity(context: Context): HostIdentity = runCatching {
         val info = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
         val versionCode = info.versionCodeCompat
-        val source = File(info.applicationInfo?.sourceDir.orEmpty())
-        val fingerprint = listOf(
-            "tv.danmaku.bili",
-            versionCode.toString(),
-            info.versionName.orEmpty(),
-            source.length().toString(),
-            source.lastModified().toString(),
-            ADAPTER_RULE_VERSION.toString()
-        ).joinToString("|")
+        val appInfo = info.applicationInfo
+        val source = File(appInfo?.sourceDir.orEmpty())
+        val splits = appInfo?.splitSourceDirs
+            .orEmpty()
+            .asSequence()
+            .filter { it.isNotBlank() }
+            .map { path ->
+                val splitFile = File(path)
+                SplitFileMeta(splitFile.name, splitFile.length(), splitFile.lastModified())
+            }
+            .toList()
+        val fingerprint = buildHostFingerprint(
+            versionCode = versionCode,
+            versionName = info.versionName.orEmpty(),
+            baseLength = source.length(),
+            baseLastModified = source.lastModified(),
+            splits = splits
+        )
         HostIdentity(info.versionCode, fingerprint)
     }.getOrElse {
         val versionCode = biliVersionCode(context)
@@ -3121,6 +3432,26 @@ object VersionAdapter {
     }
 
     fun cacheStatus(): String = lastCacheStatus
+
+    /** 只读枚举 file → prefs 中的缓存候选，不修改 [lastCacheStatus] 也不因旧文件遮蔽 prefs 新缓存。 */
+    private fun readRawCacheCandidates(context: Context?, resetTimestamp: Long): List<AdaptResult> {
+        val resetTs = resetTimestamp.coerceAtLeast(0L)
+        val candidates = ArrayList<AdaptResult>(2)
+        runCatching {
+            val f = cacheFile()
+            if (f.exists()) AdaptResult.fromJson(JSONObject(f.readText()))?.takeIf { it.ts >= resetTs }?.let(candidates::add)
+        }
+        if (context != null) {
+            runCatching {
+                val p = prefs(context)
+                val v = p.getInt(KEY_ADAPTED_VERSION, 0)
+                val json = p.getString(KEY_ADAPT_RESULT, null) ?: return@runCatching
+                val r = AdaptResult.fromJson(JSONObject(json)) ?: return@runCatching
+                if (r.biliVersionCode == v && r.ts >= resetTs) candidates.add(r)
+            }
+        }
+        return candidates
+    }
 
     /**
      * 读缓存适配结果（二级文件缓存优先；手动重置标记/版本不符返回 null）。
@@ -3199,6 +3530,17 @@ object VersionAdapter {
         runtime: AdaptResult?,
         cached: AdaptResult?
     ): AdaptResult? {
+        val activeCached = cached?.let {
+            val stale = AdaptDomainCatalog.staleDomains(it.domainRuleVersions)
+            if (stale.isEmpty()) it else it.withoutDomains(stale)
+        }
+        return mergeRuntimeWithCleanedCached(runtime, activeCached)
+    }
+
+    private fun mergeRuntimeWithCleanedCached(
+        runtime: AdaptResult?,
+        cached: AdaptResult?
+    ): AdaptResult? {
         if (runtime == null) return cached
         if (cached == null) return runtime
         val mergedDiagnostics = (runtime.diagnostics.map { it.id } + cached.diagnostics.map { it.id })
@@ -3218,7 +3560,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC || id in PageBoundaryAdapter.queries.map(PageBoundaryAdapter::diagnostic) || id in SystemEnvironmentAdapter.Family.entries.map { it.diagnostic } || id == CommentComposeMenuAdapter.DIAGNOSTIC || id == KmpGrpcWireAdapter.DIAGNOSTIC || id == SponsorPlayerLocator.DIAGNOSTIC) &&
+                    id in quickLocateMissingRetainedDiagnosticIds &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live
@@ -3235,7 +3577,8 @@ object VersionAdapter {
                     .distinct(),
                 legacyCallback = runtime.pause.legacyCallback ?: cached.pause.legacyCallback,
                 panelShow = runtime.pause.panelShow ?: cached.pause.panelShow,
-                countdown = runtime.pause.countdown ?: cached.pause.countdown
+                countdown = runtime.pause.countdown ?: cached.pause.countdown,
+                apiEntry = runtime.pause.apiEntry ?: cached.pause.apiEntry
             ),
             banner = runtime.banner ?: cached.banner,
             homeTopBar = runtime.homeTopBar?.let { live ->
@@ -3261,7 +3604,7 @@ object VersionAdapter {
             // 实时定位只落到稳定包装层、而后台 DexMeguviz 已找到真实实现时，用缓存里的实现。
             playerQuality = mergePlayerQuality(runtime.playerQuality, cached.playerQuality),
             teenagersMode = runtime.teenagersMode ?: cached.teenagersMode,
-            commentPurify = runtime.commentPurify ?: cached.commentPurify,
+            commentPurify = mergeCommentPurify(runtime.commentPurify, cached.commentPurify),
             commentFilter = runtime.commentFilter ?: cached.commentFilter,
             commentTopology = runtime.commentTopology ?: cached.commentTopology,
             commentSection = runtime.commentSection ?: cached.commentSection,
@@ -3284,7 +3627,23 @@ object VersionAdapter {
             systemEnvironment = SystemEnvironmentAdapter.merge(runtime.systemEnvironment, cached.systemEnvironment),
             commentComposeMenu = CommentComposeMenuAdapter.merge(runtime.commentComposeMenu, cached.commentComposeMenu),
             kmpGrpcWireEngine = runtime.kmpGrpcWireEngine ?: cached.kmpGrpcWireEngine,
+            brandSplashKntrDraw = runtime.brandSplashKntrDraw ?: cached.brandSplashKntrDraw,
+            brandSplashKntrExit = runtime.brandSplashKntrExit ?: cached.brandSplashKntrExit,
+            brandSplashKntrPage = runtime.brandSplashKntrPage ?: cached.brandSplashKntrPage,
+            cloudKeyFreezeContract = runtime.cloudKeyFreezeContract ?: cached.cloudKeyFreezeContract,
+            privacyIgnetHttp = runtime.privacyIgnetHttp ?: cached.privacyIgnetHttp,
+            privacyKNeuron = runtime.privacyKNeuron ?: cached.privacyKNeuron,
+            guestPlayerCore = runtime.guestPlayerCore ?: cached.guestPlayerCore,
+            detailSpecialTagMapper = runtime.detailSpecialTagMapper ?: cached.detailSpecialTagMapper,
+            commentReplyButtonOwners = cached.commentReplyButtonOwners + runtime.commentReplyButtonOwners,
+            homeRecommendEarlyLoadListener = runtime.homeRecommendEarlyLoadListener ?: cached.homeRecommendEarlyLoadListener,
+            aiPlaylistDirector = runtime.aiPlaylistDirector ?: cached.aiPlaylistDirector,
+            followUpRecommendBodies = cached.followUpRecommendBodies + runtime.followUpRecommendBodies,
+            detailRelateGameComponent = runtime.detailRelateGameComponent ?: cached.detailRelateGameComponent,
+            legacyStoryDanmakuBind = runtime.legacyStoryDanmakuBind ?: cached.legacyStoryDanmakuBind,
+            playerSpeedTheseus2LongPress = runtime.playerSpeedTheseus2LongPress ?: cached.playerSpeedTheseus2LongPress,
             coverage = AdaptCoverage.merge(runtime.coverage, cached.coverage),
+            domainRuleVersions = cached.domainRuleVersions
         ).applyStartupExclusions()
     }
 
@@ -3321,7 +3680,54 @@ object VersionAdapter {
         val global = if (live.usesLegacyQualityHelper() && cached.defaultQualityMethod != null && !cached.usesLegacyQualityHelper())
             cached.defaultQualityMethod else live.defaultQualityMethod ?: cached.defaultQualityMethod
         return PlayerQualityPoints(global, (live.capabilitySignals + cached.capabilitySignals).distinct(),
-            StoryQualityLocator.merge(live.story, cached.story))
+            StoryQualityLocator.merge(live.story, cached.story),
+            live.normalAutoSwitch ?: cached.normalAutoSwitch)
+    }
+
+    internal fun mergeCommentPurify(live: CommentPurifyPoints?, cached: CommentPurifyPoints?): CommentPurifyPoints? = when {
+        live == null -> cached
+        cached == null -> live
+        else -> live.copy(
+            quickReplyDialogMethods = live.quickReplyDialogMethods.ifEmpty { cached.quickReplyDialogMethods }
+        )
+    }
+
+    private val quickLocateMissingRetainedDiagnosticIds: Set<String> by lazy {
+        buildSet {
+            PlayerPopupPromotionAdapter.Family.entries.forEach { add(it.diagnostic) }
+            add(BrandSplashDecoderAdapter.DIAGNOSTIC)
+            add(BrandSplashKntrAdapter.DIAGNOSTIC)
+            add(BrandSplashKntrAdapter.DIAGNOSTIC_EXIT)
+            add(BrandSplashKntrAdapter.DIAGNOSTIC_PAGE)
+            add(CommentQuickReplyAdapter.DIAGNOSTIC)
+            add(PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN)
+            add(PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API)
+            add(HomeTabResourceAdapter.DIAGNOSTIC)
+            add(CloudKeyFreezeAdapter.DIAGNOSTIC)
+            add(PrivacyChannelAdapter.DIAGNOSTIC_IGNET)
+            add(PrivacyChannelAdapter.DIAGNOSTIC_KNEURON)
+            add(GuestPlayerCoreAdapter.DIAGNOSTIC)
+            add(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC)
+            add(AiPlaylistDirectorAdapter.DIAGNOSTIC)
+            add(FollowUpRecommendAdapter.DIAGNOSTIC)
+            add(DetailRelateGameAdapter.DIAGNOSTIC)
+            add(LegacyStoryDanmakuAdapter.DIAGNOSTIC)
+            add(PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC)
+            add(NormalQualityLocator.DIAGNOSTIC)
+            add(DetailSpecialTagAdapter.DIAGNOSTIC)
+            add(CommentReplyButtonAdapter.DIAGNOSTIC)
+            add(FollowFeedAdapter.DIAGNOSTIC)
+            add(StoryQualityLocator.DIAGNOSTIC)
+            add(PlayerSpeedMenuAdapter.DIAGNOSTIC)
+            PageBoundaryAdapter.queries.forEach { add(PageBoundaryAdapter.diagnostic(it)) }
+            SystemEnvironmentAdapter.Family.entries.forEach { add(it.diagnostic) }
+            add(CommentComposeMenuAdapter.DIAGNOSTIC)
+            add(KmpGrpcWireAdapter.DIAGNOSTIC)
+            add(SponsorPlayerLocator.DIAGNOSTIC)
+            add(DEX_ASSIST_BLOCK_UPDATE_ID)
+            add(DEX_ASSIST_PLAYER_QUALITY_ID)
+            add(DEX_ASSIST_COMMENT_TOPOLOGY_ID)
+        }
     }
 
     /** 缓存是否覆盖当前版本 */
@@ -3363,8 +3769,8 @@ object VersionAdapter {
      * **为什么读不出来时保留缓存**：一次 I/O 失败不足以推翻一份正在正常工作的适配结果，
      * 失败放行优于误删。
      *
-     * 这条通道覆盖只发生在带 DEX 的 split APK 中的变化（启动身份只取 `sourceDir`）。
-     * NPatch 重新修补导致启动身份变化时，另在适配工作线程按内容核对并重绑定缓存，
+     * 这条通道同时校验缓存 DEX 内容摘要与宿主实际 DEX 是否一致。
+     * 重打包或包结构变动导致启动身份变化时，另在适配工作线程按内容核对并重绑定缓存，
      * 不能声称本审计会恢复已被启动身份拒绝的缓存。
      */
     @androidx.annotation.WorkerThread
@@ -3440,9 +3846,23 @@ object VersionAdapter {
         systemEnvironmentEnabled: Boolean = false,
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false,
-        kmpGrpcWireEnabled: Boolean = false
+        kmpGrpcWireEnabled: Boolean = false,
+        cloudKeyFreezeEnabled: Boolean = false,
+        incognitoPrivacyEnabled: Boolean = false,
+        detailSpecialTagEnabled: Boolean = false,
+        commentReplyButtonEnabled: Boolean = false,
+        guestBrowsingEnabled: Boolean = false,
+        homeRecommendEarlyLoadEnabled: Boolean = false,
+        commentQuickReplyEnabled: Boolean = false,
+        pausedAdEnabled: Boolean = false,
+        brandSplashSkipEnabled: Boolean = false,
+        aiDeclaredVideoEnabled: Boolean = false,
+        followUpRecommendEnabled: Boolean = false,
+        detailRelateGameEnabled: Boolean = false,
+        storyDanmakuToggleHidden: Boolean = false,
+        playerSpeedLongPressEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled, kmpGrpcWireEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled, kmpGrpcWireEnabled, cloudKeyFreezeEnabled, incognitoPrivacyEnabled, detailSpecialTagEnabled, commentReplyButtonEnabled, guestBrowsingEnabled, homeRecommendEarlyLoadEnabled, commentQuickReplyEnabled, pausedAdEnabled, brandSplashSkipEnabled, aiDeclaredVideoEnabled, followUpRecommendEnabled, detailRelateGameEnabled, storyDanmakuToggleHidden, playerSpeedLongPressEnabled
     )
 
     internal fun ensureAdapted(
@@ -3471,6 +3891,20 @@ object VersionAdapter {
         blockUpdateEnabled: Boolean = false,
         commentTopologyEnabled: Boolean = false,
         kmpGrpcWireEnabled: Boolean = false,
+        cloudKeyFreezeEnabled: Boolean = false,
+        incognitoPrivacyEnabled: Boolean = false,
+        detailSpecialTagEnabled: Boolean = false,
+        commentReplyButtonEnabled: Boolean = false,
+        guestBrowsingEnabled: Boolean = false,
+        homeRecommendEarlyLoadEnabled: Boolean = false,
+        commentQuickReplyEnabled: Boolean = false,
+        pausedAdEnabled: Boolean = false,
+        brandSplashSkipEnabled: Boolean = false,
+        aiDeclaredVideoEnabled: Boolean = false,
+        followUpRecommendEnabled: Boolean = false,
+        detailRelateGameEnabled: Boolean = false,
+        storyDanmakuToggleHidden: Boolean = false,
+        playerSpeedLongPressEnabled: Boolean = false,
         /** 安装链从已接受的配置快照生成的定位计划；缺省 = 全量（原始行为）。 */
         plan: AdaptPlan = AdaptPlan.full()
     ) {
@@ -3479,6 +3913,8 @@ object VersionAdapter {
             if (blockUpdateEnabled) add(PointFamily.BLOCK_UPDATE)
             if (playerQualityEnabled) add(PointFamily.PLAYER_QUALITY)
             if (commentTopologyEnabled) add(PointFamily.COMMENT_TOPOLOGY)
+            if (commentQuickReplyEnabled) add(PointFamily.COMMENT_PURIFY)
+            if (pausedAdEnabled) add(PointFamily.PAUSE)
         })
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3493,142 +3929,420 @@ object VersionAdapter {
         val highCandidateExists = COMMENT_HIGH_CANDIDATES.any {
             KavaMemberLookup.hasClass(classLoader, it)
         }
-        // 先保留同指纹/版本/reset 的有效快照；其它功能补适配时仍可复用推广家族的结果。
+        // 先保留同指纹/版本/reset 的有效快照；按域版本剔除失效域，其余域在增量补适配时继续沿用。
         val usable = startup.usableCache(highCandidateExists)
+        val staleDomains = usable?.let { AdaptDomainCatalog.staleDomains(it.domainRuleVersions) }.orEmpty()
+        val effectiveUsable = usable?.let { if (staleDomains.isEmpty()) it else it.withoutDomains(staleDomains) }
         // 评论 high 点缺失只影响整轮快路径，不能使播放器已经完成的兜底每次启动重扫。
-        val popupHistory = startup.usableCache(highCandidateExists = false)
-        val previousPages = popupHistory?.pageBoundaries
-        val previousChrome = popupHistory?.homeChrome.orEmpty()
-        val previousChromeSemantics = popupHistory?.homeChromeSemantics
-        val semanticsAttempted = popupHistory?.diagnostics.orEmpty().any {
-            it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val chromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
-            popupHistory?.diagnostics.orEmpty().any {
-                it.id == HomeChromeAdapter.diagnostic(query) && it.state == AdaptState.MISSING
-            }
-        }
-        val pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
-            popupHistory?.diagnostics.orEmpty().any {
-                it.id == PageBoundaryAdapter.diagnostic(query) && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING)
-            }
-        }
-        val previousFollow = popupHistory?.followFeedStyle
-        val previousSpeedMenu = popupHistory?.playerSpeedMenu
-        val speedMenuAttempted = popupHistory?.diagnostics.orEmpty().any {
-            it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING)
-        }
-        val previousSpeedSession = popupHistory?.playerSpeedSession
-        val speedSessionAttempted = popupHistory?.diagnostics.orEmpty().any {
-            it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previousSpeedCalculator = popupHistory?.playerSpeedCalculator
-        val speedCalculatorAttempted = popupHistory?.diagnostics.orEmpty().any {
-            it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previousWeChatShare = popupHistory?.weChatShare
-        val weChatShareAttempted = popupHistory?.diagnostics.orEmpty().any {
-            it.id == WeChatShareCompatAccess.DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previousStoryQuality = popupHistory?.playerQuality?.story
-        val previouslyMissingStoryQuality = popupHistory?.diagnostics.orEmpty().any {
-            it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previouslyMissingFollow = popupHistory?.diagnostics.orEmpty().any {
-            it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previousBrand = popupHistory?.brandSplashDecoder
-        val previouslyMissingBrand = popupHistory?.diagnostics.orEmpty().any {
-            it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previousPopup = popupHistory?.playerPopupPromotion
-        // 专项 Root/Hook 返回边界属于后台适配，不进入任何同步启动计划。
-        // 更新检查、默认画质、评论脉络三类兜底：按功能需求与历史结论门控（见 AdaptAssistGate）。
-        val assistHistory = AssistHistory.of(popupHistory)
-        val previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
-            popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
-        }
-        val previousSystemEnv = popupHistory?.systemEnvironment
-        val previouslyMissingSystemEnv = SystemEnvironmentAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
-            popupHistory?.diagnostics.orEmpty().any { it.id == family.diagnostic && it.state == AdaptState.MISSING }
-        }
-        val previousComposeMenu = popupHistory?.commentComposeMenu
-        val previouslyMissingComposeMenu = popupHistory?.diagnostics.orEmpty().any {
-            it.id == CommentComposeMenuAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
-        }
-        val previousKmpGrpcWire = popupHistory?.kmpGrpcWireEngine
-        val previouslyMissingKmpGrpcWire = popupHistory?.diagnostics.orEmpty().any {
-            it.id == KmpGrpcWireAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
+        val rawPopupHistory = startup.usableCache(highCandidateExists = false)
+        val popupHistory = rawPopupHistory?.let {
+            val stale = AdaptDomainCatalog.staleDomains(it.domainRuleVersions)
+            if (stale.isEmpty()) it else it.withoutDomains(stale)
         }
         // 有效缓存里计划要求、却从未尝试过的家族（旧缓存没有覆盖范围 = 全部待补）。
-        val coverageMissing = if (usable != null) AdaptPlanner.missing(usable.coverage, adaptPlan) else emptySet()
+        val coverageMissing = if (effectiveUsable != null) {
+            AdaptPlanner.missing(effectiveUsable.coverage, adaptPlan)
+        } else {
+            emptySet()
+        }
+        fun runAdaptWithHistory(
+            history: AdaptResult?,
+            dexSource: DexSourceFingerprint.Result?
+        ): AdaptResult? {
+            val prev = HistorySnapshot.of(history)
+            val historyDiagnostics = history?.diagnostics.orEmpty()
+            fun wasConclusiveMissing(id: String): Boolean =
+                historyDiagnostics.any { it.id == id && AdaptAssistGate.isConclusiveMissing(it) }
+            val semanticsAttempted = wasConclusiveMissing(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC)
+            val chromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+                wasConclusiveMissing(HomeChromeAdapter.diagnostic(query))
+            }
+            val pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
+                val diagId = PageBoundaryAdapter.diagnostic(query)
+                historyDiagnostics.any {
+                    it.id == diagId &&
+                        (it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it))
+                }
+            }
+            val speedMenuAttempted = historyDiagnostics.any {
+                it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC &&
+                    (it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it))
+            }
+            val speedSessionAttempted = wasConclusiveMissing(PlayerSpeedSessionLocator.DIAGNOSTIC)
+            val speedCalculatorAttempted = wasConclusiveMissing(PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC)
+            val weChatShareAttempted = wasConclusiveMissing(WeChatShareCompatAccess.DIAGNOSTIC)
+            val previouslyMissingStoryQuality = wasConclusiveMissing(StoryQualityLocator.DIAGNOSTIC)
+            val previouslyMissingFollow = wasConclusiveMissing(FollowFeedAdapter.DIAGNOSTIC)
+            val previouslyMissingBrand = wasConclusiveMissing(BrandSplashDecoderAdapter.DIAGNOSTIC)
+            val previouslyMissingBrandKntr = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC)
+            val previouslyMissingBrandKntrExit = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC_EXIT)
+            val previouslyMissingBrandKntrPage = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC_PAGE)
+            val previouslyMissingCommentQuickReply = wasConclusiveMissing(CommentQuickReplyAdapter.DIAGNOSTIC)
+            val previouslyMissingPauseCountdown = wasConclusiveMissing(PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN)
+            val previouslyMissingPauseApiEntry = wasConclusiveMissing(PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API)
+            val previouslyMissingHomeTabResource = wasConclusiveMissing(HomeTabResourceAdapter.DIAGNOSTIC)
+            val previouslyMissingCloudKeyContract = wasConclusiveMissing(CloudKeyFreezeAdapter.DIAGNOSTIC)
+            val previouslyMissingPrivacyIgnet = wasConclusiveMissing(PrivacyChannelAdapter.DIAGNOSTIC_IGNET)
+            val previouslyMissingPrivacyKNeuron = wasConclusiveMissing(PrivacyChannelAdapter.DIAGNOSTIC_KNEURON)
+            val previouslyMissingGuestPlayerCore = wasConclusiveMissing(GuestPlayerCoreAdapter.DIAGNOSTIC)
+            val previouslyMissingNormalAutoSwitch = wasConclusiveMissing(NormalQualityLocator.DIAGNOSTIC)
+            val previouslyMissingDetailSpecialTag = wasConclusiveMissing(DetailSpecialTagAdapter.DIAGNOSTIC)
+            val previouslyMissingCommentReplyOwners = wasConclusiveMissing(CommentReplyButtonAdapter.DIAGNOSTIC)
+            val previouslyMissingHomeEarlyLoadListener = wasConclusiveMissing(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC)
+            val previouslyMissingDefaultWords = wasConclusiveMissing(KotlinDefaultWordsLocator.DIAGNOSTIC)
+            val previouslyMissingSponsor = wasConclusiveMissing(SponsorPlayerLocator.DIAGNOSTIC)
+            val previouslyMissingClassic = wasConclusiveMissing(CommentClassicStyleLocator.DIAGNOSTIC)
+            val previousPopup = history?.playerPopupPromotion
+            val assistHistory = AssistHistory.of(history)
+            val previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
+                wasConclusiveMissing(family.diagnostic)
+            }
+            val previouslyMissingSystemEnv = SystemEnvironmentAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
+                wasConclusiveMissing(family.diagnostic)
+            }
+            val previouslyMissingComposeMenu = wasConclusiveMissing(CommentComposeMenuAdapter.DIAGNOSTIC)
+            val previouslyMissingKmpGrpcWire = wasConclusiveMissing(KmpGrpcWireAdapter.DIAGNOSTIC)
+            val previouslyMissingAiPlaylistDirector = wasConclusiveMissing(AiPlaylistDirectorAdapter.DIAGNOSTIC)
+            val previouslyMissingFollowUp = wasConclusiveMissing(FollowUpRecommendAdapter.DIAGNOSTIC)
+            val previouslyMissingDetailRelateGame = wasConclusiveMissing(DetailRelateGameAdapter.DIAGNOSTIC)
+            val previouslyMissingLegacyStoryBind = wasConclusiveMissing(LegacyStoryDanmakuAdapter.DIAGNOSTIC)
+            val previouslyMissingTheseus2LongPress = wasConclusiveMissing(PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC)
+            return adapt(
+                context, classLoader, kotlinDefaultWordsEnabled, sponsorBlockEnabled,
+                commentClassicStyleEnabled, playerPopupPromotionEnabled, previousPopup, previouslyMissingPopup,
+                brandSplashCustomEnabled, prev.brand, previouslyMissingBrand,
+                followFeedStyleEnabled, prev.follow, previouslyMissingFollow,
+                playerQualityEnabled, prev.storyQuality, previouslyMissingStoryQuality,
+                playerSpeedMenuEnabled, prev.speedMenu, speedMenuAttempted,
+                playerSpeedSessionEnabled, prev.speedSession, speedSessionAttempted,
+                playerSpeedCalculatorEnabled, prev.speedCalculator, speedCalculatorAttempted,
+                weChatShareEnabled, prev.weChatShare, weChatShareAttempted,
+                searchHomeRecommendEnabled, playerEndPageRecommendEnabled, prev.pages, pageAttempted,
+                homeChromeEnabled, prev.chrome, chromeAttempted, homeChromeIconOnly,
+                prev.chromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
+                systemEnvironmentEnabled, prev.systemEnv, previouslyMissingSystemEnv,
+                blockUpdateEnabled, commentTopologyEnabled,
+                prev.composeMenu, previouslyMissingComposeMenu, kmpGrpcWireEnabled, prev.kmpGrpcWire, previouslyMissingKmpGrpcWire,
+                prev.brandKntr, previouslyMissingBrandKntr,
+                prev.brandKntrExit, previouslyMissingBrandKntrExit,
+                prev.brandKntrPage, previouslyMissingBrandKntrPage,
+                commentQuickReplyEnabled, previouslyMissingCommentQuickReply,
+                pausedAdEnabled, previouslyMissingPauseCountdown, previouslyMissingPauseApiEntry,
+                brandSplashSkipEnabled, previouslyMissingHomeTabResource,
+                cloudKeyFreezeEnabled, prev.cloudKeyContract, previouslyMissingCloudKeyContract,
+                incognitoPrivacyEnabled, prev.privacyIgnet, previouslyMissingPrivacyIgnet, prev.privacyKNeuron, previouslyMissingPrivacyKNeuron,
+                guestBrowsingEnabled, prev.guestPlayerCore, previouslyMissingGuestPlayerCore,
+                prev.normalAutoSwitch, previouslyMissingNormalAutoSwitch, detailSpecialTagEnabled, prev.detailSpecialTag, previouslyMissingDetailSpecialTag,
+                commentReplyButtonEnabled, prev.commentReplyOwners, previouslyMissingCommentReplyOwners,
+                homeRecommendEarlyLoadEnabled, prev.homeEarlyLoadListener, previouslyMissingHomeEarlyLoadListener,
+                prev.defaultWords, previouslyMissingDefaultWords,
+                prev.sponsor, previouslyMissingSponsor,
+                prev.classic, previouslyMissingClassic,
+                aiDeclaredVideoEnabled, prev.aiPlaylistDirector, previouslyMissingAiPlaylistDirector,
+                followUpRecommendEnabled, prev.followUpBodies, previouslyMissingFollowUp,
+                detailRelateGameEnabled, prev.detailRelateGame, previouslyMissingDetailRelateGame,
+                storyDanmakuToggleHidden, prev.legacyStoryBind, previouslyMissingLegacyStoryBind,
+                playerSpeedLongPressEnabled, prev.theseus2LongPress, previouslyMissingTheseus2LongPress,
+                assistHistory, adaptPlan, history, dexSource, vc, startup.identity.fingerprint
+            )
+        }
         fun requiresFeatureRefresh(value: AdaptResult): Boolean {
-            val pageRefresh = PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
-                searchHomeRecommendEnabled, playerEndPageRecommendEnabled, pageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()
+            val valueChromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+                value.diagnostics.any {
+                    it.id == HomeChromeAdapter.diagnostic(query) && AdaptAssistGate.isAttemptedInCache(it)
+                }
+            }
+            val valueSemanticsAttempted = value.diagnostics.any {
+                it.id == HomeChromeAdapter.SEMANTICS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+            }
+            val valuePageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
+                value.diagnostics.any {
+                    it.id == PageBoundaryAdapter.diagnostic(query) &&
+                        (it.state == AdaptState.FOUND || AdaptAssistGate.isAttemptedInCache(it))
+                }
+            }
+            if (PageBoundaryAdapter.planned(classLoader, value.pageBoundaries,
+                    searchHomeRecommendEnabled, playerEndPageRecommendEnabled, valuePageAttempted, styleEnabled = followFeedStyleEnabled).isNotEmpty()) {
+                return true
+            }
             val popupRefresh = playerPopupPromotionEnabled &&
                 PlayerPopupPromotionAdapter.missing(classLoader, value.playerPopupPromotion).any { family ->
-                    value.diagnostics.none { it.id == family.diagnostic && it.state == AdaptState.MISSING }
+                    value.diagnostics.none { it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it) }
                 }
+            if (popupRefresh) return true
             val classicRefresh = commentClassicStyleEnabled &&
                 CommentClassicStyleLocator.missing(classLoader, value.commentClassicStyle).isNotEmpty() &&
-                value.diagnostics.none { it.id == CommentClassicStyleLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }
-            val sponsorRefresh = sponsorBlockEnabled && SponsorPlayerLocator.refreshCache(sponsorBlockEnabled, SponsorPlayerLocator.applicable(classLoader),
-                SponsorPlayerLocator.direct(classLoader) != null,
-                value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
-                value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
-            val speedSessionRefresh = PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
-                PlayerSpeedSessionLocator.applicable(classLoader),
-                PlayerSpeedSessionLocator.modern(classLoader) != null,
-                value.playerSpeedSession?.let { PlayerSpeedSessionLocator.resolve(classLoader, it) } != null,
-                value.diagnostics.any { it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
-            val speedCalculatorRefresh = PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
-                PlayerSpeedLocator.calculatorApplicable(classLoader),
-                PlayerSpeedLocator.theseus2LongPressCalculator(classLoader, vc) != null,
-                value.playerSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(classLoader, it) } != null,
-                value.diagnostics.any { it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && it.state == AdaptState.MISSING })
-            val weChatShareRefresh = WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
-                WeChatShareCompatAccess.applicable(classLoader),
-                WeChatShareCompatAccess.locate(classLoader, vc) != null,
-                value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) } != null,
-                value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && it.state == AdaptState.MISSING })
-            val systemEnvRefresh = systemEnvironmentEnabled &&
+                value.diagnostics.none { it.id == CommentClassicStyleLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+            if (classicRefresh) return true
+            if (sponsorBlockEnabled && SponsorPlayerLocator.refreshCache(sponsorBlockEnabled, SponsorPlayerLocator.applicable(classLoader),
+                    SponsorPlayerLocator.direct(classLoader) != null,
+                    value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
+                    value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
+                    PlayerSpeedSessionLocator.applicable(classLoader),
+                    PlayerSpeedSessionLocator.modern(classLoader) != null,
+                    value.playerSpeedSession?.let { PlayerSpeedSessionLocator.resolve(classLoader, it) } != null,
+                    value.diagnostics.any { it.id == PlayerSpeedSessionLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
+                    PlayerSpeedLocator.calculatorApplicable(classLoader),
+                    PlayerSpeedLocator.theseus2LongPressCalculator(classLoader, vc) != null,
+                    value.playerSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(classLoader, it) } != null,
+                    value.diagnostics.any { it.id == PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
+                    WeChatShareCompatAccess.applicable(classLoader),
+                    WeChatShareCompatAccess.locate(classLoader, vc)?.let { it.wrappers.size == it.expectedWrappers } == true,
+                    value.weChatShare?.let { WeChatShareCompatAccess.resolve(classLoader, it) }
+                        ?.let { it.wrappers.size == it.expectedWrappers } == true,
+                    value.diagnostics.any { it.id == WeChatShareCompatAccess.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (systemEnvironmentEnabled &&
                 SystemEnvironmentAdapter.missing(classLoader, value.systemEnvironment).any { family ->
-                    value.diagnostics.none { it.id == family.diagnostic && it.state == AdaptState.MISSING }
-                }
-            return PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
-                value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
-            StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
-                value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }).isNotEmpty() ||
-            FollowFeedAdapter.needsQuery(classLoader, value.followFeedStyle, followFeedStyleEnabled,
-                value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
-                BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
-                value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
-                HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, chromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty() ||
-                HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, semanticsAttempted, homeChromeIconOnly) ||
-                systemEnvRefresh ||
-                CommentComposeMenuAdapter.needsQuery(
+                    value.diagnostics.none { it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it) }
+                }) {
+                return true
+            }
+            if (PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
+                    value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC &&
+                        (it.state == AdaptState.FOUND || AdaptAssistGate.isAttemptedInCache(it)) })) {
+                return true
+            }
+            if (StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
+                    value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }).isNotEmpty()) {
+                return true
+            }
+            if (NormalQualityLocator.needsQuery(
+                    classLoader,
+                    value.playerQuality?.defaultQualityMethod,
+                    value.playerQuality?.normalAutoSwitch,
+                    playerQualityEnabled,
+                    value.diagnostics.any { it.id == NormalQualityLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+                )) {
+                return true
+            }
+            if (DetailSpecialTagAdapter.needsQuery(
+                    classLoader,
+                    value.detailSpecialTagMapper,
+                    detailSpecialTagEnabled,
+                    value.diagnostics.any { it.id == DetailSpecialTagAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+                )) {
+                return true
+            }
+            if (CommentReplyButtonAdapter.needsQuery(
+                    classLoader,
+                    value.commentReplyButtonOwners,
+                    commentReplyButtonEnabled,
+                    value.diagnostics.any { it.id == CommentReplyButtonAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+                )) {
+                return true
+            }
+            if (FollowFeedAdapter.needsQuery(classLoader, value.followFeedStyle, followFeedStyleEnabled,
+                    value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
+                    value.diagnostics.any { it.id == BrandSplashDecoderAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (BrandSplashKntrAdapter.needsQuery(classLoader, value.brandSplashKntrDraw, brandSplashCustomEnabled,
+                    value.diagnostics.any { it.id == BrandSplashKntrAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (BrandSplashKntrAdapter.needsExitQuery(
+                    classLoader,
+                    value.brandSplashKntrExit,
+                    brandSplashCustomEnabled || brandSplashSkipEnabled,
+                    value.diagnostics.any {
+                        it.id == BrandSplashKntrAdapter.DIAGNOSTIC_EXIT && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (BrandSplashKntrAdapter.needsPageQuery(
+                    classLoader,
+                    value.brandSplashKntrPage,
+                    brandSplashCustomEnabled,
+                    value.diagnostics.any {
+                        it.id == BrandSplashKntrAdapter.DIAGNOSTIC_PAGE && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            val quickReplyAttempted = value.diagnostics.any {
+                it.id == CommentQuickReplyAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+            }
+            val cachedQuickReply = value.commentPurify?.quickReplyDialogMethods.orEmpty()
+            if (commentQuickReplyEnabled && !quickReplyAttempted &&
+                CommentQuickReplyAdapter.applicable(classLoader) &&
+                CommentQuickReplyAdapter.resolve(classLoader, cachedQuickReply).isEmpty() &&
+                CommentQuickReplyAdapter.needsQuery(
+                    classLoader,
+                    locateCommentQuickReplyDirect(classLoader),
+                    cachedQuickReply,
+                    commentQuickReplyEnabled,
+                    quickReplyAttempted
+                )
+            ) {
+                return true
+            }
+            if (PausedAdDexAdapter.needsCountdownQuery(
+                    classLoader,
+                    direct = null,
+                    cached = value.pause.countdown,
+                    enabled = pausedAdEnabled,
+                    attempted = value.diagnostics.any {
+                        it.id == PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (PausedAdDexAdapter.needsRequestApiQuery(
+                    classLoader,
+                    vc,
+                    value.pause.apiEntry,
+                    pausedAdEnabled,
+                    value.diagnostics.any {
+                        it.id == PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            val homeTabsAttempted = value.diagnostics.any {
+                it.id == HomeTabResourceAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+            }
+            if (adaptPlan.needs(PointFamily.HOME_TABS) && !homeTabsAttempted &&
+                HomeTabResourceAdapter.applicable(classLoader) &&
+                HomeTabResourceAdapter.resolve(classLoader, value.homeTabs) == null &&
+                HomeTabResourceAdapter.needsQuery(
+                    classLoader,
+                    directFound = locateHomeTabs(classLoader) != null,
+                    cached = value.homeTabs,
+                    enabled = true,
+                    attempted = homeTabsAttempted
+                )
+            ) {
+                return true
+            }
+            if (CloudKeyFreezeAdapter.needsQuery(classLoader, value.cloudKeyFreezeContract, cloudKeyFreezeEnabled,
+                    value.diagnostics.any { it.id == CloudKeyFreezeAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (PrivacyChannelAdapter.needsIgnetQuery(classLoader, value.privacyIgnetHttp, incognitoPrivacyEnabled,
+                    value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_IGNET && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (PrivacyChannelAdapter.needsKNeuronQuery(classLoader, value.privacyKNeuron, incognitoPrivacyEnabled,
+                    value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_KNEURON && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (GuestPlayerCoreAdapter.needsQuery(classLoader, value.guestPlayerCore, guestBrowsingEnabled,
+                    value.diagnostics.any { it.id == GuestPlayerCoreAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
+                return true
+            }
+            if (HomeRecommendEarlyLoadAdapter.needsQuery(
+                    classLoader,
+                    value.homeRecommendEarlyLoadListener,
+                    homeRecommendEarlyLoadEnabled,
+                    value.diagnostics.any {
+                        it.id == HomeRecommendEarlyLoadAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (AiPlaylistDirectorAdapter.needsQuery(
+                    classLoader,
+                    value.aiPlaylistDirector,
+                    aiDeclaredVideoEnabled,
+                    value.diagnostics.any {
+                        it.id == AiPlaylistDirectorAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (FollowUpRecommendAdapter.needsQuery(
+                    classLoader,
+                    value.followUpRecommendBodies,
+                    followUpRecommendEnabled,
+                    value.diagnostics.any {
+                        it.id == FollowUpRecommendAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (DetailRelateGameAdapter.needsQuery(
+                    classLoader,
+                    value.detailRelateGameComponent,
+                    detailRelateGameEnabled,
+                    value.diagnostics.any {
+                        it.id == DetailRelateGameAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (LegacyStoryDanmakuAdapter.needsQuery(
+                    classLoader,
+                    value.legacyStoryDanmakuBind,
+                    storyDanmakuToggleHidden,
+                    value.diagnostics.any {
+                        it.id == LegacyStoryDanmakuAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (PlayerSpeedLocator.theseus2LongPressNeedsQuery(
+                    classLoader,
+                    value.playerSpeedTheseus2LongPress,
+                    playerSpeedLongPressEnabled,
+                    value.diagnostics.any {
+                        it.id == PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it)
+                    }
+                )) {
+                return true
+            }
+            if (HomeChromeAdapter.planned(classLoader, value.homeChrome, homeChromeEnabled, valueChromeAttempted, homeChromeIconOnly, homeTopTabCenteringEnabled).isNotEmpty()) {
+                return true
+            }
+            if (HomeChromeAdapter.semanticsNeedsQuery(classLoader, value.homeChromeSemantics, homeChromeEnabled, valueSemanticsAttempted, homeChromeIconOnly)) {
+                return true
+            }
+            if (CommentComposeMenuAdapter.needsQuery(
                     classLoader,
                     value.commentComposeMenu,
                     commentTopologyEnabled,
-                    value.diagnostics.any { it.id == CommentComposeMenuAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }
-                ) ||
-                KmpGrpcWireAdapter.needsQuery(
+                    value.diagnostics.any { it.id == CommentComposeMenuAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+                )) {
+                return true
+            }
+            if (KmpGrpcWireAdapter.needsQuery(
                     classLoader,
                     value.kmpGrpcWireEngine,
                     kmpGrpcWireEnabled || commentTopologyEnabled,
-                    value.diagnostics.any { it.id == KmpGrpcWireAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }
-                ) ||
-                assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled) ||
-                pageRefresh || popupRefresh || classicRefresh || sponsorRefresh || speedSessionRefresh || speedCalculatorRefresh || weChatShareRefresh || kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
-                enabled = true,
-                applicable = KotlinDefaultWordsLocator.applicable(classLoader),
-                directFound = KotlinDefaultWordsLocator.direct(classLoader) != null,
-                cachedFound = value.homeTopBar?.kotlinDefaultWords != null,
-                attempted = value.diagnostics.any { it.id == KotlinDefaultWordsLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }
-            )
+                    value.diagnostics.any { it.id == KmpGrpcWireAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+                )) {
+                return true
+            }
+            if (assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)) {
+                return true
+            }
+            if (kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache(
+                    enabled = true,
+                    applicable = KotlinDefaultWordsLocator.applicable(classLoader),
+                    directFound = KotlinDefaultWordsLocator.direct(classLoader) != null,
+                    cachedFound = value.homeTopBar?.kotlinDefaultWords != null,
+                    attempted = value.diagnostics.any { it.id == KotlinDefaultWordsLocator.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) }
+                )) {
+                return true
+            }
+            return false
         }
         val refreshRequested = usable?.let(::requiresFeatureRefresh) ?: false
-        val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() }
+        val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() }
         if (cached != null) {
             // 缓存命中后的文件维护和 DEX 内容比对一并下沉；不一致只作废缓存。
             auditDexSourceAsync(context, cached)
@@ -3638,75 +4352,110 @@ object VersionAdapter {
             ModernHookLog.info("[BIL] 版本适配已在本进程运行，跳过重复请求")
             return
         }
-        // 只因为计划新增了从未尝试的同步家族而补适配：实时 quickLocate 已经为本进程定位过它们，
-        // 这一轮只是把结果和覆盖范围写进缓存，没有用户可见的等待，不弹适配提示、不触发安装重试。
-        val silentSupplement = adaptDecision(usable, refreshRequested, coverageMissing) == AdaptDecision.SUPPLEMENT_SILENTLY
+        // 只因计划新增从未尝试的同步家族或局部域规则升级而补适配，或全模式重绑定命中：不弹适配提示。
+        val silentSupplement = adaptDecision(usable, refreshRequested, coverageMissing, staleDomains) == AdaptDecision.SUPPLEMENT_SILENTLY
         ModernHookLog.info(
             "[BIL] 版本适配启动 vc=$vc cached=${startup.cached != null} " +
                 "cacheStatus=$lastCacheStatus plan=$adaptPlan " +
-                "missing=${coverageMissing.size} silent=$silentSupplement"
+                "missing=${coverageMissing.size} stale=${staleDomains.size} silent=$silentSupplement"
         )
-        // 后台执行（不阻塞启动；toast 提示用户等待）
-        if (!silentSupplement) runCatching { callback?.onAdaptStarted() }
+        // 是否弹提示推迟到工作线程检查全模式 DEX/协议内容重绑定后再决定。
         val worker = Thread({
             var result: AdaptResult? = null
+            var persisted = false
+            var startedNotified = false
+            var runSilent = silentSupplement
             try {
                 // `adapt` 已自带 runCatching，但 writeCache 与日志不在其中；宿主进程内
                 // 线程的逃逸异常一律杀进程，整段必须过防波堤。
                 HostThreadGuard.run("adapter.adapt_worker") {
-                    // One original-source inspection shared by repack validation and normal adaptation.
+                    // One original-source inspection shared by content rebind validation and normal adaptation.
                     // No new disk work or unvalidated cached members enter Application.attach.
+                    var adaptHistory: AdaptResult? = popupHistory
                     val dexSource by lazy(LazyThreadSafetyMode.NONE) { inspectHostDexSource(context) }
-                    val repacked = if (startup.cached == null &&
-                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootRuntimeDetector.detect(context,
-                            io.github.libxposed.api.XposedModule::class.java.classLoader, VersionAdapter::class.java.classLoader) ==
-                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode.NPATCH_LEGACY &&
-                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfiles.read(context).metadataValid) {
-                        loadCached(context, resetTimestamp, identity = null)?.let { previous ->
-                            rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value)
-                        }?.takeIf { value ->
-                            StartupCacheSnapshot(startup.identity, resetTimestamp.coerceAtLeast(0L), value)
-                                .usableCache(highCandidateExists) != null && !requiresFeatureRefresh(value) &&
-                                AdaptPlanner.missing(value.coverage, adaptPlan).isEmpty()
+                    val repacked = if (startup.cached == null) {
+                        readRawCacheCandidates(context, resetTimestamp).firstNotNullOfOrNull { previous ->
+                            val actualProtocol = verifyProtocolFingerprint(classLoader, previous)
+                            rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value, actualProtocol)
+                        }?.let { candidate ->
+                            val reboundStale = AdaptDomainCatalog.staleDomains(candidate.domainRuleVersions)
+                            val reboundStripped = if (reboundStale.isEmpty()) {
+                                candidate
+                            } else {
+                                candidate.withoutDomains(reboundStale)
+                            }
+                            val reboundUsable = StartupCacheSnapshot(
+                                startup.identity,
+                                resetTimestamp.coerceAtLeast(0L),
+                                candidate
+                            ).usableCache(highCandidateExists)
+                            val reboundCoverageMissing = if (reboundUsable != null) {
+                                AdaptPlanner.missing(reboundStripped.coverage, adaptPlan)
+                            } else {
+                                emptySet()
+                            }
+                            val reboundRefresh = reboundUsable?.let(::requiresFeatureRefresh) ?: false
+                            if (reboundUsable != null && reboundStale.isEmpty() && !reboundRefresh &&
+                                reboundCoverageMissing.isEmpty()
+                            ) {
+                                runSilent = true
+                                lastCacheStatus = "dex-content-rebound"
+                                ModernHookLog.info(
+                                    "[BIL] 宿主 DEX 与协议指纹一致，静默复用适配缓存 dex=${candidate.dexSourceFingerprint}"
+                                )
+                                candidate
+                            } else {
+                                adaptHistory = reboundStripped
+                                runSilent = adaptDecision(
+                                    reboundUsable,
+                                    reboundRefresh,
+                                    reboundCoverageMissing,
+                                    reboundStale
+                                ) == AdaptDecision.SUPPLEMENT_SILENTLY
+                                lastCacheStatus = "dex-content-rebound-incremental"
+                                ModernHookLog.info(
+                                    "[BIL] 宿主 DEX 与协议指纹一致，按增量历史补适配 stale=${reboundStale.size} missing=${reboundCoverageMissing.size} silent=$runSilent"
+                                )
+                                null
+                            }
                         }
-                    } else null
-                    if (repacked != null) {
-                        lastCacheStatus = "npatch-content-rebound"
-                        ModernHookLog.info("[BIL] NPatch 原版 DEX 未变，后台复用适配缓存；下次冷启动生效 dex=${repacked.dexSourceFingerprint}")
+                    } else {
+                        null
                     }
-                    result = repacked ?: runCatching { adapt(context, classLoader, kotlinDefaultWordsEnabled, sponsorBlockEnabled,
-                        commentClassicStyleEnabled, playerPopupPromotionEnabled, previousPopup, previouslyMissingPopup,
-                        brandSplashCustomEnabled, previousBrand, previouslyMissingBrand,
-                        followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
-                        playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality,
-                        playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted,
-                        playerSpeedSessionEnabled, previousSpeedSession, speedSessionAttempted,
-                        playerSpeedCalculatorEnabled, previousSpeedCalculator, speedCalculatorAttempted,
-                        weChatShareEnabled, previousWeChatShare, weChatShareAttempted,
-                        searchHomeRecommendEnabled, playerEndPageRecommendEnabled, previousPages, pageAttempted,
-                        homeChromeEnabled, previousChrome, chromeAttempted, homeChromeIconOnly,
-                        previousChromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
-                        systemEnvironmentEnabled, previousSystemEnv, previouslyMissingSystemEnv,
-                        blockUpdateEnabled, commentTopologyEnabled,
-                        previousComposeMenu, previouslyMissingComposeMenu, kmpGrpcWireEnabled, previousKmpGrpcWire, previouslyMissingKmpGrpcWire,
-                        assistHistory, adaptPlan, popupHistory, dexSource, vc) }.getOrNull()
+                    result = repacked ?: run {
+                        if (!runSilent) {
+                            startedNotified = true
+                            runCatching { callback?.onAdaptStarted() }
+                        }
+                        runCatching { runAdaptWithHistory(adaptHistory, dexSource) }.getOrNull()
+                    }
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
-                        if (!writeCache(adapted)) {
+                        val fileWritten = writeCache(adapted)
+                        if (!fileWritten) {
                             ModernHookLog.error("[BIL] 版本适配文件缓存写入失败")
                         }
                         // 写 prefs 缓存（模块 App 侧可读，供 UI 展示适配状态）
-                        runCatching {
+                        val prefsWritten = runCatching {
                             prefs(context).edit()
                                 .putInt(KEY_ADAPTED_VERSION, adapted.biliVersionCode)
                                 .putString(KEY_ADAPT_RESULT, adapted.toJson().toString())
                                 .apply()
-                        }
+                            true
+                        }.onFailure { throwable ->
+                            ModernHookLog.error("[BIL] 版本适配 prefs 缓存写入失败", throwable)
+                        }.getOrDefault(false)
+                        persisted = fileWritten || prefsWritten
                     }
                 }
             } finally {
+                val succeeded = result != null && persisted
                 adaptationRunning.set(false)
-                if (!silentSupplement) runCatching { callback?.onAdaptFinished(result != null) }
+                if (startedNotified || (!succeeded && !runSilent)) {
+                    runCatching { callback?.onAdaptFinished(succeeded) }
+                } else {
+                    runCatching { callback?.onSilentCacheReady(succeeded) }
+                }
                 ModernHookLog.info(
                     "[BIL] 版本适配${if (result != null) "完成" else "失败"} " +
                         "v=${result?.biliVersionCode} low=${result?.commentLow} high=${result?.commentHigh} " +
@@ -3739,7 +4488,11 @@ object VersionAdapter {
         }, "BIL-VersionAdapter").apply { isDaemon = true }
         runCatching { worker.start() }.onFailure { throwable ->
             adaptationRunning.set(false)
-            runCatching { callback?.onAdaptFinished(false) }
+            if (silentSupplement) {
+                runCatching { callback?.onSilentCacheReady(false) }
+            } else {
+                runCatching { callback?.onAdaptFinished(false) }
+            }
             ModernHookLog.error("[BIL] 版本适配线程启动失败", throwable)
         }
     }
@@ -3845,8 +4598,7 @@ object VersionAdapter {
         val commentSection = locators.locate(PointFamily.COMMENT_SECTION) { locateCommentSection(loader) }
         val splashAds = locators.locate(PointFamily.SPLASH_ADS) { locateSplashAds(loader) }
         if (excluded.isEmpty() && low == null && high == null && mine == null &&
-            pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
-            pause.panelShow == null && pause.countdown == null && banner == null &&
+            pause.isEmpty() && banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerInteractiveOverlays == null && pgcAutoActivityPopup == null &&
@@ -3961,9 +4713,67 @@ object VersionAdapter {
                       kmpGrpcWireEnabled: Boolean = false,
                       previousKmpGrpcWire: HookPoint? = null,
                       previouslyMissingKmpGrpcWire: Boolean = false,
+                      previousBrandKntr: String? = null,
+                      previouslyMissingBrandKntr: Boolean = false,
+                      previousBrandKntrExit: String? = null,
+                      previouslyMissingBrandKntrExit: Boolean = false,
+                      previousBrandKntrPage: HookPoint? = null,
+                      previouslyMissingBrandKntrPage: Boolean = false,
+                      commentQuickReplyEnabled: Boolean = false,
+                      previouslyMissingCommentQuickReply: Boolean = false,
+                      pausedAdEnabled: Boolean = false,
+                      previouslyMissingPauseCountdown: Boolean = false,
+                      previouslyMissingPauseApiEntry: Boolean = false,
+                      brandSplashSkipEnabled: Boolean = false,
+                      previouslyMissingHomeTabResource: Boolean = false,
+                      cloudKeyFreezeEnabled: Boolean = false,
+                      previousCloudKeyContract: String? = null,
+                      previouslyMissingCloudKeyContract: Boolean = false,
+                      incognitoPrivacyEnabled: Boolean = false,
+                      previousPrivacyIgnet: HookPoint? = null,
+                      previouslyMissingPrivacyIgnet: Boolean = false,
+                      previousPrivacyKNeuron: String? = null,
+                      previouslyMissingPrivacyKNeuron: Boolean = false,
+                      guestBrowsingEnabled: Boolean = false,
+                      previousGuestPlayerCore: String? = null,
+                      previouslyMissingGuestPlayerCore: Boolean = false,
+                      previousNormalAutoSwitch: HookPoint? = null,
+                      previouslyMissingNormalAutoSwitch: Boolean = false,
+                      detailSpecialTagEnabled: Boolean = false,
+                      previousDetailSpecialTag: HookPoint? = null,
+                      previouslyMissingDetailSpecialTag: Boolean = false,
+                      commentReplyButtonEnabled: Boolean = false,
+                      previousCommentReplyOwners: Map<String, String> = emptyMap(),
+                      previouslyMissingCommentReplyOwners: Boolean = false,
+                      homeRecommendEarlyLoadEnabled: Boolean = false,
+                      previousHomeEarlyLoadListener: String? = null,
+                      previouslyMissingHomeEarlyLoadListener: Boolean = false,
+                      previousDefaultWords: HookPoint? = null,
+                      previouslyMissingDefaultWords: Boolean = false,
+                      previousSponsor: SponsorPlayerClasses? = null,
+                      previouslyMissingSponsor: Boolean = false,
+                      previousClassic: CommentClassicStylePoints? = null,
+                      previouslyMissingClassic: Boolean = false,
+                      aiDeclaredVideoEnabled: Boolean = false,
+                      previousAiPlaylistDirector: String? = null,
+                      previouslyMissingAiPlaylistDirector: Boolean = false,
+                      followUpRecommendEnabled: Boolean = false,
+                      previousFollowUpBodies: Map<String, String> = emptyMap(),
+                      previouslyMissingFollowUp: Boolean = false,
+                      detailRelateGameEnabled: Boolean = false,
+                      previousDetailRelateGame: String? = null,
+                      previouslyMissingDetailRelateGame: Boolean = false,
+                      storyDanmakuToggleHidden: Boolean = false,
+                      previousLegacyStoryBind: HookPoint? = null,
+                      previouslyMissingLegacyStoryBind: Boolean = false,
+                      playerSpeedLongPressEnabled: Boolean = false,
+                      previousTheseus2LongPress: Theseus2LongPressPoint? = null,
+                      previouslyMissingTheseus2LongPress: Boolean = false,
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
                       plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
-                      dexSource: DexSourceFingerprint.Result?, vc: Int): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
+                      dexSource: DexSourceFingerprint.Result?, vc: Int,
+                      hostFingerprint: String? = null): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
+        val resolvedHostFingerprint = hostFingerprint ?: buildHostFingerprint(context)
         ModernHookLog.info("[BIL] DEX source count=${dexSource?.dexEntryCount ?: 0}, " +
             "isolated=${dexSource?.codePaths?.all { File(it).parentFile?.name == "bil-host-dex" } == true}")
         // 只对计划内家族调用定位器；计划外的家族沿用此前有覆盖证明的缓存点，没有证明就是未请求（null）。
@@ -3979,10 +4789,34 @@ object VersionAdapter {
         } ?: EMPTY_PAUSE_POINTS
         val banner = sync(PointFamily.BANNER, previous?.banner) { locateBanner(loader) }
         var homeTopBar = sync(PointFamily.HOME_TOP_BAR, previous?.homeTopBar) { locateHomeTopBar(loader) }
-        val defaultWordsNeedsAssist = KotlinDefaultWordsLocator.needsQuery(kotlinDefaultWordsEnabled,
-            KotlinDefaultWordsLocator.applicable(loader), homeTopBar?.kotlinDefaultWords != null)
+        val directDefaultWordsFound = homeTopBar?.kotlinDefaultWords != null
+        val carriedDefaultWords = if (!directDefaultWordsFound) {
+            previousDefaultWords?.takeIf { KotlinDefaultWordsLocator.resolve(loader, it) != null }
+        } else {
+            null
+        }
+        if (homeTopBar?.kotlinDefaultWords == null && carriedDefaultWords != null) {
+            homeTopBar = homeTopBar?.copy(kotlinDefaultWords = carriedDefaultWords)
+                ?: HomeTopBarPoints(null, null, null, emptyList(), carriedDefaultWords)
+        }
+        val defaultWordsNeedsAssist = KotlinDefaultWordsLocator.refreshCache(
+            kotlinDefaultWordsEnabled,
+            KotlinDefaultWordsLocator.applicable(loader),
+            directDefaultWordsFound,
+            directDefaultWordsFound || carriedDefaultWords != null,
+            previouslyMissingDefaultWords
+        )
         val directSponsor = if (sponsorBlockEnabled) SponsorPlayerLocator.direct(loader) else null
-        val sponsorNeedsAssist = sponsorBlockEnabled && SponsorPlayerLocator.needsQuery(sponsorBlockEnabled, SponsorPlayerLocator.applicable(loader), directSponsor != null)
+        val cachedSponsor = if (sponsorBlockEnabled && directSponsor == null) {
+            previousSponsor?.let { SponsorPlayerLocator.resolve(loader, it) }
+        } else {
+            null
+        }
+        val sponsorNeedsAssist = sponsorBlockEnabled && SponsorPlayerLocator.needsQuery(
+            sponsorBlockEnabled,
+            SponsorPlayerLocator.applicable(loader),
+            directSponsor != null
+        ) && cachedSponsor == null && !previouslyMissingSponsor
         val directSpeedSession = if (playerSpeedSessionEnabled) PlayerSpeedSessionLocator.modern(loader) else null
         val speedSessionPlanned = PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,
             PlayerSpeedSessionLocator.applicable(loader), directSpeedSession != null,
@@ -3992,17 +4826,68 @@ object VersionAdapter {
         val speedCalculatorPlanned = PlayerSpeedLocator.calculatorRefreshCache(playerSpeedCalculatorEnabled,
             PlayerSpeedLocator.calculatorApplicable(loader), directSpeedCalculator != null,
             previousSpeedCalculator?.let { PlayerSpeedLocator.resolveCalculator(loader, it) } != null, speedCalculatorAttempted)
-        val directWeChatShare = if (weChatShareEnabled) WeChatShareCompatAccess.locate(loader, vc) else null
+        val directWeChatShare = if (weChatShareEnabled) {
+            WeChatShareCompatAccess.locate(loader, vc)?.takeIf { it.wrappers.size == it.expectedWrappers }
+        } else null
         val weChatSharePlanned = WeChatShareCompatAccess.refreshCache(weChatShareEnabled,
             WeChatShareCompatAccess.applicable(loader), directWeChatShare != null,
             previousWeChatShare?.let { WeChatShareCompatAccess.resolve(loader, it) } != null, weChatShareAttempted)
-        val classicMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
+        val classicDirectMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
+        val classicMissing = if (commentClassicStyleEnabled && !previouslyMissingClassic) {
+            CommentClassicStyleLocator.missing(loader, previousClassic)
+        } else {
+            emptySet()
+        }
         val followPlanned = FollowFeedAdapter.needsQuery(loader, previousFollow, followFeedStyleEnabled, previouslyMissingFollow)
         val pagePlanned = PageBoundaryAdapter.planned(loader, previousPages, searchHomeRecommendEnabled,
             playerEndPageRecommendEnabled, pageAttempted, styleEnabled = followFeedStyleEnabled)
         val speedMenuPlanned = PlayerSpeedMenuAdapter.needsQuery(loader, previousSpeedMenu, playerSpeedMenuEnabled, speedMenuAttempted)
         val storyQualityPlanned = StoryQualityLocator.planned(loader, previousStoryQuality, playerQualityEnabled, previouslyMissingStoryQuality)
         val brandPlanned = BrandSplashDecoderAdapter.needsQuery(loader, previousBrand, brandSplashCustomEnabled, previouslyMissingBrand)
+        val brandKntrPlanned = BrandSplashKntrAdapter.needsQuery(loader, previousBrandKntr, brandSplashCustomEnabled, previouslyMissingBrandKntr)
+        val brandKntrExitPlanned = BrandSplashKntrAdapter.needsExitQuery(
+            loader, previousBrandKntrExit, brandSplashCustomEnabled || brandSplashSkipEnabled, previouslyMissingBrandKntrExit
+        )
+        val brandKntrPagePlanned = BrandSplashKntrAdapter.needsPageQuery(
+            loader, previousBrandKntrPage, brandSplashCustomEnabled, previouslyMissingBrandKntrPage
+        )
+        val directHomeTabs = sync(PointFamily.HOME_TABS, previous?.homeTabs) { locateHomeTabs(loader) }
+        val directCommentPurify = sync(PointFamily.COMMENT_PURIFY, previous?.commentPurify) { locateCommentPurify(loader) }
+        val directQuickReplyMethods = if (commentQuickReplyEnabled) {
+            directCommentPurify?.quickReplyDialogMethods?.takeIf { it.isNotEmpty() } ?: locateCommentQuickReplyDirect(loader)
+        } else emptyList()
+        val commentQuickReplyPlanned = CommentQuickReplyAdapter.needsQuery(
+            loader,
+            directQuickReplyMethods,
+            previous?.commentPurify?.quickReplyDialogMethods.orEmpty(),
+            commentQuickReplyEnabled,
+            previouslyMissingCommentQuickReply
+        )
+        val pausedCountdownPlanned = PausedAdDexAdapter.needsCountdownQuery(
+            loader,
+            pause.countdown,
+            previous?.pause?.countdown,
+            pausedAdEnabled,
+            previouslyMissingPauseCountdown
+        )
+        val pausedRequestApiPlanned = PausedAdDexAdapter.needsRequestApiQuery(
+            loader,
+            vc,
+            previous?.pause?.apiEntry,
+            pausedAdEnabled,
+            previouslyMissingPauseApiEntry
+        )
+        val homeTabResourcePlanned = HomeTabResourceAdapter.needsQuery(
+            loader,
+            directFound = directHomeTabs != null,
+            cached = previous?.homeTabs,
+            enabled = plan.needs(PointFamily.HOME_TABS),
+            attempted = previouslyMissingHomeTabResource
+        )
+        val cloudKeyContractPlanned = CloudKeyFreezeAdapter.needsQuery(loader, previousCloudKeyContract, cloudKeyFreezeEnabled, previouslyMissingCloudKeyContract)
+        val privacyIgnetPlanned = PrivacyChannelAdapter.needsIgnetQuery(loader, previousPrivacyIgnet, incognitoPrivacyEnabled, previouslyMissingPrivacyIgnet)
+        val privacyKNeuronPlanned = PrivacyChannelAdapter.needsKNeuronQuery(loader, previousPrivacyKNeuron, incognitoPrivacyEnabled, previouslyMissingPrivacyKNeuron)
+        val guestPlayerCorePlanned = GuestPlayerCoreAdapter.needsQuery(loader, previousGuestPlayerCore, guestBrowsingEnabled, previouslyMissingGuestPlayerCore)
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
         val popupPlanned = PlayerPopupPromotionAdapter.planned(loader, previousPopup, previouslyMissingPopup, playerPopupPromotionEnabled)
         val mineVip = sync(PointFamily.MINE_VIP, previous?.mineVip) { locateMineVip(loader) }
@@ -4019,6 +4904,34 @@ object VersionAdapter {
         ) { locateCommentTopologyWithDiagnostic(loader, hostVersionCode = vc) } ?: CommentTopologyLocateOutcome(null, PLAN_NOT_REQUESTED)
         val playerQualityNeedsAssist = directPlayerQuality?.defaultQualityMethod == null ||
             directPlayerQuality.usesLegacyQualityHelper()
+        val normalAutoSwitchPlanned = NormalQualityLocator.needsQuery(
+            loader, directPlayerQuality?.defaultQualityMethod, previousNormalAutoSwitch,
+            playerQualityEnabled, previouslyMissingNormalAutoSwitch
+        )
+        val detailSpecialTagPlanned = DetailSpecialTagAdapter.needsQuery(
+            loader, previousDetailSpecialTag, detailSpecialTagEnabled, previouslyMissingDetailSpecialTag
+        )
+        val commentReplyButtonPlanned = CommentReplyButtonAdapter.needsQuery(
+            loader, previousCommentReplyOwners, commentReplyButtonEnabled, previouslyMissingCommentReplyOwners
+        )
+        val homeEarlyLoadPlanned = HomeRecommendEarlyLoadAdapter.needsQuery(
+            loader, previousHomeEarlyLoadListener, homeRecommendEarlyLoadEnabled, previouslyMissingHomeEarlyLoadListener
+        )
+        val aiPlaylistDirectorPlanned = AiPlaylistDirectorAdapter.needsQuery(
+            loader, previousAiPlaylistDirector, aiDeclaredVideoEnabled, previouslyMissingAiPlaylistDirector
+        )
+        val followUpPlanned = FollowUpRecommendAdapter.needsQuery(
+            loader, previousFollowUpBodies, followUpRecommendEnabled, previouslyMissingFollowUp
+        )
+        val detailRelateGamePlanned = DetailRelateGameAdapter.needsQuery(
+            loader, previousDetailRelateGame, detailRelateGameEnabled, previouslyMissingDetailRelateGame
+        )
+        val legacyStoryDanmakuPlanned = LegacyStoryDanmakuAdapter.needsQuery(
+            loader, previousLegacyStoryBind, storyDanmakuToggleHidden, previouslyMissingLegacyStoryBind
+        )
+        val theseus2LongPressPlanned = PlayerSpeedLocator.theseus2LongPressNeedsQuery(
+            loader, previousTheseus2LongPress, playerSpeedLongPressEnabled, previouslyMissingTheseus2LongPress
+        )
         // 三类兜底只在功能开启、直接定位未满足、缓存没有可复用的点、且历史没有确认缺失时入队。
         val blockUpdatePlanned = AdaptAssistGate.needsQuery(blockUpdateEnabled, assistHistory.blockUpdate != null,
             assistHistory.attempt(AdaptAssistGate.Family.BLOCK_UPDATE)) { directBlockUpdate != null }
@@ -4039,7 +4952,7 @@ object VersionAdapter {
             DexAssistSession(
                 engine = DexAssistAttemptGuard(
                     marker = dexAssistMarkerFile(),
-                    key = buildHostFingerprint(context),
+                    key = "$resolvedHostFingerprint|drv=${VersionAdapterContract.domainRulesSignature()}",
                     delegate = DexMeguvizAssistEngine
                 ),
                 codePaths = source.codePaths,
@@ -4060,6 +4973,15 @@ object VersionAdapter {
                     classicMissing.forEach { add(it.query) }
                     popupPlanned.forEach { add(it.query) }
                     if (brandPlanned) add(BrandSplashDecoderAdapter.query)
+                    if (brandKntrPlanned) add(BrandSplashKntrAdapter.query)
+                    if (cloudKeyContractPlanned) add(CloudKeyFreezeAdapter.query)
+                    if (privacyIgnetPlanned) add(PrivacyChannelAdapter.queryIgnet)
+                    if (privacyKNeuronPlanned) add(PrivacyChannelAdapter.queryKNeuron)
+                    if (guestPlayerCorePlanned) add(GuestPlayerCoreAdapter.query)
+                    if (normalAutoSwitchPlanned) add(NormalQualityLocator.query)
+                    if (detailSpecialTagPlanned) add(DetailSpecialTagAdapter.query)
+                    if (commentReplyButtonPlanned) add(CommentReplyButtonAdapter.query)
+                    if (homeEarlyLoadPlanned) add(HomeRecommendEarlyLoadAdapter.query)
                     if (followPlanned) {
                         add(DexAssistQuery.FOLLOW_FEED_STYLE)
                         add(DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
@@ -4068,6 +4990,17 @@ object VersionAdapter {
                     systemEnvPlanned.forEach { add(it.query) }
                     if (composeMenuPlanned) add(CommentComposeMenuAdapter.query)
                     if (kmpGrpcWirePlanned) add(KmpGrpcWireAdapter.query)
+                    if (brandKntrExitPlanned) add(BrandSplashKntrAdapter.queryExit)
+                    if (brandKntrPagePlanned) add(BrandSplashKntrAdapter.queryPage)
+                    if (commentQuickReplyPlanned) add(CommentQuickReplyAdapter.query)
+                    if (pausedCountdownPlanned) add(PausedAdDexAdapter.queryCountdown)
+                    if (pausedRequestApiPlanned) add(PausedAdDexAdapter.queryRequestApi)
+                    if (homeTabResourcePlanned) add(HomeTabResourceAdapter.query)
+                    if (aiPlaylistDirectorPlanned) add(AiPlaylistDirectorAdapter.query)
+                    if (followUpPlanned) add(FollowUpRecommendAdapter.query)
+                    if (detailRelateGamePlanned) add(DetailRelateGameAdapter.query)
+                    if (legacyStoryDanmakuPlanned) add(LegacyStoryDanmakuAdapter.query)
+                    if (theseus2LongPressPlanned) addAll(PlayerSpeedLocator.theseus2LongPressQueries)
                 }
             )
         }
@@ -4115,6 +5048,8 @@ object VersionAdapter {
             semanticsReady -> "verified-canonical-content-description"
             semanticsConclusive -> "no-safe-semantics-key"
             semanticsOutcome is DexAssistResult.Unavailable -> semanticsOutcome.reason.name.lowercase()
+            semanticsPlanned && dexAssist == null -> "no-dex-source"
+            semanticsPlanned -> "query_failed"
             else -> "disabled-or-absent"
         })
         val chromeDiagnostics = HomeChromeAdapter.families.map { (query, family) ->
@@ -4133,6 +5068,8 @@ object VersionAdapter {
                     found -> "verified-local-compose-boundary"
                     attempted -> "no-safe-boundary"
                     outcome is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    query in chromePlanned && dexAssist == null -> "no-dex-source"
+                    query in chromePlanned -> "query_failed"
                     else -> "disabled-or-absent"
                 })
         }
@@ -4149,13 +5086,14 @@ object VersionAdapter {
                 else -> AdaptState.MISSING
             }, when { !enabled -> "disabled"; ready -> "verified-boundary"; query in pageAttempted -> "previously-missing"
                 query !in pagePlanned -> "not-applicable-host"
-                else -> when (val outcome = dexAssist?.result(query)) {
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(query)) {
                     is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
                     else -> "missing-or-ambiguous"
                 }
             })
         }
-        val sponsor = directSponsor ?: if (sponsorNeedsAssist) SponsorPlayerLocator.assisted(loader, dexAssist) else null
+        val sponsor = directSponsor ?: cachedSponsor ?: if (sponsorNeedsAssist) SponsorPlayerLocator.assisted(loader, dexAssist) else null
         val speedSession = when {
             !playerSpeedSessionEnabled -> previousSpeedSession
             directSpeedSession != null -> PlayerSpeedSessionClasses(
@@ -4174,6 +5112,7 @@ object VersionAdapter {
         }, when {
             speedSessionReady -> "verified-speed-session-owner"
             !playerSpeedSessionEnabled -> "feature-disabled"
+            speedSessionPlanned && dexAssist == null -> "no-dex-source"
             speedSessionPlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.SPONSOR_RUN_PLAYABLE)) {
                 is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
                 else -> "missing-or-ambiguous-structure"
@@ -4199,6 +5138,7 @@ object VersionAdapter {
         }, when {
             speedCalculatorReady -> "verified-long-press-calculator"
             !playerSpeedCalculatorEnabled -> "feature-disabled"
+            speedCalculatorPlanned && dexAssist == null -> "no-dex-source"
             speedCalculatorPlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.PLAYER_SPEED_LONG_PRESS_CALCULATOR)) {
                 is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
                 else -> "missing-or-ambiguous-structure"
@@ -4222,6 +5162,7 @@ object VersionAdapter {
         }, when {
             weChatShareReady -> "verified-wechat-share-wrappers"
             !weChatShareEnabled -> "feature-disabled"
+            weChatSharePlanned && dexAssist == null -> "no-dex-source"
             weChatSharePlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY)) {
                 is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
                 else -> "missing-or-ambiguous-structure"
@@ -4242,7 +5183,11 @@ object VersionAdapter {
                     else -> "missing-or-ambiguous-structure"
                 }
             })
-        val classic = if (commentClassicStyleEnabled) CommentClassicStyleLocator.locate(loader, dexAssist, true) else null
+        val classic = if (commentClassicStyleEnabled) {
+            CommentClassicStyleLocator.locate(loader, dexAssist, true, previousClassic, classicMissing)
+        } else {
+            previousClassic
+        }
         val popup = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.locate(loader, dexAssist, true, previousPopup, popupPlanned) else previousPopup
         val follow = FollowFeedAdapter.locate(loader, dexAssist, followFeedStyleEnabled, previousFollow, followPlanned)
         val followFound = followFeedStyleEnabled && FollowFeedAdapter.resolve(loader, follow) != null
@@ -4274,6 +5219,115 @@ object VersionAdapter {
                     is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
                 }
             })
+        val brandKntrDraw = BrandSplashKntrAdapter.locate(
+            loader, dexAssist, brandSplashCustomEnabled, previousBrandKntr, brandKntrPlanned
+        )
+        val brandKntrReady = brandSplashCustomEnabled && (BrandSplashKntrAdapter.direct(loader) != null ||
+            BrandSplashKntrAdapter.resolve(loader, brandKntrDraw) != null)
+        val brandKntrDiagnostic = AdaptDiagnostic(
+            BrandSplashKntrAdapter.DIAGNOSTIC,
+            when {
+                brandKntrReady -> AdaptState.FOUND
+                brandSplashCustomEnabled && BrandSplashKntrAdapter.applicable(loader) &&
+                    (brandKntrPlanned || previouslyMissingBrandKntr) -> AdaptState.MISSING
+                !brandSplashCustomEnabled && previouslyMissingBrandKntr -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !brandSplashCustomEnabled -> if (previouslyMissingBrandKntr) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntr) "cached-attempt-preserved" else "not-applicable-host"
+                BrandSplashKntrAdapter.direct(loader) != null -> "direct"
+                brandKntrReady -> "verified"
+                !brandKntrPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(BrandSplashKntrAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val brandKntrExitEnabled = brandSplashCustomEnabled || brandSplashSkipEnabled
+        val brandKntrExit = BrandSplashKntrAdapter.locateExit(
+            loader, dexAssist, brandKntrExitEnabled, previousBrandKntrExit, brandKntrExitPlanned
+        )
+        val brandKntrExitReady = brandKntrExitEnabled && (BrandSplashKntrAdapter.directExit(loader) != null ||
+            BrandSplashKntrAdapter.resolveExit(loader, brandKntrExit) != null)
+        val brandKntrExitDiagnostic = AdaptDiagnostic(
+            BrandSplashKntrAdapter.DIAGNOSTIC_EXIT,
+            when {
+                brandKntrExitReady -> AdaptState.FOUND
+                brandKntrExitEnabled && BrandSplashKntrAdapter.applicable(loader) &&
+                    (brandKntrExitPlanned || previouslyMissingBrandKntrExit) -> AdaptState.MISSING
+                !brandKntrExitEnabled && previouslyMissingBrandKntrExit -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !brandKntrExitEnabled -> if (previouslyMissingBrandKntrExit) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntrExit) "cached-attempt-preserved" else "not-applicable-host"
+                BrandSplashKntrAdapter.directExit(loader) != null -> "direct"
+                brandKntrExitReady -> "verified"
+                !brandKntrExitPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(BrandSplashKntrAdapter.queryExit)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size + outcome.methods.size}"
+                }
+            }
+        )
+        val brandKntrPage = BrandSplashKntrAdapter.locatePage(
+            loader, dexAssist, brandSplashCustomEnabled, previousBrandKntrPage, brandKntrPagePlanned
+        )
+        val brandKntrPageReady = brandSplashCustomEnabled && (BrandSplashKntrAdapter.directPage(loader) != null ||
+            BrandSplashKntrAdapter.resolvePage(loader, brandKntrPage) != null)
+        val brandKntrPageDiagnostic = AdaptDiagnostic(
+            BrandSplashKntrAdapter.DIAGNOSTIC_PAGE,
+            when {
+                brandKntrPageReady -> AdaptState.FOUND
+                brandSplashCustomEnabled && BrandSplashKntrAdapter.applicable(loader) &&
+                    (brandKntrPagePlanned || previouslyMissingBrandKntrPage) -> AdaptState.MISSING
+                !brandSplashCustomEnabled && previouslyMissingBrandKntrPage -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !brandSplashCustomEnabled -> if (previouslyMissingBrandKntrPage) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntrPage) "cached-attempt-preserved" else "not-applicable-host"
+                BrandSplashKntrAdapter.directPage(loader) != null -> "direct"
+                brandKntrPageReady -> "verified"
+                !brandKntrPagePlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(BrandSplashKntrAdapter.queryPage)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val cloudKeyFreezeContract = CloudKeyFreezeAdapter.locate(
+            loader, dexAssist, cloudKeyFreezeEnabled, previousCloudKeyContract, cloudKeyContractPlanned
+        )
+        val cloudKeyContractReady = cloudKeyFreezeEnabled && (CloudKeyFreezeAdapter.direct(loader) != null ||
+            CloudKeyFreezeAdapter.resolve(loader, cloudKeyFreezeContract) != null)
+        val cloudKeyContractDiagnostic = AdaptDiagnostic(
+            CloudKeyFreezeAdapter.DIAGNOSTIC,
+            when {
+                cloudKeyContractReady -> AdaptState.FOUND
+                cloudKeyFreezeEnabled && CloudKeyFreezeAdapter.applicable(loader) &&
+                    (cloudKeyContractPlanned || previouslyMissingCloudKeyContract) -> AdaptState.MISSING
+                !cloudKeyFreezeEnabled && previouslyMissingCloudKeyContract -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !cloudKeyFreezeEnabled -> if (previouslyMissingCloudKeyContract) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !CloudKeyFreezeAdapter.applicable(loader) -> if (previouslyMissingCloudKeyContract) "cached-attempt-preserved" else "not-applicable-host"
+                CloudKeyFreezeAdapter.direct(loader) != null -> "direct"
+                cloudKeyContractReady -> "verified"
+                !cloudKeyContractPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(CloudKeyFreezeAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
         val popupUnresolved = if (playerPopupPromotionEnabled && popup != null) PlayerPopupPromotionAdapter.missing(loader, popup) else emptySet()
         val popupDiagnostics = PlayerPopupPromotionAdapter.Family.entries.map { family ->
             val found = playerPopupPromotionEnabled && family !in popupUnresolved
@@ -4294,22 +5348,53 @@ object VersionAdapter {
                 if (found) AdaptState.FOUND else if (playerPopupPromotionEnabled || family in previouslyMissingPopup) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
                 detail)
         }
-        val classicUnresolved = classic != null && CommentClassicStyleLocator.missing(loader, classic).isNotEmpty()
+        val classicReady = commentClassicStyleEnabled && classic != null &&
+            CommentClassicStyleLocator.missing(loader, classic).isEmpty()
+        val classicUnresolved = commentClassicStyleEnabled &&
+            CommentClassicStyleLocator.missing(loader, classic).isNotEmpty()
         fun failedDexReason(planned: Iterable<DexAssistQuery>): String? = planned.firstNotNullOfOrNull { query ->
             val result = dexAssist?.result(query) as? DexAssistResult.Unavailable
             result?.reason?.takeUnless { it == DexAssistResult.Reason.NO_MATCH || it == DexAssistResult.Reason.TOO_MANY_MATCHES }
                 ?.name?.lowercase()
         }
-        val classicDiagnostic = AdaptDiagnostic(CommentClassicStyleLocator.DIAGNOSTIC,
-            if (classicUnresolved) AdaptState.MISSING else if (classic != null) AdaptState.FOUND else AdaptState.NOT_APPLICABLE,
-            if (!commentClassicStyleEnabled) "feature-disabled" else if (classicUnresolved)
-                failedDexReason(classicMissing.map { it.query }) ?: "unavailable-or-ambiguous"
-            else if (classicMissing.isEmpty()) "direct" else "verified")
-        val sponsorDiagnostic = AdaptDiagnostic(SponsorPlayerLocator.DIAGNOSTIC,
-            if (sponsor != null) AdaptState.FOUND else if (sponsorNeedsAssist) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
-            if (!sponsorBlockEnabled) "feature-disabled" else if (directSponsor != null) "direct" else if (sponsor != null) "verified"
-            else if (sponsorNeedsAssist) failedDexReason(SponsorPlayerLocator.queries) ?: "unavailable-or-ambiguous"
-            else "unavailable-or-ambiguous")
+        val classicDiagnostic = AdaptDiagnostic(
+            CommentClassicStyleLocator.DIAGNOSTIC,
+            when {
+                classicReady -> AdaptState.FOUND
+                classicUnresolved || previouslyMissingClassic -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !commentClassicStyleEnabled ->
+                    if (previouslyMissingClassic) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                classicReady ->
+                    if (classicDirectMissing.isEmpty()) "direct"
+                    else if (classicMissing.isEmpty()) "cached-verified"
+                    else "verified"
+                previouslyMissingClassic && classicMissing.isEmpty() -> "cached-attempt-preserved"
+                dexAssist == null && classicMissing.isNotEmpty() -> "no-dex-source"
+                else -> failedDexReason(classicMissing.map { it.query }) ?: "unavailable-or-ambiguous"
+            }
+        )
+        val sponsorDiagnostic = AdaptDiagnostic(
+            SponsorPlayerLocator.DIAGNOSTIC,
+            when {
+                sponsorBlockEnabled && sponsor != null -> AdaptState.FOUND
+                sponsorNeedsAssist || previouslyMissingSponsor -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !sponsorBlockEnabled ->
+                    if (previouslyMissingSponsor) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                directSponsor != null -> "direct"
+                cachedSponsor != null -> "cached-verified"
+                sponsor != null -> "verified"
+                previouslyMissingSponsor -> "cached-attempt-preserved"
+                sponsorNeedsAssist && dexAssist == null -> "no-dex-source"
+                sponsorNeedsAssist -> failedDexReason(SponsorPlayerLocator.queries) ?: "unavailable-or-ambiguous"
+                else -> "not-applicable-host"
+            }
+        )
         val blockUpdateAssist = when {
             blockUpdatePlanned -> locateBlockUpdateByDex(loader, dexAssist)
             directBlockUpdate != null -> BlockUpdateDexAssist(
@@ -4329,8 +5414,21 @@ object VersionAdapter {
             )
         }
         val defaultWordsAssist = if (defaultWordsNeedsAssist) locateKotlinDefaultWordsByDex(dexAssist) else {
-            KotlinDefaultWordsDexAssist(null, AdaptDiagnostic(KotlinDefaultWordsLocator.DIAGNOSTIC,
-                AdaptState.NOT_APPLICABLE, if (!kotlinDefaultWordsEnabled) "feature-disabled" else "not-required"))
+            val resolved = kotlinDefaultWordsEnabled && homeTopBar?.kotlinDefaultWords != null
+            val diagState = when {
+                resolved -> AdaptState.FOUND
+                previouslyMissingDefaultWords -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            }
+            val diagDetail = when {
+                !kotlinDefaultWordsEnabled ->
+                    if (previouslyMissingDefaultWords) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                resolved && carriedDefaultWords != null -> "cached-verified"
+                resolved -> "direct"
+                previouslyMissingDefaultWords -> "cached-attempt-preserved"
+                else -> "not-required"
+            }
+            KotlinDefaultWordsDexAssist(null, AdaptDiagnostic(KotlinDefaultWordsLocator.DIAGNOSTIC, diagState, diagDetail))
         }
         defaultWordsAssist.point?.let { point ->
             homeTopBar = homeTopBar?.copy(kotlinDefaultWords = point)
@@ -4351,7 +5449,38 @@ object VersionAdapter {
             locateHomeRecommendFeed(loader)
         }
         val videoRelate = sync(PointFamily.VIDEO_RELATE, previous?.videoRelate) { locateVideoRelate(loader) }
-        val homeTabs = sync(PointFamily.HOME_TABS, previous?.homeTabs) { locateHomeTabs(loader) }
+        val homeTabs = directHomeTabs ?: if (plan.needs(PointFamily.HOME_TABS)) {
+            HomeTabResourceAdapter.locate(
+                loader, dexAssist, enabled = true, direct = null,
+                cached = previous?.homeTabs, planned = homeTabResourcePlanned
+            )
+        } else null
+        val homeTabResourceDiagnostic = AdaptDiagnostic(
+            HomeTabResourceAdapter.DIAGNOSTIC,
+            when {
+                !plan.needs(PointFamily.HOME_TABS) ->
+                    if (previouslyMissingHomeTabResource) AdaptState.MISSING else AdaptState.NOT_APPLICABLE
+                homeTabs != null -> AdaptState.FOUND
+                HomeTabResourceAdapter.applicable(loader) &&
+                    (homeTabResourcePlanned || previouslyMissingHomeTabResource) -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !plan.needs(PointFamily.HOME_TABS) ->
+                    if (previouslyMissingHomeTabResource) "plan-not-requested:cached-attempt-preserved" else "plan-not-requested"
+                !HomeTabResourceAdapter.applicable(loader) ->
+                    if (previouslyMissingHomeTabResource) "cached-attempt-preserved" else "not-applicable-host"
+                directHomeTabs != null -> "direct"
+                homeTabs != null && !homeTabResourcePlanned -> "cached-verified"
+                homeTabs != null -> "verified"
+                !homeTabResourcePlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(HomeTabResourceAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
         val homeComponents = sync(PointFamily.HOME_COMPONENTS, previous?.homeComponents) { locateHomeComponents(loader) }
         val mineComponents = sync(PointFamily.MINE_COMPONENTS, previous?.mineComponents) { locateMineComponents(loader, mine) }
         val mineAccountMine = sync(PointFamily.MINE_ACCOUNT_MINE, previous?.mineAccountMine) {
@@ -4379,8 +5508,38 @@ object VersionAdapter {
             ?: carriedQuality
             ?: directPlayerQuality
         val storyQuality = StoryQualityLocator.locate(loader, dexAssist, previousStoryQuality, storyQualityPlanned)
-        val playerQuality = globalPlayerQuality?.copy(story = storyQuality)
-            ?: storyQuality?.let { PlayerQualityPoints(null, story = it) }
+        val effectiveDefaultQuality = globalPlayerQuality?.defaultQualityMethod ?: directPlayerQuality?.defaultQualityMethod
+        val normalAutoSwitch = NormalQualityLocator.locateAutoSwitch(
+            loader, dexAssist, effectiveDefaultQuality, playerQualityEnabled, previousNormalAutoSwitch, normalAutoSwitchPlanned
+        )
+        val normalAutoSwitchReady = playerQualityEnabled && NormalQualityLocator.resolveAutoSwitch(loader, normalAutoSwitch) != null
+        val normalAutoSwitchDiagnostic = AdaptDiagnostic(
+            NormalQualityLocator.DIAGNOSTIC,
+            when {
+                normalAutoSwitchReady -> AdaptState.FOUND
+                playerQualityEnabled && NormalQualityLocator.applicableModern(loader, effectiveDefaultQuality, previousNormalAutoSwitch) &&
+                    (normalAutoSwitchPlanned || previouslyMissingNormalAutoSwitch) -> AdaptState.MISSING
+                !playerQualityEnabled && previouslyMissingNormalAutoSwitch -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !playerQualityEnabled ->
+                    if (previouslyMissingNormalAutoSwitch) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                NormalQualityLocator.applicable(effectiveDefaultQuality) -> "legacy-hook-active"
+                !NormalQualityLocator.applicableModern(loader, effectiveDefaultQuality, previousNormalAutoSwitch) ->
+                    if (previouslyMissingNormalAutoSwitch) "cached-attempt-preserved" else "not-applicable-host"
+                normalAutoSwitchReady -> "verified"
+                !normalAutoSwitchPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(NormalQualityLocator.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val playerQuality = globalPlayerQuality?.copy(story = storyQuality, normalAutoSwitch = normalAutoSwitch)
+            ?: storyQuality?.let { PlayerQualityPoints(null, story = it, normalAutoSwitch = normalAutoSwitch) }
+            ?: normalAutoSwitch?.let { PlayerQualityPoints(null, normalAutoSwitch = it) }
         val storyDexFailure = if (storyQualityPlanned.isEmpty() || storyQuality?.semanticComplete == true) null
             else if (dexAssist == null) "no-dex-source" else failedDexReason(storyQualityPlanned)
         val storyQualityDiagnostic = AdaptDiagnostic(StoryQualityLocator.DIAGNOSTIC,
@@ -4394,7 +5553,134 @@ object VersionAdapter {
                 else -> "partial:policy=${storyQuality.policyMethod != null},resource=${storyQuality.resourceSelectionMethod != null},match=${storyQuality.matchPreferenceMethod != null}"
             })
         val teenagersMode = sync(PointFamily.TEENAGERS_MODE, previous?.teenagersMode) { locateTeenagersMode(loader) }
-        val commentPurify = sync(PointFamily.COMMENT_PURIFY, previous?.commentPurify) { locateCommentPurify(loader) }
+        val assistedQuickReplyMethods = if (commentQuickReplyEnabled) {
+            CommentQuickReplyAdapter.locate(
+                loader,
+                dexAssist,
+                enabled = true,
+                directMethods = directQuickReplyMethods,
+                cachedMethods = previous?.commentPurify?.quickReplyDialogMethods.orEmpty(),
+                planned = commentQuickReplyPlanned
+            )
+        } else emptyList()
+        val commentPurify = when {
+            !commentQuickReplyEnabled || assistedQuickReplyMethods.isEmpty() -> directCommentPurify
+            directCommentPurify == null -> CommentPurifyPoints(
+                urlMapGetters = emptyList(),
+                emptyPageGetters = emptyList(),
+                voteWidgetMethods = emptyList(),
+                follow = null,
+                qoe = null,
+                operations = emptyList(),
+                quickReplyDialogMethods = assistedQuickReplyMethods,
+                urlSchemaGetters = emptyList()
+            )
+            directCommentPurify.quickReplyDialogMethods.isNotEmpty() -> directCommentPurify
+            else -> directCommentPurify.copy(quickReplyDialogMethods = assistedQuickReplyMethods)
+        }
+        val commentQuickReplyReady = commentQuickReplyEnabled &&
+            (directQuickReplyMethods.isNotEmpty() || assistedQuickReplyMethods.isNotEmpty())
+        val commentQuickReplyDiagnostic = AdaptDiagnostic(
+            CommentQuickReplyAdapter.DIAGNOSTIC,
+            when {
+                commentQuickReplyReady -> AdaptState.FOUND
+                commentQuickReplyEnabled && CommentQuickReplyAdapter.applicable(loader) &&
+                    (commentQuickReplyPlanned || previouslyMissingCommentQuickReply) -> AdaptState.MISSING
+                !commentQuickReplyEnabled && previouslyMissingCommentQuickReply -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !commentQuickReplyEnabled ->
+                    if (previouslyMissingCommentQuickReply) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !CommentQuickReplyAdapter.applicable(loader) ->
+                    if (previouslyMissingCommentQuickReply) "cached-attempt-preserved" else "not-applicable-host"
+                directQuickReplyMethods.isNotEmpty() -> "direct"
+                commentQuickReplyReady && !commentQuickReplyPlanned -> "cached-verified"
+                commentQuickReplyReady -> "verified"
+                !commentQuickReplyPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(CommentQuickReplyAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val assistedPauseCountdown = if (pausedAdEnabled) {
+            PausedAdDexAdapter.locateCountdown(
+                loader, dexAssist, enabled = true, direct = pause.countdown,
+                cached = previous?.pause?.countdown, planned = pausedCountdownPlanned
+            )
+        } else pause.countdown
+        val assistedPauseApiEntry = if (pausedAdEnabled) {
+            PausedAdDexAdapter.locateRequestApi(
+                loader, vc, dexAssist, enabled = true,
+                cached = previous?.pause?.apiEntry, planned = pausedRequestApiPlanned
+            )
+        } else pause.apiEntry
+        val mergedPause = PausePoints(
+            requestMethods = pause.requestMethods,
+            legacyCallback = pause.legacyCallback,
+            panelShow = pause.panelShow,
+            countdown = pause.countdown ?: assistedPauseCountdown,
+            apiEntry = assistedPauseApiEntry ?: pause.apiEntry
+        )
+        val pausedCountdownReady = pausedAdEnabled &&
+            (PausedAdDexAdapter.directCountdown(loader) != null ||
+                PausedAdDexAdapter.resolveCountdown(loader, mergedPause.countdown) != null)
+        val pausedCountdownDiagnostic = AdaptDiagnostic(
+            PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN,
+            when {
+                pausedCountdownReady -> AdaptState.FOUND
+                pausedAdEnabled && PausedAdDexAdapter.applicableCountdown(loader) &&
+                    (pausedCountdownPlanned || previouslyMissingPauseCountdown) -> AdaptState.MISSING
+                !pausedAdEnabled && previouslyMissingPauseCountdown -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !pausedAdEnabled ->
+                    if (previouslyMissingPauseCountdown) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !PausedAdDexAdapter.applicableCountdown(loader) ->
+                    if (previouslyMissingPauseCountdown) "cached-attempt-preserved" else "not-applicable-host"
+                PausedAdDexAdapter.directCountdown(loader) != null -> "direct"
+                pausedCountdownReady && !pausedCountdownPlanned -> "cached-verified"
+                pausedCountdownReady -> "verified"
+                !pausedCountdownPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(PausedAdDexAdapter.queryCountdown)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val pausedApiEntryDirect = pausedAdEnabled &&
+            PauseRequestCoverage.hasVerifiedApiEntry(loader, vc, cachedApiEntry = null)
+        val pausedApiEntryReady = pausedAdEnabled &&
+            (pausedApiEntryDirect || PauseRequestCoverage.resolveApiEntry(loader, mergedPause.apiEntry) != null)
+        val pausedRequestApiDiagnostic = AdaptDiagnostic(
+            PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API,
+            when {
+                pausedApiEntryReady -> AdaptState.FOUND
+                pausedAdEnabled && PausedAdDexAdapter.applicableRequestApi(loader) &&
+                    (pausedRequestApiPlanned || previouslyMissingPauseApiEntry) -> AdaptState.MISSING
+                !pausedAdEnabled && previouslyMissingPauseApiEntry -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !pausedAdEnabled ->
+                    if (previouslyMissingPauseApiEntry) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !PausedAdDexAdapter.applicableRequestApi(loader) ->
+                    if (previouslyMissingPauseApiEntry) "cached-attempt-preserved" else "not-applicable-host"
+                pausedApiEntryDirect -> "direct"
+                pausedApiEntryReady && !pausedRequestApiPlanned -> "cached-verified"
+                pausedApiEntryReady -> "verified"
+                !pausedRequestApiPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(PausedAdDexAdapter.queryRequestApi)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
         val commentFilter = sync(PointFamily.COMMENT_FILTER, previous?.commentFilter) { locateCommentFilter(loader) }
         val topologyAssist = when {
             topologyPlanned -> locateCommentTopologyMapperByDex(loader, dexAssist)
@@ -4478,6 +5764,352 @@ object VersionAdapter {
                 }
             }
         )
+        val privacyIgnetHttp = PrivacyChannelAdapter.locateIgnet(
+            loader, dexAssist, incognitoPrivacyEnabled, previousPrivacyIgnet, privacyIgnetPlanned
+        )
+        val privacyIgnetReady = incognitoPrivacyEnabled &&
+            PrivacyChannelAdapter.resolveIgHttpRequest(loader, privacyIgnetHttp) != null
+        val privacyIgnetDiagnostic = AdaptDiagnostic(
+            PrivacyChannelAdapter.DIAGNOSTIC_IGNET,
+            when {
+                privacyIgnetReady -> AdaptState.FOUND
+                incognitoPrivacyEnabled && PrivacyChannelAdapter.applicableIgnet(loader) &&
+                    (privacyIgnetPlanned || previouslyMissingPrivacyIgnet) -> AdaptState.MISSING
+                !incognitoPrivacyEnabled && previouslyMissingPrivacyIgnet -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !incognitoPrivacyEnabled ->
+                    if (previouslyMissingPrivacyIgnet) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !PrivacyChannelAdapter.applicableIgnet(loader) ->
+                    if (previouslyMissingPrivacyIgnet) "cached-attempt-preserved" else "not-applicable-host"
+                PrivacyChannelAdapter.directIgnet(loader) != null -> "direct"
+                privacyIgnetReady -> "verified"
+                !privacyIgnetPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(PrivacyChannelAdapter.queryIgnet)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val privacyKNeuron = PrivacyChannelAdapter.locateKNeuron(
+            loader, dexAssist, incognitoPrivacyEnabled, previousPrivacyKNeuron, privacyKNeuronPlanned
+        )
+        val privacyKNeuronReady = incognitoPrivacyEnabled &&
+            PrivacyChannelAdapter.resolveKNeuron(loader, privacyKNeuron) != null
+        val privacyKNeuronDiagnostic = AdaptDiagnostic(
+            PrivacyChannelAdapter.DIAGNOSTIC_KNEURON,
+            when {
+                privacyKNeuronReady -> AdaptState.FOUND
+                incognitoPrivacyEnabled && PrivacyChannelAdapter.applicableKNeuron(loader) &&
+                    (privacyKNeuronPlanned || previouslyMissingPrivacyKNeuron) -> AdaptState.MISSING
+                !incognitoPrivacyEnabled && previouslyMissingPrivacyKNeuron -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !incognitoPrivacyEnabled ->
+                    if (previouslyMissingPrivacyKNeuron) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !PrivacyChannelAdapter.applicableKNeuron(loader) ->
+                    if (previouslyMissingPrivacyKNeuron) "cached-attempt-preserved" else "not-applicable-host"
+                PrivacyChannelAdapter.directKNeuron(loader) != null -> "direct"
+                privacyKNeuronReady -> "verified"
+                !privacyKNeuronPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(PrivacyChannelAdapter.queryKNeuron)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val guestPlayerCore = GuestPlayerCoreAdapter.locate(
+            loader, dexAssist, guestBrowsingEnabled, previousGuestPlayerCore, guestPlayerCorePlanned
+        )
+        val guestPlayerCoreReady = guestBrowsingEnabled &&
+            GuestPlayerCoreAdapter.resolve(loader, guestPlayerCore) != null
+        val guestPlayerCoreDiagnostic = AdaptDiagnostic(
+            GuestPlayerCoreAdapter.DIAGNOSTIC,
+            when {
+                guestPlayerCoreReady -> AdaptState.FOUND
+                guestBrowsingEnabled && GuestPlayerCoreAdapter.applicable(loader) &&
+                    (guestPlayerCorePlanned || previouslyMissingGuestPlayerCore) -> AdaptState.MISSING
+                !guestBrowsingEnabled && previouslyMissingGuestPlayerCore -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !guestBrowsingEnabled ->
+                    if (previouslyMissingGuestPlayerCore) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !GuestPlayerCoreAdapter.applicable(loader) ->
+                    if (previouslyMissingGuestPlayerCore) "cached-attempt-preserved" else "not-applicable-host"
+                GuestPlayerCoreAdapter.direct(loader) != null -> "direct"
+                guestPlayerCoreReady -> "verified"
+                !guestPlayerCorePlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(GuestPlayerCoreAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val detailSpecialTagMapper = DetailSpecialTagAdapter.locate(
+            loader, dexAssist, detailSpecialTagEnabled, previousDetailSpecialTag, detailSpecialTagPlanned
+        )
+        val detailSpecialTagReady = detailSpecialTagEnabled &&
+            DetailSpecialTagAdapter.resolve(loader, detailSpecialTagMapper) != null
+        val detailSpecialTagDiagnostic = AdaptDiagnostic(
+            DetailSpecialTagAdapter.DIAGNOSTIC,
+            when {
+                detailSpecialTagReady -> AdaptState.FOUND
+                detailSpecialTagEnabled && DetailSpecialTagAdapter.applicable(loader) &&
+                    (detailSpecialTagPlanned || previouslyMissingDetailSpecialTag) -> AdaptState.MISSING
+                !detailSpecialTagEnabled && previouslyMissingDetailSpecialTag -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !detailSpecialTagEnabled ->
+                    if (previouslyMissingDetailSpecialTag) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !DetailSpecialTagAdapter.applicable(loader) ->
+                    if (previouslyMissingDetailSpecialTag) "cached-attempt-preserved" else "not-applicable-host"
+                DetailSpecialTagAdapter.direct(loader) != null -> "direct"
+                detailSpecialTagReady -> "verified"
+                !detailSpecialTagPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(DetailSpecialTagAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val commentReplyButtonOwners = CommentReplyButtonAdapter.locate(
+            loader, dexAssist, commentReplyButtonEnabled, previousCommentReplyOwners, commentReplyButtonPlanned
+        )
+        val resolvedCommentReplyOwners = if (commentReplyButtonEnabled) {
+            CommentReplyButtonAdapter.resolveOwners(loader, commentReplyButtonOwners)
+        } else {
+            emptyMap()
+        }
+        val commentReplyButtonReady = commentReplyButtonEnabled &&
+            resolvedCommentReplyOwners.size == CommentReplyButtonAdapter.FAMILIES.size
+        val commentReplyButtonDiagnostic = AdaptDiagnostic(
+            CommentReplyButtonAdapter.DIAGNOSTIC,
+            when {
+                commentReplyButtonReady -> AdaptState.FOUND
+                commentReplyButtonEnabled && CommentReplyButtonAdapter.applicable(loader) &&
+                    (commentReplyButtonPlanned || previouslyMissingCommentReplyOwners) -> AdaptState.MISSING
+                !commentReplyButtonEnabled && previouslyMissingCommentReplyOwners -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !commentReplyButtonEnabled ->
+                    if (previouslyMissingCommentReplyOwners) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !CommentReplyButtonAdapter.applicable(loader) ->
+                    if (previouslyMissingCommentReplyOwners) "cached-attempt-preserved" else "not-applicable-host"
+                commentReplyButtonReady && CommentReplyButtonAdapter.directOwners(loader).size == CommentReplyButtonAdapter.FAMILIES.size -> "direct"
+                commentReplyButtonReady -> "verified"
+                !commentReplyButtonPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(CommentReplyButtonAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates ->
+                        "incomplete:families=${resolvedCommentReplyOwners.keys.sorted().joinToString("+")}"
+                }
+            }
+        )
+        val homeRecommendEarlyLoadListener = HomeRecommendEarlyLoadAdapter.locate(
+            loader, dexAssist, homeRecommendEarlyLoadEnabled, previousHomeEarlyLoadListener, homeEarlyLoadPlanned
+        )
+        val homeEarlyLoadReady = homeRecommendEarlyLoadEnabled &&
+            HomeRecommendEarlyLoadAdapter.resolve(loader, homeRecommendEarlyLoadListener) != null
+        val homeEarlyLoadDiagnostic = AdaptDiagnostic(
+            HomeRecommendEarlyLoadAdapter.DIAGNOSTIC,
+            when {
+                homeEarlyLoadReady -> AdaptState.FOUND
+                homeRecommendEarlyLoadEnabled && HomeRecommendEarlyLoadAdapter.applicable(loader) &&
+                    (homeEarlyLoadPlanned || previouslyMissingHomeEarlyLoadListener) -> AdaptState.MISSING
+                !homeRecommendEarlyLoadEnabled && previouslyMissingHomeEarlyLoadListener -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !homeRecommendEarlyLoadEnabled ->
+                    if (previouslyMissingHomeEarlyLoadListener) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !HomeRecommendEarlyLoadAdapter.applicable(loader) ->
+                    if (previouslyMissingHomeEarlyLoadListener) "cached-attempt-preserved" else "not-applicable-host"
+                HomeRecommendEarlyLoadAdapter.direct(loader) != null -> "direct"
+                homeEarlyLoadReady -> "verified"
+                !homeEarlyLoadPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(HomeRecommendEarlyLoadAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size}"
+                }
+            }
+        )
+        val aiPlaylistDirector = AiPlaylistDirectorAdapter.locate(
+            loader, dexAssist, aiDeclaredVideoEnabled, previousAiPlaylistDirector, aiPlaylistDirectorPlanned
+        )
+        val aiPlaylistDirectorDirect = AiPlaylistDirectorAdapter.direct(loader)
+        val aiPlaylistDirectorReady = aiDeclaredVideoEnabled &&
+            (aiPlaylistDirectorDirect != null || AiPlaylistDirectorAdapter.resolve(loader, aiPlaylistDirector) != null)
+        val aiPlaylistDirectorDiagnostic = AdaptDiagnostic(
+            AiPlaylistDirectorAdapter.DIAGNOSTIC,
+            when {
+                aiPlaylistDirectorReady -> AdaptState.FOUND
+                aiDeclaredVideoEnabled && AiPlaylistDirectorAdapter.applicable(loader) &&
+                    (aiPlaylistDirectorPlanned || previouslyMissingAiPlaylistDirector) -> AdaptState.MISSING
+                !aiDeclaredVideoEnabled && previouslyMissingAiPlaylistDirector -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !aiDeclaredVideoEnabled ->
+                    if (previouslyMissingAiPlaylistDirector) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !AiPlaylistDirectorAdapter.applicable(loader) ->
+                    if (previouslyMissingAiPlaylistDirector) "cached-attempt-preserved" else "not-applicable-host"
+                aiPlaylistDirectorDirect != null -> "direct"
+                aiPlaylistDirectorReady -> "verified"
+                !aiPlaylistDirectorPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(AiPlaylistDirectorAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size}"
+                }
+            }
+        )
+        val followUpRecommendBodies = FollowUpRecommendAdapter.locate(
+            loader, dexAssist, followUpRecommendEnabled, previousFollowUpBodies, followUpPlanned
+        )
+        val followUpApplicable = FollowUpRecommendAdapter.applicable(loader)
+        val followUpMissingAfterLocate = if (followUpRecommendEnabled && followUpApplicable) {
+            FollowUpRecommendAdapter.missingFamilies(loader, followUpRecommendBodies)
+        } else {
+            emptyList()
+        }
+        val followUpReady = followUpRecommendEnabled && followUpApplicable && followUpMissingAfterLocate.isEmpty()
+        val followUpRecommendDiagnostic = AdaptDiagnostic(
+            FollowUpRecommendAdapter.DIAGNOSTIC,
+            when {
+                followUpReady -> AdaptState.FOUND
+                followUpRecommendEnabled && followUpApplicable &&
+                    (followUpPlanned || previouslyMissingFollowUp) -> AdaptState.MISSING
+                !followUpRecommendEnabled && previouslyMissingFollowUp -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !followUpRecommendEnabled ->
+                    if (previouslyMissingFollowUp) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !followUpApplicable ->
+                    if (previouslyMissingFollowUp) "cached-attempt-preserved" else "not-applicable-host"
+                followUpReady && FollowUpRecommendAdapter.missingFamilies(loader, emptyMap()).isEmpty() -> "direct"
+                followUpReady -> "verified"
+                !followUpPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(FollowUpRecommendAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates ->
+                        "incomplete:missing=${followUpMissingAfterLocate.joinToString("+") { it.key }}"
+                }
+            }
+        )
+        val detailRelateGameComponent = DetailRelateGameAdapter.locate(
+            loader, dexAssist, detailRelateGameEnabled, previousDetailRelateGame, detailRelateGamePlanned
+        )
+        val detailRelateGameDirect = DetailRelateGameAdapter.direct(loader)
+        val detailRelateGameReady = detailRelateGameEnabled &&
+            (detailRelateGameDirect != null || DetailRelateGameAdapter.resolve(loader, detailRelateGameComponent) != null)
+        val detailRelateGameDiagnostic = AdaptDiagnostic(
+            DetailRelateGameAdapter.DIAGNOSTIC,
+            when {
+                detailRelateGameReady -> AdaptState.FOUND
+                detailRelateGameEnabled && DetailRelateGameAdapter.applicable(loader) &&
+                    (detailRelateGamePlanned || previouslyMissingDetailRelateGame) -> AdaptState.MISSING
+                !detailRelateGameEnabled && previouslyMissingDetailRelateGame -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !detailRelateGameEnabled ->
+                    if (previouslyMissingDetailRelateGame) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !DetailRelateGameAdapter.applicable(loader) ->
+                    if (previouslyMissingDetailRelateGame) "cached-attempt-preserved" else "not-applicable-host"
+                detailRelateGameDirect != null -> "direct"
+                detailRelateGameReady -> "verified"
+                !detailRelateGamePlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(DetailRelateGameAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.classes.size + outcome.methods.size}"
+                }
+            }
+        )
+        val legacyStoryDanmakuBind = LegacyStoryDanmakuAdapter.locate(
+            loader, dexAssist, storyDanmakuToggleHidden, previousLegacyStoryBind, legacyStoryDanmakuPlanned
+        )
+        val legacyStoryDanmakuDirect = LegacyStoryDanmakuAdapter.direct(loader)
+        val legacyStoryDanmakuReady = storyDanmakuToggleHidden &&
+            (legacyStoryDanmakuDirect != null || LegacyStoryDanmakuAdapter.resolve(loader, legacyStoryDanmakuBind) != null)
+        val legacyStoryDanmakuDiagnostic = AdaptDiagnostic(
+            LegacyStoryDanmakuAdapter.DIAGNOSTIC,
+            when {
+                legacyStoryDanmakuReady -> AdaptState.FOUND
+                storyDanmakuToggleHidden && LegacyStoryDanmakuAdapter.applicable(loader) &&
+                    (legacyStoryDanmakuPlanned || previouslyMissingLegacyStoryBind) -> AdaptState.MISSING
+                !storyDanmakuToggleHidden && previouslyMissingLegacyStoryBind -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !storyDanmakuToggleHidden ->
+                    if (previouslyMissingLegacyStoryBind) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !LegacyStoryDanmakuAdapter.applicable(loader) ->
+                    if (previouslyMissingLegacyStoryBind) "cached-attempt-preserved" else "not-applicable-host"
+                legacyStoryDanmakuDirect != null -> "direct"
+                legacyStoryDanmakuReady -> "verified"
+                !legacyStoryDanmakuPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(LegacyStoryDanmakuAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
+                }
+            }
+        )
+        val playerSpeedTheseus2LongPress = PlayerSpeedLocator.locateTheseus2LongPress(
+            loader, dexAssist, playerSpeedLongPressEnabled, previousTheseus2LongPress, theseus2LongPressPlanned
+        )
+        val theseus2SpeedService = PlayerSpeedLocator.theseus2LongPressService(loader)
+        val theseus2LongPressContinuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation")
+        val theseus2LongPressApplicable = theseus2SpeedService != null && theseus2LongPressContinuation != null
+        val theseus2LongPressDirect = theseus2SpeedService != null &&
+            PlayerSpeedLocator.theseus2LongPress(loader, theseus2SpeedService, cached = null) != null
+        val theseus2LongPressReady = playerSpeedLongPressEnabled && theseus2SpeedService != null && (
+            theseus2LongPressDirect || (
+                playerSpeedTheseus2LongPress != null &&
+                    PlayerSpeedLocator.resolveTheseus2LongPress(
+                        loader, theseus2SpeedService, playerSpeedTheseus2LongPress, theseus2LongPressContinuation
+                    ) != null
+                )
+            )
+        val theseus2LongPressDiagnostic = AdaptDiagnostic(
+            PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC,
+            when {
+                theseus2LongPressReady -> AdaptState.FOUND
+                playerSpeedLongPressEnabled && theseus2LongPressApplicable &&
+                    (theseus2LongPressPlanned || previouslyMissingTheseus2LongPress) -> AdaptState.MISSING
+                !playerSpeedLongPressEnabled && previouslyMissingTheseus2LongPress -> AdaptState.MISSING
+                else -> AdaptState.NOT_APPLICABLE
+            },
+            when {
+                !playerSpeedLongPressEnabled ->
+                    if (previouslyMissingTheseus2LongPress) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !theseus2LongPressApplicable ->
+                    if (previouslyMissingTheseus2LongPress) "cached-attempt-preserved" else "not-applicable-host"
+                theseus2LongPressDirect -> "direct"
+                theseus2LongPressReady -> "verified"
+                !theseus2LongPressPlanned -> "cached-attempt-preserved"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    is DexAssistResult.Candidates ->
+                        "unavailable-or-ambiguous:${outcome.classes.size + outcome.methods.size}"
+                }
+            }
+        )
         val commentSection = sync(PointFamily.COMMENT_SECTION, previous?.commentSection) { locateCommentSection(loader) }
         val splashAds = sync(PointFamily.SPLASH_ADS, previous?.splashAds) { locateSplashAds(loader) }
         // 只有所有点都落空时才需要；改成惰性求值，避免每轮适配白白探测上百个候选类。
@@ -4521,8 +6153,9 @@ object VersionAdapter {
             || SPLASH_RESPONSE_CLASS_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) }
             || BLOCK_UPDATE_OWNER_CANDIDATES.any { KavaMemberLookup.hasClass(loader, it) } }
         if (low == null && high == null && mine == null &&
-            pause.requestMethods.isEmpty() && pause.legacyCallback == null &&
-            pause.panelShow == null && pause.countdown == null && banner == null &&
+            mergedPause.requestMethods.isEmpty() && mergedPause.legacyCallback == null &&
+            mergedPause.panelShow == null && mergedPause.countdown == null && mergedPause.apiEntry == null &&
+            banner == null &&
             homeTopBar == null && mineVip == null && blockUpdate == null &&
             dynamicTabs == null && fullNumbers == null && playerPortrait == null &&
             playerInteractiveOverlays == null && pgcAutoActivityPopup == null &&
@@ -4543,7 +6176,7 @@ object VersionAdapter {
             commentLow = low,
             commentHigh = high,
             mineEntry = mine,
-            pause = pause,
+            pause = mergedPause,
             banner = banner,
             homeTopBar = homeTopBar,
             mineVip = mineVip,
@@ -4569,11 +6202,11 @@ object VersionAdapter {
             commentTopology = commentTopology,
             commentSection = commentSection,
             splashAds = splashAds,
-            hostFingerprint = buildHostFingerprint(context),
+            hostFingerprint = resolvedHostFingerprint,
             protocolFingerprint = protocolFingerprint.value,
             diagnostics = emptyList(),
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
-            sponsorPlayer = sponsor?.classes,
+            sponsorPlayer = if (sponsorBlockEnabled) sponsor?.classes else previousSponsor,
             playerSpeedSession = speedSession,
             playerSpeedCalculator = speedCalculator,
             weChatShare = weChatShare,
@@ -4587,11 +6220,27 @@ object VersionAdapter {
             homeChromeSemantics = chromeSemantics,
             systemEnvironment = systemEnvironment,
             commentComposeMenu = commentComposeMenu,
-            kmpGrpcWireEngine = kmpGrpcWireEngine
+            kmpGrpcWireEngine = kmpGrpcWireEngine,
+            brandSplashKntrDraw = brandKntrDraw,
+            brandSplashKntrExit = brandKntrExit,
+            brandSplashKntrPage = brandKntrPage,
+            cloudKeyFreezeContract = cloudKeyFreezeContract,
+            privacyIgnetHttp = privacyIgnetHttp,
+            privacyKNeuron = privacyKNeuron,
+            guestPlayerCore = guestPlayerCore,
+            detailSpecialTagMapper = detailSpecialTagMapper,
+            aiPlaylistDirector = aiPlaylistDirector,
+            followUpRecommendBodies = followUpRecommendBodies,
+            detailRelateGameComponent = detailRelateGameComponent,
+            commentReplyButtonOwners = commentReplyButtonOwners,
+            homeRecommendEarlyLoadListener = homeRecommendEarlyLoadListener,
+            legacyStoryDanmakuBind = legacyStoryDanmakuBind,
+            playerSpeedTheseus2LongPress = playerSpeedTheseus2LongPress,
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
         )
         val diagnostics = buildDiagnostics(loader, plan, previous, located, commentTopologyOutcome.failureDetail, vc) +
             protocolFingerprint.toDiagnostic(plan) + blockUpdateAssist.diagnostic +
-            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic + systemEnvironmentDiagnostics + composeMenuDiagnostic + kmpGrpcWireDiagnostic
+            topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + speedSessionDiagnostic + speedCalculatorDiagnostic + weChatShareDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + brandKntrDiagnostic + brandKntrExitDiagnostic + brandKntrPageDiagnostic + cloudKeyContractDiagnostic + followDiagnostic + storyQualityDiagnostic + normalAutoSwitchDiagnostic + speedMenuDiagnostic + pageDiagnostics + chromeDiagnostics + semanticsDiagnostic + systemEnvironmentDiagnostics + composeMenuDiagnostic + kmpGrpcWireDiagnostic + privacyIgnetDiagnostic + privacyKNeuronDiagnostic + guestPlayerCoreDiagnostic + detailSpecialTagDiagnostic + commentReplyButtonDiagnostic + homeEarlyLoadDiagnostic + aiPlaylistDirectorDiagnostic + followUpRecommendDiagnostic + detailRelateGameDiagnostic + legacyStoryDanmakuDiagnostic + theseus2LongPressDiagnostic + homeTabResourceDiagnostic + commentQuickReplyDiagnostic + pausedCountdownDiagnostic + pausedRequestApiDiagnostic
         located.copy(
             diagnostics = diagnostics,
             coverage = coverageOf(located, locators, plan, previous?.coverage)
@@ -4625,7 +6274,8 @@ object VersionAdapter {
 
     private data class ProtocolFingerprint(
         val value: String,
-        val evidenceCount: Int
+        val evidenceCount: Int,
+        val liveResolvedCount: Int = 0
     ) {
         /**
          * 摘要只覆盖计划内的协议家族。计划没有覆盖全部六个来源时，没有证据不是「缺失」而是未请求，
@@ -4642,6 +6292,19 @@ object VersionAdapter {
         )
     }
 
+    private fun resolveProtocolMethod(loader: ClassLoader, point: HookPoint): Method? {
+        val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return null
+        return KavaMemberLookup.methods(
+            owner,
+            includeSuperclasses = true,
+            makeAccessible = true
+        ) { method ->
+            method.name == point.methodName && point.paramClassNames?.let { expected ->
+                method.parameterTypes.map(Class<*>::getName) == expected
+            } != false
+        }.distinctBy(Method::toGenericString).singleOrNull()
+    }
+
     /**
      * 只在适配阶段计算公开协议结构摘要。成员解析失败时跳过该项，现有 Hook 点仍可按原路径
      * 使用；摘要本身不参与业务热路径，也不包含宿主内容或用户数据。
@@ -4656,23 +6319,12 @@ object VersionAdapter {
         mine: MineAccountMinePoints?
     ): ProtocolFingerprint {
         val descriptors = linkedSetOf<String>()
-
-        fun resolve(point: HookPoint): Method? {
-            val owner = KavaMemberLookup.classOrNull(loader, point.className) ?: return null
-            return KavaMemberLookup.methods(
-                owner,
-                includeSuperclasses = true,
-                makeAccessible = true
-            ) { method ->
-                method.name == point.methodName && point.paramClassNames?.let { expected ->
-                    method.parameterTypes.map(Class<*>::getName) == expected
-                } != false
-            }.distinctBy(Method::toGenericString).singleOrNull()
-        }
+        var liveResolvedCount = 0
 
         fun add(label: String, point: HookPoint?) {
             point ?: return
-            val method = resolve(point) ?: return
+            val method = resolveProtocolMethod(loader, point) ?: return
+            liveResolvedCount++
             val fieldNumber = method.protobufFieldNumberOrNull()?.let { "@field=$it" }.orEmpty()
             descriptors += "$label:${method.declaringClass.name}#${method.name}(" +
                 method.parameterTypes.joinToString(",") { it.name } + ")" +
@@ -4788,7 +6440,8 @@ object VersionAdapter {
             .take(24)
         return ProtocolFingerprint(
             value = "protocol-v1:${descriptors.size}:$digest",
-            evidenceCount = descriptors.size
+            evidenceCount = descriptors.size,
+            liveResolvedCount = liveResolvedCount
         )
     }
 
@@ -5313,11 +6966,14 @@ object VersionAdapter {
         val moduleInstance = staticBuilds.isEmpty()
         val builds = if (moduleInstance) {
             if (!allowModuleInstance) return@runCatching null
-            // 9.19.0 (9190200/9190400): ug reads sectionListV2, rebuilds a1, and refreshes Z0.
-            // 方法名随混淆漂移，只认唯一的非 static (AccountMine)->void 公开终局方法；不唯一仍缺失。
-            val build = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+            // 9.15/9.19/9.20: 先找唯一的非 static (AccountMine)->void 公开终局方法；不唯一或缺失时再匹配唯一的 (AccountMine, boolean)->void。
+            val instanceOneArg = KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
                 it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
                     it.parameterTypes.contentEquals(arrayOf(accountMine))
+            }.singleOrNull()
+            val build = instanceOneArg ?: KavaMemberLookup.declaredMethods(fragment, makeAccessible = true) {
+                it.isPublic && it.isFinal && !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
+                    it.parameterTypes.contentEquals(arrayOf(accountMine, classOf<Boolean>()))
             }.singleOrNull() ?: return@runCatching null
             listOf(build)
         } else staticBuilds
@@ -5331,17 +6987,16 @@ object VersionAdapter {
             !it.isStatic &&
                 it.type.hasSuperclassNamed("androidx.recyclerview.widget.RecyclerView\$Adapter")
         }.singleOrNull()
-        if (moduleInstance && (groups.name != "a1" || adapter?.name != "Z0")) return@runCatching null
 
-        val clickOwners = if (moduleInstance) listOf("$fragmentName\$e") else listOf("$fragmentName\$e", "$fragmentName\$i")
+        val clickOwners = (listOf("$fragmentName\$e", "$fragmentName\$i") + fragment.declaredClasses.map { it.name }).distinct()
         val click = clickOwners
             .asSequence()
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
             .mapNotNull { clickClass ->
                 KavaMemberLookup.declaredMethods(clickClass, makeAccessible = true) {
-                    !it.isStatic && it.returnType == Void.TYPE &&
+                    !it.isStatic && !it.isSynthetic && it.returnType == Void.TYPE &&
                         it.parameterTypes.contentEquals(arrayOf(itemClass)) &&
-                        (!moduleInstance || (it.name == "c" && it.isPublic && it.isFinal && !it.isSynthetic))
+                        (!moduleInstance || (it.isPublic && it.isFinal))
                 }.singleOrNull()
             }
             .firstOrNull() ?: return@runCatching null
@@ -5437,6 +7092,83 @@ object VersionAdapter {
                 if (selected == null) AdaptState.MISSING else AdaptState.FOUND, reason))
     }
 
+    private data class HistorySnapshot(
+        val pages: PageBoundaryPoints? = null,
+        val chrome: Map<String, HookPoint> = emptyMap(),
+        val chromeSemantics: HomeChromeSemanticsPoint? = null,
+        val follow: FollowFeedPoints? = null,
+        val speedMenu: PlayerSpeedMenuPoints? = null,
+        val speedSession: PlayerSpeedSessionClasses? = null,
+        val speedCalculator: LongPressCalculatorPoint? = null,
+        val weChatShare: WeChatShareClasses? = null,
+        val storyQuality: StoryQualityPoints? = null,
+        val brand: HookPoint? = null,
+        val brandKntr: String? = null,
+        val brandKntrExit: String? = null,
+        val brandKntrPage: HookPoint? = null,
+        val cloudKeyContract: String? = null,
+        val privacyIgnet: HookPoint? = null,
+        val privacyKNeuron: String? = null,
+        val guestPlayerCore: String? = null,
+        val normalAutoSwitch: HookPoint? = null,
+        val detailSpecialTag: HookPoint? = null,
+        val commentReplyOwners: Map<String, String> = emptyMap(),
+        val homeEarlyLoadListener: String? = null,
+        val defaultWords: HookPoint? = null,
+        val sponsor: SponsorPlayerClasses? = null,
+        val classic: CommentClassicStylePoints? = null,
+        val systemEnv: SystemEnvironmentPoints? = null,
+        val composeMenu: CommentComposeMenuPoints? = null,
+        val kmpGrpcWire: HookPoint? = null,
+        val aiPlaylistDirector: String? = null,
+        val followUpBodies: Map<String, String> = emptyMap(),
+        val detailRelateGame: String? = null,
+        val legacyStoryBind: HookPoint? = null,
+        val theseus2LongPress: Theseus2LongPressPoint? = null
+    ) {
+        companion object {
+            val EMPTY = HistorySnapshot()
+            fun of(history: AdaptResult?): HistorySnapshot = if (history == null) {
+                EMPTY
+            } else {
+                HistorySnapshot(
+                    pages = history.pageBoundaries,
+                    chrome = history.homeChrome,
+                    chromeSemantics = history.homeChromeSemantics,
+                    follow = history.followFeedStyle,
+                    speedMenu = history.playerSpeedMenu,
+                    speedSession = history.playerSpeedSession,
+                    speedCalculator = history.playerSpeedCalculator,
+                    weChatShare = history.weChatShare,
+                    storyQuality = history.playerQuality?.story,
+                    brand = history.brandSplashDecoder,
+                    brandKntr = history.brandSplashKntrDraw,
+                    brandKntrExit = history.brandSplashKntrExit,
+                    brandKntrPage = history.brandSplashKntrPage,
+                    cloudKeyContract = history.cloudKeyFreezeContract,
+                    privacyIgnet = history.privacyIgnetHttp,
+                    privacyKNeuron = history.privacyKNeuron,
+                    guestPlayerCore = history.guestPlayerCore,
+                    normalAutoSwitch = history.playerQuality?.normalAutoSwitch,
+                    detailSpecialTag = history.detailSpecialTagMapper,
+                    commentReplyOwners = history.commentReplyButtonOwners,
+                    homeEarlyLoadListener = history.homeRecommendEarlyLoadListener,
+                    defaultWords = history.homeTopBar?.kotlinDefaultWords,
+                    sponsor = history.sponsorPlayer,
+                    classic = history.commentClassicStyle,
+                    systemEnv = history.systemEnvironment,
+                    composeMenu = history.commentComposeMenu,
+                    kmpGrpcWire = history.kmpGrpcWireEngine,
+                    aiPlaylistDirector = history.aiPlaylistDirector,
+                    followUpBodies = history.followUpRecommendBodies,
+                    detailRelateGame = history.detailRelateGameComponent,
+                    legacyStoryBind = history.legacyStoryDanmakuBind,
+                    theseus2LongPress = history.playerSpeedTheseus2LongPress
+                )
+            }
+        }
+    }
+
     /**
      * 同宿主、同规则版本、未被重置的有效缓存里，三类兜底的既有结果与诊断。
      * 缺缓存（宿主升级、手动重置、规则版本变化）时为 [EMPTY]，即全部视为未请求。
@@ -5453,7 +7185,7 @@ object VersionAdapter {
         /** 缓存里已有「兜底实现」级别的默认画质点（不是旧包装层）。 */
         val assistedQuality: PlayerQualityPoints? = playerQuality
             ?.takeIf { it.defaultQualityMethod != null && !it.usesLegacyQualityHelper() }
-            ?.copy(story = null)
+            ?.copy(story = null, normalAutoSwitch = null)
         val hasAssistedQuality: Boolean get() = assistedQuality != null
 
         companion object {
@@ -5695,12 +7427,16 @@ object VersionAdapter {
             ?.actualTypeArguments
             ?.singleOrNull() as? Class<*>
             ?: return@runCatching null
-        val titleField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-            !it.isStatic && it.type == classOf<String>() && it.name == "a"
-        }.singleOrNull() ?: return@runCatching null
-        val nameField = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
-            !it.isStatic && it.type == classOf<String>() && it.name == "b"
-        }.singleOrNull() ?: return@runCatching null
+        val stringFields = KavaMemberLookup.declaredFields(itemClass, makeAccessible = true) {
+            !it.isStatic && !it.isSynthetic && it.type == classOf<String>()
+        }
+        val namedTitle = stringFields.singleOrNull { it.name == "a" }
+        val namedName = stringFields.singleOrNull { it.name == "b" }
+        val (titleField, nameField) = when {
+            namedTitle != null && namedName != null -> namedTitle to namedName
+            stringFields.size == 2 -> stringFields[0] to stringFields[1]
+            else -> return@runCatching null
+        }
         val tabLayout = mediatorTab.superclass?.let { current ->
             generateSequence(current) { it.superclass }
                 .firstOrNull { it.name == "com.google.android.material.tabs.TabLayout" }
@@ -6684,18 +8420,7 @@ object VersionAdapter {
                 KavaMemberLookup.classOrNull(loader, it)
             }
             ?: return@runCatching null
-        val stringFields = KavaMemberLookup.declaredFields(resource, makeAccessible = true) {
-            !it.isStatic && it.type == classOf<String>()
-        }
-        if (stringFields.size < 3) return@runCatching null
-        HomeTabPoints(
-            buildMethod = build.toHookPoint(),
-            resourceClassName = resource.name,
-            idField = stringFields[0].name,
-            titleField = stringFields[1].name,
-            uriField = stringFields[2].name,
-            reporterIdField = stringFields.getOrNull(3)?.name
-        )
+        HomeTabResourceAdapter.buildPoints(build, resource)
     }.getOrNull()
 
     /** 首页子组件仅使用宿主 AndroidX Fragment 的公开生命周期和父级读取方法。 */
@@ -7819,18 +9544,7 @@ object VersionAdapter {
             optionalPayloadPoint(mainListOwner, "hasOperation", "getOperation"),
             optionalPayloadPoint(mainListOwner, "hasOperationV2", "getOperationV2")
         )
-        val quickReplyDialogMethods = COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.asSequence()
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-            .flatMap { owner ->
-                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isStatic && method.parameterCount == 2 &&
-                        method.parameterTypes[0].name.endsWith(".PublishDialogIntent") &&
-                        method.parameterTypes[1].name == "kotlin.coroutines.Continuation"
-                }.asSequence()
-            }
-            .distinctBy(Method::toGenericString)
-            .map { it.toHookPoint() }
-            .toList()
+        val quickReplyDialogMethods = locateCommentQuickReplyDirect(loader)
         // 空判据必须与 isStructurallyValid 的有效口径一致：urlSchemaGetters 是搜索跳转
         // 第二道防线的唯一载体，只算它就足够让整组点成立，漏掉会把可用的防线整条丢弃。
         if (urlMethods.isEmpty() && emptyPageGetters.isEmpty() && voteWidgetMethods.isEmpty() &&
@@ -7850,6 +9564,21 @@ object VersionAdapter {
             )
         }
     }.getOrNull()
+
+    /** 评论快捷回复收集器的同包候选直连定位（Tier-1 零 I/O 快路径）。 */
+    private fun locateCommentQuickReplyDirect(loader: ClassLoader): List<HookPoint> =
+        COMMENT_QUICK_REPLY_COLLECTOR_CLASS_CANDIDATES.asSequence()
+            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+            .flatMap { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    !method.isStatic && method.parameterCount == 2 &&
+                        method.parameterTypes[0].name.endsWith(".PublishDialogIntent") &&
+                        method.parameterTypes[1].name == "kotlin.coroutines.Continuation"
+                }.asSequence()
+            }
+            .distinctBy(Method::toGenericString)
+            .map { it.toHookPoint() }
+            .toList()
 
     /** 暂停页请求入口并行探测；仅零参数 invoke 才允许被识别为旧 Function0。 */
     private fun locatePausePoints(loader: ClassLoader): PausePoints {
@@ -8009,9 +9738,8 @@ object VersionAdapter {
     private fun isHomeDefaultWordEntry(method: Method): Boolean {
         val model = method.parameterTypes[0]
         if (model.name in HOME_DEFAULT_WORD_CLASS_CANDIDATES) return true
-        // 9190200/9190400: P0 stores the deferred hint; yc renders it through SwitchTextView.
-        if (method.declaringClass.name != HOME_MAIN_FRAGMENT_CANDIDATES.first() ||
-            method.name !in setOf("P0", "yc") || model.name != "rop0" || !model.isInterface) return false
+        // 9.15+: P0/yc 及 R8 重命名接口均只声明四个无混淆 getter。
+        if (method.declaringClass.name !in HOME_MAIN_FRAGMENT_CANDIDATES || !model.isInterface) return false
         fun returns(name: String, type: Class<*>): Boolean =
             KavaMemberLookup.methodOrNull(model, name)?.let { !it.isStatic && it.returnType == type } == true
         return returns("getShow", String::class.java) && returns("getAnimationTimeMilli", Long::class.javaPrimitiveType!!) &&

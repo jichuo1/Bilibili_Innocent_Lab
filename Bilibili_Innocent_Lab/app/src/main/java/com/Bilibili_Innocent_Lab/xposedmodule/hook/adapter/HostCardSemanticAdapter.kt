@@ -11,9 +11,6 @@ import java.lang.reflect.Method
 
 /** Source trace markers select single-card leaves, never their Lazy/outer page lambdas. */
 internal object HostCardSemanticAdapter {
-    // The 9.19 PegasusFragment installs this one-column bottom-line decorator.
-    const val REPACKAGED_PEGASUS_DIVIDER = "cx12"
-
     val families = linkedMapOf(
         DexAssistQuery.OGV_TRENDING_CARD to "trending", DexAssistQuery.OGV_DOUBLE_CARD to "double",
         DexAssistQuery.OGV_UPCOMING_CARD to "upcoming", DexAssistQuery.PEGASUS_DIVIDER to "pegasus_divider")
@@ -32,9 +29,13 @@ internal object HostCardSemanticAdapter {
         return if (query == DexAssistQuery.PEGASUS_DIVIDER) HostVideoCardDividerHooks.pegasusBoundary(loader, cached[family]) != null
         else HostOgvCardAdapter.resolve(loader, cached).families.singleOrNull { it.id == family }?.points?.isNotEmpty() == true
     }
-    fun applicable(loader: ClassLoader, query: DexAssistQuery): Boolean = Lookup.classOrNull(loader,
-        if (query == DexAssistQuery.PEGASUS_DIVIDER) "com.bilibili.pegasus.PegasusFragment"
-        else "com.bilibili.ogv.operation3.module.operablecard.a") != null
+    fun applicable(loader: ClassLoader, query: DexAssistQuery): Boolean = if (query == DexAssistQuery.PEGASUS_DIVIDER) {
+        Lookup.classOrNull(loader, "com.bilibili.pegasus.PegasusFragment") != null
+    } else listOf(
+        "com.bilibili.ogv.operation3.module.operablecard.a",
+        HostOgvCardAdapter.HCARDS,
+        HostOgvCardAdapter.VCARDS
+    ).any { Lookup.classOrNull(loader, it) != null }
 
     fun verified(loader: ClassLoader, family: String, method: Method): Boolean =
         if (family == "pegasus_divider") HostVideoCardDividerHooks.verifiedPegasus(loader, method)

@@ -31,13 +31,43 @@ data class LongPressCalculatorPoint(val owner: String, val method: String, val p
     }
 }
 
+/** theseus2 长按倍速启动口（launch 协程体 + start 端口类/方法）；恢复时复核完整 ABI。 */
+data class Theseus2LongPressPoint(val launchClass: String, val portClass: String, val portMethod: String) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("launch", launchClass)
+        .put("port", portClass)
+        .put("method", portMethod)
+
+    companion object {
+        fun fromJson(value: JSONObject): Theseus2LongPressPoint? {
+            fun readOwner(key: String): String? {
+                if (value.isNull(key)) return null
+                val raw = value.opt(key) as? String ?: return null
+                return raw.takeIf(PlayerSpeedLocator::allowedTheseus2Owner)
+            }
+            val launch = readOwner("launch") ?: return null
+            val port = readOwner("port") ?: return null
+            if (value.isNull("method")) return null
+            val method = (value.opt("method") as? String)?.takeIf {
+                it.length in 1..128 && it.all { c -> c.isLetterOrDigit() || c in "_$" } &&
+                    it != "<init>" && it != "<clinit>"
+            } ?: return null
+            return Theseus2LongPressPoint(launch, port, method)
+        }
+    }
+}
+
 /** 安装期只解析稳定业务类及其结构；混淆的服务 owner、字段名不进入候选常量。 */
 internal object PlayerSpeedLocator {
     const val LONG_PRESS_LISTENER =
         "com.bilibili.ship.theseus.united.player.TripleSpeedService\$runOldTripleSpeed\$1\$listener\$1"
     const val LONG_PRESS_COROUTINE =
         "com.bilibili.ship.theseus.united.player.TripleSpeedService\$runOldTripleSpeed\$1\$listener\$1\$onLongPress\$1"
-    private const val THESEUS2_SPEED_SERVICE = "com.bilibili.ship.theseus2.united.player.TripleSpeedService"
+    const val THESEUS2_SPEED_SERVICE = "com.bilibili.ship.theseus2.united.player.TripleSpeedService"
+    private const val THESEUS2_PLAYER_PACKAGE = "com.bilibili.ship.theseus2.united.player."
+    const val THESEUS2_LONG_PRESS_DIAGNOSTIC = "dex.assist.player_speed_theseus2_long_press"
+    val theseus2LongPressQueries = setOf(DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS)
+    private const val MAX_LONG_PRESS_CANDIDATES = 32
     const val SPEED_MANAGER = "com.bilibili.player.tangram.basic.PlaySpeedManagerImpl"
     const val MUTABLE_FLOW = "kotlinx.coroutines.flow.MutableStateFlow"
     const val STATE_FLOW = "kotlinx.coroutines.flow.StateFlow"
@@ -117,14 +147,87 @@ internal object PlayerSpeedLocator {
             ?.takeIf { !it.isStatic && it.returnType == classOf<Boolean>() }
     }
 
+    fun allowedTheseus2Owner(name: String): Boolean = name.length in 1..512 &&
+        (name.startsWith(THESEUS2_PLAYER_PACKAGE) || PlayerSpeedMenuAdapter.flattenedOwner(name))
+
+    fun theseus2LongPressNeedsQuery(
+        loader: ClassLoader,
+        cached: Theseus2LongPressPoint?,
+        enabled: Boolean,
+        attempted: Boolean
+    ): Boolean {
+        if (!enabled || attempted) return false
+        val service = theseus2LongPressService(loader) ?: return false
+        val continuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation") ?: return false
+        if (theseus2LongPress(loader, service, cached = null) != null) return false
+        if (cached != null && resolveTheseus2LongPress(loader, service, cached, continuation) != null) return false
+        return true
+    }
+
+    internal fun resolveTheseus2LongPress(
+        loader: ClassLoader,
+        service: Class<*>,
+        point: Theseus2LongPressPoint,
+        continuation: Class<*>? = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation")
+    ): Method? {
+        val cont = continuation ?: return null
+        if (!allowedTheseus2Owner(point.launchClass) || !allowedTheseus2Owner(point.portClass)) return null
+        val launch = KavaMemberLookup.classOrNull(loader, point.launchClass) ?: return null
+        val port = KavaMemberLookup.classOrNull(loader, point.portClass) ?: return null
+        return theseus2LongPress(service, launch, cont, listOf(port))
+            ?.takeIf { it.name == point.portMethod }
+    }
+
+    fun locateTheseus2LongPress(
+        loader: ClassLoader,
+        session: DexAssistSession?,
+        enabled: Boolean,
+        cached: Theseus2LongPressPoint?,
+        planned: Boolean
+    ): Theseus2LongPressPoint? {
+        if (!enabled) return cached
+        val service = theseus2LongPressService(loader) ?: return if (planned) null else cached
+        val continuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation") ?: return cached
+        if (theseus2LongPress(loader, service, cached = null) != null) {
+            return cached?.takeIf { resolveTheseus2LongPress(loader, service, it, continuation) != null }
+        }
+        cached?.takeIf { resolveTheseus2LongPress(loader, service, it, continuation) != null }?.let { return it }
+        if (!planned) return null
+        val result = session?.result(DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS)
+            as? DexAssistResult.Candidates ?: return null
+        if (result.classes.size > MAX_LONG_PRESS_CANDIDATES || result.methods.size > MAX_LONG_PRESS_CANDIDATES) {
+            return null
+        }
+        val pool = (result.classes + result.methods.map { it.declaringClass })
+            .distinctBy(Class<*>::getName)
+            .filter { allowedTheseus2Owner(it.name) }
+        val launch = pool.filter { candidate ->
+            KavaMemberLookup.declaredConstructors(candidate) {
+                it.parameterTypes.contentEquals(
+                    arrayOf(service, Float::class.javaPrimitiveType, Any::class.java, continuation)
+                )
+            }.size == 1
+        }.singleOrNull() ?: return null
+        val portCandidates = pool.filter { it !== launch }
+        val portMethod = theseus2LongPress(service, launch, continuation, portCandidates) ?: return null
+        return Theseus2LongPressPoint(
+            launchClass = launch.name,
+            portClass = portMethod.declaringClass.name,
+            portMethod = portMethod.name
+        )
+    }
+
     fun theseus2LongPressService(loader: ClassLoader): Class<*>? = KavaMemberLookup.classOrNull(loader, THESEUS2_SPEED_SERVICE)
 
-    fun theseus2LongPress(loader: ClassLoader, service: Class<*>): Method? {
-        val launch = KavaMemberLookup.classOrNull(loader, "${service.name}\$beginTemporarySpeed\$1") ?: return null
+    fun theseus2LongPress(loader: ClassLoader, service: Class<*>, cached: Theseus2LongPressPoint? = null): Method? {
         val continuation = KavaMemberLookup.classOrNull(loader, "kotlin.coroutines.Continuation") ?: return null
-        val candidates = (service.declaredClasses.asList() + listOfNotNull(KavaMemberLookup.classOrNull(loader, "${service.name}\$a")))
-            .distinct().filter { it.name.startsWith("${service.name}\$") }
-        return theseus2LongPress(service, launch, continuation, candidates)
+        val launch = KavaMemberLookup.classOrNull(loader, "${service.name}\$beginTemporarySpeed\$1")
+        if (launch != null) {
+            val candidates = (service.declaredClasses.asList() + listOfNotNull(KavaMemberLookup.classOrNull(loader, "${service.name}\$a")))
+                .distinct().filter { it.name.startsWith("${service.name}\$") }
+            theseus2LongPress(service, launch, continuation, candidates)?.let { return it }
+        }
+        return cached?.let { resolveTheseus2LongPress(loader, service, it, continuation) }
     }
 
     internal fun theseus2LongPress(service: Class<*>, launch: Class<*>, continuation: Class<*>,
@@ -158,6 +261,10 @@ internal object PlayerSpeedLocator {
             9200100 -> Triple("tyg1", "i", "mmq2")
             9200200 -> Triple("h7h1", "h", "apq2")
             9200300 -> Triple("jy0", "e", "rpq2")
+            // 9.21.0 双构建远端 dexq 验真：TripleSpeedService$a.a()Float 与 beginTemporarySpeed$1
+            // 不变，计算器重打包为 n9h#a(rbq2,Float)F 与 jpj#d(q7q2,Float)F（getScriptPace 唯一命中）。
+            9210100 -> Triple("n9h", "a", "rbq2")
+            9210200 -> Triple("jpj", "d", "q7q2")
             else -> return null
         }
         return theseus2LongPressCalculator(loader, ownerName, methodName, playableName)
@@ -258,7 +365,8 @@ internal object PlayerSpeedLocator {
             )
         }.singleOrNull()
         val adapter = directAdapter ?: hints?.adapter?.takeIf { point ->
-            !PlayerSpeedMenuAdapter.flattenedOwner(point.className) || point.className == widgetAdapter?.name
+            !PlayerSpeedMenuAdapter.flattenedOwner(point.className) ||
+                widgetAdapter == null || point.className == widgetAdapter.name
         }?.let { point ->
             KavaMemberLookup.classOrNull(loader, point.className)?.let { owner ->
                 speedMenuAdapter(owner, recyclerAdapter, factory) { optionCandidates.value }

@@ -13,7 +13,10 @@ internal class BrandSplashCustomFeatureInstaller(
     private val enabled: Boolean,
     private val context: Context,
     private val renderEnabled: Boolean = true,
-    private val decoderPoint: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
+    private val decoderPoint: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null,
+    private val kntrDrawClass: String? = null,
+    private val kntrExitClass: String? = null,
+    private val kntrPageMethod: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
     override val id = ID
     private class UnlockFrame(var source: String? = null, val active: Boolean = true)
@@ -39,13 +42,21 @@ internal class BrandSplashCustomFeatureInstaller(
                 environment.logError("brand_custom_storage", "[BIL] 官方开屏存储适配不可用，保留原开屏")
                 false
             }) installed++
-        val kntrPresent = BrandSplashKntrAccess.present(loader) ||
-            KavaMemberLookup.hasClass(loader, BrandSplashKntrRenderer.PAGE)
+        val kntrPresent = BrandSplashKntrAccess.present(loader, kntrExitClass) ||
+            KavaMemberLookup.hasClass(loader, BrandSplashKntrRenderer.PAGE) ||
+            kntrDrawClass?.let { KavaMemberLookup.hasClass(loader, it) } == true ||
+            kntrPageMethod?.let { KavaMemberLookup.hasClass(loader, it.className) } == true
         if (renderEnabled && kntrPresent) {
             expected++
             if (runCatching {
                     runtime.enableImages(decoderPoint)
-                    BrandSplashKntrRenderer(runtime, environment).install()
+                    BrandSplashKntrRenderer(
+                        runtime,
+                        environment,
+                        kntrDrawClass,
+                        kntrExitClass,
+                        kntrPageMethod
+                    ).install()
                 }.getOrElse {
                     environment.logError("brand_custom_kntr", "[BIL] 官方开屏 Compose 渲染未完整接入，保留原画面")
                     false
