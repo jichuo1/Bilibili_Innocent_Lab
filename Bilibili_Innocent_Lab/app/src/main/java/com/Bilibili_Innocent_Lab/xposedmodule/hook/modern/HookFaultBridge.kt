@@ -1,9 +1,14 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
 import io.github.jichuo1.meguviz.hook.api.AfterCallback
+import io.github.jichuo1.meguviz.hook.api.ArgsAfterCallback
+import io.github.jichuo1.meguviz.hook.api.ArgsBeforeCallback
 import io.github.jichuo1.meguviz.hook.api.AroundCallback
 import io.github.jichuo1.meguviz.hook.api.BeforeCallback
 import io.github.jichuo1.meguviz.hook.api.HookId
+import io.github.jichuo1.meguviz.hook.api.MutableArgsBeforeCallback
+import io.github.jichuo1.meguviz.hook.api.MutableArgsInvocation
+import io.github.jichuo1.meguviz.hook.api.ReadArgsInvocation
 import io.github.jichuo1.meguviz.hook.core.CallbackExceptionTracker
 import java.util.concurrent.ConcurrentHashMap
 
@@ -33,7 +38,28 @@ internal class HookFaultBridge(processName: String, capacity: Int = DEFAULT_CAPA
 
     fun guard(callback: BeforeCallback): BeforeCallback = tracker.before(callback)
 
+    fun guardBeforeArgs(callback: ArgsBeforeCallback): ArgsBeforeCallback {
+        val guarded = tracker.before(BeforeCallback { invocation ->
+            callback.before(invocation as ReadArgsInvocation)
+        })
+        return ArgsBeforeCallback { invocation -> guarded.before(invocation) }
+    }
+
+    fun guardMutableArgs(callback: MutableArgsBeforeCallback): MutableArgsBeforeCallback {
+        val guarded = tracker.before(BeforeCallback { invocation ->
+            callback.before(invocation as MutableArgsInvocation)
+        })
+        return MutableArgsBeforeCallback { invocation -> guarded.before(invocation) }
+    }
+
     fun guard(callback: AfterCallback): AfterCallback = tracker.after(callback, false)
+
+    fun guardAfterArgs(callback: ArgsAfterCallback): ArgsAfterCallback {
+        val guarded = tracker.after(AfterCallback { invocation, outcome ->
+            callback.after(invocation as ReadArgsInvocation, outcome)
+        }, false)
+        return ArgsAfterCallback { invocation, outcome -> guarded.after(invocation, outcome) }
+    }
 
     fun guard(callback: AroundCallback): AroundCallback = tracker.around(callback)
 

@@ -10,6 +10,52 @@ import java.lang.reflect.Method
 
 /** Legacy XposedHelpers 普通反射调用的窄接口替代；不承担 Hook 注册。 */
 internal object ReflectAccess {
+    private const val MAX_METHOD_CACHE_ENTRIES = 256
+    private val EMPTY_ARG_TYPES: Array<Class<*>?> = emptyArray()
+
+    private class MethodCacheKey(
+        val owner: Class<*>,
+        val name: String,
+        val requireStatic: Boolean,
+        val argTypes: Array<Class<*>?>,
+        private val hash: Int = computeHash(owner, name, requireStatic, argTypes)
+    ) {
+        override fun hashCode(): Int = hash
+
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is MethodCacheKey) return false
+            return hash == other.hash &&
+                requireStatic == other.requireStatic &&
+                owner === other.owner &&
+                name == other.name &&
+                argTypes.contentEquals(other.argTypes)
+        }
+
+        private companion object {
+            fun computeHash(
+                owner: Class<*>,
+                name: String,
+                requireStatic: Boolean,
+                argTypes: Array<Class<*>?>
+            ): Int {
+                var result = System.identityHashCode(owner)
+                result = 31 * result + name.hashCode()
+                result = 31 * result + if (requireStatic) 1 else 0
+                result = 31 * result + argTypes.contentHashCode()
+                return result
+            }
+        }
+    }
+
+    private val compatibleMethodCache = object : LinkedHashMap<MethodCacheKey, Method>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<MethodCacheKey, Method>?): Boolean =
+            size > MAX_METHOD_CACHE_ENTRIES
+    }
+
+    @Volatile
+    private var currentApplicationMethod: Method? = null
+
     fun getField(target: Any, name: String): Any? = field(target.javaClass, name).get(target)
 
     fun setField(target: Any, name: String, value: Any?) {
@@ -41,9 +87,12 @@ internal object ReflectAccess {
     }
 
     fun currentApplication(): Application? = runCatching {
-        val owner = "android.app.ActivityThread".toClass()
-        val method = KavaMemberLookup.methodOrNull(owner, "currentApplication")
-            ?: return@runCatching null
+        val method = currentApplicationMethod ?: run {
+            val owner = "android.app.ActivityThread".toClass()
+            KavaMemberLookup.methodOrNull(owner, "currentApplication")?.also {
+                currentApplicationMethod = it
+            }
+        } ?: return@runCatching null
         method.invoke(null) as? Application
     }.getOrNull()
 
@@ -57,6 +106,15 @@ internal object ReflectAccess {
         args: Array<out Any?>,
         requireStatic: Boolean = false
     ): Method? {
+        val argTypes: Array<Class<*>?> = if (args.isEmpty()) {
+            EMPTY_ARG_TYPES
+        } else {
+            Array(args.size) { index -> args[index]?.javaClass }
+        }
+        val key = MethodCacheKey(owner, name, requireStatic, argTypes)
+        synchronized(compatibleMethodCache) {
+            compatibleMethodCache[key]?.let { return it }
+        }
         var current: Class<*>? = owner
         while (current != null) {
             // 只要第一个兼容候选：在已缓存的成员集合上短路，不物化整份过滤结果。
@@ -68,7 +126,12 @@ internal object ReflectAccess {
                     parameterTypes.indices.all { index -> compatible(parameterTypes[index], args[index]) }
                 }
             }
-            if (match != null) return match
+            if (match != null) {
+                synchronized(compatibleMethodCache) {
+                    compatibleMethodCache[key] = match
+                }
+                return match
+            }
             current = current.superclass
         }
         return null

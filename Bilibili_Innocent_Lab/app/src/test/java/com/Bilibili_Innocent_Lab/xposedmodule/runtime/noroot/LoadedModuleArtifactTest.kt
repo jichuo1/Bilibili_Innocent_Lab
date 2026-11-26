@@ -345,6 +345,26 @@ private class NoRootRuntimeDetectorCases {
         )
     }
 
+    fun `known loaders skip package manager and profile ipc`() {
+        val strictContext = object : android.content.ContextWrapper(null) {
+            override fun getPackageName(): String = error("Unexpected packageName lookup")
+            override fun getPackageManager(): android.content.pm.PackageManager =
+                error("Unexpected PackageManager IPC")
+        }
+        val lsposedLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun toString(): String = "org.lsposed.lspd.util.LspModuleClassLoader[test]"
+        }
+        val lspatchLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun toString(): String = "org.lsposed.lspatch.loader.LspLoader[test]"
+        }
+        val npatchLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun toString(): String = "top.nkbe.npatch.loader.NLoader[test]"
+        }
+        assertEquals(HookRuntimeMode.STANDARD_XPOSED, NoRootRuntimeDetector.detect(strictContext, null, lsposedLoader))
+        assertEquals(HookRuntimeMode.LSPATCH, NoRootRuntimeDetector.detect(strictContext, lspatchLoader, null))
+        assertEquals(HookRuntimeMode.NPATCH_LEGACY, NoRootRuntimeDetector.detect(strictContext, npatchLoader, null))
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (NoRootRuntimeDetectorCases) -> Unit) {
             val s = NoRootRuntimeDetectorCases()
@@ -354,6 +374,7 @@ private class NoRootRuntimeDetectorCases {
         runIsolated { s -> s.`actual NPatch framework loader wins over patched manifest`() }
         runIsolated { s -> s.`LSPosed module loader wins when patched target is also in root scope`() }
         runIsolated { s -> s.`manifest marker is only the unknown-loader fallback`() }
+        runIsolated { s -> s.`known loaders skip package manager and profile ipc`() }
     }
 }
 

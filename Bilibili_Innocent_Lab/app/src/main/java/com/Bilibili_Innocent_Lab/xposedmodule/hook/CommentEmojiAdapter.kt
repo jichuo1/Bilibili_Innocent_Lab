@@ -47,6 +47,12 @@ internal object CommentEmojiAdapter {
     private val contentsFieldsByRichTextClass = ConcurrentHashMap<Class<*>, List<Field>>()
     private val stringFieldsByClass = ConcurrentHashMap<Class<*>, List<Field>>()
 
+    fun clearCaches() {
+        richTextMethodByCommentClass.clear()
+        contentsFieldsByRichTextClass.clear()
+        stringFieldsByClass.clear()
+    }
+
     fun resolve(commentItem: Any?, raw: String, spans: List<Any>): Resolution {
         // 普通纯文本评论不做任何模型反射；只有可见富文本绘制单元才进入适配层。
         if (spans.isEmpty()) return Resolution()

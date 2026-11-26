@@ -4,14 +4,19 @@ import android.util.Log
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModernApiSupport
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.StartupTrace
 import io.github.jichuo1.meguviz.hook.api.AfterCallback
+import io.github.jichuo1.meguviz.hook.api.ArgsAfterCallback
+import io.github.jichuo1.meguviz.hook.api.ArgsBeforeCallback
 import io.github.jichuo1.meguviz.hook.api.AroundCallback
 import io.github.jichuo1.meguviz.hook.api.BeforeCallback
 import io.github.jichuo1.meguviz.hook.api.CallOutcome
 import io.github.jichuo1.meguviz.hook.api.ErrorPolicy
 import io.github.jichuo1.meguviz.hook.api.HookId
+import io.github.jichuo1.meguviz.hook.api.HookInvocation
 import io.github.jichuo1.meguviz.hook.api.HookOwner
 import io.github.jichuo1.meguviz.hook.api.HookRegistration
 import io.github.jichuo1.meguviz.hook.api.HookSpec
+import io.github.jichuo1.meguviz.hook.api.InvocationResult
+import io.github.jichuo1.meguviz.hook.api.MutableArgsBeforeCallback
 import io.github.jichuo1.meguviz.hook.api.MutableArgsInvocation
 import io.github.jichuo1.meguviz.hook.api.ParameterAccess
 import io.github.jichuo1.meguviz.hook.api.ReadArgsInvocation
@@ -26,6 +31,7 @@ import java.lang.reflect.Executable
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 模块侧的 Hook 异常语义；由 [ModernHookRuntime] 映射到 MeguvizHook 的 [ErrorPolicy]，
@@ -69,8 +75,12 @@ internal enum class HookExceptionPolicy {
 
 /** 已安装 Hook 的收回句柄；一次性观察者（如漫游缓存的类加载观察）用它在完成后卸载。 */
 internal class ModernHookHandle internal constructor(private val close: () -> Unit) {
+    private val unhooked = AtomicBoolean(false)
+
     fun unhook() {
-        close()
+        if (unhooked.compareAndSet(false, true)) {
+            close()
+        }
     }
 }
 
@@ -179,10 +189,15 @@ internal class ModernHookRuntime(
             val registration = receipt.registration() ?: checkNotNull(installed[hookId]?.registration) {
                 "Hook $id reported ${receipt.status()} without a registration"
             }
-            installed[hookId] = Installed(registration, spec.errorPolicy())
+            val entry = Installed(registration, spec.errorPolicy())
+            installed[hookId] = entry
             ModernHookHandle {
-                registration.close()
-                faultBridge?.unbind(hookId)
+                synchronized(lock) {
+                    if (installed[hookId] !== entry) return@synchronized
+                    installed.remove(hookId)
+                    registration.close()
+                    faultBridge?.unbind(hookId)
+                }
             }
         }
     }
@@ -199,7 +214,7 @@ internal class ModernHookRuntime(
         installed.remove(hookId)?.registration?.close()
         val bridge = if (owner != null) faults().also { it.bind(hookId, owner) } else faultBridge?.also { it.unbind(hookId) }
         val onFault: ((Throwable) -> Unit)? = if (owner != null && bridge != null) { _ -> bridge.noteEscaped(hookId) } else null
-        val hooker = XposedInterface.Hooker { chain -> creator.interceptChain(chain, onFault) }
+        val hooker = creator.buildDirectHooker(onFault)
         val previous = installedDirect[hookId]
         val handle = if (previous != null && previous.policy == policy) {
             previous.handle.replaceHook(hooker)
@@ -207,10 +222,15 @@ internal class ModernHookRuntime(
             previous?.handle?.unhook()
             module.hook(executable).setExceptionMode(policy.frameworkMode).intercept(hooker)
         }
-        installedDirect[hookId] = InstalledDirect(handle, policy)
+        val entry = InstalledDirect(handle, policy)
+        installedDirect[hookId] = entry
         return ModernHookHandle {
-            handle.unhook()
-            faultBridge?.unbind(hookId)
+            synchronized(lock) {
+                if (installedDirect[hookId] !== entry) return@synchronized
+                installedDirect.remove(hookId)
+                handle.unhook()
+                faultBridge?.unbind(hookId)
+            }
         }
     }
 
@@ -303,7 +323,9 @@ internal class ModernHookParam private constructor(
     val instance: Any?,
     private val originalArgs: List<Any?>?,
     initialArgs: Array<Any?>?,
-    private val source: ReadArgsInvocation?
+    private val source: ReadArgsInvocation?,
+    private val chain: XposedInterface.Chain? = null,
+    private val chainParamCount: Int = 0
 ) {
     internal constructor(method: Executable, instance: Any?, args: Array<Any?>) :
         this(method, instance, null, args, null)
@@ -314,6 +336,18 @@ internal class ModernHookParam private constructor(
     /** SDK 借用调用：参数按需读取，回调结束后不得再访问本对象的参数。 */
     internal constructor(method: Executable, instance: Any?, invocation: ReadArgsInvocation) :
         this(method, instance, null, null, invocation)
+
+    /** 无参数访问形状（NO_ARGS）：按需返回空数组或 null，不触发底层参数视图校验。 */
+    internal constructor(method: Executable, instance: Any?) :
+        this(method, instance, null, null, null)
+
+    /** 直接链按需参数视图：仅在访问 .args 时才物化私有数组，argOrNull 直读 chain.getArg。 */
+    internal constructor(
+        method: Executable,
+        instance: Any?,
+        chain: XposedInterface.Chain,
+        paramCount: Int
+    ) : this(method, instance, null, null, null, chain, paramCount)
 
     private var argumentCopy: Array<Any?>? = initialArgs
     private var extras: HashMap<String, Any?>? = null
@@ -327,7 +361,16 @@ internal class ModernHookParam private constructor(
         if (invocation != null) {
             return Array(invocation.argumentCount()) { invocation.getArgument(it) }
         }
-        return checkNotNull(originalArgs).toTypedArray()
+        val activeChain = chain
+        if (activeChain != null) {
+            if (chainParamCount <= 0) return emptyArray()
+            return try {
+                Array(chainParamCount) { activeChain.getArg(it) }
+            } catch (_: IndexOutOfBoundsException) {
+                activeChain.args.toTypedArray()
+            }
+        }
+        return originalArgs?.toTypedArray() ?: emptyArray()
     }
 
     /** 只读热点不触发数组复制；若已通过 args 修改参数，则读取修改后的值（包括 null）。 */
@@ -337,6 +380,18 @@ internal class ModernHookParam private constructor(
         val invocation = source
         if (invocation != null) {
             return if (index in 0 until invocation.argumentCount()) invocation.getArgument(index) else null
+        }
+        val activeChain = chain
+        if (activeChain != null) {
+            return if (index in 0 until chainParamCount) {
+                try {
+                    activeChain.getArg(index)
+                } catch (_: IndexOutOfBoundsException) {
+                    null
+                }
+            } else {
+                null
+            }
         }
         return originalArgs?.getOrNull(index)
     }
@@ -401,11 +456,19 @@ internal class ModernHookParam private constructor(
 internal class ModernMemberHookCreator(
     private val executable: Executable
 ) {
+    private val parameterCount: Int = executable.parameterCount
+    private val returnsNothing: Boolean =
+        executable is Constructor<*> || (executable as? Method)?.returnType == Void.TYPE
     private var beforeCallback: (ModernHookParam.() -> Unit)? = null
+    private var beforeAccess: ParameterAccess? = null
     private var afterCallback: (ModernHookParam.() -> Unit)? = null
+    private var afterAccess: ParameterAccess? = null
     private var replacement: (ModernHookParam.() -> Any?)? = null
+    private var replaceAccess: ParameterAccess? = null
     private var constantReplacement = false
     private var constantResult: Any? = null
+    private var successReplacement = false
+    private var successResult: Any? = null
 
     /**
      * 回调里逃出的异常归属哪个功能；由功能安装器的受限注册器设置，未设置则不做归因。
@@ -414,12 +477,34 @@ internal class ModernMemberHookCreator(
     internal var faultOwner: String? = null
 
     fun before(callback: ModernHookParam.() -> Unit) {
-        check(replacement == null) { "before and replacement cannot be combined" }
+        check(replacement == null && !successReplacement) { "before and replacement cannot be combined" }
+        beforeAccess = null
+        beforeCallback = callback
+    }
+
+    fun before(access: ParameterAccess, callback: ModernHookParam.() -> Unit) {
+        require(
+            access == ParameterAccess.NO_ARGS ||
+                access == ParameterAccess.READ_ARGS_VIEW ||
+                access == ParameterAccess.MUTABLE_ARGS
+        ) { "Unsupported before parameter access: $access" }
+        check(replacement == null && !successReplacement) { "before and replacement cannot be combined" }
+        beforeAccess = access
         beforeCallback = callback
     }
 
     fun after(callback: ModernHookParam.() -> Unit) {
-        check(replacement == null) { "after and replacement cannot be combined" }
+        check(replacement == null && !successReplacement) { "after and replacement cannot be combined" }
+        afterAccess = null
+        afterCallback = callback
+    }
+
+    fun after(access: ParameterAccess, callback: ModernHookParam.() -> Unit) {
+        require(access == ParameterAccess.NO_ARGS || access == ParameterAccess.READ_ARGS_VIEW) {
+            "Unsupported after parameter access: $access"
+        }
+        check(replacement == null && !successReplacement) { "after and replacement cannot be combined" }
+        afterAccess = access
         afterCallback = callback
     }
 
@@ -427,15 +512,45 @@ internal class ModernMemberHookCreator(
         check(beforeCallback == null && afterCallback == null) {
             "replacement cannot be combined with before/after"
         }
+        replaceAccess = null
         replacement = callback
         constantResult = null
         constantReplacement = false
+        successResult = null
+        successReplacement = false
+    }
+
+    fun replaceAny(access: ParameterAccess, callback: ModernHookParam.() -> Any?) {
+        require(access == ParameterAccess.NO_ARGS || access == ParameterAccess.READ_ARGS_VIEW) {
+            "Unsupported replacement parameter access: $access"
+        }
+        check(beforeCallback == null && afterCallback == null) {
+            "replacement cannot be combined with before/after"
+        }
+        replaceAccess = access
+        replacement = callback
+        constantResult = null
+        constantReplacement = false
+        successResult = null
+        successReplacement = false
     }
 
     fun replaceTo(value: Any?) {
         replaceAny { value }
         constantResult = value
         constantReplacement = true
+    }
+
+    fun replaceResultOnSuccess(value: Any?) {
+        check(beforeCallback == null && afterCallback == null) {
+            "success replacement cannot be combined with before/after"
+        }
+        replacement = null
+        replaceAccess = null
+        constantResult = null
+        constantReplacement = false
+        successResult = value
+        successReplacement = true
     }
 
     fun replaceToTrue() = replaceTo(true)
@@ -445,17 +560,68 @@ internal class ModernMemberHookCreator(
     /** 跳过原方法并按返回类型给出安全零值。 */
     fun intercept() = replaceTo(defaultReturnValue(executable))
 
-    /** 常量替换总是走 SDK 的常量通道；构造器的接收者只在框架链上可见；其余按引擎选择（见 [ModernHookRuntime]）。 */
+    /** 常量与成功结果替换总是走 SDK 通道；构造器的接收者只在框架链上可见；其余按引擎选择（见 [ModernHookRuntime]）。 */
     internal fun usesDirectChain(engine: HookDispatchEngine): Boolean =
-        !constantReplacement && (executable is Constructor<*> || engine == HookDispatchEngine.DIRECT)
+        !constantReplacement && !successReplacement &&
+            (executable is Constructor<*> || engine == HookDispatchEngine.DIRECT)
 
-    /** 迁移前的 before/after/replace 控制流，直接引擎使用；语义上等价于 SDK 路径的 around。 */
+    /** 按安装期已确定的回调形状构建特化的直接链拦截器，消除运行期分支与无用异常包装。 */
+    internal fun buildDirectHooker(onFault: ((Throwable) -> Unit)? = null): XposedInterface.Hooker {
+        val before = beforeCallback
+        val after = afterCallback
+        val replace = replacement
+        return when {
+            constantReplacement -> XposedInterface.Hooker { constantResult }
+            successReplacement -> XposedInterface.Hooker { chain ->
+                chain.proceed()
+                successResult
+            }
+            replace != null -> XposedInterface.Hooker { chain -> runReplace(chain, replace, onFault) }
+            before != null && after != null -> XposedInterface.Hooker { chain ->
+                runAround(chain, before, after, onFault)
+            }
+            before != null -> XposedInterface.Hooker { chain -> runBeforeOnly(chain, before, onFault) }
+            after != null -> XposedInterface.Hooker { chain -> runAfterOnly(chain, after, onFault) }
+            else -> XposedInterface.Hooker { chain -> chain.proceed() }
+        }
+    }
+
+    /** 迁移前的 before/after/replace 控制流，直接引擎测试入口使用；语义上等价于 SDK 路径的 around。 */
     internal fun interceptChain(chain: XposedInterface.Chain, onFault: ((Throwable) -> Unit)? = null): Any? {
         if (constantReplacement) return constantResult
-        val param = ModernHookParam(chain.executable, chain.thisObject, chain.args)
-        replacement?.let { return normalizeReplacement(guarded(onFault) { it(param) }) }
+        if (successReplacement) {
+            chain.proceed()
+            return successResult
+        }
+        val replace = replacement
+        if (replace != null) return runReplace(chain, replace, onFault)
+        val before = beforeCallback
+        val after = afterCallback
+        return when {
+            before != null && after != null -> runAround(chain, before, after, onFault)
+            before != null -> runBeforeOnly(chain, before, onFault)
+            after != null -> runAfterOnly(chain, after, onFault)
+            else -> chain.proceed()
+        }
+    }
 
-        beforeCallback?.let { guarded(onFault) { it(param) } }
+    private fun runReplace(
+        chain: XposedInterface.Chain,
+        replace: ModernHookParam.() -> Any?,
+        onFault: ((Throwable) -> Unit)?
+    ): Any? {
+        val param = ModernHookParam(executable, chain.thisObject, chain, parameterCount)
+        return normalizeReplacement(guarded(onFault) { replace(param) })
+    }
+
+    private fun runAround(
+        chain: XposedInterface.Chain,
+        before: ModernHookParam.() -> Unit,
+        after: ModernHookParam.() -> Unit,
+        onFault: ((Throwable) -> Unit)?
+    ): Any? {
+        val param = ModernHookParam(executable, chain.thisObject, chain, parameterCount)
+        guarded(onFault) { before(param) }
         if (!param.wasResultAssignedByHook() && !param.hasThrowable) {
             try {
                 val copiedArgs = param.copiedArgsOrNull()
@@ -464,7 +630,36 @@ internal class ModernMemberHookCreator(
                 param.assignOriginalFailure(failure)
             }
         }
-        afterCallback?.let { guarded(onFault) { it(param) } }
+        guarded(onFault) { after(param) }
+        param.throwable?.let { throw it }
+        return param.result
+    }
+
+    private fun runBeforeOnly(
+        chain: XposedInterface.Chain,
+        before: ModernHookParam.() -> Unit,
+        onFault: ((Throwable) -> Unit)?
+    ): Any? {
+        val param = ModernHookParam(executable, chain.thisObject, chain, parameterCount)
+        guarded(onFault) { before(param) }
+        param.throwable?.let { throw it }
+        if (param.wasResultAssignedByHook()) return param.result
+        val copiedArgs = param.copiedArgsOrNull()
+        return if (copiedArgs == null) chain.proceed() else chain.proceed(copiedArgs)
+    }
+
+    private fun runAfterOnly(
+        chain: XposedInterface.Chain,
+        after: ModernHookParam.() -> Unit,
+        onFault: ((Throwable) -> Unit)?
+    ): Any? {
+        val param = ModernHookParam(executable, chain.thisObject, chain, parameterCount)
+        try {
+            param.assignOriginal(chain.proceed())
+        } catch (failure: Throwable) {
+            param.assignOriginalFailure(failure)
+        }
+        guarded(onFault) { after(param) }
         param.throwable?.let { throw it }
         return param.result
     }
@@ -483,9 +678,10 @@ internal class ModernMemberHookCreator(
     /**
      * 按 DSL 结构选定 SDK 形状（安装期一次决定，热路径不再判断）：
      * - 常量替换：SDK 常量通道，不读参数、不跑回调；
-     * - 仅 `replaceAny`：只读参数视图 + 提前返回；
-     * - 仅 `after`：只读参数视图，下游照常以原参数执行；after 里改参数本来就无意义；
-     * - 仅 `before`：可写参数，因为 before 里可以改参数数组；
+     * - 成功结果替换：SDK 成功结果通道，下游照常执行、无异常时直接返回固定值；
+     * - 仅 `replaceAny`：零参或显式 `NO_ARGS` 走 `NO_ARGS`，否则经 `beforeArgs` 只读参数视图；
+     * - 仅 `after`：零参或显式 `NO_ARGS` 走 `NO_ARGS`，否则经 `afterArgs` 只读参数视图；
+     * - 仅 `before`：零参或显式 `NO_ARGS` 走 `NO_ARGS`，显式 `READ_ARGS_VIEW` 走 `beforeArgs`，默认走 `beforeMutableArgs`；
      * - `before` 与 `after` 同在：around，两阶段共享同一份参数、结果与额外值。
      */
     internal fun toSpec(id: HookId, policy: ErrorPolicy, faults: HookFaultBridge? = null): HookSpec {
@@ -495,43 +691,116 @@ internal class ModernMemberHookCreator(
         val deliver = policy == ErrorPolicy.PROPAGATE
         // 受守护的回调只多一层 try/catch；归属在安装时就绑定，热路径不查表。
         fun guardBefore(callback: BeforeCallback) = faults?.guard(callback) ?: callback
+        fun guardBeforeArgs(callback: ArgsBeforeCallback) = faults?.guardBeforeArgs(callback) ?: callback
+        fun guardMutableArgs(callback: MutableArgsBeforeCallback) = faults?.guardMutableArgs(callback) ?: callback
         fun guardAfter(callback: AfterCallback) = faults?.guard(callback) ?: callback
+        fun guardAfterArgs(callback: ArgsAfterCallback) = faults?.guardAfterArgs(callback) ?: callback
         fun guardAround(callback: AroundCallback) = faults?.guard(callback) ?: callback
         val before = beforeCallback
         val after = afterCallback
         val replace = replacement
         when {
             constantReplacement -> builder.replaceConstant(constantResult)
-            replace != null -> builder.access(ParameterAccess.READ_ARGS_VIEW)
-                .before(guardBefore(BeforeCallback { invocation ->
-                    val param = ModernHookParam(invocation.target(), invocation.thisObject(), invocation as ReadArgsInvocation)
-                    invocation.setEarlyResult(normalizeReplacement(replace(param)))
-                }))
+            successReplacement -> builder.replaceResultOnSuccess(successResult)
+            replace != null -> {
+                val access = if (parameterCount == 0 || replaceAccess == ParameterAccess.NO_ARGS) {
+                    ParameterAccess.NO_ARGS
+                } else {
+                    ParameterAccess.READ_ARGS_VIEW
+                }
+                if (access == ParameterAccess.NO_ARGS) {
+                    builder.access(ParameterAccess.NO_ARGS).before(guardBefore(BeforeCallback { invocation ->
+                        val param = ModernHookParam(invocation.target(), invocation.thisObject())
+                        invocation.setEarlyResult(normalizeReplacement(replace(param)))
+                    }))
+                } else {
+                    builder.beforeArgs(guardBeforeArgs(ArgsBeforeCallback { invocation ->
+                        val param = ModernHookParam(invocation.target(), invocation.thisObject(), invocation)
+                        invocation.setEarlyResult(normalizeReplacement(replace(param)))
+                    }))
+                }
+            }
             before != null && after != null -> builder.around(guardAround(aroundCallback(before, after, deliver)))
-            before != null -> builder.access(ParameterAccess.MUTABLE_ARGS)
-                .before(guardBefore(beforeOnlyCallback(before, deliver)))
-            after != null -> builder.access(ParameterAccess.READ_ARGS_VIEW)
-                .after(guardAfter(afterOnlyCallback(after, deliver)))
+            before != null -> {
+                val access = if (parameterCount == 0) ParameterAccess.NO_ARGS else beforeAccess ?: ParameterAccess.MUTABLE_ARGS
+                when (access) {
+                    ParameterAccess.NO_ARGS -> builder.access(ParameterAccess.NO_ARGS)
+                        .before(guardBefore(beforeOnlyNoArgsCallback(before, deliver)))
+                    ParameterAccess.READ_ARGS_VIEW ->
+                        builder.beforeArgs(guardBeforeArgs(beforeOnlyReadArgsCallback(before, deliver)))
+                    else ->
+                        builder.beforeMutableArgs(guardMutableArgs(beforeOnlyMutableCallback(before, deliver)))
+                }
+            }
+            after != null -> {
+                val access = if (parameterCount == 0 || afterAccess == ParameterAccess.NO_ARGS) {
+                    ParameterAccess.NO_ARGS
+                } else {
+                    ParameterAccess.READ_ARGS_VIEW
+                }
+                if (access == ParameterAccess.NO_ARGS) {
+                    builder.access(ParameterAccess.NO_ARGS)
+                        .after(guardAfter(afterOnlyNoArgsCallback(after, deliver)))
+                } else {
+                    builder.afterArgs(guardAfterArgs(afterOnlyReadArgsCallback(after, deliver)))
+                }
+            }
             // 没有任何回调：保留一条空安装，让命中证据与安装计数不变。
             else -> builder.access(ParameterAccess.NO_ARGS).before(BeforeCallback { })
         }
         return builder.build()
     }
 
-    private fun beforeOnlyCallback(before: ModernHookParam.() -> Unit, deliver: Boolean) = BeforeCallback { invocation ->
-        val arguments = invocation as MutableArgsInvocation
-        val param = ModernHookParam(invocation.target(), invocation.thisObject(), arguments)
-        before(param)
-        val failure = param.throwable
-        when {
-            failure != null -> if (deliver) invocation.setEarlyThrowable(failure) else throw failure
-            param.wasResultAssignedByHook() -> invocation.setEarlyResult(param.result)
-            else -> param.writeArgumentsTo(arguments)
+    private fun beforeOnlyNoArgsCallback(before: ModernHookParam.() -> Unit, deliver: Boolean) = BeforeCallback { invocation ->
+        finishBeforeOnly(invocation, ModernHookParam(invocation.target(), invocation.thisObject()), before, deliver)
+    }
+
+    private fun beforeOnlyReadArgsCallback(before: ModernHookParam.() -> Unit, deliver: Boolean) = ArgsBeforeCallback { invocation ->
+        finishBeforeOnly(invocation, ModernHookParam(invocation.target(), invocation.thisObject(), invocation), before, deliver)
+    }
+
+    private fun beforeOnlyMutableCallback(before: ModernHookParam.() -> Unit, deliver: Boolean) = MutableArgsBeforeCallback { arguments ->
+        val param = ModernHookParam(arguments.target(), arguments.thisObject(), arguments)
+        if (!finishBeforeOnly(arguments, param, before, deliver)) {
+            param.writeArgumentsTo(arguments)
         }
     }
 
-    private fun afterOnlyCallback(after: ModernHookParam.() -> Unit, deliver: Boolean) = AfterCallback { invocation, outcome ->
-        val param = ModernHookParam(invocation.target(), invocation.thisObject(), invocation as ReadArgsInvocation)
+    private fun finishBeforeOnly(
+        invocation: HookInvocation,
+        param: ModernHookParam,
+        before: ModernHookParam.() -> Unit,
+        deliver: Boolean
+    ): Boolean {
+        before(param)
+        val failure = param.throwable
+        return when {
+            failure != null -> {
+                if (deliver) invocation.setEarlyThrowable(failure) else throw failure
+                true
+            }
+            param.wasResultAssignedByHook() -> {
+                invocation.setEarlyResult(param.result)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun afterOnlyNoArgsCallback(after: ModernHookParam.() -> Unit, deliver: Boolean) = AfterCallback { invocation, outcome ->
+        finishAfterOnly(ModernHookParam(invocation.target(), invocation.thisObject()), after, outcome, deliver)
+    }
+
+    private fun afterOnlyReadArgsCallback(after: ModernHookParam.() -> Unit, deliver: Boolean) = ArgsAfterCallback { invocation, outcome ->
+        finishAfterOnly(ModernHookParam(invocation.target(), invocation.thisObject(), invocation), after, outcome, deliver)
+    }
+
+    private fun finishAfterOnly(
+        param: ModernHookParam,
+        after: ModernHookParam.() -> Unit,
+        outcome: InvocationResult,
+        deliver: Boolean
+    ) {
         val originalFailure = if (outcome.hasThrown()) outcome.throwable else null
         if (originalFailure != null) param.assignOriginalFailure(originalFailure) else param.assignOriginal(outcome.result)
         after(param)
@@ -575,10 +844,7 @@ internal class ModernMemberHookCreator(
     }
 
     /** 构造器与 void 方法没有返回值：Kotlin 的 Unit 之类的占位值不能当结果交给 SDK 校验。 */
-    private fun normalizeReplacement(value: Any?): Any? {
-        val returnsNothing = executable is Constructor<*> || (executable as? Method)?.returnType == Void.TYPE
-        return if (returnsNothing) null else value
-    }
+    private fun normalizeReplacement(value: Any?): Any? = if (returnsNothing) null else value
 
     private fun defaultReturnValue(executable: Executable): Any? {
         val type = (executable as? Method)?.returnType ?: return null

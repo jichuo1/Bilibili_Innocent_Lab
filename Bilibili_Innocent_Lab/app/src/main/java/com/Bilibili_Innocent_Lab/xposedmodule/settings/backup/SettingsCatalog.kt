@@ -38,6 +38,7 @@ internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
     const val CATALOG_VERSION = 86
+    private val LOGICAL_ID_PATTERN = Regex("[a-z0-9][a-z0-9._-]{0,127}")
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -1213,10 +1214,10 @@ internal object SettingsCatalog {
     init {
         check(specs.size == 281) { "Expected 281 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
-        check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
+        check(byStorageKey.size == specs.size) {
             "Duplicate settings storage key"
         }
-        check(specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) }) {
+        check(specs.all { LOGICAL_ID_PATTERN.matches(it.id) }) {
             "Invalid logical setting id"
         }
         check(specs.all { it.valueVersion > 0 }) { "Invalid setting value version" }

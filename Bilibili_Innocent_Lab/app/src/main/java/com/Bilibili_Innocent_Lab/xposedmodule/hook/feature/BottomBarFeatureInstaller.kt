@@ -78,8 +78,8 @@ internal class BottomBarFeatureInstaller(
             environment.registrar.adapted("bottom.bind", adapted.bindTabMethod) {
                 after {
                     val host = instance ?: return@after
-                    val index = (args.getOrNull(0) as? Number)?.toInt() ?: return@after
-                    val view = args.getOrNull(1) as? View ?: return@after
+                    val index = (argOrNull(0) as? Number)?.toInt() ?: return@after
+                    val view = argOrNull(1) as? View ?: return@after
                     val tabs = readTabs(tabsGetter, host) ?: return@after
                     if (firstObserved.compareAndSet(false, true)) {
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)

@@ -43,7 +43,7 @@ internal class HomeComponentFilterFeatureInstaller(
             environment.registrar.adapted("home.components.view", adapted.onViewCreated) {
                 after {
                     val fragment = instance ?: return@after
-                    val root = args.firstOrNull() as? View ?: return@after
+                    val root = argOrNull(0) as? View ?: return@after
                     val className = fragment.javaClass.name
                     if (!isCandidate(className) || !isHomeChild(fragment, parentGetter)) {
                         return@after

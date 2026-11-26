@@ -208,8 +208,8 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
 
         creator.replaceAny { argOrNull(0) }
         assertEquals(5, creator.invoke(chain))
-        assertEquals(if (engine == HookDispatchEngine.SDK) 0 else 1, chain.argumentListReads)
-        assertEquals(if (engine == HookDispatchEngine.SDK) 1 else 0, chain.argumentSlotReads)
+        assertEquals(0, chain.argumentListReads)
+        assertEquals(1, chain.argumentSlotReads)
         assertEquals(0, chain.calls)
 
         val failure = IllegalStateException("dynamic replacement failure")
@@ -539,6 +539,124 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         assertFalse("constants always use the sdk constant channel", constant.usesDirectChain(HookDispatchEngine.DIRECT))
         val constructor = ModernMemberHookCreator(Fixture::class.java.getDeclaredConstructor()).apply { after { } }
         assertTrue("constructor receivers are only visible on the framework chain", constructor.usesDirectChain(HookDispatchEngine.SDK))
+        val success = ModernMemberHookCreator(method).apply { replaceResultOnSuccess(99) }
+        assertFalse("success replacements always use the sdk success channel", success.usesDirectChain(HookDispatchEngine.DIRECT))
+    }
+
+    @Test
+    fun `replaceResultOnSuccess overrides normal returns and propagates original failures`() {
+        val framework = FakeXposedFramework()
+        val runtime = ModernHookRuntime(framework.xposed, engine)
+        runtime.install("success", method) { replaceResultOnSuccess(42) }
+        val hooker = framework.handles.single().hooker
+        assertEquals(42, hooker.intercept(TestChain(method) { _, _ -> 7 }))
+
+        val failure = IllegalStateException("host failed")
+        try {
+            hooker.intercept(TestChain(method) { _, _ -> throw failure })
+            fail("original exception must propagate")
+        } catch (actual: IllegalStateException) {
+            assertSame(failure, actual)
+        }
+    }
+
+    @Test
+    fun `beforeOnly reads slots lazily and propagates original failures without attributing a fault`() {
+        val framework = FakeXposedFramework()
+        val runtime = ModernHookRuntime(framework.xposed, engine)
+        var seen0: Any? = null
+        runtime.install("before-only", pair) {
+            faultOwner = "feature_before"
+            before {
+                seen0 = argOrNull(0)
+                assertNull(copiedArgsOrNull())
+            }
+        }
+        val hooker = framework.handles.single().hooker
+        val okChain = TestChain(pair, Fixture(), arrayOf("a", "b")) { _, args -> args[1] }
+        assertEquals("b", hooker.intercept(okChain))
+        assertEquals("a", seen0)
+        assertEquals(0, okChain.argumentListReads)
+        assertEquals(if (engine == HookDispatchEngine.DIRECT) 1 else 2, okChain.argumentSlotReads)
+        assertEquals(if (engine == HookDispatchEngine.DIRECT) 0 else 1, okChain.argumentOverrideCalls)
+
+        val failure = java.io.IOException("downstream failed")
+        try {
+            hooker.intercept(TestChain(pair, Fixture(), arrayOf("a", "b")) { _, _ -> throw failure })
+            fail("downstream failure must propagate")
+        } catch (actual: java.io.IOException) {
+            assertSame(failure, actual)
+        }
+        assertTrue(faults(runtime).isEmpty())
+    }
+
+    @Test
+    fun `unhook is idempotent and stale handle cannot remove or unbind a replacement`() {
+        val framework = FakeXposedFramework()
+        val runtime = ModernHookRuntime(framework.xposed, engine)
+        val failure = IllegalStateException("bug")
+        val first = runtime.install("rebound", method) {
+            faultOwner = "feature_old"
+            before { throw failure }
+        }
+        val second = runtime.install("rebound", method) {
+            faultOwner = "feature_new"
+            before { throw failure }
+        }
+        val unhooksBeforeStale = framework.unhooks
+        first.unhook()
+        first.unhook()
+        assertEquals("stale handle must not unhook active replacement", unhooksBeforeStale, framework.unhooks)
+
+        failure.leaks(framework.handles.last().hooker, TestChain(method, arguments = arrayOf(1, 2)))
+        assertEquals("active fault owner must stay bound after stale unhook", listOf("feature_new"), faults(runtime))
+
+        second.unhook()
+        second.unhook()
+        assertEquals(unhooksBeforeStale + 1, framework.unhooks)
+        runCatching { framework.handles.last().hooker.intercept(TestChain(method, arguments = arrayOf(1, 2))) }
+        assertTrue(faults(runtime).isEmpty())
+    }
+
+    @Test
+    fun `toSpec selects minimal parameter access and typed callbacks cleanly`() {
+        val zeroArg = ReturnFixture::class.java.getDeclaredMethod("intValue")
+        val zeroBefore = ModernMemberHookCreator(zeroArg).apply { before { } }
+            .toSpec(HookId.of("zero-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.NO_ARGS, zeroBefore.access())
+
+        val noArgsBefore = ModernMemberHookCreator(pair).apply {
+            before(io.github.jichuo1.meguviz.hook.api.ParameterAccess.NO_ARGS) { }
+        }.toSpec(HookId.of("noargs-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.NO_ARGS, noArgsBefore.access())
+
+        val readBefore = ModernMemberHookCreator(pair).apply {
+            before(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW) { argOrNull(0) }
+        }.toSpec(HookId.of("read-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW, readBefore.access())
+
+        val mutableBefore = ModernMemberHookCreator(pair).apply {
+            before { args[0] = "x" }
+        }.toSpec(HookId.of("mutable-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.MUTABLE_ARGS, mutableBefore.access())
+
+        val readAfter = ModernMemberHookCreator(pair).apply {
+            after { argOrNull(0) }
+        }.toSpec(HookId.of("read-after"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW, readAfter.access())
+
+        val readFramework = FakeXposedFramework()
+        var readSeen: Any? = null
+        ModernHookRuntime(readFramework.xposed, engine).install("read-before-run", pair) {
+            faultOwner = "feature_read"
+            before(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW) { readSeen = argOrNull(0) }
+        }
+        val readChain = TestChain(pair, Fixture(), arrayOf("x", "y")) { _, args -> args[1] }
+        assertEquals("y", readFramework.handles.single().hooker.intercept(readChain))
+        assertEquals("x", readSeen)
+        assertEquals(0, readChain.argumentListReads)
+        assertEquals(1, readChain.argumentSlotReads)
+        assertEquals(0, readChain.argumentOverrideCalls)
     }
 
     @Test

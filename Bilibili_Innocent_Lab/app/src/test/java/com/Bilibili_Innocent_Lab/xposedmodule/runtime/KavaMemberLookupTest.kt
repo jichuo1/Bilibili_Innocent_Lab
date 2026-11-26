@@ -265,6 +265,39 @@ class KavaMemberLookupTest {
         assertTrue(KavaMemberLookup.declaredMethods(HiddenMethods::class.java).isNotEmpty())
     }
 
+    fun `transient loader exception does not permanently poison positive lookup cache`() {
+        var failNext = true
+        val flakyLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == HiddenMethods::class.java.name && failNext) {
+                    failNext = false
+                    throw IllegalStateException("transient dex fault")
+                }
+                return super.loadClass(name, resolve)
+            }
+        }
+        assertNull(KavaMemberLookup.classOrNull(flakyLoader, HiddenMethods::class.java.name))
+        assertEquals(1L, KavaMemberLookup.diagnostics().lookupFailures)
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(flakyLoader, HiddenMethods::class.java.name))
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(flakyLoader, HiddenMethods::class.java.name))
+        assertTrue(KavaMemberLookup.diagnostics().cacheHits >= 1L)
+    }
+
+    fun `superclass collections reuse cached declared class collections and batch boot scope`() {
+        val loader = requireNotNull(HiddenMethods::class.java.classLoader)
+        KavaMemberLookup.withLookupBatch(loader) {
+            val baseMethods = KavaMemberLookup.declaredMethods(HiddenBase::class.java)
+            assertTrue(baseMethods.isNotEmpty())
+            val beforeChildMisses = KavaMemberLookup.diagnostics().cacheMisses
+            val childInherited = KavaMemberLookup.methods(HiddenMethods::class.java, includeSuperclasses = true)
+            assertTrue(childInherited.any { it.declaringClass == HiddenBase::class.java })
+            assertTrue(childInherited.any { it.declaringClass == Any::class.java })
+            val afterChildMisses = KavaMemberLookup.diagnostics().cacheMisses
+            assertEquals("only (HiddenMethods, true) outer collection lookup counts as a miss", beforeChildMisses + 1, afterChildMisses)
+            assertTrue(KavaMemberLookup.fields(HiddenMethods::class.java, includeSuperclasses = true).any { it.name == "inheritedText" })
+        }
+    }
+
 
     @org.junit.Test
     fun verifyAllCases() {
@@ -287,5 +320,7 @@ class KavaMemberLookupTest {
         runIsolated { s -> s.`loads classes through explicit class loader`() }
         runIsolated { s -> s.`caches positive and negative lookups and exposes diagnostics`() }
         runIsolated { s -> s.`cancelled member lookup does not poison the stable cache`() }
+        runIsolated { s -> s.`transient loader exception does not permanently poison positive lookup cache`() }
+        runIsolated { s -> s.`superclass collections reuse cached declared class collections and batch boot scope`() }
     }
 }

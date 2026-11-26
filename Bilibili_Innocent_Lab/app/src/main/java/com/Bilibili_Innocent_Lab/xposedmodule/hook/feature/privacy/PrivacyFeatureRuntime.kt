@@ -199,7 +199,7 @@ internal class PrivacyFeatureRuntime(
             it.name in setOf("logout", "logoutByUser", "clearAccessToken", "clearAccessTokenByAuthJsb",
                 "clearAccessTokenModel", "clearFastLogin", "signedInWithToken") }.forEach { m ->
             plan.step { env.registrar.exact("incognito.account.preserve.${m.name}.${m.parameterCount}", accounts, m.name, *m.parameterTypes) {
-                before { result = null }
+                intercept()
             } }
             count++
         }
@@ -266,9 +266,9 @@ internal class PrivacyFeatureRuntime(
             count++
             // Android's search provider must neither write nor erase the user's pre-session history.
             env.registrar.exact("incognito.search.save", recent, "saveRecentQuery", classOf<String>(), classOf<String>()) {
-                before { result = null }
+                intercept()
             }
-            env.registrar.exact("incognito.search.clear", recent, "clearHistory") { before { result = null } }
+            env.registrar.exact("incognito.search.clear", recent, "clearHistory") { intercept() }
             count + 2
         }
     }.getOrNull()

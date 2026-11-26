@@ -22,15 +22,28 @@ class ReflectAccessPrimitiveArgTest {
         fun withLong(value: Long): String = "long:$value"
         fun withDouble(value: Double): String = "double:$value"
         fun withChar(value: Char): String = "char:$value"
+        fun withNullable(value: String?): String = "str:$value"
+        fun zeroArg(): String = "zero"
+
+        companion object {
+            @JvmStatic
+            fun staticSum(a: Int, b: Int): Int = a + b
+        }
     }
 
     fun `resolves methods whose parameters are primitives`() {
         val target = Target()
-        assertEquals("bool:true", ReflectAccess.callMethod(target, "withBoolean", true))
-        assertEquals("int:7", ReflectAccess.callMethod(target, "withInt", 7))
-        assertEquals("long:8", ReflectAccess.callMethod(target, "withLong", 8L))
-        assertEquals("double:1.5", ReflectAccess.callMethod(target, "withDouble", 1.5))
-        assertEquals("char:x", ReflectAccess.callMethod(target, "withChar", 'x'))
+        repeat(2) {
+            assertEquals("bool:true", ReflectAccess.callMethod(target, "withBoolean", true))
+            assertEquals("int:7", ReflectAccess.callMethod(target, "withInt", 7))
+            assertEquals("long:8", ReflectAccess.callMethod(target, "withLong", 8L))
+            assertEquals("double:1.5", ReflectAccess.callMethod(target, "withDouble", 1.5))
+            assertEquals("char:x", ReflectAccess.callMethod(target, "withChar", 'x'))
+            assertEquals("str:null", ReflectAccess.callMethod(target, "withNullable", null))
+            assertEquals("str:ok", ReflectAccess.callMethod(target, "withNullable", "ok"))
+            assertEquals("zero", ReflectAccess.callMethod(target, "zeroArg"))
+            assertEquals(11, ReflectAccess.callStaticMethod(Target::class.java, "staticSum", 4, 7))
+        }
     }
 
     /**

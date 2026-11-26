@@ -22,29 +22,28 @@ internal object NoRootRuntimeDetector {
     ): HookRuntimeMode {
         val frameworkFingerprint = classLoaderFingerprint(frameworkClassLoader)
         val moduleFingerprint = classLoaderFingerprint(moduleClassLoader)
+        classifyKnownLoaders(frameworkFingerprint, moduleFingerprint)?.let { return it }
         val metadata = runCatching {
             context.packageManager
                 .getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
                 .metaData
         }.getOrNull()
-        return classify(
-            hasNpatchMarker = hasNpatchMarker(metadata),
-            frameworkFingerprint = frameworkFingerprint,
-            moduleFingerprint = moduleFingerprint,
-            hasLspatchMarker = LspatchRuntimeProfiles.read(context, context.packageName).modern
-        )
+        if (hasNpatchMarker(metadata)) return HookRuntimeMode.NPATCH_LEGACY
+        return if (LspatchRuntimeProfiles.read(context, context.packageName).modern) {
+            HookRuntimeMode.LSPATCH
+        } else {
+            HookRuntimeMode.STANDARD_XPOSED
+        }
     }
 
     internal fun hasNpatchMarker(metadata: Bundle?): Boolean =
         metadata?.containsKey(NPATCH_METADATA_KEY) == true &&
             !metadata.get(NPATCH_METADATA_KEY)?.toString().isNullOrBlank()
 
-    internal fun classify(
-        hasNpatchMarker: Boolean,
+    internal fun classifyKnownLoaders(
         frameworkFingerprint: String,
-        moduleFingerprint: String,
-        hasLspatchMarker: Boolean = false
-    ): HookRuntimeMode {
+        moduleFingerprint: String
+    ): HookRuntimeMode? {
         val framework = frameworkFingerprint.lowercase()
         val module = moduleFingerprint.lowercase()
         return when {
@@ -53,10 +52,19 @@ internal object NoRootRuntimeDetector {
             module.contains("org.lsposed.lspd") ||
                 module.contains("lspmoduleclassloader") ||
                 framework.contains("org.lsposed.lspd") -> HookRuntimeMode.STANDARD_XPOSED
-            hasNpatchMarker -> HookRuntimeMode.NPATCH_LEGACY
-            hasLspatchMarker -> HookRuntimeMode.LSPATCH
-            else -> HookRuntimeMode.STANDARD_XPOSED
+            else -> null
         }
+    }
+
+    internal fun classify(
+        hasNpatchMarker: Boolean,
+        frameworkFingerprint: String,
+        moduleFingerprint: String,
+        hasLspatchMarker: Boolean = false
+    ): HookRuntimeMode = classifyKnownLoaders(frameworkFingerprint, moduleFingerprint) ?: when {
+        hasNpatchMarker -> HookRuntimeMode.NPATCH_LEGACY
+        hasLspatchMarker -> HookRuntimeMode.LSPATCH
+        else -> HookRuntimeMode.STANDARD_XPOSED
     }
 
     private fun classLoaderFingerprint(loader: ClassLoader?): String {

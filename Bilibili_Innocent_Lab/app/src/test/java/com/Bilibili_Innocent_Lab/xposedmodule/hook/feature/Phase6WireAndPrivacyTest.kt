@@ -140,10 +140,11 @@ class Phase6WireAndPrivacyTest {
         val inspected = KmpGrpcWireAdapter.inspectEntry(DeserEngine::class.java.declaredMethods.single { it.name == "dispatch" })
         assertNotNull(inspected)
         assertTrue(KmpMethodDescriptorResolver.isDescriptorType(DeserDescriptor::class.java))
-        assertEquals(
-            "bilibili.app.interface.v1.Search/DefaultWords",
-            KmpMethodDescriptorResolver.resolve(DeserDescriptor(String::class, DummyDeserStrategy))
-        )
+        val desc = DeserDescriptor(String::class, DummyDeserStrategy)
+        assertEquals("bilibili.app.interface.v1.Search/DefaultWords", KmpMethodDescriptorResolver.resolve(desc))
+        assertEquals("bilibili.app.interface.v1.Search/DefaultWords", KmpMethodDescriptorResolver.resolve(desc))
+        KmpMethodDescriptorResolver.clearCaches()
+        assertEquals("bilibili.app.interface.v1.Search/DefaultWords", KmpMethodDescriptorResolver.resolve(desc))
         assertNull(KmpMethodDescriptorResolver.resolve(LeadingDotPkg()))
         assertNull(KmpMethodDescriptorResolver.resolve(WhitespacePkg()))
         assertNull(KmpMethodDescriptorResolver.resolve(SlashInSvc()))

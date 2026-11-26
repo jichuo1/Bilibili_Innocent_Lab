@@ -50,6 +50,22 @@ internal object KmpMethodDescriptorResolver {
 
     private class CachedResolution(val fullMethodName: String?)
 
+    private class IdentityProbe {
+        var target: Any? = null
+        var identityHash: Int = 0
+
+        override fun hashCode(): Int = identityHash
+
+        override fun equals(other: Any?): Boolean {
+            val active = target ?: return false
+            return when (other) {
+                is WeakDescriptorKey -> other.get() === active
+                is IdentityProbe -> other.target === active
+                else -> false
+            }
+        }
+    }
+
     private class WeakDescriptorKey(
         descriptor: Any,
         queue: ReferenceQueue<Any>? = null
@@ -60,15 +76,18 @@ internal object KmpMethodDescriptorResolver {
 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
-            if (other !is WeakDescriptorKey) return false
-            val mine = get()
-            val theirs = other.get()
-            return mine != null && theirs != null && mine === theirs
+            val mine = get() ?: return false
+            return when (other) {
+                is WeakDescriptorKey -> other.get() === mine
+                is IdentityProbe -> other.target === mine
+                else -> false
+            }
         }
     }
 
     private val refQueue = ReferenceQueue<Any>()
-    private val instanceCache = ConcurrentHashMap<WeakDescriptorKey, CachedResolution>()
+    private val probeThreadLocal = ThreadLocal.withInitial(::IdentityProbe)
+    private val instanceCache = ConcurrentHashMap<Any, CachedResolution>()
     private val classPlans = WeakHashMap<Class<*>, java.lang.ref.SoftReference<MemberPlan>>()
 
     fun isDescriptorType(type: Class<*>): Boolean {
@@ -82,14 +101,36 @@ internal object KmpMethodDescriptorResolver {
 
     fun resolve(descriptor: Any): String? {
         expungeStaleKeys()
-        instanceCache[WeakDescriptorKey(descriptor)]?.let { return it.fullMethodName }
+        val probe = probeThreadLocal.get() ?: IdentityProbe().also(probeThreadLocal::set)
+        probe.target = descriptor
+        probe.identityHash = System.identityHashCode(descriptor)
+        val cached = try {
+            instanceCache[probe]
+        } finally {
+            probe.target = null
+        }
+        if (cached != null) return cached.fullMethodName
+
         val resolved = resolveUncached(descriptor)
         expungeStaleKeys()
         if (instanceCache.size >= MAX_CACHED_DESCRIPTORS) {
             instanceCache.clear()
         }
-        instanceCache.putIfAbsent(WeakDescriptorKey(descriptor, refQueue), CachedResolution(resolved))
+        val key = WeakDescriptorKey(descriptor, refQueue)
+        if (instanceCache.putIfAbsent(key, CachedResolution(resolved)) != null) {
+            key.clear()
+        }
         return resolved
+    }
+
+    fun clearCaches() {
+        instanceCache.clear()
+        synchronized(classPlans) {
+            classPlans.clear()
+        }
+        while (refQueue.poll() != null) {
+            // Drain cleared reference keys after cache reset.
+        }
     }
 
     private fun resolveUncached(descriptor: Any): String? {

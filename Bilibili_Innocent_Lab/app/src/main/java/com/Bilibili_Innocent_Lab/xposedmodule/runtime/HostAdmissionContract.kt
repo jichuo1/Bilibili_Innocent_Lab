@@ -16,6 +16,7 @@ internal object HostAdmissionContract {
     const val MAX_DOCUMENT_CHARS = 192 * 1024
     const val BOOTSTRAP_TIMEOUT_MS = 2_000L
     const val CHALLENGE_TIMEOUT_MS = 2_000L
+    private val FINGERPRINT_HEX_PATTERN = Regex("[a-fA-F0-9]{64}")
 
     fun putIdentity(bundle: Bundle, identity: PublicationIdentity) {
         bundle.putString("incarnation", identity.incarnation)
@@ -28,7 +29,7 @@ internal object HostAdmissionContract {
         val value = PublicationIdentity(bundle.getString("incarnation").orEmpty(), bundle.getLong("consentRevision"),
             bundle.getLong("policyEpoch"), bundle.getLong("snapshotRevision"), bundle.getString("fingerprint").orEmpty())
         value.takeIf { it.incarnation.length in 16..64 && it.consentRevision > 0 && it.policyEpoch > 0 &&
-            it.snapshotRevision > 0 && it.fingerprint.matches(Regex("[a-fA-F0-9]{64}")) }
+            it.snapshotRevision > 0 && FINGERPRINT_HEX_PATTERN.matches(it.fingerprint) }
     }.getOrNull()
 
     fun identityJson(value: PublicationIdentity): JSONObject = JSONObject()
@@ -40,7 +41,7 @@ internal object HostAdmissionContract {
         PublicationIdentity(value.getString("incarnation"), value.getLong("consentRevision"),
             value.getLong("policyEpoch"), value.getLong("snapshotRevision"), value.getString("fingerprint"))
             .takeIf { it.incarnation.length in 16..64 && it.consentRevision > 0 && it.policyEpoch > 0 &&
-                it.snapshotRevision > 0 && it.fingerprint.matches(Regex("[a-fA-F0-9]{64}")) }
+                it.snapshotRevision > 0 && FINGERPRINT_HEX_PATTERN.matches(it.fingerprint) }
     }.getOrNull()
 
     /** 标明 Int/Long 类型，避免 JSON 把小 Long 自动读为 Int 后破坏完整文档校验。 */

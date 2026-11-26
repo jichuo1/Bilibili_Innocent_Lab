@@ -236,6 +236,20 @@ object RoamingCompatHook {
     /** 已打印日志的 key 集：同一进程内每个 key 只打印一次，降低磁盘 I/O */
     private val onceLogged = Collections.synchronizedSet(HashSet<String>())
 
+    private class MineMenuFields(
+        val itemClass: Class<*>,
+        val itemCtor: java.lang.reflect.Constructor<*>?,
+        val uriField: Field?,
+        val idField: Field?,
+        val titleField: Field?,
+        val iconField: Field?,
+        val visibleField: Field?
+    )
+
+    @Volatile private var cachedDecodeMethod: Pair<Class<*>, Method>? = null
+    @Volatile private var cachedGroupItemListField: Pair<Class<*>, Field>? = null
+    @Volatile private var cachedMineMenuFields: MineMenuFields? = null
+
     /** 与 HookEntry 日志设置同步（loadApp 启动时调用） */
     internal fun configure(
         logEnabled: Boolean,
@@ -340,13 +354,11 @@ object RoamingCompatHook {
      * 非目标查询/结果异常时原样放行（不做任何改动）。
      */
     private fun filterCommentLongClickResults(param: ModernHookParam) {
-        val args = param.args
-        if (args.size < 9) return
         // 目标查询特征：shorty="VLL"、opcode 数=2、matchLast=false、参数表={viewIdx, -1}
-        if (args[3] != "VLL") return
-        if ((args[2] as? Number)?.toInt() != 2) return
-        if (args[8] != java.lang.Boolean.FALSE) return
-        val params = args[5] as? LongArray ?: return
+        if (param.argOrNull(3) != "VLL") return
+        if ((param.argOrNull(2) as? Number)?.toInt() != 2) return
+        if (param.argOrNull(8) != java.lang.Boolean.FALSE) return
+        val params = param.argOrNull(5) as? LongArray ?: return
         if (params.size != 2 || params[1] != -1L) return
         val viewIndex = runCatching {
             ReflectAccess.callMethod(param.thisObject, "encodeClassIndex", classOf<View>())
@@ -361,11 +373,18 @@ object RoamingCompatHook {
      * 非目标查询/结果异常时原样放行（不做任何改动）。
      */
     private fun filterOnOperateClickResults(param: ModernHookParam) {
-        val args = param.args
-        if (args.isEmpty()) return
         // 目标查询特征：唯一以该字符串做全量查找的查询（onOperateClick 分析）
-        if (args[0] != "im.chat-group.msg.repost.click") return
+        if (param.argOrNull(0) != "im.chat-group.msg.repost.click") return
         dropSmallParamCandidates(param, "br_opc_filtered", "onOperateClick")
+    }
+
+    private fun decodeMethodFor(helperClass: Class<*>): Method? {
+        val cached = cachedDecodeMethod
+        if (cached != null && cached.first === helperClass) return cached.second
+        val method = KavaMemberLookup.methodOrNull(helperClass, "decodeMethodIndex", java.lang.Long.TYPE)
+            ?: KavaMemberLookup.inheritedMethodOrNull(helperClass, "decodeMethodIndex", java.lang.Long.TYPE)
+        if (method != null) cachedDecodeMethod = helperClass to method
+        return method
     }
 
     /**
@@ -375,11 +394,17 @@ object RoamingCompatHook {
      */
     private fun dropSmallParamCandidates(param: ModernHookParam, logKey: String, queryName: String) {
         val results = param.result as? LongArray ?: return
+        val helper = param.thisObject ?: return
+        val decodeMethod = decodeMethodFor(helper.javaClass)
         var dropped = 0
         val kept = ArrayList<Long>(results.size)
         for (index in results) {
             val keep = runCatching {
-                val member = ReflectAccess.callMethod(param.thisObject, "decodeMethodIndex", index)
+                val member = if (decodeMethod != null) {
+                    decodeMethod.invoke(helper, index)
+                } else {
+                    ReflectAccess.callMethod(helper, "decodeMethodIndex", index)
+                }
                 !(member is Method && member.parameterTypes.size < 2)
             }.getOrDefault(true)
             if (keep) kept.add(index) else dropped++
@@ -403,12 +428,10 @@ object RoamingCompatHook {
      * 非目标查询/结果非空时原样放行。
      */
     private fun enhanceSettingRouterQuery(param: ModernHookParam) {
-        val args = param.args
-        if (args.isEmpty()) return
         // 目标查询特征（fork settings 链中唯一）：查询串 + 返回类型 "V" + matchLast=true
-        if (args[0] != "UperHotMineSolution") return
-        if (args.getOrNull(4) != "V") return
-        if (args.getOrNull(9) != java.lang.Boolean.TRUE) return
+        if (param.argOrNull(0) != "UperHotMineSolution") return
+        if (param.argOrNull(4) != "V") return
+        if (param.argOrNull(9) != java.lang.Boolean.TRUE) return
         val current = param.result as? LongArray
         if (current != null && current.isNotEmpty()) return
         val relaxed = runCatching {
@@ -511,9 +534,16 @@ object RoamingCompatHook {
             ) ?: throw NoSuchMethodException(point.clickMethod.methodName)
             runtime.install("roaming:mine-click:${clickMethod.toGenericString()}", clickMethod) {
                 before {
-                    val item = args.getOrNull(0)
+                    val item = argOrNull(0)
                     val uri = item?.let {
-                        runCatching { ReflectAccess.getField(it, "uri") as? String }.getOrNull()
+                        val fields = mineMenuFields(appClassLoader)
+                        runCatching {
+                            if (fields != null && fields.itemClass.isInstance(it) && fields.uriField != null) {
+                                fields.uriField.get(it) as? String
+                            } else {
+                                ReflectAccess.getField(it, "uri") as? String
+                            }
+                        }.getOrNull()
                     }
                     val ctx = mineClickContext(thisObject) ?: return@before
                     when {
@@ -538,6 +568,47 @@ object RoamingCompatHook {
         }.getOrDefault(false)
     }
 
+    private fun groupItemListField(groupClass: Class<*>): Field? {
+        val cached = cachedGroupItemListField
+        if (cached != null && cached.first === groupClass) return cached.second
+        val field = KavaMemberLookup.fieldOrNull(groupClass, "itemList", includeSuperclasses = true)
+        if (field != null) cachedGroupItemListField = groupClass to field
+        return field
+    }
+
+    private fun mineMenuFields(appClassLoader: ClassLoader): MineMenuFields? {
+        val cached = cachedMineMenuFields
+        if (cached != null && cached.itemClass.classLoader === appClassLoader) return cached
+        val itemClass = KavaMemberLookup.classOrNull(appClassLoader, MENU_GROUP_ITEM_CLASS) ?: return null
+        val fields = MineMenuFields(
+            itemClass = itemClass,
+            itemCtor = KavaMemberLookup.constructorOrNull(itemClass),
+            uriField = KavaMemberLookup.fieldOrNull(itemClass, "uri", includeSuperclasses = true),
+            idField = KavaMemberLookup.fieldOrNull(itemClass, "id", includeSuperclasses = true),
+            titleField = KavaMemberLookup.fieldOrNull(itemClass, "title", includeSuperclasses = true),
+            iconField = KavaMemberLookup.fieldOrNull(itemClass, "icon", includeSuperclasses = true),
+            visibleField = KavaMemberLookup.fieldOrNull(itemClass, "visible", includeSuperclasses = true)
+        )
+        cachedMineMenuFields = fields
+        return fields
+    }
+
+    private fun readItemUri(item: Any, fields: MineMenuFields?): String? = runCatching {
+        if (fields != null && fields.itemClass.isInstance(item) && fields.uriField != null) {
+            fields.uriField.get(item) as? String
+        } else {
+            ReflectAccess.getField(item, "uri") as? String
+        }
+    }.getOrNull()
+
+    private fun readItemId(item: Any, fields: MineMenuFields?): Long = runCatching {
+        if (fields != null && fields.itemClass.isInstance(item) && fields.idField != null) {
+            (fields.idField.get(item) as? Number)?.toLong() ?: -1L
+        } else {
+            ReflectAccess.getLongField(item, "id")
+        }
+    }.getOrDefault(-1L)
+
     /** 往我的页菜单注入「哔哩漫游设置」入口。在 Adapter 定位的菜单构造方法之后调用；
      * 此时 MenuGroup 列表已就绪；找到「设置」所在
      * MenuGroup（含 uri="activity://main/preference" 的 itemList，兜底取第一个
@@ -554,46 +625,56 @@ object RoamingCompatHook {
             groupField.get(fragment) as? List<*>
         }.getOrNull() ?: return
         if (groups.isEmpty()) return
+        val menuFields = mineMenuFields(appClassLoader)
         var targetList: MutableList<Any>? = null
+        var settingsItem: Any? = null
         for (group in groups) {
             if (group == null) continue
+            val listField = groupItemListField(group.javaClass)
             val itemList = runCatching {
-                ReflectAccess.getField(group, "itemList") as? MutableList<Any>
+                @Suppress("UNCHECKED_CAST")
+                (listField?.get(group) ?: ReflectAccess.getField(group, "itemList")) as? MutableList<Any>
             }.getOrNull() ?: continue
             if (itemList.isEmpty()) continue
-            val hasSettings = itemList.any {
-                runCatching { ReflectAccess.getField(it, "uri") as? String }.getOrNull() == "activity://main/preference"
+            val matchedSettings = itemList.firstOrNull {
+                readItemUri(it, menuFields) == "activity://main/preference"
             }
             targetList = itemList
-            if (hasSettings) break
+            if (matchedSettings != null) {
+                settingsItem = matchedSettings
+                break
+            }
         }
         if (targetList == null) return
         val entryId = if (moduleSettings) MODULE_ENTRY_ID else ROAMING_ENTRY_ID
-        val exists = targetList.any {
-            runCatching { ReflectAccess.getLongField(it, "id") }.getOrDefault(-1L) == entryId
-        }
+        val exists = targetList.any { readItemId(it, menuFields) == entryId }
         if (exists) return
         val item = runCatching {
-            val itemClass = KavaMemberLookup.classOrNull(appClassLoader, MENU_GROUP_ITEM_CLASS)
-                ?: return@runCatching null
-            KavaMemberLookup.constructorOrNull(itemClass)?.newInstance()
+            menuFields?.itemCtor?.newInstance()
         }.getOrNull() ?: return
-        ReflectAccess.setLongField(item, "id", entryId)
+        menuFields?.idField?.setLong(item, entryId) ?: ReflectAccess.setLongField(item, "id", entryId)
         val titleContext = mineClickContext(fragment) ?: ReflectAccess.currentApplication()
-        ReflectAccess.setField(
-            item,
-            "title",
-            InjectedUiLocale.messages(titleContext).let {
-                if (moduleSettings) it.moduleSettingsTitle else it.roamingSettingsTitle
-            }
-        )
-        val icon = if (moduleSettings) targetList.firstOrNull {
-            runCatching { ReflectAccess.getField(it, "uri") as? String }.getOrNull() == "activity://main/preference"
-        }?.let { runCatching { ReflectAccess.getField(it, "icon") as? String }.getOrNull() }.orEmpty()
-            else ROAMING_ENTRY_ICON
-        ReflectAccess.setField(item, "icon", icon)
-        ReflectAccess.setField(item, "uri", if (moduleSettings) MODULE_URI else ROAMING_URI)
-        ReflectAccess.setIntField(item, "visible", 1)
+        val title = InjectedUiLocale.messages(titleContext).let {
+            if (moduleSettings) it.moduleSettingsTitle else it.roamingSettingsTitle
+        }
+        menuFields?.titleField?.set(item, title) ?: ReflectAccess.setField(item, "title", title)
+        val icon = if (moduleSettings) {
+            settingsItem?.let {
+                runCatching {
+                    if (menuFields != null && menuFields.itemClass.isInstance(it) && menuFields.iconField != null) {
+                        menuFields.iconField.get(it) as? String
+                    } else {
+                        ReflectAccess.getField(it, "icon") as? String
+                    }
+                }.getOrNull()
+            }.orEmpty()
+        } else {
+            ROAMING_ENTRY_ICON
+        }
+        menuFields?.iconField?.set(item, icon) ?: ReflectAccess.setField(item, "icon", icon)
+        val uri = if (moduleSettings) MODULE_URI else ROAMING_URI
+        menuFields?.uriField?.set(item, uri) ?: ReflectAccess.setField(item, "uri", uri)
+        menuFields?.visibleField?.setInt(item, 1) ?: ReflectAccess.setIntField(item, "visible", 1)
         targetList.add(item)
         runCatching {
             val adapter = adapterField?.get(fragment) ?: return@runCatching

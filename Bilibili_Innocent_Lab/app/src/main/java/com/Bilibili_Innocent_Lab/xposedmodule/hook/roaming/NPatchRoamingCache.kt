@@ -16,6 +16,7 @@ import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedInterface
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import dalvik.system.BaseDexClassLoader
 
 /** Optional adapter for the verified 833 isolated loader. No Legacy API or global callback table. */
@@ -75,9 +76,9 @@ internal object NPatchRoamingCache {
             status = RoamingCacheStatus.UNAVAILABLE; return true
         }
         val claimed = AtomicBoolean(false)
-        var handle: ModernHookHandle? = null
+        val handleRef = AtomicReference<ModernHookHandle?>(null)
         observing = true
-        handle = runtime.install("roaming:peer-loader", method) {
+        val installedHandle = runtime.install("roaming:peer-loader", method) {
             after {
                 val loaded = result as? Class<*>
                 val loader = thisObject as? ClassLoader
@@ -87,7 +88,7 @@ internal object NPatchRoamingCache {
                 if (actualPath == null || File(actualPath).canonicalPath != File(path).canonicalPath ||
                     !claimed.compareAndSet(false, true)) return@after
                 observing = false
-                handle?.unhook()
+                handleRef.getAndSet(null)?.unhook()
                 HostThreadGuard.run("roaming.prepare") {
                     peerObserved = true
                     status = preparedStatus
@@ -96,10 +97,14 @@ internal object NPatchRoamingCache {
                 }
             }
         }
+        handleRef.set(installedHandle)
+        if (claimed.get() || !observing) {
+            handleRef.getAndSet(null)?.unhook()
+        }
         main.postDelayed({
-            if (observing) {
+            if (claimed.compareAndSet(false, true)) {
                 observing = false
-                runCatching { handle.unhook() }
+                runCatching { handleRef.getAndSet(null)?.unhook() }
                 status = if (NPatchRoamingCache.enabled) RoamingCacheStatus.UNAVAILABLE else RoamingCacheStatus.DISABLED
             }
         }, 30_000)

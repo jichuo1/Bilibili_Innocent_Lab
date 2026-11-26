@@ -79,7 +79,7 @@ internal class IncognitoTelemetryHooks(
             before { result = session.identity()?.sessionId.orEmpty() }
         }
         env.registrar.exact("incognito.neurons.uuid.set", owner, setUuid.name, *setUuid.parameterTypes) {
-            before { result = null }
+            intercept()
         }
         return 2
     }

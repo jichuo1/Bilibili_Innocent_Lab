@@ -245,10 +245,15 @@ internal object DiagnosticFeatureRegistry {
         }
     }
 
+    private val groupsById: Map<String, DiagnosticFeatureDescriptor> =
+        groups.associateBy(DiagnosticFeatureDescriptor::id)
+
     val descriptors: List<DiagnosticFeatureDescriptor> = groups + DiagnosticCapabilityCatalog.definitions
-        .filter { it.id != it.parentId }
-        .map { capability ->
-            val parent = groups.single { it.id == capability.parentId }
+        .mapNotNull { capability ->
+            if (capability.id == capability.parentId) return@mapNotNull null
+            val parent = requireNotNull(groupsById[capability.parentId]) {
+                "Missing diagnostic parent group: ${capability.parentId}"
+            }
             DiagnosticFeatureDescriptor(capability.id, parent.category,
                 runtimeEvidenceExpected = DiagnosticCapabilityCatalog.explicitRuntimeSupport(capability.id) > 0)
         }

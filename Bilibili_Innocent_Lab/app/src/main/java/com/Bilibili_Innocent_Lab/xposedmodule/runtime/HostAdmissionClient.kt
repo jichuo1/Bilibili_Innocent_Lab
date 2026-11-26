@@ -119,10 +119,13 @@ internal object HostAdmissionClient {
         val app = context.applicationContext ?: context
         val deadline = SystemClock.elapsedRealtime() + HostAdmissionContract.BOOTSTRAP_TIMEOUT_MS
         val responses = LinkedBlockingQueue<Routed>(4)
+        val normalFingerprint = normal?.takeIf { it.authorized }?.let(RemoteHookConfigContract::contentFingerprint)
         fun launch(bound: Boolean) = runCatching {
             (if (bound) boundWorker else worker).submit {
                 val route = if (bound) HostAdmissionRoutePlan.BINDER else HostAdmissionRoutePlan.PROVIDER
-                val result = try { exchange(app, normal, normalFailure, deadline, bound = bound, nPatchRuntime = nPatchRuntime) }
+                val result = try {
+                    exchange(app, normal, normalFailure, normalFingerprint, deadline, bound = bound, nPatchRuntime = nPatchRuntime)
+                }
                 catch (error: SecurityException) {
                     // 平台拒绝跨包绑定/查询，不是条款或来源上的权威拒绝。
                     log(Log.WARN, "[BIL] 启动授权通道异常(route=$route, type=security)")
@@ -142,7 +145,9 @@ internal object HostAdmissionClient {
         }.getOrNull()
         fun launchBroadcast() = runCatching {
             broadcastWorker.submit {
-                val result = try { exchange(app, normal, normalFailure, deadline, broadcast = true, nPatchRuntime = nPatchRuntime) }
+                val result = try {
+                    exchange(app, normal, normalFailure, normalFingerprint, deadline, broadcast = true, nPatchRuntime = nPatchRuntime)
+                }
                 catch (error: SecurityException) {
                     log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=security)")
                     transportFailure(HostAdmissionRoutePlan.BROADCAST, "security")
@@ -161,7 +166,9 @@ internal object HostAdmissionClient {
         }.getOrNull()
         fun launchLocal() = runCatching {
             localWorker.submit {
-                val result = try { exchange(app, normal, normalFailure, deadline, local = true, nPatchRuntime = nPatchRuntime) }
+                val result = try {
+                    exchange(app, normal, normalFailure, normalFingerprint, deadline, local = true, nPatchRuntime = nPatchRuntime)
+                }
                 catch (error: SecurityException) {
                     log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=security)")
                     transportFailure(HostAdmissionRoutePlan.LOCAL, "security")
@@ -240,6 +247,7 @@ internal object HostAdmissionClient {
         context: Context,
         normal: RemoteHookConfigSnapshot?,
         normalFailure: String?,
+        normalFingerprint: String?,
         deadline: Long,
         bound: Boolean = false,
         broadcast: Boolean = false,
@@ -261,7 +269,7 @@ internal object HostAdmissionClient {
             putString("nonce", nonce)
             putBoolean("allowDirect", directFallback)
             putLong("normalNoRootRevision", normal?.noRootRevision ?: 0L)
-            normal?.takeIf { it.authorized }?.let { putString("normalFingerprint", RemoteHookConfigContract.contentFingerprint(it)) }
+            normalFingerprint?.let { putString("normalFingerprint", it) }
         }
         val route = when {
             broadcast -> HostAdmissionRoutePlan.BROADCAST

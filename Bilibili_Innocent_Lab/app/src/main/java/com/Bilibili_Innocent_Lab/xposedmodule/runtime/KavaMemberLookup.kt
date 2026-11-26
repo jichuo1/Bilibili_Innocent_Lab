@@ -14,6 +14,7 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Member
 import java.lang.reflect.Method
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -37,7 +38,11 @@ internal object KavaMemberLookup {
     )
 
     private data class CachedValue<T>(val value: T?)
-    private data class ClassKey(val classLoader: ClassLoader, val name: String)
+    private data class ZeroArgMethodKey(
+        val declaringClass: Class<*>,
+        val name: String,
+        val includeSuperclasses: Boolean
+    )
     private data class MethodKey(
         val declaringClass: Class<*>,
         val name: String,
@@ -62,17 +67,53 @@ internal object KavaMemberLookup {
         val includeSuperclasses: Boolean
     )
 
-    private val classCache = ConcurrentHashMap<ClassKey, CachedValue<Class<*>>>()
-    private val methodCache = ConcurrentHashMap<MethodKey, CachedValue<Method>>()
-    private val fieldCache = ConcurrentHashMap<FieldKey, CachedValue<Field>>()
-    private val constructorCache = ConcurrentHashMap<ConstructorKey, CachedValue<Constructor<*>>>()
-    private val methodCollectionCache = ConcurrentHashMap<MethodCollectionKey, List<Method>>()
-    private val fieldCollectionCache = ConcurrentHashMap<FieldCollectionKey, List<Field>>()
-    private val constructorCollectionCache = ConcurrentHashMap<Class<*>, List<Constructor<*>>>()
+    private class LoaderCache {
+        val classes = ConcurrentHashMap<String, CachedValue<Class<*>>>()
+        val methods = ConcurrentHashMap<MethodKey, CachedValue<Method>>()
+        val zeroArgMethods = ConcurrentHashMap<ZeroArgMethodKey, CachedValue<Method>>()
+        val fields = ConcurrentHashMap<FieldKey, CachedValue<Field>>()
+        val constructors = ConcurrentHashMap<ConstructorKey, CachedValue<Constructor<*>>>()
+        val zeroArgConstructors = ConcurrentHashMap<Class<*>, CachedValue<Constructor<*>>>()
+        val methodCollections = ConcurrentHashMap<MethodCollectionKey, List<Method>>()
+        val fieldCollections = ConcurrentHashMap<FieldCollectionKey, List<Field>>()
+        val constructorCollections = ConcurrentHashMap<Class<*>, List<Constructor<*>>>()
+
+        fun clear() {
+            classes.clear()
+            methods.clear()
+            zeroArgMethods.clear()
+            fields.clear()
+            constructors.clear()
+            zeroArgConstructors.clear()
+            methodCollections.clear()
+            fieldCollections.clear()
+            constructorCollections.clear()
+        }
+    }
+
+    private val EMPTY_CLASS_ARRAY: Array<Class<*>> = emptyArray()
+    private val bootCache = LoaderCache()
+    private val loaderCaches = WeakHashMap<ClassLoader, LoaderCache>()
+
+    private fun loaderCache(loader: ClassLoader?): LoaderCache {
+        if (loader == null) return bootCache
+        synchronized(loaderCaches) {
+            return loaderCaches[loader] ?: LoaderCache().also { loaderCaches[loader] = it }
+        }
+    }
 
     /** One resolver schema index per synchronous adaptation pass; warm BIL cache hits never open it. */
     private class Batch(val loader: ClassLoader) {
         var scope: CodeScope? = null
+        var bootScope: CodeScope? = null
+
+        fun close() {
+            try {
+                scope?.close()
+            } finally {
+                bootScope?.close()
+            }
+        }
     }
     private val batch = ThreadLocal<Batch>()
 
@@ -86,15 +127,21 @@ internal object KavaMemberLookup {
             work()
         } finally {
             if (previous == null) batch.remove() else batch.set(previous)
-            current.scope?.close()
+            current.close()
         }
     }
 
     internal fun <T> withMemberScope(loader: ClassLoader?, work: (CodeScope) -> T): T {
         val current = batch.get()
-        if (current != null && current.loader === loader) {
-            val scope = current.scope ?: openScope(loader).also { current.scope = it }
-            return work(scope)
+        if (current != null) {
+            if (loader == null) {
+                val scope = current.bootScope ?: openScope(null).also { current.bootScope = it }
+                return work(scope)
+            }
+            if (current.loader === loader) {
+                val scope = current.scope ?: openScope(loader).also { current.scope = it }
+                return work(scope)
+            }
         }
         return openScope(loader).use(work)
     }
@@ -120,8 +167,7 @@ internal object KavaMemberLookup {
         } catch (failure: Throwable) {
             if (failure is VirtualMachineError) throw failure
             lookupFailures.incrementAndGet()
-            if (failure is IncompleteMemberLookup) return@measure null
-            null
+            return@measure null
         }
         val value = CachedValue(resolved)
         cache.putIfAbsent(key, value)?.value ?: resolved
@@ -142,8 +188,7 @@ internal object KavaMemberLookup {
         } catch (failure: Throwable) {
             if (failure is VirtualMachineError) throw failure
             lookupFailures.incrementAndGet()
-            if (failure is IncompleteMemberLookup) return@measure emptyList()
-            emptyList()
+            return@measure emptyList()
         }
         cache.putIfAbsent(key, resolved) ?: resolved
     }
@@ -151,7 +196,7 @@ internal object KavaMemberLookup {
     /** 通过指定宿主 ClassLoader 加载类，不触发类初始化；版本漂移时返回 null。 */
     fun classOrNull(classLoader: ClassLoader?, name: String): Class<*>? {
         if (classLoader == null) return null
-        return cachedValue(classCache, ClassKey(classLoader, name)) {
+        return cachedValue(loaderCache(classLoader).classes, name) {
             classLoader.loadClassOrNull(name)
         }
     }
@@ -165,25 +210,38 @@ internal object KavaMemberLookup {
         declaringClass: Class<*>,
         name: String,
         vararg parameterTypes: Class<*>
-    ): Method? = cachedValue(
-        methodCache,
-        MethodKey(declaringClass, name, parameterTypes.toList(), includeSuperclasses = false)
-    ) {
-        firstMember(declaringClass, MemberKind.METHOD, name, parameterTypes)
-            ?.let { it as Method }?.takeIf { it.makeAccessible() }
-    }
+    ): Method? = resolveMethod(declaringClass, name, parameterTypes, includeSuperclasses = false)
 
     /** 精确定位类或其父类声明的指定方法。 */
     fun inheritedMethodOrNull(
         declaringClass: Class<*>,
         name: String,
         vararg parameterTypes: Class<*>
-    ): Method? = cachedValue(
-        methodCache,
-        MethodKey(declaringClass, name, parameterTypes.toList(), includeSuperclasses = true)
-    ) {
-        firstMember(declaringClass, MemberKind.METHOD, name, parameterTypes, true)
-            ?.let { it as Method }?.takeIf { it.makeAccessible() }
+    ): Method? = resolveMethod(declaringClass, name, parameterTypes, includeSuperclasses = true)
+
+    private fun resolveMethod(
+        declaringClass: Class<*>,
+        name: String,
+        parameterTypes: Array<out Class<*>>,
+        includeSuperclasses: Boolean
+    ): Method? {
+        val bucket = loaderCache(declaringClass.classLoader)
+        if (parameterTypes.isEmpty()) {
+            return cachedValue(
+                bucket.zeroArgMethods,
+                ZeroArgMethodKey(declaringClass, name, includeSuperclasses)
+            ) {
+                firstMember(declaringClass, MemberKind.METHOD, name, EMPTY_CLASS_ARRAY, includeSuperclasses)
+                    ?.let { it as Method }?.takeIf { it.makeAccessible() }
+            }
+        }
+        return cachedValue(
+            bucket.methods,
+            MethodKey(declaringClass, name, parameterTypes.toList(), includeSuperclasses)
+        ) {
+            firstMember(declaringClass, MemberKind.METHOD, name, parameterTypes, includeSuperclasses)
+                ?.let { it as Method }?.takeIf { it.makeAccessible() }
+        }
     }
 
     /**
@@ -236,17 +294,40 @@ internal object KavaMemberLookup {
         predicate: (Method) -> Boolean = { true }
     ): Method? = firstMethodOrNull(declaringClass, includeSuperclasses = false, makeAccessible = makeAccessible, predicate = predicate)
 
-    private fun methodCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Method> = cachedList(
-        methodCollectionCache,
-        MethodCollectionKey(declaringClass, includeSuperclasses)
-    ) {
-        val owners = if (includeSuperclasses) {
-            generateSequence(declaringClass) { owner -> owner.superclass }.toList()
-        } else {
-            listOf(declaringClass)
+    private fun declaredMethodsCachedOrThrow(owner: Class<*>): List<Method> {
+        val cache = loaderCache(owner.classLoader).methodCollections
+        val key = MethodCollectionKey(owner, includeSuperclasses = false)
+        cache[key]?.let { return it }
+        val resolved = rawMembers(owner, MemberKind.METHOD).map { it as Method }
+        return cache.putIfAbsent(key, resolved) ?: resolved
+    }
+
+    private fun methodCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Method> {
+        val cache = loaderCache(declaringClass.classLoader).methodCollections
+        if (!includeSuperclasses) {
+            return cachedList(cache, MethodCollectionKey(declaringClass, includeSuperclasses = false)) {
+                rawMembers(declaringClass, MemberKind.METHOD).map { it as Method }
+            }
         }
-        owners.flatMap { owner ->
-            rawMembers(owner, MemberKind.METHOD).map { it as Method }
+        return cachedList(cache, MethodCollectionKey(declaringClass, includeSuperclasses = true)) {
+            val superType = declaringClass.superclass ?: return@cachedList declaredMethodsCachedOrThrow(declaringClass)
+            val inherited = loaderCache(superType.classLoader).methodCollections[
+                MethodCollectionKey(superType, includeSuperclasses = true)
+            ]
+            if (inherited != null) {
+                val declared = declaredMethodsCachedOrThrow(declaringClass)
+                return@cachedList ArrayList<Method>(declared.size + inherited.size).apply {
+                    addAll(declared)
+                    addAll(inherited)
+                }
+            }
+            val collected = ArrayList<Method>()
+            var current: Class<*>? = declaringClass
+            while (current != null) {
+                collected.addAll(declaredMethodsCachedOrThrow(current))
+                current = current.superclass
+            }
+            collected
         }
     }
 
@@ -256,7 +337,7 @@ internal object KavaMemberLookup {
         name: String,
         includeSuperclasses: Boolean = false
     ): Field? = cachedValue(
-        fieldCache,
+        loaderCache(declaringClass.classLoader).fields,
         FieldKey(declaringClass, name, includeSuperclasses)
     ) {
         firstMember(declaringClass, MemberKind.FIELD, name, includeSuperclasses = includeSuperclasses)?.let { it as Field }?.takeIf { it.makeAccessible() }
@@ -306,17 +387,40 @@ internal object KavaMemberLookup {
         predicate: (Field) -> Boolean = { true }
     ): Field? = firstFieldOrNull(declaringClass, includeSuperclasses = false, makeAccessible = makeAccessible, predicate = predicate)
 
-    private fun fieldCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Field> = cachedList(
-        fieldCollectionCache,
-        FieldCollectionKey(declaringClass, includeSuperclasses)
-    ) {
-        val owners = if (includeSuperclasses) {
-            generateSequence(declaringClass) { it.superclass }.toList()
-        } else {
-            listOf(declaringClass)
+    private fun declaredFieldsCachedOrThrow(owner: Class<*>): List<Field> {
+        val cache = loaderCache(owner.classLoader).fieldCollections
+        val key = FieldCollectionKey(owner, includeSuperclasses = false)
+        cache[key]?.let { return it }
+        val resolved = rawMembers(owner, MemberKind.FIELD).map { it as Field }
+        return cache.putIfAbsent(key, resolved) ?: resolved
+    }
+
+    private fun fieldCollection(declaringClass: Class<*>, includeSuperclasses: Boolean): List<Field> {
+        val cache = loaderCache(declaringClass.classLoader).fieldCollections
+        if (!includeSuperclasses) {
+            return cachedList(cache, FieldCollectionKey(declaringClass, includeSuperclasses = false)) {
+                rawMembers(declaringClass, MemberKind.FIELD).map { it as Field }
+            }
         }
-        owners.flatMap { owner ->
-            rawMembers(owner, MemberKind.FIELD).map { it as Field }
+        return cachedList(cache, FieldCollectionKey(declaringClass, includeSuperclasses = true)) {
+            val superType = declaringClass.superclass ?: return@cachedList declaredFieldsCachedOrThrow(declaringClass)
+            val inherited = loaderCache(superType.classLoader).fieldCollections[
+                FieldCollectionKey(superType, includeSuperclasses = true)
+            ]
+            if (inherited != null) {
+                val declared = declaredFieldsCachedOrThrow(declaringClass)
+                return@cachedList ArrayList<Field>(declared.size + inherited.size).apply {
+                    addAll(declared)
+                    addAll(inherited)
+                }
+            }
+            val collected = ArrayList<Field>()
+            var current: Class<*>? = declaringClass
+            while (current != null) {
+                collected.addAll(declaredFieldsCachedOrThrow(current))
+                current = current.superclass
+            }
+            collected
         }
     }
 
@@ -324,11 +428,21 @@ internal object KavaMemberLookup {
     fun constructorOrNull(
         declaringClass: Class<*>,
         vararg parameterTypes: Class<*>
-    ): Constructor<*>? = cachedValue(
-        constructorCache,
-        ConstructorKey(declaringClass, parameterTypes.toList())
-    ) {
-        firstMember(declaringClass, MemberKind.CONSTRUCTOR, parameterTypes = parameterTypes)?.let { it as Constructor<*> }?.takeIf { it.makeAccessible() }
+    ): Constructor<*>? {
+        val bucket = loaderCache(declaringClass.classLoader)
+        if (parameterTypes.isEmpty()) {
+            return cachedValue(bucket.zeroArgConstructors, declaringClass) {
+                firstMember(declaringClass, MemberKind.CONSTRUCTOR, parameterTypes = EMPTY_CLASS_ARRAY)
+                    ?.let { it as Constructor<*> }?.takeIf { it.makeAccessible() }
+            }
+        }
+        return cachedValue(
+            bucket.constructors,
+            ConstructorKey(declaringClass, parameterTypes.toList())
+        ) {
+            firstMember(declaringClass, MemberKind.CONSTRUCTOR, parameterTypes = parameterTypes)
+                ?.let { it as Constructor<*> }?.takeIf { it.makeAccessible() }
+        }
     }
 
     /** 解析当前类声明的构造器集合，供参数结构会随宿主版本漂移的 Hook 点使用。 */
@@ -336,7 +450,7 @@ internal object KavaMemberLookup {
         declaringClass: Class<*>,
         makeAccessible: Boolean = false,
         predicate: (Constructor<*>) -> Boolean = { true }
-    ): List<Constructor<*>> = cachedList(constructorCollectionCache, declaringClass) {
+    ): List<Constructor<*>> = cachedList(loaderCache(declaringClass.classLoader).constructorCollections, declaringClass) {
         rawMembers(declaringClass, MemberKind.CONSTRUCTOR).map { it as Constructor<*> }
     }.asSequence()
         .filter(predicate)
@@ -408,27 +522,42 @@ internal object KavaMemberLookup {
         MemberKind.CONSTRUCTOR -> owner.declaredConstructors.toList()
     }
 
-    fun diagnostics(): Diagnostics = Diagnostics(
-        cacheHits = cacheHits.get(),
-        cacheMisses = cacheMisses.get(),
-        lookupFailures = lookupFailures.get(),
-        cachedClasses = classCache.size,
-        cachedMethods = methodCache.size,
-        cachedFields = fieldCache.size,
-        cachedConstructors = constructorCache.size,
-        cachedMemberCollections = methodCollectionCache.size +
-            fieldCollectionCache.size + constructorCollectionCache.size
-    )
+    fun diagnostics(): Diagnostics {
+        var cachedClasses = 0
+        var cachedMethods = 0
+        var cachedFields = 0
+        var cachedConstructors = 0
+        var cachedMemberCollections = 0
+        fun accumulate(bucket: LoaderCache) {
+            cachedClasses += bucket.classes.size
+            cachedMethods += bucket.methods.size + bucket.zeroArgMethods.size
+            cachedFields += bucket.fields.size
+            cachedConstructors += bucket.constructors.size + bucket.zeroArgConstructors.size
+            cachedMemberCollections += bucket.methodCollections.size +
+                bucket.fieldCollections.size + bucket.constructorCollections.size
+        }
+        accumulate(bootCache)
+        val buckets = synchronized(loaderCaches) { loaderCaches.values.toList() }
+        for (bucket in buckets) accumulate(bucket)
+        return Diagnostics(
+            cacheHits = cacheHits.get(),
+            cacheMisses = cacheMisses.get(),
+            lookupFailures = lookupFailures.get(),
+            cachedClasses = cachedClasses,
+            cachedMethods = cachedMethods,
+            cachedFields = cachedFields,
+            cachedConstructors = cachedConstructors,
+            cachedMemberCollections = cachedMemberCollections
+        )
+    }
 
     /** 仅供单元测试隔离状态；生产进程不清空稳定的 Class/Member 缓存。 */
     internal fun resetForTests() {
-        classCache.clear()
-        methodCache.clear()
-        fieldCache.clear()
-        constructorCache.clear()
-        methodCollectionCache.clear()
-        fieldCollectionCache.clear()
-        constructorCollectionCache.clear()
+        bootCache.clear()
+        synchronized(loaderCaches) {
+            loaderCaches.values.forEach(LoaderCache::clear)
+            loaderCaches.clear()
+        }
         cacheHits.set(0)
         cacheMisses.set(0)
         lookupFailures.set(0)

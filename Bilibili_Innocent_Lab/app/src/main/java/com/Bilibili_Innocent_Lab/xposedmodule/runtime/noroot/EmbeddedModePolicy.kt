@@ -28,7 +28,9 @@ internal object EmbeddedModePolicy {
 
     /** 设置及授权端点共用安装档案，服务未连接时仍能识别无 Manager 的集成模式。 */
     fun isSettingsBlocked(context: Context, status: ModernFrameworkStatus = RemoteHookConfigStore.status()): Boolean {
+        if (SUPPORTED) return false
         if (status.capable && !isNpatchConfigChannel(status) && !status.isLspatch) return false
-        return isBlocked(NPatchRuntimeProfiles.read(context).mode, LspatchRuntimeProfiles.read(context).mode)
+        return NPatchRuntimeProfiles.read(context).mode == NPatchMode.EMBEDDED ||
+            LspatchRuntimeProfiles.read(context).mode == LspatchMode.EMBEDDED
     }
 }
