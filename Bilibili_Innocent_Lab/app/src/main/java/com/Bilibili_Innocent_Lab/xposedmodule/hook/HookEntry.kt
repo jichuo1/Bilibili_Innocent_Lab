@@ -2543,9 +2543,20 @@ class HookEntry : XposedModule() {
     }
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
+        val appInfo = runCatching { moduleApplicationInfo }.getOrNull()
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader.registerModuleApk(appInfo?.sourceDir)
+        if (appInfo != null &&
+            appInfo.packageName == BuildConfig.APPLICATION_ID &&
+            appInfo.uid >= android.os.Process.FIRST_APPLICATION_UID &&
+            appInfo.uid != android.os.Process.myUid()
+        ) {
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptHost.setModuleUid(appInfo.uid)
+            com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.setModuleUid(appInfo.uid)
+        }
         if (param.processName == TARGET_PACKAGE) {
             loadedModuleArtifact = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LoadedModuleArtifact.capture(
-                runCatching { moduleApplicationInfo.sourceDir }.getOrNull())
+                appInfo?.sourceDir
+            )
         }
         moduleInstance = this
         loadedProcessName = param.processName
@@ -3051,7 +3062,8 @@ class HookEntry : XposedModule() {
                 timeoutMs = prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_TIMEOUT_MS),
                 cachedClasses = { sponsorClassesRef.get() },
-                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
+                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() }
             )
             featureInstallCoordinator.installAll(
                 com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.PrivacyFeatureRuntime(
@@ -3545,6 +3557,29 @@ class HookEntry : XposedModule() {
             )
 
             lateinit var homeTabFilterInstaller: HomeTabFilterFeatureInstaller
+            val videoCardStyleInstallers = HostVideoCardStyleFeatureInstaller.shared(
+                cardSurfaces = hostAdaptResult?.pageBoundaries?.cardSurfaces.orEmpty(),
+                followFeedPoints = hostAdaptResult?.followFeedStyle,
+                enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
+                material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
+                radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
+                homeSpacing = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec(
+                    prefs.getInt(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP, -1),
+                    prefs.getInt(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP, -1)).normalized(),
+                backgroundConfig = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig(
+                    preset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
+                        prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),
+                    blur = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_BLUR, 16),
+                    saturation = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_SATURATION, 85),
+                    veil = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_VEIL, 35),
+                    asset = prefs.getString(FeaturePreferences.HOST_BACKGROUND_ASSET, "")
+                ).normalized()
+            )
+            val followFeedInstaller = FollowFeedFeatureInstaller(
+                enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
+                material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
+                points = hostAdaptResult?.followFeedStyle
+            )
             featureInstallCoordinator.installAll(
                 listOf(
                     HomeTabFilterFeatureInstaller(
@@ -3583,29 +3618,8 @@ class HookEntry : XposedModule() {
                         points = hostAdaptResult?.bottomBar
                     ),
                     bottomBarFxInstaller,
-                    *HostVideoCardStyleFeatureInstaller.shared(
-                        cardSurfaces = hostAdaptResult?.pageBoundaries?.cardSurfaces.orEmpty(),
-                        followFeedPoints = hostAdaptResult?.followFeedStyle,
-                        enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
-                        material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
-                        radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
-                        homeSpacing = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec(
-                            prefs.getInt(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP, -1),
-                            prefs.getInt(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP, -1)).normalized(),
-                        backgroundConfig = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig(
-                            preset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
-                                prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),
-                            blur = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_BLUR, 16),
-                            saturation = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_SATURATION, 85),
-                            veil = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_VEIL, 35),
-                            asset = prefs.getString(FeaturePreferences.HOST_BACKGROUND_ASSET, "")
-                        ).normalized()
-                    ).toTypedArray(),
-                    FollowFeedFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
-                        material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
-                        points = hostAdaptResult?.followFeedStyle
-                    )
+                    *videoCardStyleInstallers.toTypedArray(),
+                    followFeedInstaller
                 )
             )
 
@@ -3912,7 +3926,8 @@ class HookEntry : XposedModule() {
                         decodeModeValue = prefs.getInt(
                             FeaturePreferences.PLAYER_DECODE_MODE,
                             0
-                        )
+                        ),
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     ),
                     // 入口门控关闭时发布版不安装任何插帧 Hook；debug 验证构建另见安装器注释。
                     FrameInterpolationFeatureInstaller(
@@ -4206,7 +4221,8 @@ class HookEntry : XposedModule() {
                         enabled = prefs.getBoolean(
                             FeaturePreferences.SPLASH_AUTO_NIGHT,
                             false
-                        )
+                        ),
+                        kntrPageMethod = hostAdaptResult?.brandSplashKntrPage
                     ),
                     BrandSplashSkipFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
@@ -5075,11 +5091,12 @@ class HookEntry : XposedModule() {
                                     // 优先取原文字段 l（ExpandableTextView 保存的完整原文，
                                     // 9.0.0 与 8.90.2 字段名一致；收起状态下 view.text 是截断文本）
                                     val descText = runCatching {
-                                        KavaMemberLookup.fieldOrNull(
-                                            desc.javaClass,
-                                            "l",
-                                            includeSuperclasses = true
-                                        )?.get(desc) as? CharSequence
+                                        (titleOriginField(desc.javaClass)?.get(desc) as? CharSequence)
+                                            ?: KavaMemberLookup.fieldOrNull(
+                                                desc.javaClass,
+                                                "l",
+                                                includeSuperclasses = true
+                                            )?.get(desc) as? CharSequence
                                     }.getOrNull()?.toString()
                                         ?: runCatching { (desc as? android.widget.TextView)?.textToString() }.getOrNull()
                                         ?: return@before
@@ -5350,6 +5367,20 @@ class HookEntry : XposedModule() {
                                     // 成功回调只读一次缓存，各 installer 共用同一份不可变结果；
                                     // requiresAdaptationRetry 与主线程二次状态检查仍按各自分支判断。
                                     val adapted = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
+                                    adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
+                                    adapted?.kmpGrpcWireEngine?.let { engine ->
+                                        hookEnvironment.postToMain?.invoke {
+                                            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(
+                                                biliClassLoader,
+                                                engine
+                                            )?.let { surface ->
+                                                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpGrpcWireChannel.bindDeferred(
+                                                    hookEnvironment,
+                                                    surface
+                                                )
+                                            }
+                                        }
+                                    }
                                     if (qualityInstaller.requiresAdaptationRetry) {
                                         qualityPointsRef.set(adapted?.playerQuality)
                                         hookEnvironment.postToMain?.invoke {
@@ -5541,12 +5572,16 @@ class HookEntry : XposedModule() {
                                     }
                                     run {
                                         val chrome = adapted?.homeChrome.orEmpty()
+                                        val cardSurfaces = adapted?.pageBoundaries?.cardSurfaces.orEmpty()
+                                        val followStyle = adapted?.followFeedStyle
                                         hookEnvironment.postToMain?.invoke {
                                             val pending = buildList {
                                                 if (homeChromeEnabled) {
                                                     if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
                                                     if (bottomBarFxInstaller.updateChromePoints(chrome, adapted?.homeChromeSemantics)) add(bottomBarFxInstaller)
                                                 }
+                                                if (followFeedInstaller.updateAdaptedPoints(followStyle)) add(followFeedInstaller)
+                                                addAll(HostVideoCardStyleFeatureInstaller.updateAdaptedPoints(videoCardStyleInstallers, cardSurfaces, followStyle))
                                             }
                                             if (pending.isNotEmpty()) featureInstallCoordinator.installAll(pending)
                                             if (homeTopTabCentering.updateChromePoints(chrome)) homeTopTabCentering.install(hookEnvironment)
@@ -5579,6 +5614,7 @@ class HookEntry : XposedModule() {
                         playerPopupPromotionEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
                         brandSplashCustomEnabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false) &&
                             !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
+                        splashAutoNightEnabled = prefs.getBoolean(FeaturePreferences.SPLASH_AUTO_NIGHT, false),
                         followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         homeChromeEnabled = homeChromeEnabled,
                         homeTopTabCenteringEnabled = true,
@@ -5642,7 +5678,10 @@ class HookEntry : XposedModule() {
                             prefs.getBoolean(PREF_GAMECARD_ENABLED, true) ||
                             prefs.getBoolean(PREF_MERCH_ENABLED, true) ||
                             prefs.getBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, false) ||
-                            prefs.getBoolean(FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD, false),
+                            prefs.getBoolean(FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD, false) ||
+                            prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false) ||
+                            prefs.getInt(FeaturePreferences.PLAYER_CODEC_PREFERENCE, 0) != 0 ||
+                            prefs.getInt(FeaturePreferences.PLAYER_DECODE_MODE, 0) != 0,
                         incognitoPrivacyEnabled = prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
                         guestBrowsingEnabled = prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false) ||
                             prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),

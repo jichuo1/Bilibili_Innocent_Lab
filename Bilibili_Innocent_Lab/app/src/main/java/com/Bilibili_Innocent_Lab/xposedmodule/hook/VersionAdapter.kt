@@ -139,8 +139,8 @@ object VersionAdapter {
     private fun cacheFile(): java.io.File = TargetAppStorage.cacheFile("innocent_lab_adapt.json")
 
     /** DexMeguviz 查询进行中的标记，见 [DexAssistAttemptGuard]。 */
-    private fun dexAssistMarkerFile(): java.io.File =
-        TargetAppStorage.cacheFile("innocent_lab_dex_assist.pending")
+    private fun dexAssistMarkerFile(context: Context? = null): java.io.File =
+        TargetAppStorage.cacheFile("innocent_lab_dex_assist.pending", context)
 
     private fun writeCache(result: AdaptResult): Boolean {
         val payload = result.toJson().toString()
@@ -3417,7 +3417,7 @@ object VersionAdapter {
             baseLastModified = source.lastModified(),
             splits = splits
         )
-        HostIdentity(info.versionCode, fingerprint)
+        HostIdentity(versionCode.toInt(), fingerprint)
     }.getOrElse {
         val versionCode = biliVersionCode(context)
         HostIdentity(versionCode, "tv.danmaku.bili|$versionCode|rules=$ADAPTER_RULE_VERSION")
@@ -3752,7 +3752,7 @@ object VersionAdapter {
         }
         runCatching { cacheFile().delete() }
         // 手动重适配也给上次没查完的 DexMeguviz 一次重试机会。
-        runCatching { dexAssistMarkerFile().delete() }
+        runCatching { dexAssistMarkerFile(context).delete() }
     }
 
     /**
@@ -3860,9 +3860,10 @@ object VersionAdapter {
         followUpRecommendEnabled: Boolean = false,
         detailRelateGameEnabled: Boolean = false,
         storyDanmakuToggleHidden: Boolean = false,
-        playerSpeedLongPressEnabled: Boolean = false
+        playerSpeedLongPressEnabled: Boolean = false,
+        splashAutoNightEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled, kmpGrpcWireEnabled, cloudKeyFreezeEnabled, incognitoPrivacyEnabled, detailSpecialTagEnabled, commentReplyButtonEnabled, guestBrowsingEnabled, homeRecommendEarlyLoadEnabled, commentQuickReplyEnabled, pausedAdEnabled, brandSplashSkipEnabled, aiDeclaredVideoEnabled, followUpRecommendEnabled, detailRelateGameEnabled, storyDanmakuToggleHidden, playerSpeedLongPressEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled, playerSpeedSessionEnabled, playerSpeedCalculatorEnabled, weChatShareEnabled, searchHomeRecommendEnabled, playerEndPageRecommendEnabled, homeChromeEnabled, homeChromeIconOnly, homeTopTabCenteringEnabled, systemEnvironmentEnabled, blockUpdateEnabled, commentTopologyEnabled, kmpGrpcWireEnabled, cloudKeyFreezeEnabled, incognitoPrivacyEnabled, detailSpecialTagEnabled, commentReplyButtonEnabled, guestBrowsingEnabled, homeRecommendEarlyLoadEnabled, commentQuickReplyEnabled, pausedAdEnabled, brandSplashSkipEnabled, aiDeclaredVideoEnabled, followUpRecommendEnabled, detailRelateGameEnabled, storyDanmakuToggleHidden, playerSpeedLongPressEnabled, splashAutoNightEnabled
     )
 
     internal fun ensureAdapted(
@@ -3905,6 +3906,7 @@ object VersionAdapter {
         detailRelateGameEnabled: Boolean = false,
         storyDanmakuToggleHidden: Boolean = false,
         playerSpeedLongPressEnabled: Boolean = false,
+        splashAutoNightEnabled: Boolean = false,
         /** 安装链从已接受的配置快照生成的定位计划；缺省 = 全量（原始行为）。 */
         plan: AdaptPlan = AdaptPlan.full()
     ) {
@@ -4043,7 +4045,8 @@ object VersionAdapter {
                 detailRelateGameEnabled, prev.detailRelateGame, previouslyMissingDetailRelateGame,
                 storyDanmakuToggleHidden, prev.legacyStoryBind, previouslyMissingLegacyStoryBind,
                 playerSpeedLongPressEnabled, prev.theseus2LongPress, previouslyMissingTheseus2LongPress,
-                assistHistory, adaptPlan, history, dexSource, vc, startup.identity.fingerprint
+                assistHistory, adaptPlan, history, dexSource, vc, startup.identity.fingerprint,
+                splashAutoNightEnabled = splashAutoNightEnabled
             )
         }
         fun requiresFeatureRefresh(value: AdaptResult): Boolean {
@@ -4167,7 +4170,7 @@ object VersionAdapter {
             if (BrandSplashKntrAdapter.needsPageQuery(
                     classLoader,
                     value.brandSplashKntrPage,
-                    brandSplashCustomEnabled,
+                    brandSplashCustomEnabled || splashAutoNightEnabled,
                     value.diagnostics.any {
                         it.id == BrandSplashKntrAdapter.DIAGNOSTIC_PAGE && AdaptAssistGate.isAttemptedInCache(it)
                     }
@@ -4233,7 +4236,7 @@ object VersionAdapter {
                     value.diagnostics.any { it.id == CloudKeyFreezeAdapter.DIAGNOSTIC && AdaptAssistGate.isAttemptedInCache(it) })) {
                 return true
             }
-            if (PrivacyChannelAdapter.needsIgnetQuery(classLoader, value.privacyIgnetHttp, incognitoPrivacyEnabled,
+            if (PrivacyChannelAdapter.needsIgnetQuery(classLoader, value.privacyIgnetHttp, incognitoPrivacyEnabled || guestBrowsingEnabled,
                     value.diagnostics.any { it.id == PrivacyChannelAdapter.DIAGNOSTIC_IGNET && AdaptAssistGate.isAttemptedInCache(it) })) {
                 return true
             }
@@ -4772,7 +4775,8 @@ object VersionAdapter {
                       assistHistory: AssistHistory = AssistHistory.EMPTY,
                       plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
                       dexSource: DexSourceFingerprint.Result?, vc: Int,
-                      hostFingerprint: String? = null): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
+                      hostFingerprint: String? = null,
+                      splashAutoNightEnabled: Boolean = false): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
         val resolvedHostFingerprint = hostFingerprint ?: buildHostFingerprint(context)
         ModernHookLog.info("[BIL] DEX source count=${dexSource?.dexEntryCount ?: 0}, " +
             "isolated=${dexSource?.codePaths?.all { File(it).parentFile?.name == "bil-host-dex" } == true}")
@@ -4848,8 +4852,9 @@ object VersionAdapter {
         val brandKntrExitPlanned = BrandSplashKntrAdapter.needsExitQuery(
             loader, previousBrandKntrExit, brandSplashCustomEnabled || brandSplashSkipEnabled, previouslyMissingBrandKntrExit
         )
+        val brandKntrPageEnabled = brandSplashCustomEnabled || splashAutoNightEnabled
         val brandKntrPagePlanned = BrandSplashKntrAdapter.needsPageQuery(
-            loader, previousBrandKntrPage, brandSplashCustomEnabled, previouslyMissingBrandKntrPage
+            loader, previousBrandKntrPage, brandKntrPageEnabled, previouslyMissingBrandKntrPage
         )
         val directHomeTabs = sync(PointFamily.HOME_TABS, previous?.homeTabs) { locateHomeTabs(loader) }
         val directCommentPurify = sync(PointFamily.COMMENT_PURIFY, previous?.commentPurify) { locateCommentPurify(loader) }
@@ -4885,7 +4890,8 @@ object VersionAdapter {
             attempted = previouslyMissingHomeTabResource
         )
         val cloudKeyContractPlanned = CloudKeyFreezeAdapter.needsQuery(loader, previousCloudKeyContract, cloudKeyFreezeEnabled, previouslyMissingCloudKeyContract)
-        val privacyIgnetPlanned = PrivacyChannelAdapter.needsIgnetQuery(loader, previousPrivacyIgnet, incognitoPrivacyEnabled, previouslyMissingPrivacyIgnet)
+        val privacyIgnetEnabled = incognitoPrivacyEnabled || guestBrowsingEnabled
+        val privacyIgnetPlanned = PrivacyChannelAdapter.needsIgnetQuery(loader, previousPrivacyIgnet, privacyIgnetEnabled, previouslyMissingPrivacyIgnet)
         val privacyKNeuronPlanned = PrivacyChannelAdapter.needsKNeuronQuery(loader, previousPrivacyKNeuron, incognitoPrivacyEnabled, previouslyMissingPrivacyKNeuron)
         val guestPlayerCorePlanned = GuestPlayerCoreAdapter.needsQuery(loader, previousGuestPlayerCore, guestBrowsingEnabled, previouslyMissingGuestPlayerCore)
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
@@ -4951,7 +4957,7 @@ object VersionAdapter {
         val dexAssist = dexSource?.let { source ->
             DexAssistSession(
                 engine = DexAssistAttemptGuard(
-                    marker = dexAssistMarkerFile(),
+                    marker = dexAssistMarkerFile(context),
                     key = "$resolvedHostFingerprint|drv=${VersionAdapterContract.domainRulesSignature()}",
                     delegate = DexMeguvizAssistEngine
                 ),
@@ -5104,6 +5110,11 @@ object VersionAdapter {
         }
         val speedSessionReady = playerSpeedSessionEnabled && (directSpeedSession != null ||
             speedSession?.let { PlayerSpeedSessionLocator.resolve(loader, it) } != null)
+        fun failedDexReason(planned: Iterable<DexAssistQuery>): String? = planned.firstNotNullOfOrNull { query ->
+            val result = dexAssist?.result(query) as? DexAssistResult.Unavailable
+            result?.reason?.takeUnless { it == DexAssistResult.Reason.NO_MATCH || it == DexAssistResult.Reason.TOO_MANY_MATCHES }
+                ?.name?.lowercase()
+        }
         val speedSessionDiagnostic = AdaptDiagnostic(PlayerSpeedSessionLocator.DIAGNOSTIC, when {
             !playerSpeedSessionEnabled || !PlayerSpeedSessionLocator.applicable(loader) -> AdaptState.NOT_APPLICABLE
             speedSessionReady -> AdaptState.FOUND
@@ -5113,10 +5124,11 @@ object VersionAdapter {
             speedSessionReady -> "verified-speed-session-owner"
             !playerSpeedSessionEnabled -> "feature-disabled"
             speedSessionPlanned && dexAssist == null -> "no-dex-source"
-            speedSessionPlanned -> when (val outcome = dexAssist?.result(DexAssistQuery.SPONSOR_RUN_PLAYABLE)) {
-                is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
-                else -> "missing-or-ambiguous-structure"
-            }
+            speedSessionPlanned -> failedDexReason(PlayerSpeedSessionLocator.queries)
+                ?: when (val outcome = dexAssist?.result(DexAssistQuery.SPONSOR_RUN_PLAYABLE)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    else -> "missing-or-ambiguous-structure"
+                }
             else -> "cached-attempt"
         })
         val speedCalculator = when {
@@ -5199,7 +5211,9 @@ object VersionAdapter {
                 followFound -> "verified"
                 !followPlanned -> "cached-attempt-preserved"
                 dexAssist == null -> "no-dex-source"
-                else -> when (val outcome = dexAssist.result(DexAssistQuery.FOLLOW_FEED_STYLE)) {
+                else -> failedDexReason(
+                    listOf(DexAssistQuery.FOLLOW_FEED_STYLE, DexAssistQuery.FOLLOW_FEED_DECORATION_CONSTRUCTORS)
+                ) ?: when (val outcome = dexAssist.result(DexAssistQuery.FOLLOW_FEED_STYLE)) {
                     is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
                     is DexAssistResult.Candidates -> "unavailable-or-ambiguous:${outcome.methods.size}"
                 }
@@ -5275,21 +5289,21 @@ object VersionAdapter {
             }
         )
         val brandKntrPage = BrandSplashKntrAdapter.locatePage(
-            loader, dexAssist, brandSplashCustomEnabled, previousBrandKntrPage, brandKntrPagePlanned
+            loader, dexAssist, brandKntrPageEnabled, previousBrandKntrPage, brandKntrPagePlanned
         )
-        val brandKntrPageReady = brandSplashCustomEnabled && (BrandSplashKntrAdapter.directPage(loader) != null ||
+        val brandKntrPageReady = brandKntrPageEnabled && (BrandSplashKntrAdapter.directPage(loader) != null ||
             BrandSplashKntrAdapter.resolvePage(loader, brandKntrPage) != null)
         val brandKntrPageDiagnostic = AdaptDiagnostic(
             BrandSplashKntrAdapter.DIAGNOSTIC_PAGE,
             when {
                 brandKntrPageReady -> AdaptState.FOUND
-                brandSplashCustomEnabled && BrandSplashKntrAdapter.applicable(loader) &&
+                brandKntrPageEnabled && BrandSplashKntrAdapter.applicable(loader) &&
                     (brandKntrPagePlanned || previouslyMissingBrandKntrPage) -> AdaptState.MISSING
-                !brandSplashCustomEnabled && previouslyMissingBrandKntrPage -> AdaptState.MISSING
+                !brandKntrPageEnabled && previouslyMissingBrandKntrPage -> AdaptState.MISSING
                 else -> AdaptState.NOT_APPLICABLE
             },
             when {
-                !brandSplashCustomEnabled -> if (previouslyMissingBrandKntrPage) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                !brandKntrPageEnabled -> if (previouslyMissingBrandKntrPage) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
                 !BrandSplashKntrAdapter.applicable(loader) -> if (previouslyMissingBrandKntrPage) "cached-attempt-preserved" else "not-applicable-host"
                 BrandSplashKntrAdapter.directPage(loader) != null -> "direct"
                 brandKntrPageReady -> "verified"
@@ -5352,11 +5366,6 @@ object VersionAdapter {
             CommentClassicStyleLocator.missing(loader, classic).isEmpty()
         val classicUnresolved = commentClassicStyleEnabled &&
             CommentClassicStyleLocator.missing(loader, classic).isNotEmpty()
-        fun failedDexReason(planned: Iterable<DexAssistQuery>): String? = planned.firstNotNullOfOrNull { query ->
-            val result = dexAssist?.result(query) as? DexAssistResult.Unavailable
-            result?.reason?.takeUnless { it == DexAssistResult.Reason.NO_MATCH || it == DexAssistResult.Reason.TOO_MANY_MATCHES }
-                ?.name?.lowercase()
-        }
         val classicDiagnostic = AdaptDiagnostic(
             CommentClassicStyleLocator.DIAGNOSTIC,
             when {
@@ -5765,21 +5774,21 @@ object VersionAdapter {
             }
         )
         val privacyIgnetHttp = PrivacyChannelAdapter.locateIgnet(
-            loader, dexAssist, incognitoPrivacyEnabled, previousPrivacyIgnet, privacyIgnetPlanned
+            loader, dexAssist, privacyIgnetEnabled, previousPrivacyIgnet, privacyIgnetPlanned
         )
-        val privacyIgnetReady = incognitoPrivacyEnabled &&
+        val privacyIgnetReady = privacyIgnetEnabled &&
             PrivacyChannelAdapter.resolveIgHttpRequest(loader, privacyIgnetHttp) != null
         val privacyIgnetDiagnostic = AdaptDiagnostic(
             PrivacyChannelAdapter.DIAGNOSTIC_IGNET,
             when {
                 privacyIgnetReady -> AdaptState.FOUND
-                incognitoPrivacyEnabled && PrivacyChannelAdapter.applicableIgnet(loader) &&
+                privacyIgnetEnabled && PrivacyChannelAdapter.applicableIgnet(loader) &&
                     (privacyIgnetPlanned || previouslyMissingPrivacyIgnet) -> AdaptState.MISSING
-                !incognitoPrivacyEnabled && previouslyMissingPrivacyIgnet -> AdaptState.MISSING
+                !privacyIgnetEnabled && previouslyMissingPrivacyIgnet -> AdaptState.MISSING
                 else -> AdaptState.NOT_APPLICABLE
             },
             when {
-                !incognitoPrivacyEnabled ->
+                !privacyIgnetEnabled ->
                     if (previouslyMissingPrivacyIgnet) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
                 !PrivacyChannelAdapter.applicableIgnet(loader) ->
                     if (previouslyMissingPrivacyIgnet) "cached-attempt-preserved" else "not-applicable-host"
@@ -7051,14 +7060,16 @@ object VersionAdapter {
             ?: return@runCatching null
         hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.first }?.let { verifiedOwner ->
             val owner = KavaMemberLookup.classOrNull(loader, verifiedOwner) ?: return@runCatching null
-            return@runCatching KavaMemberLookup.methodOrNull(owner, "a", classOf<Context>())
-                ?.takeIf { !it.isStatic && !it.isAbstract && it.returnType == upgradeInfo }
-                ?.toHookPoint()
+            return@runCatching KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && !it.isAbstract && !it.isBridge && !it.isSynthetic &&
+                    it.returnType == upgradeInfo &&
+                    it.parameterTypes.contentEquals(arrayOf(classOf<Context>()))
+            }.singleOrNull()?.takeIf { it.name == "a" }?.toHookPoint()
         }
         for (ownerName in BLOCK_UPDATE_OWNER_CANDIDATES) {
             val owner = KavaMemberLookup.classOrNull(loader, ownerName) ?: continue
             val candidates = KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
-                !it.isStatic && !it.isAbstract &&
+                !it.isStatic && !it.isAbstract && !it.isBridge && !it.isSynthetic &&
                     it.returnType == upgradeInfo &&
                     it.parameterTypes.contentEquals(arrayOf(classOf<Context>()))
             }
@@ -7071,7 +7082,9 @@ object VersionAdapter {
             val leafCandidates = candidates.filter { method ->
                 (method.name to method.parameterTypes.toList()) !in interfaceSignatures
             }
-            val selected = leafCandidates.singleOrNull() ?: candidates.singleOrNull() ?: continue
+            val selected = leafCandidates.singleOrNull()
+                ?: candidates.takeIf { leafCandidates.isEmpty() }?.singleOrNull()
+                ?: continue
             return@runCatching selected.toHookPoint()
         }
         null
@@ -8907,15 +8920,18 @@ object VersionAdapter {
     ): PlayerQualityPoints? = runCatching {
         val verifiedOwner = hostVersionCode?.let { VERIFIED_MEDIA_OWNERS[it]?.second }
         val defaultMethod = assisted ?: if (verifiedOwner != null) {
-            KavaMemberLookup.classOrNull(loader, verifiedOwner)
-                ?.let { KavaMemberLookup.methodOrNull(it, "a") }
-                ?.takeIf { it.isStatic && !it.isAbstract && it.returnType == classOf<Int>() }
+            KavaMemberLookup.classOrNull(loader, verifiedOwner)?.let { owner ->
+                KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
+                    method.isStatic && !method.isAbstract && !method.isBridge && !method.isSynthetic &&
+                        method.parameterCount == 0 && method.returnType == classOf<Int>()
+                }.singleOrNull()?.takeIf { it.name == "a" }
+            }
         } else {
             PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES.firstNotNullOfOrNull { ownerName ->
                 val owner = KavaMemberLookup.classOrNull(loader, ownerName)
                     ?: return@firstNotNullOfOrNull null
                 KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                    !method.isAbstract &&
+                    !method.isAbstract && !method.isBridge && !method.isSynthetic &&
                         method.parameterCount == 0 &&
                         method.returnType == classOf<Int>() &&
                         (method.name == "a" || method.name == "c" || method.name == "getDefaultQuality")
