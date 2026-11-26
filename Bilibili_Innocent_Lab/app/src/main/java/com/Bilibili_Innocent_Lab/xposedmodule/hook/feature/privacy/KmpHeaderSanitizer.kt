@@ -21,18 +21,25 @@ internal class KmpHeaderSanitizer(
         val seen = java.util.TreeSet<String>()
         for (map in maps) {
             for (key in ArrayList(map.keys)) {
-                val name = (key as? String)?.lowercase() ?: continue
+                val name = (key as? String)?.lowercase()
+                    ?: throw IllegalStateException("Unexpected header key type")
                 seen += name
                 when (name) {
                     in REMOVED -> map.remove(key)
                     METADATA_BIN -> map[key] = rewritten(map[key]) { rewriteMetadata(it, identity) }
                     DEVICE_BIN -> map[key] = rewritten(map[key]) { rewriteDevice(it, identity) }
-                    in DEVICE_IDS -> if (map[key] is String) map[key] = identity.buvid
-                    in SESSION_IDS -> if (map[key] is String) map[key] = identity.sessionId
+                    in DEVICE_IDS -> map[key] = replaceIdentity(map[key], identity.buvid)
+                    in SESSION_IDS -> map[key] = replaceIdentity(map[key], identity.sessionId)
                 }
             }
         }
         return seen
+    }
+
+    private fun replaceIdentity(current: Any?, replacement: String): Any = when (current) {
+        is String -> replacement
+        is ByteArray -> replacement.toByteArray(Charsets.UTF_8)
+        else -> throw IllegalStateException("Unexpected identity header value type")
     }
 
     private inline fun rewritten(value: Any?, rewrite: (ByteArray) -> ByteArray): ByteArray {
@@ -46,7 +53,8 @@ internal class KmpHeaderSanitizer(
 
         /** Credentials and account-bound tokens; same set the OkHttp boundary strips. */
         internal val REMOVED = setOf("authorization", "cookie", "proxy-authorization", "x-bili-access-key",
-            "x-bili-mid", "display-id", "x-bili-ticket", "bili-ticket", "x-bili-aurora-eid",
+            "x-bili-mid", "display-id", "x-bili-ticket", "x-bili-ticket-bin", "bili-ticket",
+            "x-bili-aurora-eid", "x-bili-trace-id", "x-bili-gaia-vtoken", "x-bili-exps-bin",
             "x-bili-fawkes-req-bin")
         internal val DEVICE_IDS = setOf("buvid", "buvid3", "buvid4", "device-id", "fp_local", "fp_remote", "guestid")
         internal val SESSION_IDS = setOf("session-id", "session_id")

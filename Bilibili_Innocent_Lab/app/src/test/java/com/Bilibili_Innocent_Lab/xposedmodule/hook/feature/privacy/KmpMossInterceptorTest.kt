@@ -14,6 +14,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.SerializationStrategy
+import kotlin.reflect.KClass
 import org.junit.Test
 
 class KmpMossInterceptorTest {
@@ -174,6 +177,50 @@ class KmpMossInterceptorTest {
         assertEquals("downstream", interceptor(null, Events(), reply = { _, _ -> error("not asked") }).b(open, continuation))
     }
 
+    private data class ComponentDesc(
+        val a: String = "bilibili.pgc.v1",
+        val b: String = "Pgc",
+        val c: String = "Play",
+        val d: KClass<*> = String::class,
+        val e: DeserializationStrategy<String> = object : DeserializationStrategy<String> {}
+    ) {
+        override fun toString() = "a.b.c@1234abcd"
+    }
+
+    private class ThreeStringFieldDesc {
+        private val p = "bilibili.app.interface.v1"
+        private val s = "Search"
+        private val m = "DefaultWords"
+        private val k: KClass<*> = String::class
+        private val st: SerializationStrategy<String> = object : SerializationStrategy<String> {}
+        override fun toString() = "x.y.z@deadbeef"
+    }
+
+    private class BadPkgThreeStringDesc {
+        private val p = "nodot"
+        private val s = "Search"
+        private val m = "DefaultWords"
+        private val k: KClass<*> = String::class
+        private val st: SerializationStrategy<String> = object : SerializationStrategy<String> {}
+        override fun toString() = "x.y.Bad@01"
+    }
+
+    fun structuralFallbackResolvesObfuscatedComponentAndThreeStringDescriptorsAndFailsClosed() {
+        val ic = KmpMossInterceptor(
+            surface = surface,
+            loader = loader,
+            session = incognito(),
+            isolationReady = { true },
+            sanitizer = KmpHeaderSanitizer({ b, _ -> b + 1 }, { b, _ -> b }),
+            guest = { true },
+            localReply = { null },
+            events = Events()
+        )
+        assertEquals("bilibili.pgc.v1.Pgc/Play", ic.fullMethodName(ComponentDesc()))
+        assertEquals("bilibili.app.interface.v1.Search/DefaultWords", ic.fullMethodName(ThreeStringFieldDesc()))
+        assertNull(ic.fullMethodName(BadPkgThreeStringDesc()))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (KmpMossInterceptorTest) -> Unit) {
@@ -191,5 +238,6 @@ class KmpMossInterceptorTest {
         runIsolated { s -> s.incognitoWithoutASanitizerCannotProceed() }
         runIsolated { s -> s.incognitoSessionThatEndedBlocksInsteadOfSendingAnonymousLooking() }
         runIsolated { s -> s.unrecognisedDescriptorIsBlockedInIncognitoAndPassesThroughForGuestOnly() }
+        runIsolated { s -> s.structuralFallbackResolvesObfuscatedComponentAndThreeStringDescriptorsAndFailsClosed() }
     }
 }

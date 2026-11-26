@@ -63,18 +63,18 @@ internal object IgnetHttpSanitizer {
     ): ByteArray {
         if (body.isEmpty()) return body
         val mediaType = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        val isJsonMedia = mediaType == "application/json" || mediaType.endsWith("+json")
+        val isTextOrEmpty = mediaType.isEmpty() || mediaType.startsWith("text/")
         if (mediaType == "application/x-www-form-urlencoded" ||
-            (mediaType.isEmpty() && looksLikeFormEncoded(body))
+            (isTextOrEmpty && looksLikeFormEncoded(body))
         ) {
             val cleaned = sanitizeFormString(String(body, Charsets.UTF_8), identity, sign) ?: return body
             return cleaned.toByteArray(Charsets.UTF_8)
         }
-        if (mediaType == "application/json" || (mediaType.isEmpty() && looksLikeJsonText(body))) {
-            val parsed = runCatching { JSONTokener(String(body, Charsets.UTF_8)).nextValue() }
-                .getOrElse { if (mediaType == "application/json") throw it else return body }
+        if (isJsonMedia || (isTextOrEmpty && looksLikeJsonText(body))) {
+            val parsed = JSONTokener(String(body, Charsets.UTF_8)).nextValue()
             if (parsed !is JSONObject && parsed !is JSONArray) {
-                if (mediaType == "application/json") throw IllegalArgumentException("Malformed JSON body")
-                return body
+                throw IllegalArgumentException("Malformed JSON body")
             }
             if (!sanitizeJsonValue(parsed, identity)) return body
             return parsed.toString().toByteArray(Charsets.UTF_8)
@@ -200,7 +200,7 @@ internal object IgnetHttpSanitizer {
         else encoded.joinToString("&")
     }
 
-    private fun looksLikeFormEncoded(body: ByteArray): Boolean {
+    internal fun looksLikeFormEncoded(body: ByteArray): Boolean {
         if (0.toByte() in body) return false
         val text = runCatching {
             Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(body)).toString()
@@ -212,7 +212,7 @@ internal object IgnetHttpSanitizer {
         return parts.isNotEmpty() && parts.all { '=' in it }
     }
 
-    private fun looksLikeJsonText(body: ByteArray): Boolean {
+    internal fun looksLikeJsonText(body: ByteArray): Boolean {
         if (0.toByte() in body) return false
         val text = runCatching {
             Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(body)).toString()
@@ -231,17 +231,11 @@ internal object IgnetHttpSanitizer {
                             value.remove(key)
                             changed = true
                         }
-                        PrivacyNetworkPolicy.KeyAction.DEVICE_ID -> if (value.opt(key) is String) {
-                            if (value.optString(key) != identity.buvid) {
-                                value.put(key, identity.buvid)
-                                changed = true
-                            }
+                        PrivacyNetworkPolicy.KeyAction.DEVICE_ID -> {
+                            if (sanitizeJsonIdentityKey(value, key, identity.buvid)) changed = true
                         }
-                        PrivacyNetworkPolicy.KeyAction.SESSION_ID -> if (value.opt(key) is String) {
-                            if (value.optString(key) != identity.sessionId) {
-                                value.put(key, identity.sessionId)
-                                changed = true
-                            }
+                        PrivacyNetworkPolicy.KeyAction.SESSION_ID -> {
+                            if (sanitizeJsonIdentityKey(value, key, identity.sessionId)) changed = true
                         }
                         PrivacyNetworkPolicy.KeyAction.KEEP -> {
                             val child = value.opt(key)
@@ -258,6 +252,24 @@ internal object IgnetHttpSanitizer {
             }
         }
         return changed
+    }
+
+    private fun sanitizeJsonIdentityKey(obj: JSONObject, key: String, replacement: String): Boolean {
+        val raw = obj.opt(key)
+        return if (raw is String) {
+            if (raw != replacement) {
+                obj.put(key, replacement)
+                true
+            } else {
+                false
+            }
+        } else if (raw is Number || raw is Boolean) {
+            obj.put(key, replacement)
+            true
+        } else {
+            obj.remove(key)
+            true
+        }
     }
 
     private fun decode(value: String): String = URLDecoder.decode(value, "UTF-8")

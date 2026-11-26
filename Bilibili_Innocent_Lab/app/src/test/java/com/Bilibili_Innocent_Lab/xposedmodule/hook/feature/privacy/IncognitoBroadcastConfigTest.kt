@@ -127,6 +127,48 @@ class IncognitoBroadcastConfigTest {
         assertTrue(fresh.hooks.isEmpty())
     }
 
+    fun defaultNamesMatchesCreateTunnelVariantsAndObfuscatedStreamFramesAndPrimitiveFf() {
+        assertTrue(
+            IncognitoBroadcastConfig.isBroadcastCall(
+                arrayOf(
+                    StackTraceElement(
+                        "kntr.base.moss.ignet.impl.stream.tunnel.Tunnel_androidKt\$createTunnel\$9",
+                        "invokeSuspend",
+                        "Tunnel.android.kt",
+                        1
+                    )
+                )
+            )
+        )
+        assertTrue(
+            IncognitoBroadcastConfig.isBroadcastCall(
+                arrayOf(StackTraceElement("kntr.base.moss.ignet.impl.stream.p\$1", "a", "p.kt", 1))
+            )
+        )
+        assertFalse(
+            IncognitoBroadcastConfig.isBroadcastCall(
+                arrayOf(
+                    StackTraceElement(
+                        "kntr.base.moss.ignet.impl.stream.tunnel.Tunnel_androidKt\$createTunnel\$9",
+                        "invokeSuspend",
+                        "Tunnel.android.kt",
+                        1
+                    )
+                ),
+                names
+            )
+        )
+
+        class PrimitiveConfig : ConfigContract {
+            override fun ff(key: String): Boolean = key.isNotEmpty()
+        }
+        val h = Harness()
+        val primitive = PrimitiveConfig()
+        assertSame(primitive, h.provide(primitive))
+        assertEquals(false, h.registrar.invoke("incognito.broadcast.java.${PrimitiveConfig::class.java.name}",
+            primitive, arrayOf("grpc_broadcast_enable")) { true })
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (IncognitoBroadcastConfigTest) -> Unit) {
@@ -140,5 +182,6 @@ class IncognitoBroadcastConfigTest {
         runIsolated { s -> s.observedBroadcastIsReportedWithoutChangingTheNativeCall() }
         runIsolated { s -> s.unrelatedNativeCallDoesNotRaiseABroadcastAlarm() }
         runIsolated { s -> s.unknownHostStructureRegistersNothing() }
+        runIsolated { s -> s.defaultNamesMatchesCreateTunnelVariantsAndObfuscatedStreamFramesAndPrimitiveFf() }
     }
 }

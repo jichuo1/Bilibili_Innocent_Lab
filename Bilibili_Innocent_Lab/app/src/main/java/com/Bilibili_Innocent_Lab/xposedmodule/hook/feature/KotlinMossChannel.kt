@@ -73,6 +73,8 @@ internal object KotlinMossChannel {
         resolvedEntry: Method? = null,
         /** 可选确认回执：只在改写往返验真且宿主成功收到最终新响应后执行。 */
         confirmedTransform: ((Any) -> KotlinMossResponseHandlerProxy.ConfirmedReply)? = null,
+        /** 当延迟 wire 通道激活后置 true，立即跳过 KotlinMoss 回调避免双重处理。 */
+        supersededBy: AtomicBoolean? = null,
         transformJava: (Any) -> Any
     ): Boolean {
         fun skip(reason: String): Boolean {
@@ -103,6 +105,7 @@ internal object KotlinMossChannel {
         return runCatching {
             environment.registrar.exact(hookId, entry.declaringClass, entry.name, *entry.parameterTypes) {
                 before {
+                    if (supersededBy?.get() == true) return@before
                     if (called.compareAndSet(false, true)) {
                         environment.logInfo("${logKey}_call", "[BIL] $what 新通道请求已进入 ${kotlinMoss.simpleName}#${entry.name}")
                     }

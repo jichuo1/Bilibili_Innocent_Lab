@@ -553,7 +553,7 @@ class Wave2PrivacyAndKmpWireTest {
         ).install(env(registrar = topReg))
         val (_, defaultWordOut) = invokeWire(
             topReg,
-            "bilibili.app.interfaces.v1",
+            "bilibili.app.interface.v1",
             "Search",
             "DefaultWords",
             ByteArray(0),

@@ -93,7 +93,19 @@ internal class GuestLibraryHostHooks(
         }
         val fragment = Lookup.classOrNull(loader, MINE_FRAGMENT)
         if (fragment != null) attempt("follow_count") {
-            val number = requireNotNull(Lookup.fieldOrNull(fragment, "p0"))
+            val number = requireNotNull(
+                Lookup.fieldOrNull(fragment, "p0")?.takeIf { !it.isStatic && TextView::class.java.isAssignableFrom(it.type) }
+                    ?: PrivacyStructuralResolver.uniqueField(fragment) {
+                        !it.isStatic && TextView::class.java.isAssignableFrom(it.type)
+                    }
+            )
+            val accountMine = requireNotNull(Lookup.classOrNull(loader, "tv.danmaku.bili.ui.main2.api.AccountMine"))
+            val jrMethod = requireNotNull(
+                Lookup.methodOrNull(fragment, "jr", accountMine, classOf<Boolean>())?.takeIf { !it.isStatic }
+                    ?: PrivacyStructuralResolver.uniqueMethod(fragment) {
+                        !it.isStatic && it.parameterTypes.contentEquals(arrayOf(accountMine, classOf<Boolean>()))
+                    }
+            )
             val numbers = java.util.Collections.synchronizedMap(java.util.WeakHashMap<TextView, Unit>())
             fun update(state: LocalVirtualLibrary.Collections) {
                 if (isGuest()) synchronized(numbers) { numbers.keys.toList() }.forEach { it.text = String.format(java.util.Locale.ROOT, "%d", state.follows.size) }
@@ -105,8 +117,7 @@ internal class GuestLibraryHostHooks(
                 numbers[view] = Unit
                 library.readCollections(::update)
             }
-            env.registrar.exact("guest.library.follow_count", fragment, "jr",
-                requireNotNull(Lookup.classOrNull(loader, "tv.danmaku.bili.ui.main2.api.AccountMine")), classOf<Boolean>()) {
+            env.registrar.exact("guest.library.follow_count", fragment, jrMethod.name, *jrMethod.parameterTypes) {
                 after { if (!hasThrowable) bind(instance) }
             }
             env.registrar.exact("guest.library.follow_count_resume", fragment, "onResume") {
@@ -117,7 +128,10 @@ internal class GuestLibraryHostHooks(
         if (fragment != null) {
             attempt("follow_list") {
                 val getActivity = requireNotNull(Lookup.inheritedMethodOrNull(fragment, "getActivity"))
-                env.registrar.exact("guest.library.follows", fragment, "Ur") {
+                val urMethod = requireNotNull(
+                    Lookup.methodOrNull(fragment, "Ur")?.takeIf { !it.isStatic && it.parameterCount == 0 }
+                )
+                env.registrar.exact("guest.library.follows", fragment, urMethod.name) {
                     before {
                         if (!isGuest()) return@before
                         result = null
@@ -139,8 +153,14 @@ internal class GuestLibraryHostHooks(
         if (fragment != null) attempt("mine_header_update") {
             val account = requireNotNull(Lookup.classOrNull(loader, "tv.danmaku.bili.ui.main2.api.AccountMine"))
             val getView = requireNotNull(Lookup.inheritedMethodOrNull(fragment, "getView"))
+            val lrMethod = requireNotNull(
+                Lookup.methodOrNull(fragment, "lr", account)?.takeIf { !it.isStatic }
+                    ?: PrivacyStructuralResolver.uniqueMethod(fragment) {
+                        !it.isStatic && it.parameterTypes.contentEquals(arrayOf(account)) && it.returnType == Void.TYPE
+                    }
+            )
             // lr(AccountMine) reassigns the avatar/header listeners after account updates.
-            env.registrar.exact("guest.library.mine_header_update", fragment, "lr", account) {
+            env.registrar.exact("guest.library.mine_header_update", fragment, lrMethod.name, *lrMethod.parameterTypes) {
                 after {
                     if (!isGuest() || hasThrowable) return@after
                     (instance?.let(getView::invoke) as? View)?.let(::bindLocalHeader)
@@ -188,8 +208,18 @@ internal class GuestLibraryHostHooks(
         attempt("follow_button") {
             val access = PrivacyHostAccess(loader)
             val helper = access.type("com.bilibili.relation.utils.FollowFlowHelper")
-            val mid = requireNotNull(Lookup.fieldOrNull(helper, "c")).also { require(it.type == classOf<Long>()) }
-            val callback = requireNotNull(Lookup.fieldOrNull(helper, "i"))
+            val mid = requireNotNull(
+                Lookup.fieldOrNull(helper, "c")?.takeIf { !it.isStatic && it.type == classOf<Long>() }
+                    ?: PrivacyStructuralResolver.uniqueField(helper) { !it.isStatic && it.type == classOf<Long>() }
+            )
+            val callback = requireNotNull(
+                Lookup.fieldOrNull(helper, "i")?.takeIf { !it.isStatic }
+                    ?: PrivacyStructuralResolver.uniqueField(helper) {
+                        !it.isStatic && !it.type.isPrimitive &&
+                            Lookup.methodOrNull(it.type, "onFollowSuccess") != null &&
+                            Lookup.methodOrNull(it.type, "onUnFollowSuccess") != null
+                    }
+            )
             // The host's success path: the callback may show its own feedback, otherwise the host toasts, and then it
             // broadcasts the change to every page following this person. Without these pieces the module toasts instead.
             val listener = access.type("com.bilibili.relation.FollowStateManager\$FollowChangeListener")
@@ -197,6 +227,7 @@ internal class GuestLibraryHostHooks(
             val changed = Lookup.declaredFields(helper, makeAccessible = true) { !it.isStatic && it.type isSubclassOf listener }.singleOrNull()
             val manager = access.type("com.bilibili.relation.FollowStateManager")
             val broadcast = Lookup.methodOrNull(manager, "notify", classOf<Long>(), classOf<Boolean>(), listener)
+                ?.takeIf { !it.isStatic }
             val getInstance = Lookup.methodOrNull(manager, "getInstance")?.takeIf { it.isStatic }
             val toast = Lookup.methodOrNull(access.type("com.bilibili.droid.ToastHelper"), "showToastShort",
                 classOf<android.content.Context>(), classOf<String>())?.takeIf { it.isStatic }
@@ -228,11 +259,15 @@ internal class GuestLibraryHostHooks(
                                     val handled = callback.get(target)?.let { cb ->
                                         access.call(cb, if (following) "onFollowSuccess" else "onUnFollowSuccess")
                                     } == true
-                                    if (native) {
+                                    if (changed != null && broadcast != null && getInstance != null && toast != null) {
                                         val hostContext = weakContext?.get()
                                         val strings = hostContext?.let(GuestLibraryStrings::resolve)
-                                        if (!handled && strings != null) toast!!.invoke(null, hostContext, if (following) strings.followed else strings.unfollowed)
-                                        broadcast!!.invoke(getInstance!!.invoke(null), uid, following, changed!!.get(target))
+                                        if (!handled && strings != null) toast.invoke(null, hostContext, if (following) strings.followed else strings.unfollowed)
+                                        val instanceObj = getInstance.invoke(null)
+                                        val listenerObj = changed.get(target)
+                                        if (instanceObj != null && listenerObj != null) {
+                                            broadcast.invoke(instanceObj, uid, following, listenerObj)
+                                        }
                                     }
                                 }
                             }
@@ -250,12 +285,40 @@ internal class GuestLibraryHostHooks(
         attempt("video_menu_watch_later") {
             val access = PrivacyHostAccess(loader)
             val menu = access.type("com.bilibili.ship.theseus.united.page.toolbar.MenuService")
-            val activity = requireNotNull(Lookup.fieldOrNull(menu, "b")).also {
-                require(it.type isSubclassOf classOf<Activity>())
-            }
+            val activity = requireNotNull(
+                Lookup.fieldOrNull(menu, "b")?.takeIf { !it.isStatic && it.type isSubclassOf classOf<Activity>() }
+                    ?: PrivacyStructuralResolver.uniqueField(menu) { !it.isStatic && it.type isSubclassOf classOf<Activity>() }
+            )
             val unit = requireNotNull(Lookup.fieldOrNull(access.type("kotlin.Unit"), "INSTANCE")).get(null)
             val manager = access.type("tv.danmaku.bili.ui.watchlater.widget.WatchLaterManagerV2")
-            val singleton = requireNotNull(Lookup.fieldOrNull(manager, "a")).get(null)
+            val singleton = requireNotNull(
+                (Lookup.fieldOrNull(manager, "a")?.takeIf { it.isStatic && manager.isAssignableFrom(it.type) }
+                    ?: PrivacyStructuralResolver.uniqueField(manager) { it.isStatic && manager.isAssignableFrom(it.type) })
+                    ?.get(null)
+            )
+            val addLaterMethod = Lookup.methodOrNull(
+                manager,
+                "j",
+                classOf<Activity>(),
+                classOf<String>(),
+                classOf<String>(),
+                classOf<String>(),
+                classOf<Int>(),
+                classOf<Boolean>(),
+                classOf<Int>()
+            ) ?: PrivacyStructuralResolver.uniqueMethod(manager) {
+                !it.isStatic && it.parameterTypes.contentEquals(
+                    arrayOf(
+                        classOf<Activity>(),
+                        classOf<String>(),
+                        classOf<String>(),
+                        classOf<String>(),
+                        classOf<Int>(),
+                        classOf<Boolean>(),
+                        classOf<Int>()
+                    )
+                )
+            }
             env.registrar.exact("guest.library.watch_later", menu, "P1", menu) {
                 before {
                     if (!isGuest()) return@before
@@ -265,7 +328,11 @@ internal class GuestLibraryHostHooks(
                     val repository = requireNotNull(Lookup.fieldOrNull(menu, "e")?.get(target))
                     val episode = requireNotNull(access.call(repository, "c"))
                     val aid = (access.call(episode, "a") as Number).toLong()
-                    access.call(requireNotNull(singleton), "j", host, aid.toString(), null, "", 0, true, 0)
+                    if (addLaterMethod != null) {
+                        addLaterMethod.invoke(singleton, host, aid.toString(), null, "", 0, true, 0)
+                    } else {
+                        access.call(singleton, "j", host, aid.toString(), null, "", 0, true, 0)
+                    }
                 }
             }
         }

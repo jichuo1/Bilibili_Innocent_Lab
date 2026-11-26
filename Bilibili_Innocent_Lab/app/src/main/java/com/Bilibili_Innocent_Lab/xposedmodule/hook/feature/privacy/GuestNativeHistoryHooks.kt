@@ -153,8 +153,13 @@ internal class GuestNativeHistoryHooks(
         }
         for ((name, getter) in mapOf("com.bilibili.app.history.ui.viewmodel.HistoryContentViewModel" to "I2",
             "com.bilibili.app.history.search.presenter.HistorySearchTabViewModel" to "u2")) {
-            val method = Lookup.classOrNull(host.loader, name)?.let { Lookup.methodOrNull(it, getter) }
+            val owner = Lookup.classOrNull(host.loader, name) ?: continue
+            val method = Lookup.methodOrNull(owner, getter)
                 ?.takeIf { !it.isStatic && it.returnType.name.startsWith("com.bilibili.common.fallbackcache.") }
+                ?: PrivacyStructuralResolver.uniqueMethod(owner) { candidate ->
+                    !candidate.isStatic && candidate.parameterCount == 0 &&
+                        candidate.returnType.name.startsWith("com.bilibili.common.fallbackcache.")
+                }
                 ?: continue
             presentation += "cache.$getter"
             plan.step {

@@ -71,6 +71,47 @@ class IgnetHttpSanitizerTest {
         assertFalse(map.containsKey("AUTHORIZATION"))
     }
 
+    fun jsonNonStringIdentityValuesAreSanitizedOrDropped() {
+        val raw = """{"buvid":123456,"fp_local":true,"device_id":{"real":"secret"},"session_id":["tok"],"keep":"ok"}"""
+            .toByteArray(Charsets.UTF_8)
+        val out = IgnetHttpSanitizer.formBody(raw, "application/json", identity, noSign)
+        val obj = JSONObject(String(out, Charsets.UTF_8))
+        assertEquals(identity.buvid, obj.getString("buvid"))
+        assertEquals(identity.buvid, obj.getString("fp_local"))
+        assertFalse(obj.has("device_id"))
+        assertFalse(obj.has("session_id"))
+        assertEquals("ok", obj.getString("keep"))
+    }
+
+    fun plusJsonAndTextBodiesSanitizeOrFailClosedOnMalformedJson() {
+        val problemJson = """{"access_key":"tok","buvid":"real","keep":"ok"}""".toByteArray(Charsets.UTF_8)
+        val outProblem = JSONObject(
+            String(IgnetHttpSanitizer.formBody(problemJson, "application/problem+json; charset=utf-8", identity, noSign), Charsets.UTF_8)
+        )
+        assertFalse(outProblem.has("access_key"))
+        assertEquals(identity.buvid, outProblem.getString("buvid"))
+        assertEquals("ok", outProblem.getString("keep"))
+
+        val textJson = """{"session_id":"real-s","ok":1}""".toByteArray(Charsets.UTF_8)
+        val outTextJson = JSONObject(
+            String(IgnetHttpSanitizer.formBody(textJson, "text/plain; charset=utf-8", identity, noSign), Charsets.UTF_8)
+        )
+        assertEquals(identity.sessionId, outTextJson.getString("session_id"))
+        assertEquals(1, outTextJson.getInt("ok"))
+
+        val textForm = "access_key=tok&buvid=real&aid=100".toByteArray(Charsets.UTF_8)
+        assertEquals(
+            "buvid=${identity.buvid}&aid=100",
+            String(IgnetHttpSanitizer.formBody(textForm, "text/plain", identity, noSign), Charsets.UTF_8)
+        )
+
+        for (media in listOf("application/json", "application/problem+json", "text/plain", null)) {
+            assertThrows(Exception::class.java) {
+                IgnetHttpSanitizer.formBody("""{"access_key":"tok"""".toByteArray(Charsets.UTF_8), media, identity, noSign)
+            }
+        }
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (IgnetHttpSanitizerTest) -> Unit) {
@@ -83,6 +124,8 @@ class IgnetHttpSanitizerTest {
         runIsolated { s -> s.changedSignedQueryIsResignedFromDecodedParameters() }
         runIsolated { s -> s.malformedEscapesFailClosed() }
         runIsolated { s -> s.headersAreSealedCaseInsensitivelyInPlace() }
+        runIsolated { s -> s.jsonNonStringIdentityValuesAreSanitizedOrDropped() }
+        runIsolated { s -> s.plusJsonAndTextBodiesSanitizeOrFailClosedOnMalformedJson() }
     
         IncognitoSessionCases().verifyAllCases()
         IncognitoStreamSinkCases().verifyAllCases()
@@ -243,6 +286,40 @@ private class KmpHeaderSanitizerCases {
         assertThrows(IllegalStateException::class.java) { failing.sanitize(m, identity) }
     }
 
+    fun nonStringKeysAndUnexpectedIdentityTypesFailClosed() {
+        assertThrows(IllegalStateException::class.java) {
+            sanitizer.sanitize(maps(mapOf(123 to "value")), identity)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            sanitizer.sanitize(maps(mapOf("buvid" to 999)), identity)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            sanitizer.sanitize(maps(mapOf("session_id" to 999)), identity)
+        }
+    }
+
+    fun utf8BytesAndExtendedRemovedHeadersAreHandled() {
+        val m = maps(
+            mapOf(
+                "x-bili-trace-id" to "trace",
+                "x-bili-gaia-vtoken" to "vtok",
+                "x-bili-exps-bin" to "exps",
+                "x-bili-ticket-bin" to "ticket",
+                "buvid" to "real-buvid".toByteArray(),
+                "session-id" to "real-session".toByteArray()
+            ),
+            mapOf("x-bili-network-bin" to byteArrayOf(5, 6))
+        )
+        sanitizer.sanitize(m, identity)
+        assertFalse(m[0].containsKey("x-bili-trace-id"))
+        assertFalse(m[0].containsKey("x-bili-gaia-vtoken"))
+        assertFalse(m[0].containsKey("x-bili-exps-bin"))
+        assertFalse(m[0].containsKey("x-bili-ticket-bin"))
+        assertArrayEquals(identity.buvid.toByteArray(Charsets.UTF_8), m[0]["buvid"] as ByteArray)
+        assertArrayEquals(identity.sessionId.toByteArray(Charsets.UTF_8), m[0]["session-id"] as ByteArray)
+        assertArrayEquals(byteArrayOf(5, 6), m[1]["x-bili-network-bin"] as ByteArray)
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (KmpHeaderSanitizerCases) -> Unit) {
             val s = KmpHeaderSanitizerCases()
@@ -253,6 +330,8 @@ private class KmpHeaderSanitizerCases {
         runIsolated { s -> s.emptyBinaryHeaderIsLeftEmpty() }
         runIsolated { s -> s.unexpectedBinaryHeaderTypeAbortsInsteadOfSendingUnsealed() }
         runIsolated { s -> s.rewriteFailureAbortsTheWholeCall() }
+        runIsolated { s -> s.nonStringKeysAndUnexpectedIdentityTypesFailClosed() }
+        runIsolated { s -> s.utf8BytesAndExtendedRemovedHeadersAreHandled() }
     }
 }
 

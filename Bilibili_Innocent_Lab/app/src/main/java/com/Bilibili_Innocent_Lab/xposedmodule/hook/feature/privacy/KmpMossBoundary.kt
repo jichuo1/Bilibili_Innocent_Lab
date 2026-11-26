@@ -215,37 +215,96 @@ internal class KmpMossBoundary private constructor(
             }
         }
 
+        private class MessageRewriterPlan(
+            private val parseFrom: java.lang.reflect.Method,
+            private val toBuilder: java.lang.reflect.Method,
+            private val build: java.lang.reflect.Method,
+            private val toByteArray: java.lang.reflect.Method,
+            val setters: Map<String, java.lang.reflect.Method>
+        ) {
+            fun rewrite(bytes: ByteArray, edit: (Any, Map<String, java.lang.reflect.Method>) -> Unit): ByteArray {
+                val parsed = requireNotNull(parseFrom.invoke(null, bytes))
+                val builder = requireNotNull(toBuilder.invoke(parsed))
+                edit(builder, setters)
+                val rebuilt = requireNotNull(build.invoke(builder))
+                return toByteArray.invoke(rebuilt) as ByteArray
+            }
+        }
+
         /** Re-writes the binary identity headers with the Java protobuf classes the host already ships. */
         internal fun identitySanitizer(loader: ClassLoader): KmpHeaderSanitizer? = runCatching {
             val host = PrivacyHostAccess(loader)
             val metadata = host.type("com.bapis.bilibili.metadata.Metadata")
             val device = host.type("com.bapis.bilibili.metadata.device.Device")
-            fun requireShape(message: Class<*>, setters: List<String>) {
-                requireNotNull(Lookup.methodOrNull(message, "parseFrom", ByteArray::class.java)) { "parseFrom" }
+            fun requireShape(
+                message: Class<*>,
+                setters: List<Pair<String, Array<Class<*>>>>
+            ): MessageRewriterPlan {
+                val parseFrom = requireNotNull(
+                    Lookup.methodOrNull(message, "parseFrom", ByteArray::class.java)
+                        ?.takeIf { java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                ) { "parseFrom" }
                 // toBuilder() lives on the protobuf-lite base class, not on the generated message itself.
-                requireNotNull(Lookup.inheritedMethodOrNull(message, "toBuilder")) { "toBuilder" }
-                val builder = requireNotNull(Lookup.methodOrNull(message, "newBuilder")) { "newBuilder" }.returnType
-                setters.forEach { requireNotNull(Lookup.methodOrNull(builder, it, String::class.java)) { it } }
+                val toBuilder = requireNotNull(
+                    Lookup.inheritedMethodOrNull(message, "toBuilder")
+                        ?.takeIf { !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.parameterCount == 0 }
+                ) { "toBuilder" }
+                val builder = requireNotNull(
+                    Lookup.methodOrNull(message, "newBuilder")
+                        ?.takeIf { java.lang.reflect.Modifier.isStatic(it.modifiers) && it.parameterCount == 0 }
+                ) { "newBuilder" }.returnType
+                val build = requireNotNull(
+                    Lookup.inheritedMethodOrNull(builder, "build")
+                        ?.takeIf { !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.parameterCount == 0 }
+                ) { "build" }
+                val toByteArray = requireNotNull(
+                    (Lookup.inheritedMethodOrNull(message, "toByteArray")
+                        ?: Lookup.inheritedMethodOrNull(build.returnType, "toByteArray"))
+                        ?.takeIf {
+                            !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
+                                it.parameterCount == 0 &&
+                                it.returnType == ByteArray::class.java
+                        }
+                ) { "toByteArray" }
+                val setterMethods = setters.associate { (name, paramTypes) ->
+                    val method = requireNotNull(Lookup.methodOrNull(builder, name, *paramTypes)) { name }
+                    name to method
+                }
+                return MessageRewriterPlan(parseFrom, toBuilder, build, toByteArray, setterMethods)
             }
-            requireShape(metadata, listOf("setBuvid", "setAccessKey"))
-            requireShape(device, listOf("setBuvid", "setFp", "setFpLocal", "setFpRemote", "setGuestId"))
-            fun rewrite(message: Class<*>, bytes: ByteArray, edit: (Any) -> Unit): ByteArray {
-                val builder = requireNotNull(host.call(requireNotNull(host.static(message, "parseFrom", bytes)), "toBuilder"))
-                edit(builder)
-                return host.call(requireNotNull(host.call(builder, "build")), "toByteArray") as ByteArray
-            }
+            val metadataPlan = requireShape(
+                metadata,
+                listOf(
+                    "setBuvid" to arrayOf(String::class.java),
+                    "setAccessKey" to arrayOf(String::class.java)
+                )
+            )
+            val devicePlan = requireShape(
+                device,
+                listOf(
+                    "setBuvid" to arrayOf(String::class.java),
+                    "setFp" to arrayOf(String::class.java),
+                    "setFpLocal" to arrayOf(String::class.java),
+                    "setFpRemote" to arrayOf(String::class.java),
+                    "setGuestId" to arrayOf(String::class.java),
+                    "setFts" to arrayOf(Long::class.javaPrimitiveType!!)
+                )
+            )
             KmpHeaderSanitizer(
                 rewriteMetadata = { bytes, identity ->
-                    rewrite(metadata, bytes) {
-                        host.call(it, "setBuvid", identity.buvid)
-                        host.call(it, "setAccessKey", "")
+                    metadataPlan.rewrite(bytes) { builder, methods ->
+                        methods.getValue("setBuvid").invoke(builder, identity.buvid)
+                        methods.getValue("setAccessKey").invoke(builder, "")
                     }
                 },
                 rewriteDevice = { bytes, identity ->
-                    rewrite(device, bytes) {
-                        for (setter in listOf("setBuvid", "setFp", "setFpLocal", "setFpRemote", "setGuestId"))
-                            host.call(it, setter, identity.buvid)
-                        host.call(it, "setFts", 0L)
+                    devicePlan.rewrite(bytes) { builder, methods ->
+                        methods.getValue("setBuvid").invoke(builder, identity.buvid)
+                        methods.getValue("setFp").invoke(builder, identity.buvid)
+                        methods.getValue("setFpLocal").invoke(builder, identity.buvid)
+                        methods.getValue("setFpRemote").invoke(builder, identity.buvid)
+                        methods.getValue("setGuestId").invoke(builder, identity.buvid)
+                        methods.getValue("setFts").invoke(builder, 0L)
                     }
                 }
             )

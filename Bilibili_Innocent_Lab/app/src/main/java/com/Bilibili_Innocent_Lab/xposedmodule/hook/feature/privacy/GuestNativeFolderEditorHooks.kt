@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 
 /** The 8.90.2 router uses the V2 Compose editor and its state machine. */
@@ -18,7 +19,22 @@ internal class GuestNativeFolderEditorHooks(
         fun set(target: Any, name: String, value: Any?) =
             requireNotNull(Lookup.fieldOrNull(target.javaClass, name)).set(target, value)
         // Returning the successful non-whitelisted value keeps the native form and hides upload UI.
-        env.registrar.exact("guest.favorite.native.editor_whitelist", machine, "F", classOf<String>(), continuation) {
+        val whitelistMethod = requireNotNull(
+            Lookup.methodOrNull(machine, "F", classOf<String>(), continuation)
+                ?: PrivacyStructuralResolver.uniqueMethod(machine) { m ->
+                    !m.isStatic &&
+                        m.parameterTypes.contentEquals(arrayOf(classOf<String>(), continuation)) &&
+                        (m.returnType == Int::class.javaPrimitiveType ||
+                            m.returnType == Int::class.javaObjectType ||
+                            m.returnType == Any::class.java)
+                }
+        ) { "PlaySetEditorStateMachine.F" }
+        env.registrar.exact(
+            "guest.favorite.native.editor_whitelist",
+            machine,
+            whitelistMethod.name,
+            *whitelistMethod.parameterTypes
+        ) {
             before { if (isGuest()) result = 0 }
         }
         val initial = host.type("ss3.c\$c")
@@ -37,8 +53,16 @@ internal class GuestNativeFolderEditorHooks(
             val parameters = mutableListOf<Class<*>>(classOf<String>(), classOf<String>(), classOf<String>(), classOf<String>(), classOf<Int>())
             if (!creating) parameters += classOf<Long>()
             parameters += continuation
+            val paramArray = parameters.toTypedArray()
+            val expectedName = if (creating) "v" else "w"
+            val actionMethod = requireNotNull(
+                Lookup.methodOrNull(machine, expectedName, *paramArray)
+                    ?: PrivacyStructuralResolver.uniqueMethod(machine) { m ->
+                        !m.isStatic && m.parameterTypes.contentEquals(paramArray)
+                    }
+            ) { "PlaySetEditorStateMachine.$expectedName" }
             env.registrar.exact("guest.favorite.native.editor_${if (creating) "create" else "edit"}",
-                machine, if (creating) "v" else "w", *parameters.toTypedArray()) {
+                machine, actionMethod.name, *paramArray) {
                 before {
                     if (!isGuest()) return@before
                     result = suspended

@@ -23,6 +23,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.reflect.KClass
 
 class KmpGrpcWireChannelTest {
@@ -393,5 +394,100 @@ class KmpGrpcWireChannelTest {
         }
         assertEquals(listOf("reply-payload"), wireSeen)
         assertEquals(listOf("reply-payload"), boundarySeen)
+    }
+
+    @Test
+    fun `interfaces package segment maps to interface in fullMethodName`() {
+        assertEquals(
+            "bilibili.app.interface.v1.Search/DefaultWords",
+            KmpGrpcWireChannel.fullMethodName("com.bapis.bilibili.app.interfaces.v1.SearchMoss", "defaultWords")
+        )
+        assertEquals(
+            "bilibili.app.interface.v1.Search/DefaultWords",
+            KmpGrpcWireChannel.fullMethodName("com.bapis.bilibili.app.interface.v1.SearchMoss", "executeDefaultWords")
+        )
+    }
+
+    @Test
+    fun `deferred binding unwraps wrapper dedups by logKey and avoids redundant parse`() {
+        val registrar = PlayerPortTestRegistrar()
+        val scoped = object : HookRegistrar by registrar {}
+        val environment = env(registrar = scoped)
+        val wireActive = AtomicBoolean(false)
+        CountingCodecJavaMessage.reset()
+
+        assertFalse(
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = CountingCodecJavaMessage::class.java,
+                what = "filter-1",
+                logKey = "k_filter",
+                wireActive = wireActive
+            ) { msg ->
+                val cur = msg as CountingCodecJavaMessage
+                CountingCodecJavaMessage("${cur.text}|step1")
+            }
+        )
+        // Duplicate (logKey, rpcFullName) must be deduplicated cleanly.
+        assertFalse(
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = CountingCodecJavaMessage::class.java,
+                what = "filter-1-dup",
+                logKey = "k_filter",
+                wireActive = wireActive
+            ) { error("duplicate must be ignored") }
+        )
+        // Second distinct logKey chains on same RPC and must reuse non-confirmed mirror without redundant parseFrom.
+        assertFalse(
+            KmpGrpcWireChannel.installOrDefer(
+                environment = environment,
+                surface = null,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = CountingCodecJavaMessage::class.java,
+                what = "filter-2",
+                logKey = "k_topology"
+            ) { msg ->
+                val cur = msg as CountingCodecJavaMessage
+                CountingCodecJavaMessage("${cur.text}|step2")
+            }
+        )
+        assertFalse(wireActive.get())
+        assertTrue(registrar.hooks.isEmpty())
+
+        val surface = KmpGrpcWireAdapter.inspectEntry(
+            GrpcEngine::class.java.declaredMethods.single { it.name == "a" }
+        )!!
+        assertEquals(2, KmpGrpcWireChannel.bindDeferred(env(registrar = registrar), surface))
+        assertEquals(0, KmpGrpcWireChannel.bindDeferred(env(registrar = registrar), surface))
+        assertTrue(wireActive.get())
+        assertEquals(1, registrar.hooks.size)
+
+        val descriptor = Descriptor("bilibili.main.community.reply.v1", "Reply", "MainList", WireDescriptor::class, DummyStrategy)
+        var delivered: ByteArray? = null
+        val sink = object : Handler {
+            override fun onNext(bytes: ByteArray?) { delivered = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: kmpfixture.modern.KMossException) = Unit
+        }
+        registrar.invoke(
+            "kmp.grpc.wire.channel",
+            receiver = GrpcEngine(emptyList()),
+            args = arrayOf(Service("grpc.biliapi.net"), descriptor, "req".toByteArray(), sink, null)
+        ) { callArgs ->
+            (callArgs[3] as Handler).onNext("orig".toByteArray())
+            null
+        }
+        assertEquals("orig|step1|step2", String(requireNotNull(delivered), Charsets.UTF_8))
+        // Step1 parses once (1); Step2 reuses step1's updated mirror (0 parseFrom)!
+        assertEquals(1, CountingCodecJavaMessage.parses)
+        assertEquals(2, CountingCodecJavaMessage.serializes)
     }
 }

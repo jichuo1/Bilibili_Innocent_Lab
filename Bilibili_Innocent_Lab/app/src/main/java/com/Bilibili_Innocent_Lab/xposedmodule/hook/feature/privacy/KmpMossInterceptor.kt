@@ -1,9 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpMethodDescriptorResolver
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
-import java.util.IdentityHashMap
 
 /**
  * The interceptor injected at the end of the host's KMP gRPC chain.
@@ -38,8 +38,6 @@ internal class KmpMossInterceptor(
         class Reply(val bytes: ByteArray) : Decision
         class Fail(val message: String) : Decision
     }
-
-    private val descriptorNames = IdentityHashMap<Any, String?>()
 
     /** Implements the host's MossInterceptor interface; the host sorts it last (priority = MAX). */
     val proxy: Any = Proxy.newProxyInstance(loader, arrayOf(surface.interceptor)) { self, method, args ->
@@ -115,36 +113,8 @@ internal class KmpMossInterceptor(
     }
 
     /** `bilibili.app.interface.v1.History/CursorV2`, the same shape as the Java MethodDescriptor name. */
-    internal fun fullMethodName(descriptor: Any): String? = synchronized(descriptorNames) {
-        if (descriptorNames.containsKey(descriptor)) return descriptorNames[descriptor]
-        // The descriptor is a data class; its toString carries the three names as literals unless R8 stripped it.
-        val raw = descriptor.toString()
-        val match = DESCRIPTOR.find(raw)
-        val name = match?.let { "${it.groupValues[1]}.${it.groupValues[2]}/${it.groupValues[3]}" }
-            ?: if (OBJECT_TO_STRING.matches(raw)) descriptorFromMembers(descriptor) else null
-        if (descriptorNames.size >= MAX_CACHED_DESCRIPTORS) descriptorNames.clear()
-        descriptorNames[descriptor] = name
-        name
-    }
-
-    private fun descriptorFromMembers(descriptor: Any): String? {
-        fun read(memberNames: List<String>): String? {
-            val type = descriptor.javaClass
-            for (name in memberNames) {
-                Lookup.fieldOrNull(type, name, includeSuperclasses = true)?.takeIf { it.type == String::class.java }?.let { field ->
-                    return (runCatching { field.get(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
-                }
-                Lookup.inheritedMethodOrNull(type, name)?.takeIf { it.parameterCount == 0 && it.returnType == String::class.java }?.let { method ->
-                    return (runCatching { method.invoke(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
-                }
-            }
-            return null
-        }
-        val pkg = read(listOf("packageName", "getPackageName")) ?: return null
-        val svc = read(listOf("serviceName", "getServiceName")) ?: return null
-        val mtd = read(listOf("methodName", "getMethodName")) ?: return null
-        return "$pkg.$svc/$mtd"
-    }
+    internal fun fullMethodName(descriptor: Any): String? =
+        KmpMethodDescriptorResolver.resolve(descriptor)
 
     private fun response(request: Any, payload: ByteArray?, error: Exception?): Any {
         val container = freshContainer(request)
@@ -164,8 +134,5 @@ internal class KmpMossInterceptor(
     companion object {
         const val NAME = "bil-incognito-boundary"
         private val EMPTY = ByteArray(0)
-        private const val MAX_CACHED_DESCRIPTORS = 4096
-        private val DESCRIPTOR = Regex("""packageName=([^,]+), serviceName=([^,]+), methodName=([^,]+),""")
-        private val OBJECT_TO_STRING = Regex("""^[A-Za-z0-9_.$]+@[0-9a-fA-F]+$""")
     }
 }

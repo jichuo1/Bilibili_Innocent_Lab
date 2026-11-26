@@ -50,6 +50,13 @@ internal class IgnetHttpBoundary(
         val bodyField = members.bodyField
         val streamField = members.streamField
         val produce = members.produce
+        val hasStreamSurface = Lookup.classOrNull(loader, PrivacyChannelAdapter.IGNET_STREAM_PROVIDER) != null
+        if (hasStreamSurface && (streamField == null || !streamField.type.isInterface || produce == null)) {
+            error("ighttp stream provider missing")
+        }
+        if (streamField != null && (!streamField.type.isInterface || produce == null)) {
+            error("ighttp stream provider shape invalid")
+        }
         val execute = members.execute
         val getUrl = members.getUrl
         val getMethod = members.getMethod

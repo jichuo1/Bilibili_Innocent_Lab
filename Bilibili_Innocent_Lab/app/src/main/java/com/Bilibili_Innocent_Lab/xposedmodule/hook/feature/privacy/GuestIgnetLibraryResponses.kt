@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PrivacyChannelAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
@@ -41,7 +43,8 @@ internal class GuestIgnetLibraryResponses(
     private val answer: (path: String, params: Map<String, String>) -> String?,
     private val requestClass: String = REQUEST,
     private val responseClass: String = RESPONSE,
-    private val drainTimeoutMs: Long = DRAIN_TIMEOUT_MS
+    private val drainTimeoutMs: Long = DRAIN_TIMEOUT_MS,
+    private val cachedRequest: VersionAdapter.HookPoint? = null
 ) {
     /** A replaced body; read by the engine's single reader coroutine, guarded anyway. */
     private class Body(val bytes: ByteArray) {
@@ -96,21 +99,35 @@ internal class GuestIgnetLibraryResponses(
 
     fun install(env: HookEnvironment): Int = runCatching {
         val loader = requireNotNull(env.classLoader)
-        val request = PrivacyStructuralResolver.type(loader, requestClass)
-        val response = PrivacyStructuralResolver.type(loader, responseClass)
+        val igMembers = if (requestClass == REQUEST && responseClass == RESPONSE) {
+            PrivacyChannelAdapter.resolveIgHttpRequest(loader, cachedRequest)
+        } else null
+        val request = if (requestClass == REQUEST && responseClass == RESPONSE) {
+            igMembers?.request
+        } else {
+            PrivacyStructuralResolver.type(loader, requestClass)
+        }
+        val response = if (igMembers != null && responseClass == RESPONSE) {
+            PrivacyStructuralResolver.type(loader, responseClass) ?: igMembers.execute.returnType
+        } else {
+            PrivacyStructuralResolver.type(loader, responseClass)
+        }
         if (request == null || response == null) {
             env.reportStatus("guest_ignet_library", "absent")
             return@runCatching 0
         }
-        val execute = PrivacyStructuralResolver.method(request, "execute")?.takeIf { it.returnType == response }
-        val url = PrivacyStructuralResolver.method(request, "url")?.takeIf { it.returnType == String::class.java }
-        val method = PrivacyStructuralResolver.method(request, "method")?.takeIf { it.returnType == String::class.java }
+        val execute = igMembers?.execute
+            ?: PrivacyStructuralResolver.method(request, "execute")?.takeIf { it.returnType == response }
+        val url = igMembers?.getUrl
+            ?: PrivacyStructuralResolver.method(request, "url")?.takeIf { it.returnType == String::class.java }
+        val method = igMembers?.getMethod
+            ?: PrivacyStructuralResolver.method(request, "method")?.takeIf { it.returnType == String::class.java }
         val httpCode = PrivacyStructuralResolver.method(response, "httpCode")?.takeIf { it.returnType == Int::class.javaPrimitiveType }
         val httpMessage = PrivacyStructuralResolver.method(response, "httpMessage")?.takeIf { it.returnType == String::class.java }
         val headers = PrivacyStructuralResolver.method(response, "headers")?.takeIf { Map::class.java.isAssignableFrom(it.returnType) }
         val read = PrivacyStructuralResolver.method(response, "readDataV2", ByteArray::class.java, Int::class.javaPrimitiveType!!)
             ?.takeIf { it.returnType == Int::class.javaPrimitiveType }
-        if (execute == null || url == null || method == null || httpCode == null || httpMessage == null || headers == null || read == null) {
+        if (execute == null || execute.returnType != response || url == null || method == null || httpCode == null || httpMessage == null || headers == null || read == null) {
             env.reportStatus("guest_ignet_library", "absent")
             return@runCatching 0
         }
@@ -124,15 +141,15 @@ internal class GuestIgnetLibraryResponses(
         fun bodyOf(target: Any?): Body? = if (target == null || bodies.isEmpty()) null else bodies[target]
         var hooks = 5
 
-        val builder = PrivacyStructuralResolver.type(loader, "$requestClass\$Builder")
-        val build = builder?.let { PrivacyStructuralResolver.method(it, "build") }?.takeIf { it.returnType == request }
+        val builder = igMembers?.builder ?: PrivacyStructuralResolver.type(loader, "$requestClass\$Builder")
+        val build = igMembers?.build ?: builder?.let { PrivacyStructuralResolver.method(it, "build") }?.takeIf { it.returnType == request }
         val toGet = builder?.let { PrivacyStructuralResolver.method(it, "get") }?.takeIf { it.returnType == builder }
-        val setUrl = builder?.let { PrivacyStructuralResolver.method(it, "url", String::class.java) }?.takeIf { it.returnType == builder }
-        val urlField = builder?.let { Lookup.fieldOrNull(it, "mUrl") }?.takeIf { it.type == String::class.java }
+        val setUrl = igMembers?.setUrl ?: builder?.let { PrivacyStructuralResolver.method(it, "url", String::class.java) }?.takeIf { it.returnType == builder }
+        val urlField = igMembers?.urlField ?: builder?.let { Lookup.fieldOrNull(it, "mUrl") }?.takeIf { it.type == String::class.java }
         val methodField = builder?.let { Lookup.fieldOrNull(it, "mMethod") }?.takeIf { it.type == String::class.java }
-        val bodyField = builder?.let { Lookup.fieldOrNull(it, "mBody") }?.takeIf { it.type == ByteArray::class.java }
-        val streamField = builder?.let { Lookup.fieldOrNull(it, "mStreamDataProvider") }
-        val produce = streamField?.type?.let { PrivacyStructuralResolver.method(it, "onProduceData", Int::class.javaPrimitiveType!!) }
+        val bodyField = igMembers?.bodyField ?: builder?.let { Lookup.fieldOrNull(it, "mBody") }?.takeIf { it.type == ByteArray::class.java }
+        val streamField = igMembers?.streamField ?: builder?.let { Lookup.fieldOrNull(it, "mStreamDataProvider") }
+        val produce = igMembers?.produce ?: streamField?.type?.let { PrivacyStructuralResolver.method(it, "onProduceData", Int::class.javaPrimitiveType!!) }
             ?.takeIf { it.returnType == ByteArray::class.java }
         if (builder != null && build != null && toGet != null && setUrl != null && urlField != null && methodField != null &&
             bodyField != null && streamField != null && produce != null) {

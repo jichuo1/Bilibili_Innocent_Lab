@@ -47,7 +47,11 @@ internal class IncognitoBroadcastConfig(
             fun applyConfigManager(target: Any) {
                 require(contract.isInstance(target)) { "config contract" }
                 val method = requireNotNull(Lookup.inheritedMethodOrNull(target.javaClass, "ff", classOf<String>()))
-                    .takeIf { !it.isStatic && it.returnType == Boolean::class.javaObjectType } ?: error("ConfigManager.ff shape")
+                    .takeIf {
+                        !it.isStatic &&
+                            (it.returnType == Boolean::class.javaObjectType ||
+                                it.returnType == Boolean::class.javaPrimitiveType)
+                    } ?: error("ConfigManager.ff shape")
                 synchronized(lock) {
                     if (method in configured) return
                     env.registrar.exact("incognito.broadcast.java.${method.declaringClass.name}",
@@ -102,6 +106,11 @@ internal class IncognitoBroadcastConfig(
     }.getOrNull()
 
     internal companion object {
+        private val DEFAULT_NAMES = Names()
+        private const val TUNNEL_CREATE_PREFIX = "kntr.base.moss.ignet.impl.stream.tunnel.Tunnel_androidKt\$createTunnel\$"
+        private const val STREAM_PACKAGE = "kntr.base.moss.ignet.impl.stream."
+        private val STREAM_METHODS = setOf("b", "a", "invokeSuspend")
+
         private val DISABLED = mapOf(
             "grpc_broadcast_enable" to "global",
             "grpc_stream_biz_enabled" to "business",
@@ -116,9 +125,31 @@ internal class IncognitoBroadcastConfig(
 
         fun disabledFeature(key: Any?): String? = (key as? String)?.let(DISABLED::get)
 
-        fun isBroadcastCall(frames: Array<StackTraceElement>, names: Names = Names()): Boolean = frames.any {
-            (it.className == names.modernCaller && it.methodName == "invokeSuspend") ||
-                (it.className == names.legacyCaller && it.methodName == "b")
+        fun isBroadcastCall(frames: Array<StackTraceElement>, names: Names = Names()): Boolean {
+            val useDefaultModern = names.modernCaller == DEFAULT_NAMES.modernCaller
+            val useDefaultLegacy = names.legacyCaller == DEFAULT_NAMES.legacyCaller
+            return frames.any { frame ->
+                val modernMatch = if (useDefaultModern) {
+                    (frame.className == names.modernCaller || frame.className.startsWith(TUNNEL_CREATE_PREFIX)) &&
+                        frame.methodName == "invokeSuspend"
+                } else {
+                    frame.className == names.modernCaller && frame.methodName == "invokeSuspend"
+                }
+                val legacyMatch = if (useDefaultLegacy) {
+                    if (frame.className == names.legacyCaller && frame.methodName == "b") {
+                        true
+                    } else if (frame.className.startsWith(STREAM_PACKAGE)) {
+                        val suffix = frame.className.removePrefix(STREAM_PACKAGE)
+                        '.' !in suffix && suffix.substringBefore('$').length in 1..4 &&
+                            frame.methodName in STREAM_METHODS
+                    } else {
+                        false
+                    }
+                } else {
+                    frame.className == names.legacyCaller && frame.methodName == "b"
+                }
+                modernMatch || legacyMatch
+            }
         }
     }
 }

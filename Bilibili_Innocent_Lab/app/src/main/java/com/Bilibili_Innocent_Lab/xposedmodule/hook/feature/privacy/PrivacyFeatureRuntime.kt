@@ -122,12 +122,16 @@ internal class PrivacyFeatureRuntime(
                     playbackHooks.kmpViewObserver(env, host))
                 val libraryHostHooks = GuestLibraryHostHooks(library, guest, history)
                 val hostHooks = libraryHostHooks.install(env)
-                val ignetResponses = GuestIgnetLibraryResponses(guest, { path, params ->
-                    library.nativeBlocking {
-                        if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid -> library.videoMetadata(aid, 0) }
-                        else NativeFavoriteProtocol.respond(path, params, it)
-                    }
-                })
+                val ignetResponses = GuestIgnetLibraryResponses(
+                    guest,
+                    { path, params ->
+                        library.nativeBlocking {
+                            if (NativeWatchLaterProtocol.handles(path)) NativeWatchLaterProtocol.respond(path, params, it) { aid -> library.videoMetadata(aid, 0) }
+                            else NativeFavoriteProtocol.respond(path, params, it)
+                        }
+                    },
+                    cachedRequest = privacyIgnetHttp
+                )
                 val ignetHooks = ignetResponses.install(env)
                 val hostDialog = GuestHostFavoriteDialog {
                     libraryHostHooks.localListsInstalled &&

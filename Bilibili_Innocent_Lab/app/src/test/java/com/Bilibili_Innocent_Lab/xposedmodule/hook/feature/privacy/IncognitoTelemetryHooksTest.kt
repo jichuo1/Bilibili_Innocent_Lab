@@ -52,6 +52,25 @@ class IncognitoTelemetryHooksTest {
         assertEquals(0, originalCalls)
     }
 
+    fun kmpProducersIgnorePrivateMethodsAndMissingNeuronsSkipsAtPrepare() {
+        class MixedVisibilityKNeuron {
+            fun reportClick(event: String) = Unit
+            fun trackT(event: String) = Unit
+            private fun reportSecret(event: String) = Unit
+            internal fun trackHidden(event: String) = Unit
+        }
+        val found = IncognitoTelemetryHooks.kmpProducers(MixedVisibilityKNeuron::class.java)
+        assertNotNull(found)
+        assertEquals(setOf("reportClick", "trackT"), found!!.map { it.name }.toSet())
+
+        val emptyLoader = object : ClassLoader(null) {}
+        val registrar = PlayerPortTestRegistrar()
+        val env = HookEnvironment("tv.danmaku.bili", emptyLoader, HookPointRegistry(emptyLoader),
+            registrar, { _, _ -> }, { _, _ -> }, { _, _ -> })
+        assertNull(IncognitoTelemetryHooks(IncognitoSession().apply { enter() }).prepare(env))
+        assertTrue(registrar.hooks.isEmpty())
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (IncognitoTelemetryHooksTest) -> Unit) {
@@ -60,5 +79,6 @@ class IncognitoTelemetryHooksTest {
         }
         runIsolated { s -> s.eventProducersCannotEnqueueOrEvaluateUploadConditions() }
         runIsolated { s -> s.uuidRefreshNeverReadsOrWritesPersistentIdentity() }
+        runIsolated { s -> s.kmpProducersIgnorePrivateMethodsAndMissingNeuronsSkipsAtPrepare() }
     }
 }

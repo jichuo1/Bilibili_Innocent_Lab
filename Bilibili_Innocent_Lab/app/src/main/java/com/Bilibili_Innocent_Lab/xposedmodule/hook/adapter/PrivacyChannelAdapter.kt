@@ -19,6 +19,7 @@ import java.lang.reflect.Modifier
 internal object PrivacyChannelAdapter {
     const val IGNET_REQUEST = "com.bilibili.lib.ighttp.IgHttpRequest"
     const val IGNET_RESPONSE = "com.bilibili.lib.ighttp.IgHttpResponse"
+    const val IGNET_STREAM_PROVIDER = "com.bilibili.lib.ighttp.IgHttpStreamDataProvider"
     const val IGNET_ENGINE = "kntr.base.ktor.ignet.IgnetHttpEngine"
     const val KNEURON = "kntr.base.neuron.KNeuron"
     const val DIAGNOSTIC_IGNET = "dex.assist.privacy_ignet_http"
@@ -100,10 +101,17 @@ internal object PrivacyChannelAdapter {
             ?.takeIf { !Modifier.isStatic(it.modifiers) && MutableMap::class.java.isAssignableFrom(it.type) } ?: return null
         val bodyField = Lookup.fieldOrNull(builder, "mBody")
             ?.takeIf { !Modifier.isStatic(it.modifiers) && it.type == ByteArray::class.java } ?: return null
+        val streamProviderType = Lookup.classOrNull(loader, IGNET_STREAM_PROVIDER)
         val streamField = Lookup.fieldOrNull(builder, "mStreamDataProvider")
             ?.takeIf { !Modifier.isStatic(it.modifiers) }
         val produce = streamField?.type?.let { Lookup.methodOrNull(it, "onProduceData", Int::class.javaPrimitiveType!!) }
             ?.takeIf { !Modifier.isStatic(it.modifiers) && it.returnType == ByteArray::class.java }
+        val requiresStream = streamProviderType != null ||
+            declaresStreamProviderField(request, streamProviderType) ||
+            declaresStreamProviderField(builder, streamProviderType)
+        if (requiresStream && (streamField == null || !streamField.type.isInterface || produce == null)) {
+            return null
+        }
 
         IgHttpMembers(
             request = request,
@@ -141,6 +149,26 @@ internal object PrivacyChannelAdapter {
         val members = inspectIgHttpRequest(loader, owner) ?: return null
         return members.takeIf { it.execute.name == cached.methodName }
     }
+
+    private fun declaresStreamProviderField(owner: Class<*>, streamProviderType: Class<*>?): Boolean =
+        Lookup.fields(owner, includeSuperclasses = false).any { field ->
+            if (Modifier.isStatic(field.modifiers)) return@any false
+            val type = field.type
+            if (field.name == "mStreamDataProvider") return@any true
+            if (streamProviderType != null && streamProviderType.isAssignableFrom(type)) return@any true
+            if (!type.isInterface || type.name.startsWith("java.") || type.name.startsWith("kotlin.") ||
+                MutableMap::class.java.isAssignableFrom(type)
+            ) {
+                return@any false
+            }
+            type.simpleName.contains("StreamDataProvider") ||
+                Lookup.declaredMethods(type) { !Modifier.isStatic(it.modifiers) }.any { m ->
+                    m.name == "onProduceData" ||
+                        (m.parameterCount == 1 &&
+                            m.parameterTypes[0] == Int::class.javaPrimitiveType &&
+                            m.returnType == ByteArray::class.java)
+                }
+        }
 
     fun directKNeuron(loader: ClassLoader): Class<*>? =
         Lookup.classOrNull(loader, KNEURON)?.takeIf(::verifyKNeuron)

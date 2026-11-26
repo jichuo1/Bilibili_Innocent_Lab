@@ -24,9 +24,21 @@ internal class IncognitoTelemetryHooks(
         val owner = PrivacyHostAccess(loader)
             .type("com.bilibili.lib.neuron.api.Neurons")
         val producers = Lookup.declaredMethods(owner) {
-            it.returnType == Void.TYPE && (it.name.startsWith("report") || it.name.startsWith("track"))
+            !it.isSynthetic && Modifier.isPublic(it.modifiers) && !it.name.contains('$') &&
+                it.returnType == Void.TYPE && (it.name.startsWith("report") || it.name.startsWith("track"))
         }
         require(producers.any { it.name == "trackT" } && producers.any { it.name == "reportClick" })
+        val getUuid = requireNotNull(
+            Lookup.methodOrNull(owner, "getUUID")?.takeIf {
+                !it.isSynthetic && Modifier.isPublic(it.modifiers) &&
+                    it.parameterCount == 0 && it.returnType == String::class.java
+            }
+        ) { "Neurons.getUUID" }
+        val setUuid = requireNotNull(
+            Lookup.methodOrNull(owner, "setUUID", classOf<String>())?.takeIf {
+                !it.isSynthetic && Modifier.isPublic(it.modifiers) && it.returnType == Void.TYPE
+            }
+        ) { "Neurons.setUUID" }
         val kmp = PrivacyChannelAdapter.resolveKNeuron(loader, cachedKNeuron)
         val kmpProducers = kmp?.let { kmpProducers(it) }
         if (kmp != null || hasKmpTelemetrySurface(loader)) {
@@ -35,7 +47,7 @@ internal class IncognitoTelemetryHooks(
         return@runCatching {
             val evidence = AtomicBoolean()
             applyProducers(env, owner, producers, "incognito.neurons", evidence) +
-                applyUuid(env, owner) +
+                applyUuid(env, owner, getUuid, setUuid) +
                 (if (kmp != null && kmpProducers != null) applyProducers(env, kmp, kmpProducers, "incognito.kneuron", evidence) else 0)
         }
     }.getOrNull()
@@ -62,11 +74,11 @@ internal class IncognitoTelemetryHooks(
         return producers.size
     }
 
-    private fun applyUuid(env: HookEnvironment, owner: Class<*>): Int {
-        env.registrar.exact("incognito.neurons.uuid.get", owner, "getUUID") {
+    private fun applyUuid(env: HookEnvironment, owner: Class<*>, getUuid: Method, setUuid: Method): Int {
+        env.registrar.exact("incognito.neurons.uuid.get", owner, getUuid.name, *getUuid.parameterTypes) {
             before { result = session.identity()?.sessionId.orEmpty() }
         }
-        env.registrar.exact("incognito.neurons.uuid.set", owner, "setUUID", classOf<String>()) {
+        env.registrar.exact("incognito.neurons.uuid.set", owner, setUuid.name, *setUuid.parameterTypes) {
             before { result = null }
         }
         return 2
@@ -89,7 +101,7 @@ internal class IncognitoTelemetryHooks(
 
         fun kmpProducers(owner: Class<*>): List<Method>? = Lookup.declaredMethods(owner) {
             it.returnType == Void.TYPE && Modifier.isPublic(it.modifiers) && !Modifier.isStatic(it.modifiers) &&
-                !it.isSynthetic && listOf("report", "track", "simpleTrack").any(it.name::startsWith)
+                !it.isSynthetic && !it.name.contains('$') && listOf("report", "track", "simpleTrack").any(it.name::startsWith)
         }.takeIf { list -> list.any { it.name == "trackT" } && list.any { it.name == "reportClick" } }
     }
 }

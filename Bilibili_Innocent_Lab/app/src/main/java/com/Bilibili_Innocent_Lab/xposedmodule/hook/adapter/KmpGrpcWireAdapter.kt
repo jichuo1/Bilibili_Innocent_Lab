@@ -20,6 +20,7 @@ internal object KmpGrpcWireAdapter {
     const val REPLY_MOSS = "com.bapis.bilibili.main.community.reply.v1.KReplyMoss"
     const val DIAGNOSTIC = "dex.assist.kmp_grpc_wire_engine"
     private const val SERIALIZATION_STRATEGY = "kotlinx.serialization.SerializationStrategy"
+    private const val DESERIALIZATION_STRATEGY = "kotlinx.serialization.DeserializationStrategy"
     private const val KCLASS = "kotlin.reflect.KClass"
 
     val ENTRY_MARKS = listOf("GrpcEngine", "Building IgnetChain with ", "Handler is null for ")
@@ -107,6 +108,7 @@ internal object KmpGrpcWireAdapter {
     private fun looksLikeDescriptor(type: Class<*>): Boolean {
         if (type.isPrimitive || type.isArray || type.name.startsWith("java.") || type.name.startsWith("kotlin.")) return false
         val fieldTypes = Lookup.fields(type, includeSuperclasses = true).map { it.type.name }
-        return KCLASS in fieldTypes && SERIALIZATION_STRATEGY in fieldTypes
+        return KCLASS in fieldTypes &&
+            (SERIALIZATION_STRATEGY in fieldTypes || DESERIALIZATION_STRATEGY in fieldTypes)
     }
 }

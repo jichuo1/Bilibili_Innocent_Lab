@@ -4,10 +4,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossBridgeMembers.JavaReplyCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossResponseHandlerProxy.ConfirmedReply
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 import java.util.IdentityHashMap
 import java.util.WeakHashMap
@@ -25,26 +25,37 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal object KmpGrpcWireChannel {
     private const val HOOK_ID = "kmp.grpc.wire.channel"
-    private const val MAX_CACHED_DESCRIPTORS = 4096
-    private val DESCRIPTOR = Regex("""packageName=([^,]+), serviceName=([^,]+), methodName=([^,]+),""")
-    private val OBJECT_TO_STRING = Regex("""^[A-Za-z0-9_.$]+@[0-9a-fA-F]+$""")
     private val EMPTY_ARGS = emptyArray<Any?>()
 
     private val dispatchersLock = Any()
     private val dispatchers = WeakHashMap<HookRegistrar, MutableMap<Method, Dispatcher>>()
-    private val descriptorNames = IdentityHashMap<Any, String?>()
+    private val pending = WeakHashMap<HookRegistrar, PendingBucket>()
+
+    private class PendingBucket {
+        val entries = ArrayList<PendingRegistration>()
+    }
+
+    private class PendingRegistration(
+        val rpc: String,
+        val rpcFullName: String,
+        val registration: Registration
+    )
 
     private class Registration(
         val what: String,
         val logKey: String,
-        val javaReplyClass: Class<*>,
-        val replyCodec: JavaReplyCodec,
+        val rpcFullName: String,
+        val javaReplyClass: Class<*>?,
+        val replyCodec: JavaReplyCodec?,
         val javaRequestClass: Class<*>?,
         val requestCodec: JavaReplyCodec?,
         val transformRequest: ((Any) -> Any)?,
+        val transformRawRequest: ((ByteArray) -> ByteArray)?,
         val confirmedTransform: ((Any) -> ConfirmedReply)?,
         val transformWithRequest: ((Any?, Any) -> Any)?,
-        val transformJava: (Any) -> Any,
+        val transformJava: ((Any) -> Any)?,
+        val transformRawReply: ((ByteArray) -> ByteArray)?,
+        val wireActive: AtomicBoolean?,
         val onCall: () -> Unit,
         val onRequestFailed: (Throwable) -> Unit,
         val onReplyFailed: (Throwable) -> Unit
@@ -62,17 +73,30 @@ internal object KmpGrpcWireChannel {
             for (index in steps.indices) {
                 steps[index].onCall()
             }
-            val needsRequestParse = steps.any {
-                it.requestCodec != null && (it.transformRequest != null || it.transformWithRequest != null)
+            val needsRequestHandle = steps.any {
+                it.transformRawRequest != null ||
+                    (it.requestCodec != null && (it.transformRequest != null || it.transformWithRequest != null))
             }
             val capturedRequests = if (steps.any { it.transformWithRequest != null }) arrayOfNulls<Any?>(steps.size) else null
             val rawRequest = args.getOrNull(surface.requestBytesIndex) as? ByteArray
-            if (rawRequest != null && needsRequestParse) {
+            if (rawRequest != null && needsRequestHandle) {
                 var currentBytes: ByteArray = rawRequest
                 var parsedRequest: Any? = null
                 var parsedRequestClass: Class<*>? = null
                 for (index in steps.indices) {
                     val step = steps[index]
+                    if (step.transformRawRequest != null) {
+                        try {
+                            val updatedBytes = step.transformRawRequest.invoke(currentBytes)
+                            if (updatedBytes !== currentBytes) {
+                                currentBytes = updatedBytes
+                                parsedRequest = null
+                                parsedRequestClass = null
+                            }
+                        } catch (failure: Throwable) {
+                            runCatching { step.onRequestFailed(failure) }
+                        }
+                    }
                     val codec = step.requestCodec ?: continue
                     val transform = step.transformRequest
                     val capturesRequest = step.transformWithRequest != null
@@ -143,32 +167,51 @@ internal object KmpGrpcWireChannel {
                     var mirrorClass: Class<*>? = null
                     for (index in steps.indices) {
                         val step = steps[index]
+                        val rawTransform = step.transformRawReply
+                        if (rawTransform != null) {
+                            try {
+                                val updatedBytes = rawTransform(currentBytes)
+                                if (updatedBytes !== currentBytes) {
+                                    currentBytes = updatedBytes
+                                    mirror = null
+                                    mirrorClass = null
+                                }
+                            } catch (failure: Throwable) {
+                                runCatching { step.onReplyFailed(failure) }
+                            }
+                            continue
+                        }
+                        val codec = step.replyCodec ?: continue
+                        val replyClass = step.javaReplyClass ?: continue
                         try {
-                            val source = if (mirror != null && mirrorClass === step.javaReplyClass) {
+                            val source = if (mirror != null && mirrorClass === replyClass) {
                                 mirror
                             } else {
-                                step.replyCodec.parse(currentBytes).also {
+                                codec.parse(currentBytes).also {
                                     mirror = it
-                                    mirrorClass = step.javaReplyClass
+                                    mirrorClass = replyClass
                                 }
                             }
                             val confirmed = step.confirmedTransform?.invoke(source)
                             val updated = confirmed?.message
                                 ?: step.transformWithRequest?.invoke(capturedRequests?.getOrNull(index), source)
-                                ?: step.transformJava(source)
+                                ?: step.transformJava?.invoke(source)
+                                ?: source
                             if (updated !== source) {
-                                val rewritten = step.replyCodec.serialize(updated)
-                                val readback = if (confirmed != null) {
-                                    step.replyCodec.parse(rewritten).also {
+                                val rewritten = codec.serialize(updated)
+                                val nextMirror = if (confirmed != null) {
+                                    codec.parse(rewritten).also {
                                         check(it == updated) { "Wire reply readback changed the Java message" }
                                     }
-                                } else null
+                                } else {
+                                    updated
+                                }
                                 currentBytes = rewritten
-                                mirror = readback
-                                mirrorClass = if (readback != null) step.javaReplyClass else null
+                                mirror = nextMirror
+                                mirrorClass = replyClass
                                 if (confirmed != null) {
-                                    val pending = receipts ?: ArrayList<() -> Unit>(2).also { receipts = it }
-                                    pending += confirmed.onReplyTransformed
+                                    val pendingReceipts = receipts ?: ArrayList<() -> Unit>(2).also { receipts = it }
+                                    pendingReceipts += confirmed.onReplyTransformed
                                 }
                             }
                         } catch (failure: Throwable) {
@@ -198,41 +241,16 @@ internal object KmpGrpcWireChannel {
         val dot = trimmed.lastIndexOf('.')
         if (dot <= 0) return null
         val pkg = trimmed.substring(0, dot)
+            .split('.')
+            .joinToString(".") { if (it == "interfaces") "interface" else it }
         val service = trimmed.substring(dot + 1).removeSuffix("Moss")
         if (pkg.isEmpty() || service.isEmpty() || normalized.isEmpty()) return null
         val method = normalized.replaceFirstChar { it.uppercaseChar() }
         return "$pkg.$service/$method"
     }
 
-    internal fun parseDescriptorName(descriptor: Any): String? = synchronized(descriptorNames) {
-        if (descriptorNames.containsKey(descriptor)) return descriptorNames[descriptor]
-        val raw = descriptor.toString()
-        val match = DESCRIPTOR.find(raw)
-        val name = match?.let { "${it.groupValues[1]}.${it.groupValues[2]}/${it.groupValues[3]}" }
-            ?: if (OBJECT_TO_STRING.matches(raw)) descriptorFromMembers(descriptor) else null
-        if (descriptorNames.size >= MAX_CACHED_DESCRIPTORS) descriptorNames.clear()
-        descriptorNames[descriptor] = name
-        name
-    }
-
-    private fun descriptorFromMembers(descriptor: Any): String? {
-        fun read(memberNames: List<String>): String? {
-            val type = descriptor.javaClass
-            for (name in memberNames) {
-                Lookup.fieldOrNull(type, name, includeSuperclasses = true)?.takeIf { it.type == String::class.java }?.let { field ->
-                    return (runCatching { field.get(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
-                }
-                Lookup.inheritedMethodOrNull(type, name)?.takeIf { it.parameterCount == 0 && it.returnType == String::class.java }?.let { method ->
-                    return (runCatching { method.invoke(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
-                }
-            }
-            return null
-        }
-        val pkg = read(listOf("packageName", "getPackageName")) ?: return null
-        val svc = read(listOf("serviceName", "getServiceName")) ?: return null
-        val mtd = read(listOf("methodName", "getMethodName")) ?: return null
-        return "$pkg.$svc/$mtd"
-    }
+    internal fun parseDescriptorName(descriptor: Any): String? =
+        KmpMethodDescriptorResolver.resolve(descriptor)
 
     fun install(
         environment: HookEnvironment,
@@ -246,31 +264,245 @@ internal object KmpGrpcWireChannel {
         transformRequest: ((Any) -> Any)? = null,
         confirmedTransform: ((Any) -> ConfirmedReply)? = null,
         transformWithRequest: ((Any?, Any) -> Any)? = null,
+        wireActive: AtomicBoolean? = null,
         transformJava: (Any) -> Any
     ): Boolean {
-        fun skip(reason: String): Boolean {
+        val pendingReg = buildJavaRegistration(
+            environment = environment,
+            javaMossClassName = javaMossClassName,
+            rpc = rpc,
+            javaReplyClass = javaReplyClass,
+            what = what,
+            logKey = logKey,
+            javaRequestClass = javaRequestClass,
+            transformRequest = transformRequest,
+            confirmedTransform = confirmedTransform,
+            transformWithRequest = transformWithRequest,
+            wireActive = wireActive,
+            transformJava = transformJava
+        ) ?: return false
+        return bindRegistration(environment, surface, pendingReg)
+    }
+
+    fun installOrDefer(
+        environment: HookEnvironment,
+        surface: KmpGrpcWireAdapter.WireSurface?,
+        javaMossClassName: String,
+        rpc: String,
+        javaReplyClass: Class<*>,
+        what: String,
+        logKey: String,
+        javaRequestClass: Class<*>? = null,
+        transformRequest: ((Any) -> Any)? = null,
+        confirmedTransform: ((Any) -> ConfirmedReply)? = null,
+        transformWithRequest: ((Any?, Any) -> Any)? = null,
+        wireActive: AtomicBoolean? = null,
+        transformJava: (Any) -> Any
+    ): Boolean {
+        val pendingReg = buildJavaRegistration(
+            environment = environment,
+            javaMossClassName = javaMossClassName,
+            rpc = rpc,
+            javaReplyClass = javaReplyClass,
+            what = what,
+            logKey = logKey,
+            javaRequestClass = javaRequestClass,
+            transformRequest = transformRequest,
+            confirmedTransform = confirmedTransform,
+            transformWithRequest = transformWithRequest,
+            wireActive = wireActive,
+            transformJava = transformJava
+        ) ?: return false
+        if (surface != null) {
+            return bindRegistration(environment, surface, pendingReg)
+        }
+        queuePending(environment.registrar, pendingReg)
+        return false
+    }
+
+    fun installRawBytes(
+        environment: HookEnvironment,
+        surface: KmpGrpcWireAdapter.WireSurface?,
+        rpcFullName: String,
+        what: String,
+        logKey: String,
+        transformRawRequest: ((ByteArray) -> ByteArray)? = null,
+        wireActive: AtomicBoolean? = null,
+        transformRawReply: (ByteArray) -> ByteArray
+    ): Boolean {
+        val pendingReg = buildRawRegistration(
+            environment = environment,
+            rpcFullName = rpcFullName,
+            what = what,
+            logKey = logKey,
+            transformRawRequest = transformRawRequest,
+            wireActive = wireActive,
+            transformRawReply = transformRawReply
+        ) ?: return false
+        if (surface != null) {
+            return bindRegistration(environment, surface, pendingReg)
+        }
+        queuePending(environment.registrar, pendingReg)
+        return false
+    }
+
+    fun deferRawBytes(
+        environment: HookEnvironment,
+        rpcFullName: String,
+        what: String,
+        logKey: String,
+        transformRawRequest: ((ByteArray) -> ByteArray)? = null,
+        wireActive: AtomicBoolean? = null,
+        transformRawReply: (ByteArray) -> ByteArray
+    ) {
+        val pendingReg = buildRawRegistration(
+            environment = environment,
+            rpcFullName = rpcFullName,
+            what = what,
+            logKey = logKey,
+            transformRawRequest = transformRawRequest,
+            wireActive = wireActive,
+            transformRawReply = transformRawReply
+        ) ?: return
+        queuePending(environment.registrar, pendingReg)
+    }
+
+    fun bindDeferred(environment: HookEnvironment, surface: KmpGrpcWireAdapter.WireSurface): Int {
+        val key = registrarKey(environment.registrar)
+        val entries = synchronized(dispatchersLock) {
+            pending.remove(key)?.entries?.toList().orEmpty()
+        }
+        if (entries.isEmpty()) return 0
+        var bound = 0
+        for (entry in entries) {
+            if (bindRegistration(environment, surface, entry, countDeduped = false)) {
+                bound++
+            }
+        }
+        return bound
+    }
+
+    private fun buildJavaRegistration(
+        environment: HookEnvironment,
+        javaMossClassName: String,
+        rpc: String,
+        javaReplyClass: Class<*>,
+        what: String,
+        logKey: String,
+        javaRequestClass: Class<*>?,
+        transformRequest: ((Any) -> Any)?,
+        confirmedTransform: ((Any) -> ConfirmedReply)?,
+        transformWithRequest: ((Any?, Any) -> Any)?,
+        wireActive: AtomicBoolean?,
+        transformJava: (Any) -> Any
+    ): PendingRegistration? {
+        fun skip(reason: String): Nothing? {
             environment.logInfo("${logKey}_wire_skip_$rpc", "[BIL] $what 线格式通道跳过 $rpc: $reason")
-            return false
+            return null
         }
         val rpcFullName = fullMethodName(javaMossClassName, rpc) ?: return skip("no-full-method-name")
         val replyCodec = JavaReplyCodec.resolve(javaReplyClass) ?: return skip("no-java-codec")
         val requestCodec = javaRequestClass?.takeIf { transformRequest != null || transformWithRequest != null }
             ?.let { JavaReplyCodec.resolve(it) ?: return skip("no-java-request-codec") }
-        val dispatcher = obtainDispatcher(environment, surface, rpc, what, logKey) ?: return false
+        return PendingRegistration(
+            rpc = rpc,
+            rpcFullName = rpcFullName,
+            registration = createRegistration(
+                environment = environment,
+                rpc = rpc,
+                rpcFullName = rpcFullName,
+                what = what,
+                logKey = logKey,
+                javaReplyClass = javaReplyClass,
+                replyCodec = replyCodec,
+                javaRequestClass = javaRequestClass,
+                requestCodec = requestCodec,
+                transformRequest = transformRequest,
+                transformRawRequest = null,
+                confirmedTransform = confirmedTransform,
+                transformWithRequest = transformWithRequest,
+                transformJava = transformJava,
+                transformRawReply = null,
+                wireActive = wireActive
+            )
+        )
+    }
+
+    private fun buildRawRegistration(
+        environment: HookEnvironment,
+        rpcFullName: String,
+        what: String,
+        logKey: String,
+        transformRawRequest: ((ByteArray) -> ByteArray)?,
+        wireActive: AtomicBoolean?,
+        transformRawReply: (ByteArray) -> ByteArray
+    ): PendingRegistration? {
+        val cleanName = rpcFullName.trim()
+        if (cleanName.isEmpty() || '/' !in cleanName) {
+            environment.logInfo("${logKey}_wire_skip_raw", "[BIL] $what 线格式通道跳过: invalid-rpc-name")
+            return null
+        }
+        val shortRpc = cleanName.substringAfterLast('/')
+        return PendingRegistration(
+            rpc = shortRpc,
+            rpcFullName = cleanName,
+            registration = createRegistration(
+                environment = environment,
+                rpc = shortRpc,
+                rpcFullName = cleanName,
+                what = what,
+                logKey = logKey,
+                javaReplyClass = null,
+                replyCodec = null,
+                javaRequestClass = null,
+                requestCodec = null,
+                transformRequest = null,
+                transformRawRequest = transformRawRequest,
+                confirmedTransform = null,
+                transformWithRequest = null,
+                transformJava = null,
+                transformRawReply = transformRawReply,
+                wireActive = wireActive
+            )
+        )
+    }
+
+    private fun createRegistration(
+        environment: HookEnvironment,
+        rpc: String,
+        rpcFullName: String,
+        what: String,
+        logKey: String,
+        javaReplyClass: Class<*>?,
+        replyCodec: JavaReplyCodec?,
+        javaRequestClass: Class<*>?,
+        requestCodec: JavaReplyCodec?,
+        transformRequest: ((Any) -> Any)?,
+        transformRawRequest: ((ByteArray) -> ByteArray)?,
+        confirmedTransform: ((Any) -> ConfirmedReply)?,
+        transformWithRequest: ((Any?, Any) -> Any)?,
+        transformJava: ((Any) -> Any)?,
+        transformRawReply: ((ByteArray) -> ByteArray)?,
+        wireActive: AtomicBoolean?
+    ): Registration {
         val called = AtomicBoolean(false)
         val failedLogged = AtomicBoolean(false)
         val requestFailedLogged = AtomicBoolean(false)
-        val registration = Registration(
+        return Registration(
             what = what,
             logKey = logKey,
+            rpcFullName = rpcFullName,
             javaReplyClass = javaReplyClass,
             replyCodec = replyCodec,
             javaRequestClass = javaRequestClass,
             requestCodec = requestCodec,
             transformRequest = transformRequest,
+            transformRawRequest = transformRawRequest,
             confirmedTransform = confirmedTransform,
             transformWithRequest = transformWithRequest,
             transformJava = transformJava,
+            transformRawReply = transformRawReply,
+            wireActive = wireActive,
             onCall = {
                 if (called.compareAndSet(false, true)) {
                     environment.logInfo("${logKey}_wire_call", "[BIL] $what 线格式通道请求已进入 $rpcFullName")
@@ -293,8 +525,55 @@ internal object KmpGrpcWireChannel {
                 }
             }
         )
-        dispatcher.registrations.getOrPut(rpcFullName) { CopyOnWriteArrayList() }.add(registration)
+    }
+
+    private fun queuePending(registrar: HookRegistrar, pendingReg: PendingRegistration) {
+        val key = registrarKey(registrar)
+        synchronized(dispatchersLock) {
+            val bucket = pending.getOrPut(key) { PendingBucket() }
+            if (bucket.entries.none { it.registration.logKey == pendingReg.registration.logKey && it.rpcFullName == pendingReg.rpcFullName }) {
+                bucket.entries += pendingReg
+            }
+        }
+    }
+
+    private fun bindRegistration(
+        environment: HookEnvironment,
+        surface: KmpGrpcWireAdapter.WireSurface,
+        pendingReg: PendingRegistration,
+        countDeduped: Boolean = true
+    ): Boolean {
+        val reg = pendingReg.registration
+        val dispatcher = obtainDispatcher(environment, surface, pendingReg.rpc, reg.what, reg.logKey) ?: return false
+        val list = dispatcher.registrations.getOrPut(pendingReg.rpcFullName) { CopyOnWriteArrayList() }
+        synchronized(list) {
+            val duplicate = list.any { it.logKey == reg.logKey && it.rpcFullName == reg.rpcFullName }
+            if (duplicate) {
+                reg.wireActive?.set(true)
+                return countDeduped
+            }
+            list.add(reg)
+        }
+        reg.wireActive?.set(true)
         return true
+    }
+
+    private fun registrarKey(registrar: HookRegistrar): HookRegistrar {
+        var current = registrar
+        val visited = IdentityHashMap<HookRegistrar, Boolean>()
+        while (visited.put(current, true) == null) {
+            val delegateField = generateSequence(current.javaClass as Class<*>?) { it.superclass }
+                .flatMap { it.declaredFields.asSequence() }
+                .filter { !Modifier.isStatic(it.modifiers) && HookRegistrar::class.java.isAssignableFrom(it.type) }
+                .singleOrNull() ?: break
+            val next = runCatching {
+                delegateField.isAccessible = true
+                delegateField.get(current) as? HookRegistrar
+            }.getOrNull() ?: break
+            if (next.javaClass.simpleName == "TestHookRegistrar") break
+            current = next
+        }
+        return current
     }
 
     private fun obtainDispatcher(
@@ -304,7 +583,8 @@ internal object KmpGrpcWireChannel {
         what: String,
         logKey: String
     ): Dispatcher? = synchronized(dispatchersLock) {
-        val byEntry = dispatchers.getOrPut(environment.registrar) { HashMap() }
+        val key = registrarKey(environment.registrar)
+        val byEntry = dispatchers.getOrPut(key) { HashMap() }
         byEntry[surface.engineEntry]?.let { return it }
         val created = Dispatcher(surface)
         val registered = runCatching {

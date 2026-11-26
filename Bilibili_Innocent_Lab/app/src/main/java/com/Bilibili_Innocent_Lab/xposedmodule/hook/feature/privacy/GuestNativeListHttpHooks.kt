@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreato
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import androidx.core.net.toUri
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.io.IOException
 
 /** Short circuit before interceptors, signing, HTTP cache and network; retain the host converter/callback executor. */
@@ -131,8 +132,17 @@ internal class GuestNativeListHttpHooks(
         for ((name, method) in mapOf("FavoritesActivityViewModel" to "P2", "FolderListViewModel" to "Q2", "FavoritesListViewModel" to "Z2")) {
             optional("cache.$name") {
                 val viewModel = host.type("tv.danmaku.bili.ui.favorites.viewmodel.$name")
-                if (Lookup.methodOrNull(viewModel, method) != null) {
-                    env.registrar.exact("guest.native.favorite.cache.$method", viewModel, method) {
+                val cacheGetter = Lookup.methodOrNull(viewModel, method)
+                    ?.takeIf {
+                        !it.isStatic && it.parameterCount == 0 &&
+                            it.returnType.name.startsWith("com.bilibili.common.fallbackcache.")
+                    }
+                    ?: PrivacyStructuralResolver.uniqueMethod(viewModel) { candidate ->
+                        !candidate.isStatic && candidate.parameterCount == 0 &&
+                            candidate.returnType.name.startsWith("com.bilibili.common.fallbackcache.")
+                    }
+                if (cacheGetter != null) {
+                    env.registrar.exact("guest.native.favorite.cache.$method", viewModel, cacheGetter.name) {
                         before { if (isGuest()) result = null }
                     }
                 } else {
