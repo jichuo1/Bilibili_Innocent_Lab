@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 import android.content.pm.ApplicationInfo
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.zip.CRC32
@@ -163,8 +164,7 @@ internal object DexSourceFingerprint {
                 check(total == origin.size && crc.value == origin.crc)
                 check(temporary.setReadOnly())
                 // 同一私有缓存被多个宿主进程使用；只发布完整文件，绝不原地重写已返回的来源。
-                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING)
+                moveReplacing(temporary, target)
                 markVerified(target)
                 target
             } finally {
@@ -226,8 +226,7 @@ internal object DexSourceFingerprint {
             }
             check(total > 0 && verifiedView(temporary))
             check(temporary.setReadOnly())
-            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING)
+            moveReplacing(temporary, target)
             markVerified(target)
             return target
         } finally { temporary.delete() }
@@ -254,9 +253,21 @@ internal object DexSourceFingerprint {
             val temporary = File.createTempFile("verified-", ".tmp", source.parentFile)
             try {
                 temporary.writeText(stamp(source))
-                Files.move(temporary.toPath(), marker(source).toPath(), StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING)
+                moveReplacing(temporary, marker(source))
             } finally { temporary.delete() }
+        }
+    }
+
+    private fun moveReplacing(temporary: File, target: File) {
+        try {
+            Files.move(
+                temporary.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
     }
 

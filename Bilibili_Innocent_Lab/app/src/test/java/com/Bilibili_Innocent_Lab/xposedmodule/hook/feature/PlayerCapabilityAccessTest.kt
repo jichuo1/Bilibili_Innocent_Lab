@@ -92,6 +92,82 @@ class PlayerCapabilityAccessTest {
         assertFalse(PlayerCapability.entries.any { it.wireId == 36 })
     }
 
+    private class CopyOnlyPlayViewUniteReply(
+        private val arcConf: PlayArcConf = PlayArcConf(mapOf(9 to ArcConf(blocked = true, allowed = false)))
+    ) {
+        fun hasVodInfo(): Boolean = true
+        fun getPlayArcConf(): PlayArcConf = arcConf
+
+        class Builder(private var conf: PlayArcConf) {
+            fun setPlayArcConf(value: PlayArcConf): Builder {
+                conf = value
+                return this
+            }
+
+            fun build(): CopyOnlyPlayViewUniteReply = CopyOnlyPlayViewUniteReply(conf)
+        }
+
+        companion object {
+            private val DEFAULT = CopyOnlyPlayViewUniteReply(PlayArcConf.getDefaultInstance())
+            @JvmStatic fun getDefaultInstance(): CopyOnlyPlayViewUniteReply = DEFAULT
+            @JvmStatic fun newBuilder(source: CopyOnlyPlayViewUniteReply): Builder = Builder(source.arcConf)
+        }
+    }
+
+    private class CachedInplacePlayViewUniteReply(
+        private var arcConf: PlayArcConf = PlayArcConf(mapOf(9 to ArcConf(blocked = true, allowed = false)))
+    ) {
+        @JvmField var memoizedHashCode = 99
+        private var serializedSizeCache = 32
+        fun hasVodInfo(): Boolean = true
+        fun getPlayArcConf(): PlayArcConf = arcConf
+        fun setPlayArcConf(value: PlayArcConf) { arcConf = value }
+        fun getMemoizedSerializedSize(): Int = serializedSizeCache
+        fun setMemoizedSerializedSize(value: Int) { serializedSizeCache = value }
+
+        companion object {
+            private val DEFAULT = CachedInplacePlayViewUniteReply(PlayArcConf.getDefaultInstance()).apply {
+                serializedSizeCache = Int.MAX_VALUE
+                memoizedHashCode = 0
+            }
+            @JvmStatic fun getDefaultInstance(): CachedInplacePlayViewUniteReply = DEFAULT
+        }
+    }
+
+    fun `resolve allows copy only reply without inplace setter and inplace apply invalidates proto cache`() {
+        val copyOnlyPlan = requireNotNull(
+            PlayerCapabilityAccess.resolve(
+                javaClass.classLoader!!,
+                CopyOnlyPlayViewUniteReply::class.java.name,
+                true,
+                listOf(PlayerCapability.BACKGROUND)
+            )
+        )
+        assertTrue(copyOnlyPlan.canCopy)
+        assertFalse(copyOnlyPlan.canMutateInPlace)
+        val src = CopyOnlyPlayViewUniteReply()
+        assertEquals(0, copyOnlyPlan.apply(src))
+        val copied = copyOnlyPlan.applyCopy(src) as CopyOnlyPlayViewUniteReply
+        assertNotSame(src, copied)
+        assertFalse(copied.getPlayArcConf().arcs[9]!!.getDisabled())
+        assertTrue(copied.getPlayArcConf().arcs[9]!!.getIsSupport())
+
+        val inplacePlan = requireNotNull(
+            PlayerCapabilityAccess.resolve(
+                javaClass.classLoader!!,
+                CachedInplacePlayViewUniteReply::class.java.name,
+                true,
+                listOf(PlayerCapability.BACKGROUND)
+            )
+        )
+        assertTrue(inplacePlan.canMutateInPlace)
+        assertFalse(inplacePlan.canCopy)
+        val cached = CachedInplacePlayViewUniteReply()
+        assertEquals(1, inplacePlan.apply(cached))
+        assertEquals(Int.MAX_VALUE, cached.getMemoizedSerializedSize())
+        assertEquals(0, cached.memoizedHashCode)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (PlayerCapabilityAccessTest) -> Unit) {
@@ -103,5 +179,6 @@ class PlayerCapabilityAccessTest {
         runIsolated { s -> s.`video-less and unrelated responses remain untouched`() }
         runIsolated { s -> s.`legacy copy retains unselected configuration and default identities`() }
         runIsolated { s -> s.`empty capability selection and unavailable reply produce no access plan`() }
+        runIsolated { s -> s.`resolve allows copy only reply without inplace setter and inplace apply invalidates proto cache`() }
     }
 }

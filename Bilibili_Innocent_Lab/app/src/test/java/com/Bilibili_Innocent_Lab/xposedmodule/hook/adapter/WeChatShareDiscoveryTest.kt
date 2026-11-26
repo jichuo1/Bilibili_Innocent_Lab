@@ -58,6 +58,36 @@ class WeChatShareDiscoveryTest {
         assertNotNull(WeChatShareCompatAccess.resolve(loader, discovered))
     }
 
+    fun modernOnlyHostWithoutLegacyWrapperIsDiscoveredAndRevalidated() {
+        val discovered = requireNotNull(
+            WeChatShareCompatAccess.discover(loader, DexAssistResult.Candidates(listOf(modernInit)))
+        )
+        assertNull(discovered.legacyOwner)
+        assertNull(discovered.legacyInitialize)
+        assertEquals("kntr.common.share.common.handler.wx.k", discovered.modernOwner)
+        assertEquals("j", discovered.modernInitialize)
+        assertTrue(discovered.usesLegacyConstructors)
+        val decoded = requireNotNull(WeChatShareClasses.fromJson(discovered.toJson()))
+        assertEquals(discovered, decoded)
+        val access = requireNotNull(WeChatShareCompatAccess.resolve(loader, decoded))
+        assertEquals(1, access.expectedWrappers)
+        assertEquals(1, access.wrappers.size)
+        assertEquals("kntr", access.wrappers.single().key)
+    }
+
+    fun fromJsonRejectsInvalidNullableLegacyOrEmptyCombinations() {
+        val unmatchedLegacy = WeChatShareClasses("wc.a", "t", null, null, true).toJson()
+            .put("legacy_init", org.json.JSONObject.NULL)
+        assertNull(WeChatShareClasses.fromJson(unmatchedLegacy))
+        val bothNull = org.json.JSONObject()
+            .put("legacy", org.json.JSONObject.NULL)
+            .put("legacy_init", org.json.JSONObject.NULL)
+            .put("modern", org.json.JSONObject.NULL)
+            .put("modern_init", org.json.JSONObject.NULL)
+            .put("legacy_ctors", false)
+        assertNull(WeChatShareClasses.fromJson(bothNull))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (WeChatShareDiscoveryTest) -> Unit) {
@@ -69,5 +99,7 @@ class WeChatShareDiscoveryTest {
         runIsolated { s -> s.missingModernWrapperFailsClosedWhenWxCallersExist() }
         runIsolated { s -> s.gatesNeverScanWhenDisabledDirectOrAlreadyAttempted() }
         runIsolated { s -> s.flattenedModernWrapperInRootPackageIsDiscoveredByConstructorAndReturnAbi() }
+        runIsolated { s -> s.modernOnlyHostWithoutLegacyWrapperIsDiscoveredAndRevalidated() }
+        runIsolated { s -> s.fromJsonRejectsInvalidNullableLegacyOrEmptyCombinations() }
     }
 }

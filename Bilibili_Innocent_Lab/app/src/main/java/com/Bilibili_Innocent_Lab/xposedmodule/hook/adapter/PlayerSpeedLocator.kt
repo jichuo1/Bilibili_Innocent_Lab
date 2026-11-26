@@ -386,7 +386,11 @@ internal object PlayerSpeedLocator {
             val functionService = KavaMemberLookup.classOrNull(loader, "tv.danmaku.biliplayerv2.service.AbsFunctionWidgetService")
             val manager = KavaMemberLookup.classOrNull(loader, SPEED_MANAGER)
             val keelPlayer = if (manager != null) KavaMemberLookup.declaredFields(theseusWidget) { field ->
-                !field.isStatic && field.type.name.startsWith("com.bilibili.ship.theseus.keel.player.") &&
+                !field.isStatic && (
+                    field.type.name.startsWith("com.bilibili.ship.theseus.keel.player.") ||
+                        field.type.name.startsWith("com.bilibili.ship.theseus2.keel.player.") ||
+                        PlayerSpeedMenuAdapter.flattenedOwner(field.type.name)
+                    ) &&
                     KavaMemberLookup.declaredFields(field.type) { !it.isStatic && it.type == manager }.size == 1
             }.singleOrNull()?.type else null
             if (functionService != null && keelPlayer != null) {

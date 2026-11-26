@@ -12,13 +12,14 @@ import java.lang.reflect.Method
 
 /** DEX 发现并经全量结构验真的分享包装落点；只存类名，恢复时完整复验。 */
 data class WeChatShareClasses(
-    val legacyOwner: String, val legacyInitialize: String,
+    val legacyOwner: String?, val legacyInitialize: String?,
     val modernOwner: String?, val modernInitialize: String?,
     val usesLegacyConstructors: Boolean
 ) {
     internal fun toProfile() = WeChatShareVersionProfile(legacyOwner, modernOwner, usesLegacyConstructors,
         legacyInitialize, modernInitialize)
-    fun toJson() = JSONObject().put("legacy", legacyOwner).put("legacy_init", legacyInitialize)
+    fun toJson() = JSONObject().put("legacy", legacyOwner ?: JSONObject.NULL)
+        .put("legacy_init", legacyInitialize ?: JSONObject.NULL)
         .put("modern", modernOwner ?: JSONObject.NULL).put("modern_init", modernInitialize ?: JSONObject.NULL)
         .put("legacy_ctors", usesLegacyConstructors)
 
@@ -27,12 +28,15 @@ data class WeChatShareClasses(
             fun name(key: String) = value.optString(key).takeIf {
                 it.length in 1..512 && it.all { c -> c.isLetterOrDigit() || c in "._$" }
             }
+            val legacy = if (value.isNull("legacy")) null else name("legacy") ?: return null
+            val legacyInit = if (value.isNull("legacy_init")) null else name("legacy_init") ?: return null
+            if ((legacy == null) != (legacyInit == null)) return null
             val modern = if (value.isNull("modern")) null else name("modern") ?: return null
             val modernInit = if (value.isNull("modern_init")) null else name("modern_init") ?: return null
             if ((modern == null) != (modernInit == null)) return null
+            if (legacy == null && modern == null) return null
             if (value.opt("legacy_ctors") !is Boolean) return null
-            return WeChatShareClasses(name("legacy") ?: return null, name("legacy_init") ?: return null,
-                modern, modernInit, value.getBoolean("legacy_ctors"))
+            return WeChatShareClasses(legacy, legacyInit, modern, modernInit, value.getBoolean("legacy_ctors"))
         }
         internal fun fromProfile(profile: WeChatShareVersionProfile) = WeChatShareClasses(
             profile.legacyOwner, profile.legacyInitialize, profile.modernOwner,
@@ -151,14 +155,25 @@ internal class WeChatShareCompatAccess private constructor(
                     legacyHits += LegacyHit(owner, initialize, legacyCtor)
                 }
             }
-            val legacy = legacyHits.singleOrNull() ?: return null
+            val legacy = when {
+                legacyHits.isEmpty() -> null
+                legacyHits.size == 1 -> legacyHits.single()
+                else -> return null
+            }
             val modern = when {
                 wxCandidateOwners == 0 -> if (modernHits.isEmpty()) null else return null
                 else -> modernHits.singleOrNull() ?: return null
             }
-            if (modern != null && modern.usesLegacyConstructors != legacy.usesLegacyConstructors) return null
-            val classes = WeChatShareClasses(legacy.owner.name, legacy.initialize.name,
-                modern?.owner?.name, modern?.initialize?.name, legacy.usesLegacyConstructors)
+            if (legacy == null && modern == null) return null
+            if (legacy != null && modern != null && modern.usesLegacyConstructors != legacy.usesLegacyConstructors) return null
+            val usesLegacyConstructors = legacy?.usesLegacyConstructors ?: modern!!.usesLegacyConstructors
+            val classes = WeChatShareClasses(
+                legacy?.owner?.name,
+                legacy?.initialize?.name,
+                modern?.owner?.name,
+                modern?.initialize?.name,
+                usesLegacyConstructors
+            )
             // 发现结果必须再完整通过既有 locate 全量验真（含工厂与签名标志、全部预期包装）才可缓存。
             return classes.takeIf {
                 locateWithProfile(loader, it.toProfile())?.let { access ->
@@ -179,7 +194,11 @@ internal class WeChatShareCompatAccess private constructor(
                 classOf<String>(), classOf<Boolean>(), classOf<Int>())
                 ?.takeIf { it.isStatic && it.returnType == api } ?: return null
             val wrappers = listOfNotNull(
-                wrapper(loader, api, "legacy", profile.legacyOwner, profile.legacyInitialize, Void.TYPE, profile),
+                profile.legacyOwner?.let { name ->
+                    profile.legacyInitialize?.let { initName ->
+                        wrapper(loader, api, "legacy", name, initName, Void.TYPE, profile)
+                    }
+                },
                 profile.modernOwner?.let { name ->
                     wrapper(loader, api, "kntr", name, profile.modernInitialize, classOf<Boolean>(), profile)
                 }

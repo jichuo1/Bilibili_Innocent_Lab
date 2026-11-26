@@ -1,6 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
 import java.io.File
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * DexMeguviz 查询的"未完成闸门"。
@@ -33,11 +37,38 @@ internal class DexAssistAttemptGuard(
                 DexAssistResult.Unavailable(DexAssistResult.Reason.PREVIOUS_ATTEMPT_UNFINISHED)
             }
         }
-        runCatching { marker.writeText(key) }
+        writeMarkerAtomically()
         try {
             return delegate.resolveAll(queries, codePaths, classLoader)
         } finally {
             runCatching { marker.delete() }
+        }
+    }
+
+    private fun writeMarkerAtomically() {
+        runCatching {
+            val parent = marker.parentFile
+            if (parent != null && !parent.isDirectory && !parent.mkdirs()) return@runCatching
+            val temporary = File.createTempFile("${marker.name}.", ".tmp", parent)
+            try {
+                temporary.writeText(key)
+                try {
+                    Files.move(
+                        temporary.toPath(),
+                        marker.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temporary.toPath(), marker.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                } catch (_: UnsupportedOperationException) {
+                    if (!temporary.renameTo(marker)) marker.writeText(key)
+                } catch (_: IOException) {
+                    if (!temporary.renameTo(marker)) marker.writeText(key)
+                }
+            } finally {
+                temporary.delete()
+            }
         }
     }
 }

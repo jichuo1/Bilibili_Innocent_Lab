@@ -2,16 +2,16 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 /** 宿主混淆名来自 Hostlab 固定样本；未核验的版本不推测相邻版本的名称。 */
 internal data class WeChatShareVersionProfile(
-    val legacyOwner: String,
+    val legacyOwner: String?,
     val modernOwner: String?,
     val usesLegacyConstructors: Boolean,
     /** DEX 候选发现反推的 initialize 名；版本表命中时为 null，仍按构造代次派生。 */
     val legacyInitializeOverride: String? = null,
     val modernInitializeOverride: String? = null
 ) {
-    val legacyInitialize: String get() = legacyInitializeOverride ?: if (usesLegacyConstructors) "t" else "l"
+    val legacyInitialize: String? get() = legacyOwner?.let { legacyInitializeOverride ?: if (usesLegacyConstructors) "t" else "l" }
     val modernInitialize: String get() = modernInitializeOverride ?: if (usesLegacyConstructors) "j" else "b"
-    val expectedWrappers: Int get() = if (modernOwner == null) 1 else 2
+    val expectedWrappers: Int get() = (if (legacyOwner != null) 1 else 0) + (if (modernOwner != null) 1 else 0)
 
     companion object {
         private const val WX = "kntr.common.share.common.handler.wx."

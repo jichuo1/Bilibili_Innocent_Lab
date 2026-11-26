@@ -290,9 +290,8 @@ class DexMeguvizQueriesTest {
         assertTrue(speedOpenJson.contains("\"opcode\":${TypeUseOpcode.NEW_INSTANCE.code}"))
         assertFalse(speedOpenJson.contains("\"param_count\":9"))
 
-        val composeJson = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU).single().toQueryIrJson()
-        )
+        val composePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU)
+        val composeJson = decodeQueryIr(composePlans.first().toQueryIrJson())
         assertTrue(composeJson.contains("PaddingValues"))
         assertFalse(composeJson.contains("kntr/common/comment"))
 
@@ -368,18 +367,19 @@ class DexMeguvizQueriesTest {
         val exitPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_EXIT)
         assertEquals(2, exitPlans.size)
         val exitCurrent = decodeQueryIr(exitPlans[0].toQueryIrJson())
-        assertTrue(exitCurrent.contains("\$onExit"))
-        assertTrue(exitCurrent.contains("\$customBitmapReady\$delegate"))
-        assertTrue(exitCurrent.contains("\$currentOnShow"))
+        assertTrue(exitCurrent.contains("Lkotlin/jvm/functions/Function0;"))
+        assertTrue(exitCurrent.contains("Landroidx/compose/runtime/MutableState;"))
+        assertTrue(exitCurrent.contains("Landroidx/compose/runtime/State;"))
+        assertTrue(exitCurrent.contains("\"I\""))
+        assertFalse(exitCurrent.contains("\$onExit"))
         val exitLegacy = decodeQueryIr(exitPlans[1].toQueryIrJson())
         assertTrue(exitLegacy.contains("BrandSplashPageKt\$BrandSplashPage\$"))
         assertTrue(exitLegacy.contains("invokeSuspend"))
 
         val pageRule = DexMeguvizQueries.rules(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE).single().toString(Charsets.UTF_8)
         assertTrue(pageRule.contains(BrandSplashKntrAdapter.PAGE_TRACE_MARK))
-        val pageGraph = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE).single().toQueryIrJson()
-        )
+        val pagePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE)
+        val pageGraph = decodeQueryIr(pagePlans.first().toQueryIrJson())
         assertTrue(pageGraph.contains(BrandSplashKntrAdapter.PAGE_TRACE_MARK))
         assertTrue(pageGraph.contains("Lkotlin/jvm/functions/Function0;"))
         assertTrue(pageGraph.contains("Ljava/lang/String;"))

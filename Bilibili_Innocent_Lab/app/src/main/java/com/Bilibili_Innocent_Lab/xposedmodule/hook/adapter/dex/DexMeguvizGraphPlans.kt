@@ -22,6 +22,7 @@ import io.github.jichuo1.dexmeguviz.EntityQuery
 import io.github.jichuo1.dexmeguviz.EntityRelation
 import io.github.jichuo1.dexmeguviz.EntityTextField
 import io.github.jichuo1.dexmeguviz.ExecutionStatus
+import io.github.jichuo1.dexmeguviz.FieldTarget
 import io.github.jichuo1.dexmeguviz.GraphExpression
 import io.github.jichuo1.dexmeguviz.GraphJoinKey
 import io.github.jichuo1.dexmeguviz.GraphPredicate
@@ -49,21 +50,38 @@ import java.lang.reflect.Modifier
 /** DexMeguviz 1.2.0 类型化图查询计划，复用同一 SourceSetSnapshot 并列执行。 */
 internal sealed interface DexGraphPlan {
     val tag: String
+    val fallbackOnly: Boolean
     fun toQueryIrJson(): String
 
-    data class Entity(override val tag: String, val query: EntityQuery) : DexGraphPlan {
+    data class Entity(
+        override val tag: String,
+        val query: EntityQuery,
+        override val fallbackOnly: Boolean = false
+    ) : DexGraphPlan {
         override fun toQueryIrJson(): String = query.toQueryIrJson()
     }
 
-    data class Graph(override val tag: String, val query: GraphQuery) : DexGraphPlan {
+    data class Graph(
+        override val tag: String,
+        val query: GraphQuery,
+        override val fallbackOnly: Boolean = false
+    ) : DexGraphPlan {
         override fun toQueryIrJson(): String = query.toQueryIrJson()
     }
 
-    data class MethodType(override val tag: String, val query: MethodTypeQuery) : DexGraphPlan {
+    data class MethodType(
+        override val tag: String,
+        val query: MethodTypeQuery,
+        override val fallbackOnly: Boolean = false
+    ) : DexGraphPlan {
         override fun toQueryIrJson(): String = query.toQueryIrJson()
     }
 
-    data class MethodUses(override val tag: String, val query: ReflectionMethodUsesQuery) : DexGraphPlan {
+    data class MethodUses(
+        override val tag: String,
+        val query: ReflectionMethodUsesQuery,
+        override val fallbackOnly: Boolean = false
+    ) : DexGraphPlan {
         override fun toQueryIrJson(): String = query.toQueryIrJson()
     }
 }
@@ -190,6 +208,8 @@ internal object DexMeguvizGraphPlans {
     const val TAG_SPEED_FACTORY_4PARAM = "speed_factory_4param_uses"
     const val TAG_SPEED_COMPACT_OPEN = "speed_compact_open_type"
     const val TAG_COMPOSE_GROUPED_FALLBACK = "compose_grouped_fallback_entity"
+    const val TAG_COMPOSE_GROUPED_ITEM_FALLBACK = "compose_grouped_item_fallback_entity"
+    const val TAG_COMPOSE_LEGACY_ROW_FALLBACK = "compose_legacy_row_fallback_entity"
     const val TAG_PEGASUS_DIVIDER = "pegasus_divider_graph"
     const val TAG_COMMENT_REPLY_BINDING = "comment_reply_binding_graph"
     const val TAG_STORY_QUALITY_DEFAULT = "story_quality_default_uses"
@@ -199,7 +219,19 @@ internal object DexMeguvizGraphPlans {
     const val TAG_PAUSED_AD_REQUEST_API = "paused_ad_request_api_entity"
     const val TAG_BRAND_SPLASH_KNTR_EXIT_CURRENT = "brand_splash_kntr_exit_current_graph"
     const val TAG_BRAND_SPLASH_KNTR_EXIT_LEGACY = "brand_splash_kntr_exit_legacy_graph"
+    const val TAG_BRAND_SPLASH_KNTR_DRAW_FALLBACK = "brand_splash_kntr_draw_fallback_graph"
     const val TAG_BRAND_SPLASH_KNTR_PAGE = "brand_splash_kntr_page_entity"
+    const val TAG_BRAND_SPLASH_KNTR_PAGE_FALLBACK = "brand_splash_kntr_page_fallback_uses"
+    const val TAG_HOME_CHROME_TOP_FALLBACK = "home_chrome_top_fallback_entity"
+    const val TAG_HOME_CHROME_TOP_LAYOUT_FALLBACK = "home_chrome_top_layout_fallback_entity"
+    const val TAG_HOME_CHROME_TOP_BACKDROP_FALLBACK = "home_chrome_top_backdrop_fallback_graph"
+    const val TAG_HOME_CHROME_TOP_RIGHT_ACTIONS_FALLBACK = "home_chrome_top_right_actions_fallback_graph"
+    const val TAG_HOME_CHROME_TOP_CONTENT_CLOSURE_FALLBACK = "home_chrome_top_content_closure_fallback_graph"
+    const val TAG_HOME_CHROME_TOP_CONTENT_STATIC_FALLBACK = "home_chrome_top_content_static_fallback_entity"
+    const val TAG_HOME_CHROME_BOTTOM_FALLBACK = "home_chrome_bottom_fallback_entity"
+    const val TAG_HOME_CHROME_BOTTOM_CONTENT_CLOSURE_FALLBACK = "home_chrome_bottom_content_closure_fallback_graph"
+    const val TAG_HOME_CHROME_BOTTOM_CONTENT_STATIC_FALLBACK = "home_chrome_bottom_content_static_fallback_entity"
+    const val TAG_HOME_CHROME_BOTTOM_ITEM_FALLBACK = "home_chrome_bottom_item_fallback_entity"
     const val TAG_HOME_TAB_RESOURCE = "home_tab_resource_entity"
     const val TAG_HOME_TAB_RESOURCE_MODEL = "home_tab_resource_model_uses"
     const val TAG_AI_PLAYLIST_DIRECTOR = "ai_playlist_director"
@@ -215,6 +247,7 @@ internal object DexMeguvizGraphPlans {
     private val SYSTEM_DESCRIPTOR_PREFIXES = listOf(
         "Ljava/", "Ljavax/", "Lkotlin/", "Lkotlinx/", "Landroid/", "Landroidx/"
     )
+    private val PRIMITIVE_DESCRIPTORS = listOf("Z", "B", "S", "C", "I", "J", "F", "D", "V")
 
     internal fun isSystemDescriptor(descriptor: String): Boolean =
         SYSTEM_DESCRIPTOR_PREFIXES.any { descriptor.startsWith(it) }
@@ -225,7 +258,11 @@ internal object DexMeguvizGraphPlans {
         DexAssistQuery.SPONSOR_CONTAINER_SCOPE -> listOf(sponsorContainerScopePlan())
         DexAssistQuery.SPONSOR_PLAYER_WRAPPER -> listOf(sponsorPlayerWrapperPlan())
         DexAssistQuery.PLAYER_SPEED_MENU -> listOf(speedFactory4ParamPlan(), speedCompactOpenPlan())
-        DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> listOf(composeGroupedFallbackPlan())
+        DexAssistQuery.COMMENT_COMPOSE_MORE_MENU -> listOf(
+            composeGroupedFallbackPlan(),
+            composeGroupedItemFallbackPlan(),
+            composeLegacyRowFallbackPlan()
+        )
         DexAssistQuery.PEGASUS_DIVIDER -> listOf(pegasusDividerPlan())
         DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE -> listOf(commentReplyBindingPlan())
         DexAssistQuery.STORY_QUALITY_DEFAULT -> listOf(storyQualityDefaultPlan())
@@ -236,7 +273,27 @@ internal object DexMeguvizGraphPlans {
             brandSplashKntrExitCurrentPlan(),
             brandSplashKntrExitLegacyPlan()
         )
-        DexAssistQuery.BRAND_SPLASH_KNTR_PAGE -> listOf(brandSplashKntrPagePlan())
+        DexAssistQuery.BRAND_SPLASH_KNTR_DRAW -> listOf(brandSplashKntrDrawFallbackPlan())
+        DexAssistQuery.BRAND_SPLASH_KNTR_PAGE -> listOf(
+            brandSplashKntrPagePlan(),
+            brandSplashKntrPageFallbackPlan()
+        )
+        DexAssistQuery.HOME_CHROME_TOP -> listOf(homeTopPlan())
+        DexAssistQuery.HOME_CHROME_TOP_LAYOUT -> listOf(homeTopLayoutPlan())
+        DexAssistQuery.HOME_CHROME_TOP_BACKDROP -> listOf(homeTopBarPlan(TAG_HOME_CHROME_TOP_BACKDROP_FALLBACK))
+        DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS -> listOf(
+            homeTopBarPlan(TAG_HOME_CHROME_TOP_RIGHT_ACTIONS_FALLBACK)
+        )
+        DexAssistQuery.HOME_CHROME_TOP_CONTENT -> listOf(
+            homeTopContentClosurePlan(),
+            homeTopContentStaticPlan()
+        )
+        DexAssistQuery.HOME_CHROME_BOTTOM -> listOf(homeBottomPlan())
+        DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT -> listOf(
+            homeBottomContentClosurePlan(),
+            homeBottomContentStaticPlan()
+        )
+        DexAssistQuery.HOME_CHROME_BOTTOM_ITEM -> listOf(homeBottomItemPlan())
         DexAssistQuery.HOME_TAB_RESOURCE -> listOf(homeTabResourcePlan(), homeTabResourceModelPlan())
         DexAssistQuery.AI_PLAYLIST_DIRECTOR -> listOf(aiPlaylistDirectorPlan())
         DexAssistQuery.FOLLOW_UP_RECOMMEND_BODY -> listOf(
@@ -512,6 +569,66 @@ internal object DexMeguvizGraphPlans {
             MAX_RESULTS,
             GRAPH_MAX_WORK
         )
+    )
+
+    private fun composeGroupedItemFallbackPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_COMPOSE_GROUPED_ITEM_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                EntityPredicate.parameterCount(6L),
+                nonSystemParameter(0L),
+                EntityPredicate.parameter(1L, TextOperation.EXACT, "Landroidx/compose/foundation/layout/PaddingValues;"),
+                EntityPredicate.parameter(2L, TextOperation.EXACT, "Z"),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                EntityPredicate.parameter(5L, TextOperation.EXACT, "I")
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun composeLegacyRowFallbackPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_COMPOSE_LEGACY_ROW_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                EntityPredicate.parameterCount(8L, 9L),
+                EntityPredicate.parameter(0L, TextOperation.PREFIX, "Lkntr/common/bilitheme/compose/bottomsheet/"),
+                EntityPredicate.parameter(1L, TextOperation.EXACT, "Ljava/lang/String;"),
+                EntityPredicate.parameter(2L, TextOperation.EXACT, "Landroidx/compose/ui/graphics/painter/Painter;"),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "Landroidx/compose/ui/graphics/painter/Painter;"),
+                EntityPredicate.any(
+                    EntityPredicate.all(
+                        EntityPredicate.parameterCount(8L),
+                        EntityPredicate.parameter(5L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                        EntityPredicate.parameter(6L, TextOperation.EXACT, "I"),
+                        EntityPredicate.parameter(7L, TextOperation.EXACT, "I")
+                    ),
+                    EntityPredicate.all(
+                        EntityPredicate.parameterCount(9L),
+                        EntityPredicate.parameter(5L, TextOperation.EXACT, "Z"),
+                        EntityPredicate.parameter(6L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                        EntityPredicate.parameter(7L, TextOperation.EXACT, "I"),
+                        EntityPredicate.parameter(8L, TextOperation.EXACT, "I")
+                    )
+                )
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
     )
 
     private fun pegasusDividerPlan(): DexGraphPlan {
@@ -806,13 +923,10 @@ internal object DexMeguvizGraphPlans {
                 GraphExpression.label(
                     entityScan(
                         EntityRelation.FIELD_DEFS,
-                        EntityPredicate.all(
-                            EntityPredicate.text(EntityTextField.NAME, TextOperation.EXACT, "\$onExit"),
-                            EntityPredicate.text(
-                                EntityTextField.TYPE,
-                                TextOperation.EXACT,
-                                "Lkotlin/jvm/functions/Function0;"
-                            )
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Lkotlin/jvm/functions/Function0;"
                         )
                     ),
                     "cb"
@@ -820,57 +934,36 @@ internal object DexMeguvizGraphPlans {
                 GraphExpression.label(
                     entityScan(
                         EntityRelation.FIELD_DEFS,
-                        EntityPredicate.all(
-                            EntityPredicate.text(
-                                EntityTextField.NAME,
-                                TextOperation.EXACT,
-                                "\$customBitmapReady\$delegate"
-                            ),
-                            EntityPredicate.text(
-                                EntityTextField.TYPE,
-                                TextOperation.EXACT,
-                                "Landroidx/compose/runtime/MutableState;"
-                            )
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Landroidx/compose/runtime/MutableState;"
                         )
                     ),
-                    "bmp_ready"
+                    "mutable_state"
                 ),
                 GraphExpression.label(
                     entityScan(
                         EntityRelation.FIELD_DEFS,
-                        EntityPredicate.all(
-                            EntityPredicate.text(
-                                EntityTextField.NAME,
-                                TextOperation.EXACT,
-                                "\$customLogoReady\$delegate"
-                            ),
-                            EntityPredicate.text(
-                                EntityTextField.TYPE,
-                                TextOperation.EXACT,
-                                "Landroidx/compose/runtime/MutableState;"
-                            )
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Landroidx/compose/runtime/State;"
                         )
                     ),
-                    "logo_ready"
+                    "state"
                 ),
                 GraphExpression.label(
                     entityScan(
                         EntityRelation.FIELD_DEFS,
-                        EntityPredicate.all(
-                            EntityPredicate.text(EntityTextField.NAME, TextOperation.EXACT, "\$currentOnShow"),
-                            EntityPredicate.text(
-                                EntityTextField.TYPE,
-                                TextOperation.EXACT,
-                                "Landroidx/compose/runtime/State;"
-                            )
-                        )
+                        EntityPredicate.text(EntityTextField.TYPE, TextOperation.EXACT, "I")
                     ),
-                    "on_show"
+                    "label"
                 )
             ),
             minimum = 4L,
             maximum = 64L,
-            requiredRoles = listOf("cb", "bmp_ready", "logo_ready", "on_show"),
+            requiredRoles = listOf("cb", "mutable_state", "state", "label"),
             rolePolicy = GraphRolePolicy.DISTINCT
         )
         return DexGraphPlan.Graph(
@@ -938,6 +1031,562 @@ internal object DexMeguvizGraphPlans {
             MAX_RESULTS,
             GRAPH_MAX_WORK
         )
+    )
+
+    private fun brandSplashKntrPageFallbackPlan(): DexGraphPlan = DexGraphPlan.MethodUses(
+        TAG_BRAND_SPLASH_KNTR_PAGE_FALLBACK,
+        ReflectionMethodUsesQuery(
+            ReflectionMethodPredicate.all(
+                ReflectionMethodPredicate.reflectionFlags(RawFlagOperation.CONTAINS, reflectionStaticFlag()),
+                ReflectionMethodPredicate.metadata(
+                    MethodPredicate.all(
+                        MethodPredicate.normalMethod(),
+                        MethodPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                        MethodPredicate.text(MethodTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                        MethodPredicate.parameterCount(6L, 7L),
+                        nonSystemMethodParameter(0L),
+                        MethodPredicate.parameter(1L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function0;"),
+                        MethodPredicate.parameter(2L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                        MethodPredicate.any(
+                            MethodPredicate.parameter(3L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function0;"),
+                            MethodPredicate.parameter(3L, TextOperation.EXACT, "Ljava/lang/String;")
+                        ),
+                        MethodPredicate.any(
+                            MethodPredicate.parameter(4L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                            MethodPredicate.parameter(5L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;")
+                        )
+                    )
+                ),
+                ReflectionMethodPredicate.any(
+                    ReflectionMethodPredicate.fieldsAny(
+                        FieldTarget(type = exactText("Lkntr/srcs/app/splash/brand/model/BrandSplashMode;")),
+                        FieldTarget(type = exactText("Lkntr/srcs/app/splash/brand/model/BrandSplashSource;"))
+                    ),
+                    ReflectionMethodPredicate.invokesAny(
+                        InvokeTarget(returnType = exactText("Lkntr/srcs/app/splash/brand/model/BrandSplashMode;")),
+                        InvokeTarget(returnType = exactText("Lkntr/srcs/app/splash/brand/model/BrandSplashSource;"))
+                    )
+                )
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun brandSplashKntrDrawFallbackPlan(): DexGraphPlan {
+        val grouped = GraphExpression.groupByOwner(
+            inputs = listOf(
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.not(EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag())),
+                            EntityPredicate.text(EntityTextField.NAME, TextOperation.EXACT, "invoke"),
+                            EntityPredicate.parameterCount(3L)
+                        )
+                    ),
+                    "invoke"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.constructor(),
+                            EntityPredicate.text(
+                                EntityTextField.PROTOTYPE,
+                                TextOperation.CONTAINS,
+                                "Landroidx/compose/ui/unit/Density;Lorg/jetbrains/compose/resources/DrawableResource;Landroidx/compose/runtime/MutableState;"
+                            )
+                        )
+                    ),
+                    "ctor"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Landroidx/compose/ui/graphics/ImageBitmap;"
+                        )
+                    ),
+                    "bitmap"
+                )
+            ),
+            minimum = 3L,
+            maximum = 32L,
+            requiredRoles = listOf("invoke", "ctor", "bitmap"),
+            rolePolicy = GraphRolePolicy.DISTINCT
+        )
+        return DexGraphPlan.Graph(
+            TAG_BRAND_SPLASH_KNTR_DRAW_FALLBACK,
+            GraphQuery(
+                grouped,
+                QueryIntent.ENUMERATE,
+                MAX_RESULTS,
+                GRAPH_MAX_WORK
+            ),
+            fallbackOnly = true
+        )
+    }
+
+    private fun homeTopPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_HOME_CHROME_TOP_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                EntityPredicate.parameterCount(12L),
+                nonSystemParameter(0L),
+                EntityPredicate.parameter(1L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                EntityPredicate.parameter(2L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(5L, TextOperation.EXACT, "J"),
+                EntityPredicate.parameter(6L, TextOperation.EXACT, "J"),
+                EntityPredicate.any(
+                    EntityPredicate.all(
+                        EntityPredicate.parameter(7L, TextOperation.EXACT, "Z"),
+                        EntityPredicate.parameter(8L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                        EntityPredicate.parameter(9L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                        EntityPredicate.parameter(10L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                        EntityPredicate.parameter(11L, TextOperation.EXACT, "I")
+                    ),
+                    EntityPredicate.all(
+                        EntityPredicate.parameter(7L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                        EntityPredicate.parameter(8L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                        EntityPredicate.parameter(9L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                        EntityPredicate.parameter(10L, TextOperation.EXACT, "I"),
+                        EntityPredicate.parameter(11L, TextOperation.EXACT, "I")
+                    )
+                )
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun homeTopLayoutPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_HOME_CHROME_TOP_LAYOUT_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                EntityPredicate.parameterCount(12L, 13L),
+                EntityPredicate.parameter(0L, TextOperation.EXACT, "I"),
+                EntityPredicate.parameter(1L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                EntityPredicate.parameter(2L, TextOperation.EXACT, "J"),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "J"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(5L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(6L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                EntityPredicate.parameter(7L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function3;"),
+                EntityPredicate.parameter(8L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function2;"),
+                EntityPredicate.any(
+                    EntityPredicate.parameter(9L, TextOperation.EXACT, "Landroidx/compose/runtime/internal/ComposableLambda;"),
+                    EntityPredicate.parameter(9L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function2;")
+                ),
+                EntityPredicate.parameter(10L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                EntityPredicate.parameter(11L, TextOperation.EXACT, "I")
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun homeTopBarPlan(tag: String): DexGraphPlan {
+        val grouped = GraphExpression.groupByOwner(
+            inputs = listOf(
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                            EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                            nonSystemParameter(0L),
+                            EntityPredicate.parameter(1L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                            EntityPredicate.parameter(2L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                            EntityPredicate.parameter(3L, TextOperation.EXACT, "I"),
+                            EntityPredicate.any(
+                                EntityPredicate.parameterCount(4L),
+                                EntityPredicate.all(
+                                    EntityPredicate.parameterCount(5L),
+                                    EntityPredicate.parameter(4L, TextOperation.EXACT, "I")
+                                )
+                            )
+                        )
+                    ),
+                    "backdrop"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                            EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                            nonSystemParameter(0L),
+                            EntityPredicate.parameter(1L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                            EntityPredicate.parameter(2L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                            EntityPredicate.parameter(3L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                            EntityPredicate.parameter(4L, TextOperation.EXACT, "I"),
+                            EntityPredicate.any(
+                                EntityPredicate.parameterCount(5L),
+                                EntityPredicate.all(
+                                    EntityPredicate.parameterCount(6L),
+                                    EntityPredicate.parameter(5L, TextOperation.EXACT, "I")
+                                )
+                            )
+                        )
+                    ),
+                    "actions"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                            EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                            nonSystemParameter(0L),
+                            EntityPredicate.parameter(1L, TextOperation.EXACT, "F"),
+                            EntityPredicate.parameter(2L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                            EntityPredicate.parameter(3L, TextOperation.EXACT, "Z"),
+                            EntityPredicate.parameter(4L, TextOperation.EXACT, "F"),
+                            EntityPredicate.parameter(5L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                            EntityPredicate.parameter(6L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                            EntityPredicate.parameter(7L, TextOperation.EXACT, "I"),
+                            EntityPredicate.any(
+                                EntityPredicate.parameterCount(8L),
+                                EntityPredicate.all(
+                                    EntityPredicate.parameterCount(9L),
+                                    EntityPredicate.parameter(8L, TextOperation.EXACT, "I")
+                                )
+                            )
+                        )
+                    ),
+                    "foreground"
+                )
+            ),
+            minimum = 3L,
+            maximum = 32L,
+            requiredRoles = listOf("backdrop", "actions", "foreground"),
+            rolePolicy = GraphRolePolicy.DISTINCT
+        )
+        return DexGraphPlan.Graph(
+            tag,
+            GraphQuery(
+                grouped,
+                QueryIntent.ENUMERATE,
+                MAX_RESULTS,
+                GRAPH_MAX_WORK
+            ),
+            fallbackOnly = true
+        )
+    }
+
+    private fun homeTopContentClosurePlan(): DexGraphPlan {
+        val grouped = GraphExpression.groupByOwner(
+            inputs = listOf(
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Landroidx/compose/foundation/ScrollState;"
+                        )
+                    ),
+                    "scroll"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Lkotlin/jvm/functions/Function3;"
+                        )
+                    ),
+                    "f3"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.any(
+                            EntityPredicate.text(
+                                EntityTextField.TYPE,
+                                TextOperation.EXACT,
+                                "Landroidx/compose/runtime/internal/ComposableLambda;"
+                            ),
+                            EntityPredicate.text(
+                                EntityTextField.TYPE,
+                                TextOperation.EXACT,
+                                "Landroidx/compose/runtime/MutableIntState;"
+                            )
+                        )
+                    ),
+                    "state_anchor"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.text(EntityTextField.NAME, TextOperation.EXACT, "invoke"),
+                            EntityPredicate.any(
+                                EntityPredicate.text(
+                                    EntityTextField.PROTOTYPE,
+                                    TextOperation.EXACT,
+                                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"
+                                ),
+                                EntityPredicate.text(
+                                    EntityTextField.PROTOTYPE,
+                                    TextOperation.EXACT,
+                                    "(Landroidx/compose/runtime/Composer;I)V"
+                                )
+                            )
+                        )
+                    ),
+                    "invoke"
+                )
+            ),
+            minimum = 4L,
+            maximum = 64L,
+            requiredRoles = listOf("scroll", "f3", "state_anchor", "invoke"),
+            rolePolicy = GraphRolePolicy.DISTINCT
+        )
+        return DexGraphPlan.Graph(
+            TAG_HOME_CHROME_TOP_CONTENT_CLOSURE_FALLBACK,
+            GraphQuery(
+                grouped,
+                QueryIntent.ENUMERATE,
+                MAX_RESULTS,
+                GRAPH_MAX_WORK
+            ),
+            fallbackOnly = true
+        )
+    }
+
+    private fun homeTopContentStaticPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_HOME_CHROME_TOP_CONTENT_STATIC_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.any(
+                    EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                    EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "Lkotlin/Unit;")
+                ),
+                EntityPredicate.parameterCount(11L),
+                EntityPredicate.parameter(0L, TextOperation.EXACT, "Landroidx/compose/foundation/ScrollState;"),
+                EntityPredicate.parameter(1L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(2L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function2;"),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "F"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "Landroidx/compose/runtime/State;"),
+                EntityPredicate.parameter(5L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function2;"),
+                EntityPredicate.parameter(6L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function3;"),
+                EntityPredicate.parameter(7L, TextOperation.EXACT, "I"),
+                EntityPredicate.parameter(8L, TextOperation.EXACT, "Landroidx/compose/runtime/MutableIntState;"),
+                EntityPredicate.parameter(9L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                EntityPredicate.parameter(10L, TextOperation.EXACT, "I")
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun homeBottomPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_HOME_CHROME_BOTTOM_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                EntityPredicate.parameterCount(11L, 12L),
+                EntityPredicate.parameter(0L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                EntityPredicate.parameter(1L, TextOperation.EXACT, "Ljava/util/List;"),
+                EntityPredicate.parameter(2L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function4;"),
+                nonSystemParameter(5L),
+                EntityPredicate.parameter(6L, TextOperation.EXACT, "Z"),
+                EntityPredicate.parameter(7L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                nonSystemParameter(8L),
+                EntityPredicate.parameter(9L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                EntityPredicate.parameter(10L, TextOperation.EXACT, "I")
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun homeBottomContentClosurePlan(): DexGraphPlan {
+        val grouped = GraphExpression.groupByOwner(
+            inputs = listOf(
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(EntityTextField.TYPE, TextOperation.EXACT, "Ljava/util/List;")
+                    ),
+                    "list"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Lkotlin/jvm/functions/Function4;"
+                        )
+                    ),
+                    "f4"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Landroidx/compose/runtime/MutableState;"
+                        )
+                    ),
+                    "state"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.FIELD_DEFS,
+                        EntityPredicate.text(
+                            EntityTextField.TYPE,
+                            TextOperation.EXACT,
+                            "Landroidx/compose/runtime/snapshots/SnapshotStateMap;"
+                        )
+                    ),
+                    "map"
+                ),
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.text(EntityTextField.NAME, TextOperation.EXACT, "invoke"),
+                            EntityPredicate.any(
+                                EntityPredicate.text(
+                                    EntityTextField.PROTOTYPE,
+                                    TextOperation.EXACT,
+                                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"
+                                ),
+                                EntityPredicate.text(
+                                    EntityTextField.PROTOTYPE,
+                                    TextOperation.EXACT,
+                                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"
+                                ),
+                                EntityPredicate.text(
+                                    EntityTextField.PROTOTYPE,
+                                    TextOperation.EXACT,
+                                    "(Landroidx/compose/foundation/layout/BoxWithConstraintsScope;Landroidx/compose/runtime/Composer;I)V"
+                                ),
+                                EntityPredicate.text(
+                                    EntityTextField.PROTOTYPE,
+                                    TextOperation.EXACT,
+                                    "(Landroidx/compose/runtime/Composer;I)V"
+                                )
+                            )
+                        )
+                    ),
+                    "invoke"
+                )
+            ),
+            minimum = 5L,
+            maximum = 64L,
+            requiredRoles = listOf("list", "f4", "state", "map", "invoke"),
+            rolePolicy = GraphRolePolicy.DISTINCT
+        )
+        return DexGraphPlan.Graph(
+            TAG_HOME_CHROME_BOTTOM_CONTENT_CLOSURE_FALLBACK,
+            GraphQuery(
+                grouped,
+                QueryIntent.ENUMERATE,
+                MAX_RESULTS,
+                GRAPH_MAX_WORK
+            ),
+            fallbackOnly = true
+        )
+    }
+
+    private fun homeBottomContentStaticPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_HOME_CHROME_BOTTOM_CONTENT_STATIC_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.any(
+                    EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                    EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "Lkotlin/Unit;")
+                ),
+                EntityPredicate.parameterCount(12L),
+                EntityPredicate.parameter(0L, TextOperation.EXACT, "Ljava/util/List;"),
+                nonSystemParameter(1L),
+                nonSystemParameter(2L),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "Z"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                EntityPredicate.parameter(5L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                EntityPredicate.parameter(6L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function1;"),
+                EntityPredicate.parameter(7L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function4;"),
+                EntityPredicate.parameter(8L, TextOperation.EXACT, "Landroidx/compose/runtime/MutableState;"),
+                EntityPredicate.parameter(9L, TextOperation.EXACT, "Landroidx/compose/runtime/snapshots/SnapshotStateMap;"),
+                EntityPredicate.parameter(10L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                EntityPredicate.parameter(11L, TextOperation.EXACT, "I")
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
+    )
+
+    private fun homeBottomItemPlan(): DexGraphPlan = DexGraphPlan.Entity(
+        TAG_HOME_CHROME_BOTTOM_ITEM_FALLBACK,
+        EntityQuery(
+            EntityRelation.METHOD_DEFS,
+            EntityPredicate.all(
+                EntityPredicate.normalMethod(),
+                EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag()),
+                EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+                EntityPredicate.parameterCount(8L, 9L),
+                EntityPredicate.parameter(0L, TextOperation.EXACT, "I"),
+                nonSystemParameter(1L),
+                nonSystemParameter(2L),
+                EntityPredicate.parameter(3L, TextOperation.EXACT, "Landroidx/compose/ui/Modifier;"),
+                EntityPredicate.parameter(4L, TextOperation.EXACT, "Z"),
+                EntityPredicate.parameter(5L, TextOperation.EXACT, "Lkotlin/jvm/functions/Function3;"),
+                EntityPredicate.parameter(6L, TextOperation.EXACT, "Landroidx/compose/runtime/Composer;"),
+                EntityPredicate.parameter(7L, TextOperation.EXACT, "I")
+            ),
+            QueryIntent.ENUMERATE,
+            MAX_RESULTS,
+            GRAPH_MAX_WORK
+        ),
+        fallbackOnly = true
     )
 
     private fun homeTabResourcePlan(): DexGraphPlan = DexGraphPlan.Entity(
@@ -1040,10 +1689,12 @@ internal object DexMeguvizGraphPlans {
             EntityRelation.METHOD_DEFS,
             EntityPredicate.all(
                 EntityPredicate.constructor(),
+                EntityPredicate.parameterCount(2L, 4L),
+                EntityPredicate.parameter(0L, TextOperation.EXACT, dexType(repository)),
                 EntityPredicate.text(
                     EntityTextField.PROTOTYPE,
-                    TextOperation.EXACT,
-                    "(${dexType(repository)}Lkotlin/coroutines/Continuation;)V"
+                    TextOperation.CONTAINS,
+                    "Lkotlin/coroutines/Continuation;)V"
                 )
             ),
             QueryIntent.ENUMERATE,
@@ -1200,6 +1851,28 @@ internal object DexMeguvizGraphPlans {
 
     private fun entityScan(relation: EntityRelation, predicate: EntityPredicate): GraphExpression =
         GraphExpression.scan(relation, GraphPredicate.from(predicate))
+
+    private fun nonSystemParameter(index: Long): EntityPredicate = EntityPredicate.not(
+        EntityPredicate.any(
+            *(SYSTEM_DESCRIPTOR_PREFIXES + "[").map { prefix ->
+                EntityPredicate.parameter(index, TextOperation.PREFIX, prefix)
+            }.toTypedArray(),
+            *PRIMITIVE_DESCRIPTORS.map { desc ->
+                EntityPredicate.parameter(index, TextOperation.EXACT, desc)
+            }.toTypedArray()
+        )
+    )
+
+    private fun nonSystemMethodParameter(index: Long): MethodPredicate = MethodPredicate.not(
+        MethodPredicate.any(
+            *(SYSTEM_DESCRIPTOR_PREFIXES + "[").map { prefix ->
+                MethodPredicate.parameter(index, TextOperation.PREFIX, prefix)
+            }.toTypedArray(),
+            *PRIMITIVE_DESCRIPTORS.map { desc ->
+                MethodPredicate.parameter(index, TextOperation.EXACT, desc)
+            }.toTypedArray()
+        )
+    )
 
     private fun exactText(value: String): StaticTextMatch = StaticTextMatch(TextOperation.EXACT, value)
 

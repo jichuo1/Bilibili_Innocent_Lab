@@ -68,6 +68,23 @@ class DexAssistAttemptGuardTest {
         assertFalse(marker.exists())
     }
 
+    fun `creates missing parent directory when writing marker atomically`() {
+        val marker = folder.root.resolve("nested/sub/pending")
+        assertFalse(marker.parentFile!!.exists())
+        var seenDuringPass = ""
+        val guard = DexAssistAttemptGuard(marker, "host|3") { _ ->
+            seenDuringPass = marker.readText()
+            found()
+        }
+
+        val results = guard.resolveAll(queries, listOf("/base.apk"), loader)
+
+        assertEquals("host|3", seenDuringPass)
+        assertTrue(marker.parentFile!!.isDirectory)
+        assertFalse(marker.exists())
+        assertTrue(results.values.all { it is DexAssistResult.Candidates })
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DexAssistAttemptGuardTest) -> Unit) {
@@ -83,5 +100,6 @@ class DexAssistAttemptGuardTest {
         runIsolated { s -> s.`an unfinished pass for the same host is not retried`() }
         runIsolated { s -> s.`a new host version retries`() }
         runIsolated { s -> s.`a failing pass still clears the marker`() }
+        runIsolated { s -> s.`creates missing parent directory when writing marker atomically`() }
     }
 }

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
 import android.graphics.Canvas
 import android.widget.ImageView
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
@@ -17,6 +18,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexMeguvizQueries.MAX_MATCHES
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PauseCountdownAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PegasusLoadMoreShape
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeComposeLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.makeAccessible
 import io.github.jichuo1.dexmeguviz.AdvancedExecution
@@ -85,14 +87,11 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         val rules = queries.flatMap { query -> DexMeguvizQueries.rules(query).map { Rule(query, it) } }
         val graphPlans = queries.associateWith { DexMeguvizQueries.graphPlans(it) }.filterValues { it.isNotEmpty() }
         try {
-            for (path in paths) {
-                if (outcomes.values.all { it.failure != null }) break
-                withArchiveSnapshot(path) { snapshot ->
-                    val archive = Archive(snapshot, classLoader)
-                    archive.collect(rules.filter { outcomes.getValue(it.query).failure == null }, outcomes)
-                    if (graphPlans.isNotEmpty()) {
-                        archive.collectGraphPlans(graphPlans, outcomes)
-                    }
+            withArchiveSnapshot(paths) { snapshot ->
+                val archive = Archive(snapshot, classLoader)
+                archive.collect(rules, outcomes)
+                if (graphPlans.isNotEmpty()) {
+                    archive.collectGraphPlans(graphPlans, outcomes)
                 }
             }
         } catch (_: Exception) {
@@ -103,8 +102,23 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         return outcomes.mapValues { (_, outcome) -> outcome.result() }
     }
 
-    internal fun <T> withArchiveSnapshot(path: String, read: (NativeEngine.SourceSetSnapshot) -> T): T {
-        val plan = ApkMetadataPlan.from(path, null, null, false, null)
+    internal fun <T> withArchiveSnapshot(path: String, read: (NativeEngine.SourceSetSnapshot) -> T): T =
+        withArchiveSnapshot(listOf(path), read)
+
+    internal fun <T> withArchiveSnapshot(paths: List<String>, read: (NativeEngine.SourceSetSnapshot) -> T): T {
+        require(paths.isNotEmpty()) { "paths must not be empty" }
+        val plan = if (paths.size == 1) {
+            ApkMetadataPlan.from(paths[0], null, null, false, null)
+        } else {
+            val splits = paths.drop(1)
+            ApkMetadataPlan.from(
+                paths[0],
+                Array(splits.size) { "s$it" },
+                splits.toTypedArray(),
+                false,
+                BooleanArray(splits.size) { false }
+            )
+        }
         return AndroidApkSources.open(plan, null, limits).use { read(it.snapshot) }
     }
 
@@ -203,16 +217,8 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
             fun record(rule: Rule, result: NativeEngine.QueryResult) {
                 scanned.getOrPut(rule.query) { mutableListOf() } += result
             }
-            val result = try {
-                MethodBatchQuery.execute(snapshot, batch.map { it.bytes }.toTypedArray(), MIB, 1_000_000L)
-            } catch (failure: MethodBatchQuery.Failure) {
-                val failedRule = batch.getOrNull(failure.failureIndex)
-                if (failedRule == null) {
-                    batch.forEach { outcomes.getValue(it.query).failure = Reason.QUERY_FAILED }
-                    return
-                }
-                // SDK 批次不交付部分结果。已知失败的家族保留失败，其余规则各独立执行一次。
-                outcomes.getValue(failedRule.query).failure = Reason.QUERY_FAILED
+            fun runIndividually() {
+                // 批次失败可能是整批预算/缓冲上限或单条异常；逐条独立执行避免连坐其他规则。
                 for (rule in batch) {
                     val outcome = outcomes.getValue(rule.query)
                     if (outcome.failure != null) continue
@@ -220,8 +226,18 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
                         record(rule, snapshot.queryMethods(rule.bytes))
                     } catch (_: NativeEngine.NativeFailure) {
                         outcome.failure = Reason.QUERY_FAILED
+                    } catch (_: Exception) {
+                        outcome.failure = Reason.QUERY_FAILED
                     }
                 }
+            }
+            val result = try {
+                MethodBatchQuery.execute(snapshot, batch.map { it.bytes }.toTypedArray(), 4 * MIB, MAX_QUERY_WORK)
+            } catch (_: MethodBatchQuery.Failure) {
+                runIndividually()
+                return
+            } catch (_: NativeEngine.NativeFailure) {
+                runIndividually()
                 return
             }
             batch.forEachIndexed { index, rule -> record(rule, result.get(index)) }
@@ -571,8 +587,10 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
             for ((query, plans) in plansByQuery) {
                 val outcome = outcomes.getValue(query)
                 if (outcome.failure != null) continue
+                val hasFlatCandidates = outcome.methods.isNotEmpty() || outcome.classes.isNotEmpty()
                 for (plan in plans) {
                     if (outcome.failure != null) break
+                    if (plan.fallbackOnly && hasFlatCandidates) continue
                     try {
                         executeGraphPlan(plan, outcome)
                         if (outcome.methods.size > MAX_MATCHES || outcome.classes.size > MAX_MATCHES ||
@@ -750,7 +768,45 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
                                 if (cls == null) outcome.bindFailures++ else outcome.classes += cls
                             }
                         }
+                        DexMeguvizGraphPlans.TAG_HOME_CHROME_TOP_BACKDROP_FALLBACK ->
+                            collectChromeMethods(result, "top_backdrop", outcome)
+                        DexMeguvizGraphPlans.TAG_HOME_CHROME_TOP_RIGHT_ACTIONS_FALLBACK ->
+                            collectChromeMethods(result, "top_right_actions", outcome)
+                        DexMeguvizGraphPlans.TAG_HOME_CHROME_TOP_CONTENT_CLOSURE_FALLBACK ->
+                            collectChromeMethods(result, "top_content", outcome)
+                        DexMeguvizGraphPlans.TAG_HOME_CHROME_BOTTOM_CONTENT_CLOSURE_FALLBACK ->
+                            collectChromeMethods(result, "bottom_content", outcome)
+                        DexMeguvizGraphPlans.TAG_BRAND_SPLASH_KNTR_DRAW_FALLBACK -> {
+                            for (i in 0 until result.rowCount()) {
+                                val entity = result.row(i).entity
+                                val desc = entity.typeDescriptor?.takeIf { it.isNotBlank() } ?: entity.owner
+                                val cls = bindOwner(desc)
+                                if (cls == null) {
+                                    outcome.bindFailures++
+                                } else if (BrandSplashKntrAdapter.verified(loader, cls)) {
+                                    KavaMemberLookup.declaredMethods(cls, makeAccessible = true) {
+                                        !Modifier.isStatic(it.modifiers) && !Modifier.isAbstract(it.modifiers) &&
+                                            it.name == "invoke" && it.parameterCount == 3
+                                    }.forEach { outcome.methods += it }
+                                }
+                            }
+                        }
                     }
+                }
+            }
+        }
+
+        private fun collectChromeMethods(result: AdvancedResult, family: String, outcome: Outcome) {
+            for (i in 0 until result.rowCount()) {
+                val entity = result.row(i).entity
+                val desc = entity.typeDescriptor?.takeIf { it.isNotBlank() } ?: entity.owner
+                val cls = bindOwner(desc)
+                if (cls == null) {
+                    outcome.bindFailures++
+                } else {
+                    KavaMemberLookup.declaredMethods(cls, makeAccessible = true) {
+                        HomeChromeComposeLocator.verified(loader, family, it)
+                    }.forEach { outcome.methods += it }
                 }
             }
         }
