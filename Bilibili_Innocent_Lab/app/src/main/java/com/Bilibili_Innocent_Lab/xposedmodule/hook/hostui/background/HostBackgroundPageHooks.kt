@@ -212,17 +212,11 @@ internal object HostBackgroundPageHooks {
     /** 已接入页的纯色底板透出壁纸；媒体子树、描边和小型控件保持原样。 */
     private fun installCompose(environment: HookEnvironment): Int = runCatching {
         val loader = environment.classLoader ?: return@runCatching 0
-        val view = KavaMemberLookup.classOrNull(loader, "androidx.compose.ui.platform.AndroidComposeView") ?: return@runCatching 0
-        val scope = KavaMemberLookup.classOrNull(loader, "androidx.compose.ui.node.LayoutNodeDrawScope") ?: return@runCatching 0
+        val access = HostComposeDrawScopeAccess.resolve(loader) ?: return@runCatching 0
         val colors = KavaMemberLookup.classOrNull(loader, "com.bilibili.compose.theme.BiliColors") ?: return@runCatching 0
         val bg = colors.declaredMethods.singleOrNull {
             it.name.startsWith("getBg1-") && it.parameterCount == 0 && it.returnType == Long::class.javaPrimitiveType
         } ?: return@runCatching 0
-        val draw = scope.declaredMethods.singleOrNull {
-            it.name.startsWith("drawRect-") && it.parameterCount == 7 &&
-                it.parameterTypes.take(3).all { p -> p == Long::class.javaPrimitiveType }
-        } ?: return@runCatching 0
-        val dispatch = KavaMemberLookup.methodOrNull(view, "dispatchDraw", Canvas::class.java) ?: return@runCatching 0
         val backgroundColors = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
         val fillTypes = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
         data class DrawPage(val width: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
@@ -230,7 +224,7 @@ internal object HostBackgroundPageHooks {
         environment.registrar.exact("host_background.compose_color", bg.declaringClass, bg.name, *bg.parameterTypes) {
             after { if (!hasThrowable) (result as? Long)?.let { backgroundColors.add(it) } }
         }
-        environment.registrar.exact("host_background.compose_scope", dispatch.declaringClass, dispatch.name, *dispatch.parameterTypes) {
+        environment.registrar.exact("host_background.compose_scope", access.dispatch.declaringClass, access.dispatch.name, *access.dispatch.parameterTypes) {
             before {
                 val node = instance as? View
                 val kind = node?.let(HostBackgroundPages::kind)
@@ -246,7 +240,7 @@ internal object HostBackgroundPageHooks {
                 if (stack.isEmpty()) scopes.remove()
             }
         }
-        environment.registrar.exact("host_background.compose_fill", draw.declaringClass, draw.name, *draw.parameterTypes) {
+        environment.registrar.exact("host_background.compose_fill", access.draw.declaringClass, access.draw.name, *access.draw.parameterTypes) {
             before {
                 val page = scopes.get()?.peek() ?: return@before
                 // SrcOver=3；遮罩的 DstIn 等混合方式不能按页面底板跳过。
@@ -254,7 +248,7 @@ internal object HostBackgroundPageHooks {
                 val style = argOrNull(4)?.javaClass ?: return@before
                 // Fill 在宿主中会被混淆；它是无实例字段的单例，Stroke 则携带线宽等实例字段。
                 if (!fillTypes.getOrPut(style) {
-                        style.superclass == draw.parameterTypes[4] && style.declaredFields.all { java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                        style.superclass == access.draw.parameterTypes[4] && style.declaredFields.all { java.lang.reflect.Modifier.isStatic(it.modifiers) }
                     }) return@before
                 val color = argOrNull(0) as? Long ?: return@before
                 // 侧边中心用 Bg2 铺页面，Bg1 绘制内容面板：圆角顶盖和矩形正文是独立节点。
