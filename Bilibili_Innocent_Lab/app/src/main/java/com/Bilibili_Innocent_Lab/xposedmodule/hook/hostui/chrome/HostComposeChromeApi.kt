@@ -117,14 +117,13 @@ internal class HostComposeChromeApi private constructor(
                         Float::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, obj) }
                 ?.invoke(null, empty, 0f, 1, null)
             val node = type("androidx.compose.ui.node.ComposeUiNode")
+            val layoutNode = HostComposeLayoutNodeAccess.resolve(loader)
+                ?: error("Missing concrete host Compose ABI ${node.name}.setModifier")
             // Modifier 应用拦截点：setModifier 是 ComposeUiNode 的稳定接口方法，
             // Companion 的 setModifier lambda 必然经它落到 LayoutNode（9.18/9.19 实证）。
             // 不再解析 Updater.set-impl——值类化后其签名随代次漂移，且泛型/特化重载
             // 在 R8 合并后可能只剩一份，精确匹配不可靠。
-            val applyModifier = Lookup.methods(node, includeSuperclasses = true, makeAccessible = true).singleOrNull {
-                it.name == "setModifier" && it.returnType == Void.TYPE &&
-                    it.parameterTypes.contentEquals(arrayOf(modifier))
-            } ?: error("Missing host Compose ABI ${node.name}.setModifier")
+            val applyModifier = layoutNode.setModifier
             val drawScope = type("androidx.compose.ui.graphics.drawscope.DrawScope")
             val drawContext = type("androidx.compose.ui.graphics.drawscope.DrawContext")
             val hostCanvas = type("androidx.compose.ui.graphics.Canvas")

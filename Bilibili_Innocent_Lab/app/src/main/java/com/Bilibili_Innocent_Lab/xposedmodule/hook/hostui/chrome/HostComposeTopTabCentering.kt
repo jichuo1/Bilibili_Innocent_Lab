@@ -311,7 +311,6 @@ internal object HostComposeTopTabCentering {
                 val long = Long::class.javaPrimitiveType!!
                 val int = Int::class.javaPrimitiveType!!
                 val bool = Boolean::class.javaPrimitiveType!!
-                val node = type("androidx.compose.ui.node.ComposeUiNode")
                 Access(mod, alignment, f2, scope,
                     method(scope, "subcompose", List::class.java, Any::class.java, f2),
                     method(alignment, "align-", long, long, long, type("androidx.compose.ui.unit.LayoutDirection")),
@@ -329,9 +328,7 @@ internal object HostComposeTopTabCentering {
                     method(type("androidx.compose.ui.layout.SubcomposeLayoutKt"), "SubcomposeLayout", Void.TYPE, mod, f2, composer, int, int),
                     // setModifier 是 ComposeUiNode 的稳定接口方法；Updater.set-impl 值类化后
                     // 签名随代次漂移（issue #44），不再作为拦截点。
-                    Lookup.methods(node, includeSuperclasses = true, makeAccessible = true).single {
-                        it.name == "setModifier" && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(mod))
-                    },
+                    requireNotNull(HostComposeLayoutNodeAccess.resolve(loader)).setModifier,
                     method(type("androidx.compose.ui.layout.OnGloballyPositionedModifierKt"), "onGloballyPositioned", mod, mod, f1),
                     f1, requireNotNull(Lookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)!!,
                     method(coordinates, "isAttached", bool), method(coordinates, "getParentLayoutCoordinates", coordinates),
