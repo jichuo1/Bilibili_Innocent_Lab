@@ -21,7 +21,8 @@ internal class FrameVsyncMeter(private val warmup: Int = 60, private val samples
         intervals[count++] = frameTimeNs - previous
         if (count < samples) return null
         reported = true
-        val median = intervals.sorted()[samples / 2]
+        java.util.Arrays.sort(intervals)
+        val median = intervals[samples / 2]
         return (1e9 / median).toFloat()
     }
 }

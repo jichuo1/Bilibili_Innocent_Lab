@@ -309,10 +309,10 @@ private class FrameSourceCadenceCases {
         assertEquals(Verdict.PENDING, verdictFor(30.0, frames = 8))
         val cadence = FrameSourceCadence()
         var pts = 0L
-        repeat(30) { i -> pts += if (i % 7 == 6) 66_667L else 33_333L; cadence.add(pts) }
+        repeat(60) { i -> pts += if (i % 7 == 6) 66_667L else 33_333L; cadence.add(pts) }
         assertEquals(Verdict.SUITABLE, cadence.verdict())
         assertEquals(30.0, cadence.sourceFps()!!, 0.1)
-        assertTrue(cadence.describe().contains("gaps=4"))
+        assertTrue(cadence.describe().contains("gaps=8"))
     }
 
     fun verifyAllCases() {

@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
 import io.github.jichuo1.meguviz.memory.android.ManagedMemoryDomain
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -11,8 +12,14 @@ import java.nio.ByteBuffer
 internal object InsightThumbnailPage {
     private const val MAX_BYTES = 12 * 1024 * 1024
     private const val DIRECT_THRESHOLD = 256 * 1024
+    private const val SKIP_NATIVE_LOAD_PROP = "io.github.jichuo1.meguviz.memory.skipNativeLoad"
     private val memory by lazy {
         try {
+            if (!java.lang.Boolean.getBoolean(SKIP_NATIVE_LOAD_PROP)) {
+                ModuleNativeLoader.load("mgmem")
+                ModuleNativeLoader.load("mgmem_pressure_jni")
+                System.setProperty(SKIP_NATIVE_LOAD_PROP, "true")
+            }
             ManagedMemoryDomain.system(MAX_BYTES.toLong())
         } catch (_: LinkageError) {
             null

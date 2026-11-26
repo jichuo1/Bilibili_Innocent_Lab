@@ -21,6 +21,7 @@ internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
         private set
 
     private val deltas = LongArray(WINDOW)
+    private val sorted = LongArray(WINDOW)
     private var count = 0
     private var cursor = 0
 
@@ -31,7 +32,9 @@ internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
             deltas[cursor] = vsyncNs - lastNs
             cursor = (cursor + 1) % WINDOW
             if (count < WINDOW) count++
-            periodNs = deltas.copyOf(count).also { it.sort() }[count / 4]
+            System.arraycopy(deltas, 0, sorted, 0, count)
+            java.util.Arrays.sort(sorted, 0, count)
+            periodNs = sorted[count / 4]
         }
         lastNs = vsyncNs
         return true

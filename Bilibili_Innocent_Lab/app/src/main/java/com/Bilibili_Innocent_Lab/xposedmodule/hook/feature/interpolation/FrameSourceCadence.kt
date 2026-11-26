@@ -13,7 +13,11 @@ internal class FrameSourceCadence(
 ) {
     enum class Verdict { PENDING, SUITABLE, UNSUITABLE }
 
-    private val intervals = ArrayList<Long>(WINDOW)
+    private val intervals = LongArray(WINDOW)
+    private val scratch = LongArray(WINDOW)
+    private var size = 0
+    private var cursor = 0
+    private var cachedMedianUs = -1L
     private var lastPts = Long.MIN_VALUE
     private var gaps = 0L
     private var frames = 0L
@@ -25,10 +29,16 @@ internal class FrameSourceCadence(
         if (previous == Long.MIN_VALUE || ptsUs <= previous) return
         val interval = ptsUs - previous
         val median = medianUs()
-        if (median != null && interval > median * 3 / 2) gaps++
-        if (median != null && interval > median * 3 / 2) return
-        if (intervals.size == WINDOW) intervals.removeAt(0)
-        intervals += interval
+        if (median != null && interval > median * 3 / 2) {
+            gaps++
+            return
+        }
+        intervals[cursor] = interval
+        cursor = (cursor + 1) % WINDOW
+        if (size < WINDOW) size++
+        System.arraycopy(intervals, 0, scratch, 0, size)
+        java.util.Arrays.sort(scratch, 0, size)
+        cachedMedianUs = scratch[size / 2]
     }
 
     /** 重新开始（seek/不连续）：间隔历史作废，缺帧计数保留供诊断。 */
@@ -37,7 +47,7 @@ internal class FrameSourceCadence(
     @Synchronized fun sourceFps(): Double? = medianUs()?.let { 1_000_000.0 / it }
 
     @Synchronized fun verdict(): Verdict {
-        if (intervals.size < minSamples) return Verdict.PENDING
+        if (size < minSamples) return Verdict.PENDING
         val fps = sourceFps() ?: return Verdict.PENDING
         val ratio = targetFps / fps
         val nearest = kotlin.math.round(ratio)
@@ -48,7 +58,7 @@ internal class FrameSourceCadence(
 
     @Synchronized fun describe(): String = "%.2ffps frames=%d gaps=%d".format(sourceFps() ?: 0.0, frames, gaps)
 
-    private fun medianUs(): Long? = if (intervals.isEmpty()) null else intervals.sorted()[intervals.size / 2]
+    private fun medianUs(): Long? = if (size == 0) null else cachedMedianUs
 
     private companion object {
         const val WINDOW = 31

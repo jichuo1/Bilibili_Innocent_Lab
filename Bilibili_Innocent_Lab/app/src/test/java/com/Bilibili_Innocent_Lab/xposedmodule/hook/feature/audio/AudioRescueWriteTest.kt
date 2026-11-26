@@ -174,27 +174,49 @@ class AudioRescueWriteTest {
         val first = writer.prepare(input, 0, input.size)!!
         val callsAfterFirst = inferCalls
         assertTrue(callsAfterFirst > 0)
+        assertTrue(first.checkpoint !== first.postCheckpoint)
         // WRITE_NON_BLOCKING returns 0 -> retry identical buffer without running ONNX inference again.
         writer.finish(first, 0)
         val zeroRetry = writer.prepare(input, 0, input.size)!!
         assertEquals(callsAfterFirst, inferCalls)
         assertSame(first.data, zeroRetry.data)
+        assertTrue(zeroRetry.checkpoint !== first.postCheckpoint)
+        assertTrue(zeroRetry.checkpoint !== zeroRetry.postCheckpoint)
         // Partial write of 1600 floats commits the accepted prefix, then retries remaining 3200 floats without running ONNX inference again.
         writer.finish(zeroRetry, 1600)
         val callsAfterPartialCommit = inferCalls
         expectedProcessor.process(input.copyOfRange(0, 1600))
         val tailRetry = writer.prepare(input, 1600, 3200)!!
         assertEquals(callsAfterPartialCommit, inferCalls)
+        assertTrue(tailRetry.checkpoint !== tailRetry.postCheckpoint)
         val expectedTail = input.copyOfRange(1600, 4800).also { expectedProcessor.process(it) }
         assertArrayEquals(expectedTail, tailRetry.data as FloatArray, 0f)
         writer.finish(tailRetry, tailRetry.count)
         assertEquals(callsAfterPartialCommit, inferCalls)
-        assertArrayEquals(expectedProcessor.checkpoint(), actualProcessor.checkpoint(), 0.0)
+        val expectedState = expectedProcessor.checkpoint()
+        assertArrayEquals(expectedState, actualProcessor.checkpoint(), 0.0)
+        val targetState = DoubleArray(actualProcessor.stateSize)
+        actualProcessor.checkpointInto(targetState)
+        assertArrayEquals(expectedState, targetState, 0.0)
+        assertThrows(IllegalArgumentException::class.java) {
+            actualProcessor.checkpointInto(DoubleArray(actualProcessor.stateSize - 1))
+        }
+
+        // Cache miss while continuation retains a pooled checkpoint must never alias all three arrays.
+        val missSeed = writer.prepare(input, 0, input.size)!!
+        writer.finish(missSeed, 0)
+        val differentInput = FloatArray(4800) { if (it % 2 == 0) -.15f else .25f }
+        val missActual = writer.prepare(differentInput, 0, differentInput.size)!!
+        assertTrue(missActual.checkpoint !== missSeed.postCheckpoint)
+        assertTrue(missActual.postCheckpoint !== missSeed.postCheckpoint)
+        assertTrue(missActual.checkpoint !== missActual.postCheckpoint)
+        writer.finish(missActual, missActual.count)
 
         // ByteBuffer/ByteArray/ShortArray reuse when frame size matches, and bounds-safe limit() check.
         val bbWriter = AudioRescueWrite(processor(), 2)
         val caller = ByteBuffer.wrap(bytes(1000, -1000, 2000, -2000, 3000, -3000, 4000, -4000))
         val bb1 = bbWriter.prepare(caller, 0, 8)!!
+        assertTrue((bb1.data as ByteBuffer).isDirect)
         caller.limit(10) // Shrunk externally before finish: must not throw IllegalArgumentException.
         bbWriter.finish(bb1, 8)
         assertEquals(8, caller.position())

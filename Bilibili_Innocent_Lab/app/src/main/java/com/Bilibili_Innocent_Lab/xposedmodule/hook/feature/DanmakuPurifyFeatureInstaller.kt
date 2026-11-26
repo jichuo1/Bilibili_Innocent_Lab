@@ -282,7 +282,7 @@ internal class DanmakuPurifyFeatureInstaller(
             raw@{ bytes ->
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                 val live = liveRules?.invoke() ?: LiveDanmakuRules(minimumWeight, removeVipColorful)
-                val updated = purifyWireBytes(plan, environment, bytes, members, live) ?: run {
+                val updated = purifyWireBytes(plan, environment, bytes, members, live)?.bytes ?: run {
                     environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
                     if (wireRawErrorLogged.compareAndSet(false, true)) {
                         environment.logError("danmaku_purify_wire_raw", "[BIL] 弹幕线格式直改失败，保留原分片")
@@ -462,6 +462,8 @@ internal class DanmakuPurifyFeatureInstaller(
      * 都逐条对齐 `purifyElems`/`purifyColorfulSrc`/`neutralizeVipColorful`/`semanticFilter`，
      * 语义判定与去重仍走 [SemanticJudge] 与 [TextNormalizer] 同一套实现。
      */
+    private class WirePurifyResult(val bytes: ByteArray, val keptElemCount: Int)
+
     private fun purifyViaWire(
         plan: DanmakuWirePlan,
         environment: HookEnvironment,
@@ -475,11 +477,10 @@ internal class DanmakuPurifyFeatureInstaller(
         return runCatching {
             val bytes = plan.serialize(reply) ?: return@runCatching null
             val purified = purifyWireBytes(plan, environment, bytes, members, live) ?: return@runCatching null
-            if (purified === bytes) return@runCatching reply
-            // 宿主解析器口径二次核验：改写产物真的被 parseFrom 接受且条数正确。
-            val parsed = plan.parse(purified) ?: return@runCatching null
-            val expectedCount = engineScan(purified, plan.fields)?.elems?.size ?: return@runCatching null
-            if (invokeList(members.elemList!!.elemsGetter, parsed)?.size != expectedCount) return@runCatching null
+            if (purified.bytes === bytes) return@runCatching reply
+            // 宿主解析器口径二次核验：改写产物真的被 parseFrom 接受且条数与 wire 复核一致。
+            val parsed = plan.parse(purified.bytes) ?: return@runCatching null
+            if (invokeList(members.elemList!!.elemsGetter, parsed)?.size != purified.keptElemCount) return@runCatching null
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
             parsed
         }.getOrNull()
@@ -487,7 +488,7 @@ internal class DanmakuPurifyFeatureInstaller(
 
     /**
      * 纯线格式核：扫描、权重熔断、语义判定、彩字改色、重写与 rescan 复核。
-     * 未改返回原 [bytes] 引用，不可用/不一致返回 null。
+     * 未改返回包含原 [bytes] 引用的结果，不可用/不一致返回 null。
      */
     private fun purifyWireBytes(
         plan: DanmakuWirePlan,
@@ -495,10 +496,10 @@ internal class DanmakuPurifyFeatureInstaller(
         bytes: ByteArray,
         members: ReplyMembers,
         live: LiveDanmakuRules,
-    ): ByteArray? {
+    ): WirePurifyResult? {
         val threshold = live.minimum
         val liveColorful = live.colorful
-        if (threshold == null && !liveColorful && semanticJudge == null) return bytes
+        if (threshold == null && !liveColorful && semanticJudge == null) return WirePurifyResult(bytes, -1)
         return runCatching {
             val fields: DanmakuWireFields = plan.fields
             val scan = engineScan(bytes, fields) ?: return@runCatching null
@@ -584,7 +585,7 @@ internal class DanmakuPurifyFeatureInstaller(
             for (j in srcKinds.indices) {
                 if (!keepSrc[j]) changed = true
             }
-            if (!changed) return@runCatching bytes
+            if (!changed) return@runCatching WirePurifyResult(bytes, elems.size)
 
             val rewritten = engineRewrite(bytes, fields, keep, recolor, keepSrc) ?: return@runCatching null
             // wire 级复检：条数与改色值必须符合位图意图（红线：实际核改写结果的第一道核）。
@@ -599,7 +600,7 @@ internal class DanmakuPurifyFeatureInstaller(
                 if (recolor[i] && rescan.elems[keptIndex].colorful != 0) return@runCatching null
                 keptIndex++
             }
-            rewritten
+            WirePurifyResult(rewritten, keptCount)
         }.getOrNull()
     }
 

@@ -17,14 +17,14 @@ typedef struct {
 
 uint32_t dw_abi_version(void);
 int32_t dw_scan(const uint8_t* buf, size_t buf_len, const DwFields* fields,
-                int32_t** out_ptr, size_t* out_len);
+                int32_t** out_ptr, size_t* out_len, size_t* out_cap);
 int32_t dw_rewrite(const uint8_t* buf, size_t buf_len, const DwFields* fields,
                    const uint8_t* keep_elem, size_t keep_elem_len,
                    const uint8_t* recolor_elem, size_t recolor_elem_len,
                    const uint8_t* keep_src, size_t keep_src_len,
-                   uint8_t** out_ptr, size_t* out_len);
-void dw_free_i32(int32_t* ptr, size_t len);
-void dw_free_u8(uint8_t* ptr, size_t len);
+                   uint8_t** out_ptr, size_t* out_len, size_t* out_cap);
+void dw_free_i32(int32_t* ptr, size_t len, size_t cap);
+void dw_free_u8(uint8_t* ptr, size_t len, size_t cap);
 }
 
 namespace {
@@ -76,21 +76,22 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     const DwFields fields = makeFields(elemsField, weightField, colorfulField, contentField, srcField, srcTypeField);
     int32_t* scanOut = nullptr;
     size_t scanLen = 0;
+    size_t scanCap = 0;
     const int32_t code = dw_scan(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(replyLen),
-                                 &fields, &scanOut, &scanLen);
+                                 &fields, &scanOut, &scanLen, &scanCap);
     env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
     if (code != 0 || scanLen == 0 || scanLen > static_cast<size_t>(INT32_MAX)) {
-        if (scanOut != nullptr) dw_free_i32(scanOut, scanLen);
+        if (scanOut != nullptr) dw_free_i32(scanOut, scanLen, scanCap);
         return nullptr;
     }
     jintArray result = env->NewIntArray(static_cast<jsize>(scanLen));
     if (result == nullptr) {
         clearPending(env);
-        dw_free_i32(scanOut, scanLen);
+        dw_free_i32(scanOut, scanLen, scanCap);
         return nullptr;
     }
     env->SetIntArrayRegion(result, 0, static_cast<jsize>(scanLen), scanOut);
-    dw_free_i32(scanOut, scanLen);
+    dw_free_i32(scanOut, scanLen, scanCap);
     if (env->ExceptionCheck()) {
         clearPending(env);
         return nullptr;
@@ -150,12 +151,17 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     const DwFields fields = makeFields(elemsField, weightField, colorfulField, contentField, srcField, srcTypeField);
     uint8_t* rewriteOut = nullptr;
     size_t rewriteLen = 0;
+    size_t rewriteCap = 0;
     const int32_t code = dw_rewrite(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(replyLen),
                                     &fields,
                                     keep, static_cast<size_t>(keepLen),
                                     recolor, static_cast<size_t>(recolorLen),
                                     keepSrcBytes, static_cast<size_t>(srcLen),
-                                    &rewriteOut, &rewriteLen);
+                                    &rewriteOut, &rewriteLen, &rewriteCap);
+    env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
+    env->ReleaseBooleanArrayElements(keepElem, keepRaw, JNI_ABORT);
+    env->ReleaseBooleanArrayElements(recolorElem, recolorRaw, JNI_ABORT);
+    env->ReleaseBooleanArrayElements(keepSrc, keepSrcRaw, JNI_ABORT);
     if (code == 0 && rewriteLen <= static_cast<size_t>(INT32_MAX)) {
         // 空输出（rewriteOut==null && len==0）对空输入是合法结果。
         result = env->NewByteArray(static_cast<jsize>(rewriteLen));
@@ -170,10 +176,6 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
             }
         }
     }
-    if (rewriteOut != nullptr) dw_free_u8(rewriteOut, rewriteLen);
-    env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
-    env->ReleaseBooleanArrayElements(keepElem, keepRaw, JNI_ABORT);
-    env->ReleaseBooleanArrayElements(recolorElem, recolorRaw, JNI_ABORT);
-    env->ReleaseBooleanArrayElements(keepSrc, keepSrcRaw, JNI_ABORT);
+    if (rewriteOut != nullptr) dw_free_u8(rewriteOut, rewriteLen, rewriteCap);
     return result;
 }

@@ -35,14 +35,18 @@ internal class AudioRescueFeatureInstaller(
         var appliedGeneration = 0
         var speechReady = false
         private fun processor(): AudioRescueProcessor {
-            val model = if (config.noiseReduction || config.voiceFocus) AudioRescueModel.current() else null
-            val speech = model?.takeIf { rate >= 16000 }?.let { AudioSpeechEnhancer(rate, channels, it, if (config.voiceFocus) AudioSpeechEnhancer.VOICE_WET else AudioSpeechEnhancer.NOISE_WET, preserveTreble = config.voiceFocus) }
+            val model = if ((config.noiseReduction || config.voiceFocus) && rate >= 16000) {
+                AudioRescueModel.acquire(this)
+            } else null
+            val speech = model?.let { AudioSpeechEnhancer(rate, channels, it, if (config.voiceFocus) AudioSpeechEnhancer.VOICE_WET else AudioSpeechEnhancer.NOISE_WET, preserveTreble = config.voiceFocus) }
+            if (speech == null) AudioRescueModel.release(this)
             speechReady = speech != null
             return AudioRescueProcessor(rate, channels, config, speech)
         }
         var writer = AudioRescueWrite(processor(), encoding)
         var evidenceCaptured = false
         @Volatile var faulted = false
+        @Volatile var released = false
         fun reset() { writer = AudioRescueWrite(processor(), encoding) }
     }
     private data class InFlight(val session: Session, val writer: AudioRescueWrite, val pending: AudioRescueWrite.Pending, val generation: Int, val entry: Int)
@@ -50,11 +54,13 @@ internal class AudioRescueFeatureInstaller(
     // Overloads may delegate to each other; nested writes must not process the buffer twice.
     private val inWrite = ThreadLocal<Boolean>()
     private val ready = AtomicBoolean(false)
+    @Volatile private var infoLogger: ((String, String) -> Unit)? = null
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!config.enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != MAIN_PROCESS && environment.processName != PLAYER_PROCESS)
             return FeatureInstallResult.Skipped("non-main-process")
+        infoLogger = environment.logInfo
         ModuleNativeLoader.registerModuleApk(moduleApk?.path)
         if ((config.noiseReduction || config.voiceFocus) && moduleApk != null && hostCodeCache != null && remoteFile != null)
             AudioRescueModel.prepare(moduleApk, hostCodeCache, remoteFile, environment.logInfo)
@@ -108,7 +114,10 @@ internal class AudioRescueFeatureInstaller(
                             if (!buffer) args[1] = 0
                             inWrite.set(true)
                         } finally {
-                            if (getObjectExtra(TRANSACTION) == null) session.lock.unlock()
+                            if (getObjectExtra(TRANSACTION) == null) {
+                                if (session.released) AudioRescueModel.release(session)
+                                session.lock.unlock()
+                            }
                         }
                     }
                     after {
@@ -134,6 +143,7 @@ internal class AudioRescueFeatureInstaller(
                             environment.logError("$id.write.failed", "[BIL] 音频拯救单轨已隔离，写入状态恢复失败: $failure")
                         } finally {
                             inWrite.remove()
+                            if (transaction.session.released) AudioRescueModel.release(transaction.session)
                             transaction.session.lock.unlock()
                         }
                     }
@@ -149,7 +159,14 @@ internal class AudioRescueFeatureInstaller(
                         if (hasThrowable) return@after
                         val track = instance as? AudioTrack ?: return@after
                         tracks[track]?.generation?.incrementAndGet()
-                        if (name == "release") tracks.remove(track)
+                        if (name == "release") {
+                            tracks.remove(track)?.let { removed ->
+                                removed.released = true
+                                if (removed.lock.tryLock()) {
+                                    try { AudioRescueModel.release(removed) } finally { removed.lock.unlock() }
+                                }
+                            }
+                        }
                     }
                 }
                 installed++
@@ -170,6 +187,10 @@ internal class AudioRescueFeatureInstaller(
         // Compressed passthrough, surround and unknown formats are never interpreted as PCM.
         if (track.state != AudioTrack.STATE_INITIALIZED || !isEligibleMediaTrack(track) ||
             track.audioFormat !in setOf(2, 3, 4) || track.channelCount !in 1..2 || track.sampleRate !in 8000..192000) return@synchronized null
+        if (AudioRescueModel.current() == null && (config.noiseReduction || config.voiceFocus) &&
+            moduleApk != null && hostCodeCache != null && remoteFile != null) {
+            infoLogger?.let { AudioRescueModel.prepare(moduleApk, hostCodeCache, remoteFile, it) }
+        }
         Session(track.sampleRate, track.channelCount, track.audioFormat, config).also { tracks[track] = it }
     }
 

@@ -20,22 +20,9 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# FreeReflection
--keep class me.weishu.reflection.** {*;}
-
 -assumenosideeffects class kotlin.jvm.internal.Intrinsics {
     public static *** throwUninitializedProperty(...);
     public static *** throwUninitializedPropertyAccessException(...);
-}
-
--keepclassmembers class * implements androidx.viewbinding.ViewBinding {
-    *** inflate(android.view.LayoutInflater);
-}
-
--keep class * extends android.app.Activity
--keep class * implements androidx.viewbinding.ViewBinding {
-    <init>();
-    *** inflate(android.view.LayoutInflater);
 }
 
 -dontwarn io.github.libxposed.annotation.**
@@ -43,6 +30,12 @@
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.DanmakuWireNative { *; }
 # This model bridge and its companion are loaded into the dedicated audio native namespace.
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.GtcrnSpeechModel** { *; }
+# Preserve ONNX Runtime Java/JNI classes and package prefixes for ModelLoader classloader isolation.
+-keep class ai.onnxruntime.* { *; }
+-keep class ai.onnxruntime.platform.** { *; }
+-keep class ai.onnxruntime.providers.** { *; }
+# Native C++ JNI methods in libbil_frame_window.so bind by exact class and method names.
+-keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameWindowGeometry { *; }
 # 只允许改写 java_init.list 的**内容**（把入口类名换成混淆后的名字）。
 #
 # 曾经这里还有一条**无过滤器**的 `-adaptresourcefilenames`：它会把 Java 资源的路径

@@ -5,6 +5,7 @@ import kotlin.math.*
 /** Stateful 16 kHz spectral model. Cache arrays belong to one track's shared reference. */
 internal fun interface AudioSpeechModel : AutoCloseable {
     fun infer(spectrum: FloatArray, caches: Array<FloatArray>): FloatArray
+    fun infer(spectrum: FloatArray, caches: Array<FloatArray>, output: FloatArray): FloatArray = infer(spectrum, caches)
     fun profile(): LongArray = longArrayOf()
     override fun close() = Unit
 }
@@ -52,12 +53,13 @@ internal class AudioSpeechEnhancer(
     private var dryAt = 0
     var left = 0.0; private set
     var right = 0.0; private set
-    private val window = DoubleArray(512) { sqrt(.5 - .5 * cos(2 * PI * it / 512)) }
-    private val down = Array(128) { fraction -> coefficients(TAPS, min(7200.0 / rate, .45), fraction / 128.0) }
-    private val up = Array(128) { fraction -> coefficients(16, .45, -fraction / 128.0) }
+    private val spectrum = FloatArray(514)
+    private val enhancedScratch = FloatArray(514)
     val stateSize = 5 + ears.size * (drySize + TAPS + 512 + 256 + 256 + 16 + 256 + 16) + 16896 + 96 + 1056
 
     init { require(rate in 16000..192000 && channels in 1..2 && wet in 0.0..1.0) }
+
+    private val down = downTable(rate)
 
     fun save(target: DoubleArray, offset: Int) {
         var at = offset
@@ -65,9 +67,14 @@ internal class AudioSpeechEnhancer(
         target[at++] = hopAt.toDouble(); target[at++] = upAt.toDouble()
         target[at++] = dryAt.toDouble()
         for (ear in ears) {
-            for (array in listOf(ear.dry, ear.input, ear.analysis, ear.overlap, ear.output, ear.upsample, ear.dryOutput, ear.dryUpsample)) {
-                array.copyInto(target, at); at += array.size
-            }
+            ear.dry.copyInto(target, at); at += ear.dry.size
+            ear.input.copyInto(target, at); at += ear.input.size
+            ear.analysis.copyInto(target, at); at += ear.analysis.size
+            ear.overlap.copyInto(target, at); at += ear.overlap.size
+            ear.output.copyInto(target, at); at += ear.output.size
+            ear.upsample.copyInto(target, at); at += ear.upsample.size
+            ear.dryOutput.copyInto(target, at); at += ear.dryOutput.size
+            ear.dryUpsample.copyInto(target, at); at += ear.dryUpsample.size
         }
         for (cache in caches) for (value in cache) target[at++] = value.toDouble()
     }
@@ -78,9 +85,14 @@ internal class AudioSpeechEnhancer(
         hopAt = source[at++].toInt(); upAt = source[at++].toInt()
         dryAt = source[at++].toInt()
         for (ear in ears) {
-            for (array in listOf(ear.dry, ear.input, ear.analysis, ear.overlap, ear.output, ear.upsample, ear.dryOutput, ear.dryUpsample)) {
-                source.copyInto(array, 0, at, at + array.size); at += array.size
-            }
+            source.copyInto(ear.dry, 0, at, at + ear.dry.size); at += ear.dry.size
+            source.copyInto(ear.input, 0, at, at + ear.input.size); at += ear.input.size
+            source.copyInto(ear.analysis, 0, at, at + ear.analysis.size); at += ear.analysis.size
+            source.copyInto(ear.overlap, 0, at, at + ear.overlap.size); at += ear.overlap.size
+            source.copyInto(ear.output, 0, at, at + ear.output.size); at += ear.output.size
+            source.copyInto(ear.upsample, 0, at, at + ear.upsample.size); at += ear.upsample.size
+            source.copyInto(ear.dryOutput, 0, at, at + ear.dryOutput.size); at += ear.dryOutput.size
+            source.copyInto(ear.dryUpsample, 0, at, at + ear.dryUpsample.size); at += ear.dryUpsample.size
         }
         for (cache in caches) for (index in cache.indices) cache[index] = source[at++].toFloat()
     }
@@ -109,7 +121,7 @@ internal class AudioSpeechEnhancer(
             }
         }
         inputAt = (inputAt + 1) % TAPS
-        val coefficients = up[(phase.toLong() * 128 / rate).toInt().coerceIn(0, 127)]
+        val coefficients = UP[(phase.toLong() * 128 / rate).toInt().coerceIn(0, 127)]
         fun sample(ear: Channel): Double {
             var value = if (preserveTreble && fraction < 1e-9) ear.dry[(dryAt - dryLag + drySize) % drySize] else 0.0
             if (preserveTreble && fraction >= 1e-9) for (tap in dryWeights.indices)
@@ -126,10 +138,10 @@ internal class AudioSpeechEnhancer(
 
     private fun enhanceHop() {
         for (ear in ears) {
-            for (i in 0 until 512) { ear.real[i] = ear.analysis[i] * window[i]; ear.imaginary[i] = 0.0 }
+            for (i in 0 until 512) { ear.real[i] = ear.analysis[i] * WINDOW[i]; ear.imaginary[i] = 0.0 }
             AudioFft.transform(ear.real, ear.imaginary, false)
         }
-        val spectrum = FloatArray(514)
+        val spectrum = this.spectrum
         for (i in 0..256) {
             val first = ears[0]; val second = if (ears.size == 2) ears[1] else first
             var real = (first.real[i] + second.real[i]) * .5
@@ -144,7 +156,7 @@ internal class AudioSpeechEnhancer(
             }
             spectrum[2 * i] = real.toFloat(); spectrum[2 * i + 1] = imaginary.toFloat()
         }
-        val enhanced = model.infer(spectrum, caches)
+        val enhanced = model.infer(spectrum, caches, enhancedScratch)
         require(enhanced.size == 514 && enhanced.all { it.isFinite() })
         for (i in 0..256) {
             val r = spectrum[2 * i].toDouble(); val im = spectrum[2 * i + 1].toDouble()
@@ -166,10 +178,10 @@ internal class AudioSpeechEnhancer(
             for (i in 257 until 512) { ear.real[i] = ear.real[512 - i]; ear.imaginary[i] = -ear.imaginary[512 - i] }
             AudioFft.transform(ear.real, ear.imaginary, true)
             for (i in 0 until 256) {
-                val value = ear.real[i] * window[i] + ear.overlap[i]
+                val value = ear.real[i] * WINDOW[i] + ear.overlap[i]
                 ear.output[i] = (value - ear.analysis[i]) * wet
                 if (!preserveTreble) ear.dryOutput[i] = ear.analysis[i]
-                ear.overlap[i] = ear.real[256 + i] * window[256 + i]
+                ear.overlap[i] = ear.real[256 + i] * WINDOW[256 + i]
             }
             ear.analysis.copyInto(ear.analysis, 0, 256, 512)
         }
@@ -179,6 +191,16 @@ internal class AudioSpeechEnhancer(
         const val VOICE_WET = .7
         const val NOISE_WET = .75
         private const val TAPS = 48
+        private val WINDOW = DoubleArray(512) { sqrt(.5 - .5 * cos(2 * PI * it / 512)) }
+        private val UP = Array(128) { fraction -> coefficients(16, .45, -fraction / 128.0) }
+        private val DOWN_CACHE = object : LinkedHashMap<Int, Array<DoubleArray>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Array<DoubleArray>>?) = size > 16
+        }
+        private fun downTable(rate: Int): Array<DoubleArray> = synchronized(DOWN_CACHE) {
+            DOWN_CACHE.getOrPut(rate) {
+                Array(128) { fraction -> coefficients(TAPS, min(7200.0 / rate, .45), fraction / 128.0) }
+            }
+        }
         private fun coefficients(size: Int, cutoff: Double, fraction: Double): DoubleArray {
             val result = DoubleArray(size) { i ->
                 val x = i - (size - 1) * .5 - fraction

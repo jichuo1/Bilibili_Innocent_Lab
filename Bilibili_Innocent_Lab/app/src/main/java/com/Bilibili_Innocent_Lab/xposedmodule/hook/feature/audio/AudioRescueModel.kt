@@ -7,7 +7,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.*
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.io.File
 import java.io.InputStream
+import java.lang.reflect.Constructor
 import java.nio.ByteBuffer
+import java.util.WeakHashMap
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -15,10 +17,40 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Only verified remote files or host-private cache; no network or work on AudioTrack writers. */
 internal object AudioRescueModel {
     private val started = AtomicBoolean()
+    private val modelLock = Any()
+    private val activeHolders = WeakHashMap<Any, Boolean>()
+    @Volatile private var cachedLoader: ModelLoader? = null
+    @Volatile private var cachedConstructor: Constructor<*>? = null
     @Volatile private var ready: AudioSpeechModel? = null
     @Volatile private var state = "not_requested"
     fun current(): AudioSpeechModel? = ready
     fun status(): String = state
+
+    fun acquire(holder: Any): AudioSpeechModel? = synchronized(modelLock) {
+        val model = ready ?: return null
+        activeHolders[holder] = true
+        model
+    }
+
+    fun release(holder: Any) {
+        synchronized(modelLock) {
+            activeHolders.remove(holder)
+        }
+    }
+
+    /** Closes and drops the idle ORT session when no active track holder retains it. */
+    fun releaseIfIdle(): Boolean {
+        val toClose = synchronized(modelLock) {
+            if (activeHolders.isNotEmpty()) return false
+            val current = ready ?: return false
+            ready = null
+            state = "not_requested"
+            started.set(false)
+            current
+        }
+        runCatching { toClose.close() }
+        return true
+    }
 
     fun prepare(moduleApk: File, hostCodeCache: File, openRemote: (String) -> InputStream?, log: (String, String) -> Unit) {
         if (!started.compareAndSet(false, true)) return
@@ -45,10 +77,13 @@ internal object AudioRescueModel {
                 report("loading", number)
                 // ORT calls loadLibrary. Search the verified native directory using a private
                 // loader, without mutating host/framework loaders or invoking hidden APIs.
-                val loader = ModelLoader(moduleApk.canonicalPath, store.directory.canonicalPath,
-                    checkNotNull(AudioRescueModel::class.java.classLoader))
-                val type = checkNotNull(Lookup.classOrNull(loader, MODEL_CLASS))
-                val constructor = checkNotNull(Lookup.constructorOrNull(type, ByteBuffer::class.java))
+                // Reuse a succeeded ModelLoader so re-prepare after releaseIfIdle never loads ORT JNI twice.
+                val constructor = cachedConstructor ?: run {
+                    val loader = cachedLoader ?: ModelLoader(moduleApk.canonicalPath, store.directory.canonicalPath,
+                        checkNotNull(AudioRescueModel::class.java.classLoader)).also { cachedLoader = it }
+                    val type = checkNotNull(Lookup.classOrNull(loader, MODEL_CLASS))
+                    checkNotNull(Lookup.constructorOrNull(type, ByteBuffer::class.java)).also { cachedConstructor = it }
+                }
                 AudioModelInput.withVerified(store.file(AudioAssetSpec.model)) { bytes ->
                     unpublished = constructor.newInstance(bytes) as AudioSpeechModel
                 }
@@ -57,9 +92,12 @@ internal object AudioRescueModel {
                 result.infer(FloatArray(514), arrayOf(FloatArray(16896), FloatArray(96), FloatArray(1056)))
                 val warm = AudioSpeechEnhancer(48000, 2, result)
                 repeat(12000) { warm.process(0.0, 0.0) }
-                ready = result
+                synchronized(modelLock) {
+                    ready = result
+                    state = "ready"
+                }
                 unpublished = null
-                report("ready", number)
+                log("player_audio_rescue.model.ready.$number", "[BIL] audio_assets id=${AudioAssetSpec.ID} stage=ready abi=$abi attempt=$number ")
                 worker.shutdown()
             } catch (failure: Throwable) {
                 runCatching { unpublished?.close() }

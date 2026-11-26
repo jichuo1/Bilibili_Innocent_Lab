@@ -3,11 +3,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.AudioRescueModel
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAsset
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetStore
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameCaptureBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameSourceCadence
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameVsyncGrid
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -174,5 +176,18 @@ class Phase5To7MediaAndNativeTest {
         val installed = installer.install(env("tv.danmaku.bili"))
         assertTrue(installed is FeatureInstallResult.Installed && installed.hookCount == 10)
         assertFalse(File("src/main/resources/META-INF/xposed/scope.list").takeIf { it.isFile }?.readText()?.contains("android") == true)
+        assertFalse(AudioRescueModel.releaseIfIdle())
+    }
+
+    @Test
+    fun `FrameVsyncGrid ring buffer keeps accurate period across window wraparound`() {
+        val period120 = 8_333_333L
+        val grid = FrameVsyncGrid(period120)
+        var t = 1_000_000L
+        repeat(64) { index ->
+            t += if (index % 9 == 4) period120 * 2 else period120
+            assertTrue(grid.onVsync(t))
+        }
+        assertEquals(period120, grid.periodNs)
     }
 }

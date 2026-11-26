@@ -263,11 +263,13 @@ pub fn scan(buf: &[u8], fields: &WireFields) -> Result<ScanOut, WireError> {
                 if elems.len() >= MAX_ELEMS {
                     return Err(WireError::TooManyElems);
                 }
+                elems.try_reserve(1).map_err(|_| WireError::TooLarge)?;
                 elems.push(scan_elem(payload, fields, buf.as_ptr() as usize)?);
             } else {
                 if srcs.len() >= MAX_SRCS {
                     return Err(WireError::TooManySrcs);
                 }
+                srcs.try_reserve(1).map_err(|_| WireError::TooLarge)?;
                 srcs.push(scan_src(payload, fields)?);
             }
         } else {
@@ -437,50 +439,47 @@ pub fn flatten(scan: &ScanOut) -> Result<Vec<i32>, WireError> {
 
 // ---------------- C ABI ----------------
 
-/// 把 Vec 的堆缓冲移交给 C 侧。`into_boxed_slice` 保证长度==容量，
-/// `dw_free_*` 才能用 (ptr, len, len) 重建 Vec 而不违反分配器约定。
-/// 空缓冲返回 (null, 0)，避免把非分配的悬垂指针交出去。
-fn handover_i32(vec: Vec<i32>) -> (*mut i32, usize) {
+/// 把 Vec 的堆缓冲以 (ptr, len, cap) 零重分配移交给 C 侧，避免 shrink realloc 与 OOM abort；
+/// 空缓冲返回 (null, 0, 0)，避免把非分配的悬垂指针交出去。
+fn handover_vec<T>(vec: Vec<T>) -> (*mut T, usize, usize) {
     if vec.is_empty() {
-        return (std::ptr::null_mut(), 0);
+        return (std::ptr::null_mut(), 0, 0);
     }
-    let boxed = vec.into_boxed_slice();
-    let len = boxed.len();
-    (Box::into_raw(boxed) as *mut i32, len)
+    let mut vec = std::mem::ManuallyDrop::new(vec);
+    (vec.as_mut_ptr(), vec.len(), vec.capacity())
 }
 
-fn handover_u8(vec: Vec<u8>) -> (*mut u8, usize) {
-    if vec.is_empty() {
-        return (std::ptr::null_mut(), 0);
-    }
-    let boxed = vec.into_boxed_slice();
-    let len = boxed.len();
-    (Box::into_raw(boxed) as *mut u8, len)
+fn handover_i32(vec: Vec<i32>) -> (*mut i32, usize, usize) {
+    handover_vec(vec)
 }
 
-/// 回收 C 侧不再使用的 i32 扫描缓冲。len 必须与移交时一致；len==0 时为无操作。
+fn handover_u8(vec: Vec<u8>) -> (*mut u8, usize, usize) {
+    handover_vec(vec)
+}
+
+/// 回收 C 侧不再使用的 i32 扫描缓冲。len/cap 必须与移交时一致；cap==0 时为无操作。
 /// # Safety
 /// ptr 非空时必须来自 [handover_i32] 的移交且未被释放过。
 #[no_mangle]
-pub unsafe extern "C" fn dw_free_i32(ptr: *mut i32, len: usize) {
+pub unsafe extern "C" fn dw_free_i32(ptr: *mut i32, len: usize, cap: usize) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() || len == 0 {
+        if ptr.is_null() || cap == 0 || len > cap {
             return;
         }
-        drop(Vec::from_raw_parts(ptr, len, len));
+        drop(Vec::from_raw_parts(ptr, len, cap));
     }));
 }
 
-/// 回收 C 侧不再使用的字节缓冲。len 必须与移交时一致；len==0 时为无操作。
+/// 回收 C 侧不再使用的字节缓冲。len/cap 必须与移交时一致；cap==0 时为无操作。
 /// # Safety
 /// ptr 非空时必须来自 [handover_u8] 的移交且未被释放过。
 #[no_mangle]
-pub unsafe extern "C" fn dw_free_u8(ptr: *mut u8, len: usize) {
+pub unsafe extern "C" fn dw_free_u8(ptr: *mut u8, len: usize, cap: usize) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() || len == 0 {
+        if ptr.is_null() || cap == 0 || len > cap {
             return;
         }
-        drop(Vec::from_raw_parts(ptr, len, len));
+        drop(Vec::from_raw_parts(ptr, len, cap));
     }));
 }
 
@@ -492,19 +491,26 @@ struct DwScanArgs {
     fields: *const WireFields,
     out_ptr: *mut *mut i32,
     out_len: *mut usize,
+    out_cap: *mut usize,
 }
 
 unsafe fn scan_impl(args: DwScanArgs) -> i32 {
-    if args.buf.is_null() || args.fields.is_null() || args.out_ptr.is_null() || args.out_len.is_null() {
+    if args.buf.is_null()
+        || args.fields.is_null()
+        || args.out_ptr.is_null()
+        || args.out_len.is_null()
+        || args.out_cap.is_null()
+    {
         return DW_ERR_ARGS;
     }
     let buf = std::slice::from_raw_parts(args.buf, args.buf_len);
     let fields = *args.fields;
     match scan(buf, &fields).and_then(|result| flatten(&result)) {
         Ok(flat) => {
-            let (ptr, len) = handover_i32(flat);
+            let (ptr, len, cap) = handover_i32(flat);
             *args.out_ptr = ptr;
             *args.out_len = len;
+            *args.out_cap = cap;
             DW_OK
         }
         Err(_) => DW_ERR_DECLINE,
@@ -520,8 +526,9 @@ pub unsafe extern "C" fn dw_scan(
     fields: *const WireFields,
     out_ptr: *mut *mut i32,
     out_len: *mut usize,
+    out_cap: *mut usize,
 ) -> i32 {
-    let args = DwScanArgs { buf, buf_len, fields, out_ptr, out_len };
+    let args = DwScanArgs { buf, buf_len, fields, out_ptr, out_len, out_cap };
     match catch_unwind(AssertUnwindSafe(|| scan_impl(args))) {
         Ok(code) => code,
         Err(_) => DW_ERR_PANIC,
@@ -542,12 +549,13 @@ struct DwRewriteArgs {
     keep_src_len: usize,
     out_ptr: *mut *mut u8,
     out_len: *mut usize,
+    out_cap: *mut usize,
 }
 
 unsafe fn rewrite_impl(args: DwRewriteArgs) -> i32 {
     if args.buf.is_null() || args.fields.is_null() || args.keep_elem.is_null()
         || args.recolor_elem.is_null() || args.keep_src.is_null()
-        || args.out_ptr.is_null() || args.out_len.is_null()
+        || args.out_ptr.is_null() || args.out_len.is_null() || args.out_cap.is_null()
     {
         return DW_ERR_ARGS;
     }
@@ -560,9 +568,10 @@ unsafe fn rewrite_impl(args: DwRewriteArgs) -> i32 {
     };
     match rewrite(buf, &fields, &mask) {
         Ok(result) => {
-            let (ptr, len) = handover_u8(result);
+            let (ptr, len, cap) = handover_u8(result);
             *args.out_ptr = ptr;
             *args.out_len = len;
+            *args.out_cap = cap;
             DW_OK
         }
         Err(_) => DW_ERR_DECLINE,
@@ -584,10 +593,11 @@ pub unsafe extern "C" fn dw_rewrite(
     keep_src_len: usize,
     out_ptr: *mut *mut u8,
     out_len: *mut usize,
+    out_cap: *mut usize,
 ) -> i32 {
     let args = DwRewriteArgs {
         buf, buf_len, fields, keep_elem, keep_elem_len, recolor_elem, recolor_elem_len,
-        keep_src, keep_src_len, out_ptr, out_len,
+        keep_src, keep_src_len, out_ptr, out_len, out_cap,
     };
     match catch_unwind(AssertUnwindSafe(|| rewrite_impl(args))) {
         Ok(code) => code,
@@ -1073,13 +1083,17 @@ mod tests {
         // scan 全链路（含 catch_unwind 与 handover）。
         let mut out: *mut i32 = std::ptr::null_mut();
         let mut len: usize = 0;
-        let code = unsafe { dw_scan(reply.as_ptr(), reply.len(), &F, &mut out, &mut len) };
+        let mut cap: usize = 0;
+        let code = unsafe { dw_scan(reply.as_ptr(), reply.len(), &F, &mut out, &mut len, &mut cap) };
         assert_eq!(code, DW_OK);
         assert!(!out.is_null());
+        assert!(cap >= len);
         assert_eq!(unsafe { *out }, 1);
-        unsafe { dw_free_i32(out, len) };
+        unsafe { dw_free_i32(out, len, cap) };
         // 空指针参数 → ARGS（垫片从不传 null，这里钉死边界）。
-        let code = unsafe { dw_scan(std::ptr::null(), 0, &F, &mut out, &mut len) };
+        let code = unsafe { dw_scan(std::ptr::null(), 0, &F, &mut out, &mut len, &mut cap) };
+        assert_eq!(code, DW_ERR_ARGS);
+        let code = unsafe { dw_scan(reply.as_ptr(), reply.len(), &F, &mut out, &mut len, std::ptr::null_mut()) };
         assert_eq!(code, DW_ERR_ARGS);
         // rewrite 全链路：全保留 + 改色。
         let keep = [1u8];
@@ -1087,40 +1101,52 @@ mod tests {
         let keep_src = [0u8; 1];
         let mut bytes_out: *mut u8 = std::ptr::null_mut();
         let mut bytes_len: usize = 0;
+        let mut bytes_cap: usize = 0;
         let code = unsafe {
             dw_rewrite(
                 reply.as_ptr(), reply.len(), &F,
                 keep.as_ptr(), keep.len(),
                 recolor.as_ptr(), recolor.len(),
                 keep_src.as_ptr(), keep_src.len(),
-                &mut bytes_out, &mut bytes_len,
+                &mut bytes_out, &mut bytes_len, &mut bytes_cap,
             )
         };
         assert_eq!(code, DW_OK);
         assert!(!bytes_out.is_null());
+        assert!(bytes_cap >= bytes_len);
         let rewritten = unsafe { std::slice::from_raw_parts(bytes_out, bytes_len) }.to_vec();
-        unsafe { dw_free_u8(bytes_out, bytes_len) };
+        unsafe { dw_free_u8(bytes_out, bytes_len, bytes_cap) };
         let rescan = scan(&rewritten, &F).unwrap();
         assert_eq!(rescan.elems.len(), 1);
         assert_eq!(rescan.elems[0].colorful, Some(0));
         assert_eq!(rescan.srcs.len(), 0);
-        // 零长度但非空的合法输入：scan 成功（0 元素），handover 空缓冲返回 (null, 0)。
+        // 零长度但非空的合法输入：scan 成功（0 元素），handover 空缓冲返回 (null, 0, 0)。
         let dangling = std::ptr::NonNull::<u8>::dangling().as_ptr();
-        let code = unsafe { dw_scan(dangling, 0, &F, &mut out, &mut len) };
+        let code = unsafe { dw_scan(dangling, 0, &F, &mut out, &mut len, &mut cap) };
         assert_eq!(code, DW_OK);
         assert_eq!(unsafe { *out }, 0);
         assert_eq!(len, 2);
-        unsafe { dw_free_i32(out, len) };
+        assert!(cap >= len);
+        unsafe { dw_free_i32(out, len, cap) };
     }
 
     #[test]
     fn handover_returns_null_for_empty() {
-        assert_eq!(handover_u8(Vec::new()), (std::ptr::null_mut(), 0));
-        assert_eq!(handover_i32(Vec::new()), (std::ptr::null_mut(), 0));
-        // len==0 的 free 是无操作（包括对悬垂指针）。
+        assert_eq!(handover_u8(Vec::new()), (std::ptr::null_mut(), 0, 0));
+        assert_eq!(handover_u8(Vec::with_capacity(8)), (std::ptr::null_mut(), 0, 0));
+        assert_eq!(handover_i32(Vec::new()), (std::ptr::null_mut(), 0, 0));
+        // len < cap 时原样保留 capacity 并正确释放，不发生 shrink 重分配。
+        let mut spare = Vec::with_capacity(16);
+        spare.extend_from_slice(&[1u8, 2, 3]);
+        let (ptr, len, cap) = handover_u8(spare);
+        assert!(!ptr.is_null());
+        assert_eq!(len, 3);
+        assert_eq!(cap, 16);
+        unsafe { dw_free_u8(ptr, len, cap) };
+        // cap==0 的 free 是无操作（包括对悬垂指针）。
         unsafe {
-            dw_free_u8(std::ptr::NonNull::<u8>::dangling().as_ptr(), 0);
-            dw_free_i32(std::ptr::NonNull::<i32>::dangling().as_ptr(), 0);
+            dw_free_u8(std::ptr::NonNull::<u8>::dangling().as_ptr(), 0, 0);
+            dw_free_i32(std::ptr::NonNull::<i32>::dangling().as_ptr(), 0, 0);
         }
     }
 }

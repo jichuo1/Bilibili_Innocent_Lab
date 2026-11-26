@@ -40,6 +40,24 @@ class FrameEngineGenerationTest {
         assertFalse(replacement.claimWarmup(size))
     }
 
+    fun releaseIfIdleRespectsActiveSynthesizerAndResetsToIdle() {
+        val holder = FrameInterpolationEngineHolder(File("module.apk"), File("cache"), { null }, { _, _ -> })
+        assertFalse(holder.releaseIfIdle())
+        val state = holder.javaClass.getDeclaredField("state").apply { isAccessible = true }
+        val current = holder.javaClass.getDeclaredField("backend").apply { isAccessible = true }
+        current.set(holder, engine(0L))
+        state.set(holder, FrameInterpolationEngineHolder.State.READY)
+
+        val syn = holder.synthesizer()
+        assertFalse(holder.releaseIfIdle())
+        assertEquals(FrameInterpolationEngineHolder.State.READY, holder.state)
+
+        syn.close()
+        assertTrue(holder.releaseIfIdle())
+        assertEquals(FrameInterpolationEngineHolder.State.IDLE, holder.state)
+        assertFalse(holder.releaseIfIdle())
+    }
+
     private fun engine(handle: Long) = FrameInterpolationBackend::class.java
         .getDeclaredConstructor(Long::class.javaPrimitiveType, Long::class.javaPrimitiveType)
         .apply { isAccessible = true }.newInstance(handle, 64L)
@@ -57,5 +75,6 @@ class FrameEngineGenerationTest {
         }
         runIsolated { s -> s.sessionCannotBorrowAReplacementEngineAfterDeviceLoss() }
         runIsolated { s -> s.warmupFailureCanRetryWithoutClearingTheReplacementEnginesClaim() }
+        runIsolated { s -> s.releaseIfIdleRespectsActiveSynthesizerAndResetsToIdle() }
     }
 }

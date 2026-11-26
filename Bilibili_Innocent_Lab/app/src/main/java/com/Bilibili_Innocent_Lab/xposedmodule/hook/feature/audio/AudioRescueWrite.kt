@@ -33,6 +33,7 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
     private var reusableBytesWrapper: ByteBuffer? = null
     private var reusableBuffer: ByteBuffer? = null
     private var continuation: Continuation? = null
+    private val checkpointPool = arrayOfNulls<DoubleArray>(3)
 
     fun prepare(data: Any?, offset: Int, count: Int): Pending? {
         if (offset < 0 || count <= 0 || count > MAX_UNITS) return null
@@ -71,10 +72,10 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
             }
             else -> return null
         }
-        val checkpoint = processor.checkpoint()
-        val output = acquireOutput(input.size)
         val cached = continuation
         continuation = null
+        val checkpoint = acquireCheckpoint(exclude1 = cached?.postCheckpoint).also(processor::checkpointInto)
+        val output = acquireOutput(input.size)
         val postCheckpoint: DoubleArray
         if (cached != null && input.contentEquals(cached.remainingInput)) {
             cached.remainingOutput.copyInto(output)
@@ -88,7 +89,8 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
                 processor.restore(checkpoint)
                 throw failure
             }
-            postCheckpoint = processor.checkpoint()
+            postCheckpoint = acquireCheckpoint(exclude1 = checkpoint, exclude2 = cached?.postCheckpoint)
+                .also(processor::checkpointInto)
         }
         val replacement: Any = when (data) {
             is ShortArray -> {
@@ -101,7 +103,7 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
             is ByteBuffer -> {
                 val buffer = reusableBuffer?.takeIf { it.capacity() >= count }
                     ?.apply { clear(); limit(count); order(ByteOrder.nativeOrder()) }
-                    ?: ByteBuffer.allocate(count).order(ByteOrder.nativeOrder()).also { reusableBuffer = it }
+                    ?: ByteBuffer.allocateDirect(count).order(ByteOrder.nativeOrder()).also { reusableBuffer = it }
                 encodeSamples(output, buffer)
                 buffer.flip()
                 buffer
@@ -192,6 +194,18 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         val samples = frames * processor.channelCount
         return Metrics(frames, inputPeak, outputPeak, inputDifference, outputDifference,
             kotlin.math.sqrt(inputEnergy / samples), kotlin.math.sqrt(outputEnergy / samples))
+    }
+
+    private fun acquireCheckpoint(exclude1: DoubleArray? = null, exclude2: DoubleArray? = null): DoubleArray {
+        val needed = processor.stateSize
+        for (i in checkpointPool.indices) {
+            val slot = checkpointPool[i]
+            if (slot !== exclude1 && slot !== exclude2) {
+                return if (slot != null && slot.size >= needed) slot
+                else DoubleArray(needed).also { checkpointPool[i] = it }
+            }
+        }
+        return DoubleArray(needed)
     }
 
     private fun acquireInput(size: Int): FloatArray =

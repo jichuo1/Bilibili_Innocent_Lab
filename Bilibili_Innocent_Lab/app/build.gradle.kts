@@ -423,7 +423,7 @@ android {
     buildFeatures {
         aidl = true
         buildConfig = true
-        viewBinding = true
+        viewBinding = false
     }
     lint {
         checkReleaseBuilds = false

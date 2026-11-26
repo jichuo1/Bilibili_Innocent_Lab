@@ -1,7 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
+import android.content.Context
 import android.os.Looper
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing.FrameNativeLoader
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import io.github.jichuo1.meguviz.media.MediaNative
 import io.github.jichuo1.meguviz.media.AndroidMediaSession
 import io.github.jichuo1.meguviz.memory.android.ManagedMemoryDomain
@@ -89,10 +91,24 @@ internal class FrameInterpolationBackend private constructor(private var handle:
         handle != 0L && MediaNative.frameDeviceLossStatus(handle) == MGC_DEVICE_LOST
 
     /** Creates a model-backed RGBA8 AHB session on the calling EGL owner. */
-    @Synchronized fun openWindowSession(width: Int, height: Int, sourceWidth: Int, sourceHeight: Int, path: Int): AndroidMediaSession {
+    @Synchronized fun openWindowSession(
+        width: Int,
+        height: Int,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        path: Int,
+        context: Context? = null,
+        targetFrameNanos: Long = 0L
+    ): AndroidMediaSession {
         requireWorker()
         check(handle != 0L && width.toLong() * height <= maxPixels)
-        return AndroidMediaSession(handle, width, height, sourceWidth, sourceHeight, 8, path, false, null)
+        return AndroidMediaSession(handle, width, height, sourceWidth, sourceHeight, 8, path, false, null).also { session ->
+            if (targetFrameNanos > 0L) {
+                (context ?: ReflectAccess.currentApplication())?.let { appContext ->
+                    runCatching { session.setAdpfExperimentEnabled(appContext, targetFrameNanos, true) }
+                }
+            }
+        }
     }
 
     /** CPU time of Media's own inference worker for the last completed request, when observed. */

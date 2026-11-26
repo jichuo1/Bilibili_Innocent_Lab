@@ -1,7 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
+import android.content.Context
 import android.media.MediaFormat
 import android.opengl.GLES30
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import io.github.jichuo1.meguviz.media.AndroidMediaSession
 import io.github.jichuo1.meguviz.media.FrameGenerationProfile
 import io.github.jichuo1.meguviz.media.FrameGenerationSession
@@ -24,10 +26,21 @@ internal object FrameRifeAhbBackend {
         if (--preparing == 0) runCatching { AndroidMediaSession.discardPreparedCreationAsync() }
     }
 
+    private class TrackedWindowBackend(
+        private val delegate: FrameGenerationSession,
+        private val onClose: () -> Unit
+    ) : WindowBackend by delegate, FrameWindowEpoch {
+        override fun invalidate() = delegate.invalidate()
+        override fun close() {
+            delegate.close()
+            onClose()
+        }
+    }
+
     fun open(holder: FrameInterpolationEngineHolder, width: Int, height: Int, outputWidth: Int, outputHeight: Int,
              sourceFps: Float, targetFps: Int, standard: FrameMediaPolicy.Standard,
              isCurrent: () -> Boolean = { true }, androidColorStandard: Int? = null,
-             bypassFrameBudget: Boolean = false): WindowBackend? {
+             bypassFrameBudget: Boolean = false, context: Context? = null): WindowBackend? {
         val engine = holder.windowEngine() ?: return null
         // ISO/IEC 23001-8 colour primaries and matrix coefficients for the captured SDR content.
         val color = when (standard) {
@@ -43,8 +56,9 @@ internal object FrameRifeAhbBackend {
         val period = (1e9 / sourceFps).roundToLong()
         val budget = if (bypassFrameBudget) TimeUnit.MILLISECONDS.toNanos(120)
             else minOf(period, (FrameInterpolationEngineHolder.CAPABILITY_LIMIT_MS * 1e6).toLong())
+        val targetFrameNanos = 1_000_000_000L / targetFps
         val profile = FrameGenerationProfile(width, height, outputWidth, outputHeight, color, color, true,
-            period, 1_000_000_000L / targetFps, budget)
+            period, targetFrameNanos, budget)
         val sizes = holder.windowPixelBudgets().mapNotNull { pixels ->
             FrameProcessingSize.fit(width, height, pixels, maxOf(outputWidth, outputHeight), minOf(outputWidth, outputHeight))
         }.distinct()
@@ -53,10 +67,18 @@ internal object FrameRifeAhbBackend {
         val searchEnd = deadline - TimeUnit.SECONDS.toNanos(2)
         fun current(until: Long) = isCurrent() && holder.windowEngine() === engine && System.nanoTime() < until
 
+        val openToken = Any()
+        if (holder.retainUser(openToken) !== engine) {
+            holder.releaseUser(openToken)
+            return null
+        }
+
         // A 4K pool can occupy hundreds of MiB. Compare modes sequentially, with one live pool.
         val fixture = FrameAhbProbeSurface()
         var owned: Probe? = null
         var transferred: FrameGenerationSession? = null
+        var pendingRetirement = false
+        var handedOff = false
         fun retireTrial() {
             owned?.close()
             owned = null
@@ -80,61 +102,75 @@ internal object FrameRifeAhbBackend {
             return null
         }
 
-        beginPreparation()
         try {
-            fixture.prepare(width, height, outputWidth, outputHeight)
-            val qualified = mutableListOf<FrameGenerationProfile.Qualification>()
-            // Give each sync mode a chance at the smallest allowed extent first. Then search
-            // the larger extents in quality order and reserve time to recheck the selected session.
-            val floor = sizes.last()
-            for (size in listOf(floor) + sizes.dropLast(1)) {
-                if (!current(searchEnd)) break
-                for ((index, path) in syncPaths.withIndex()) {
-                    val now = System.nanoTime()
-                    val until = if (size == floor && index == 0) now + (searchEnd - now) / 2 else searchEnd
-                    if (!current(until)) continue
-                    measure(size, path, FrameInterpolationEngineHolder.STANDARD_TIERS, until)?.let(qualified::add)
+            beginPreparation()
+            try {
+                fixture.prepare(width, height, outputWidth, outputHeight)
+                val qualified = mutableListOf<FrameGenerationProfile.Qualification>()
+                // Give each sync mode a chance at the smallest allowed extent first. Then search
+                // the larger extents in quality order and reserve time to recheck the selected session.
+                val floor = sizes.last()
+                for (size in listOf(floor) + sizes.dropLast(1)) {
+                    if (!current(searchEnd)) break
+                    for ((index, path) in syncPaths.withIndex()) {
+                        val now = System.nanoTime()
+                        val until = if (size == floor && index == 0) now + (searchEnd - now) / 2 else searchEnd
+                        if (!current(until)) continue
+                        measure(size, path, FrameInterpolationEngineHolder.STANDARD_TIERS, until)?.let(qualified::add)
+                        retireTrial()
+                    }
+                    if (size != floor && qualified.any { it.rifeWidth == size.width && it.rifeHeight == size.height }) break
+                }
+                while (qualified.isNotEmpty() && current(deadline)) {
+                    val best = profile.selectRife(*qualified.toTypedArray()) ?: break
+                    qualified.remove(best)
+                    val size = FrameProcessingSize.Size(best.rifeWidth, best.rifeHeight)
+                    val fresh = measure(size, best.rifePath, listOf(best.flowScale), deadline)
+                    if (fresh != null && current(deadline)) {
+                        val live = checkNotNull(owned).session
+                        live.beginEpoch(live.epoch() + 1)
+                        transferred = FrameGenerationSession.openQualified(profile, fresh, live, null)
+                        if (transferred != null) {
+                            (context ?: ReflectAccess.currentApplication())?.let { appContext ->
+                                runCatching { live.setAdpfExperimentEnabled(appContext, targetFrameNanos, true) }
+                            }
+                            owned = null
+                            holder.reportWindowProbe("selected path=${fresh.rifePath} size=${fresh.rifeWidth}x${fresh.rifeHeight} flow=${fresh.flowScale} p95Ns=${fresh.pairToDrawP95Ns}")
+                            break
+                        }
+                    }
                     retireTrial()
                 }
-                if (size != floor && qualified.any { it.rifeWidth == size.width && it.rifeHeight == size.height }) break
-            }
-            while (qualified.isNotEmpty() && current(deadline)) {
-                val best = profile.selectRife(*qualified.toTypedArray()) ?: break
-                qualified.remove(best)
-                val size = FrameProcessingSize.Size(best.rifeWidth, best.rifeHeight)
-                val fresh = measure(size, best.rifePath, listOf(best.flowScale), deadline)
-                if (fresh != null && current(deadline)) {
-                    val live = checkNotNull(owned).session
-                    live.beginEpoch(live.epoch() + 1)
-                    transferred = FrameGenerationSession.openQualified(profile, fresh, live, null)
-                    if (transferred != null) {
-                        owned = null
-                        holder.reportWindowProbe("selected path=${fresh.rifePath} size=${fresh.rifeWidth}x${fresh.rifeHeight} flow=${fresh.flowScale} p95Ns=${fresh.pairToDrawP95Ns}")
-                        break
-                    }
-                }
-                retireTrial()
-            }
-        } finally {
-            val retire = AutoCloseable {
-                retireTrial()
-                check(AndroidMediaSession.servicePendingCreation() == 0) { "AHB creation still retiring" }
-                fixture.close()
-            }
-            try {
-                retire.close()
-            } catch (failure: Throwable) {
-                val selected = transferred
-                var selectedClosed = selected == null
-                throw FrameWindowRetirementPending(AutoCloseable {
-                    if (!selectedClosed) { selected!!.close(); selectedClosed = true }
-                    retire.close()
-                }, failure)
             } finally {
-                finishPreparation()
+                val retire = AutoCloseable {
+                    retireTrial()
+                    check(AndroidMediaSession.servicePendingCreation() == 0) { "AHB creation still retiring" }
+                    fixture.close()
+                }
+                try {
+                    retire.close()
+                } catch (failure: Throwable) {
+                    pendingRetirement = true
+                    val selected = transferred
+                    var selectedClosed = selected == null
+                    throw FrameWindowRetirementPending(AutoCloseable {
+                        try {
+                            if (!selectedClosed) { selected!!.close(); selectedClosed = true }
+                            retire.close()
+                        } finally {
+                            if (selectedClosed) holder.releaseUser(openToken)
+                        }
+                    }, failure)
+                } finally {
+                    finishPreparation()
+                }
             }
+            val result = transferred?.let { TrackedWindowBackend(it) { holder.releaseUser(openToken) } }
+            handedOff = result != null
+            return result
+        } finally {
+            if (!handedOff && !pendingRetirement) holder.releaseUser(openToken)
         }
-        return transferred
     }
 
     private fun openPrepared(engine: FrameInterpolationBackend, size: FrameProcessingSize.Size,

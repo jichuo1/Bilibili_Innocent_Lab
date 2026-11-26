@@ -14,6 +14,6 @@ crate-type = ["staticlib", "rlib"]
 # panic=abort 会在宿主进程里直接 abort（PROTECTIVE 兜不住原生崩溃）。
 [profile.release]
 panic = "unwind"
-opt-level = "s"
-lto = false
+opt-level = "z"
+lto = "thin"
 codegen-units = 1

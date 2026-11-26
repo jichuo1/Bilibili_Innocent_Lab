@@ -888,6 +888,9 @@ internal class FrameInterpolationFeatureInstaller(
         return FeatureInstallResult.Skipped(reason)
     }
 
+    /** Releases the idle RIFE engine when no interpolation session is active. */
+    internal fun releaseIfIdle(): Boolean = routes?.rife?.releaseIfIdle() == true
+
     internal data class DisplayModeCandidate(
         val modeId: Int,
         val physicalWidth: Int,

@@ -30,8 +30,12 @@ internal class AudioRescueProcessor(
         Biquad.highPass(sampleRate, 180.0), Biquad.lowPass(sampleRate, min(3800.0, sampleRate * .4))
     )
 
-    fun checkpoint(): DoubleArray = DoubleArray(state.size + (speech?.stateSize ?: 0)).also {
-        state.copyInto(it); speech?.save(it, state.size)
+    val stateSize: Int = state.size + (speech?.stateSize ?: 0)
+
+    fun checkpoint(): DoubleArray = DoubleArray(stateSize).also(::checkpointInto)
+    fun checkpointInto(target: DoubleArray) {
+        require(target.size >= stateSize) { "checkpoint buffer too small: ${target.size} < $stateSize" }
+        state.copyInto(target); speech?.save(target, state.size)
     }
     fun restore(checkpoint: DoubleArray) {
         checkpoint.copyInto(state, 0, 0, state.size); speech?.restore(checkpoint, state.size)

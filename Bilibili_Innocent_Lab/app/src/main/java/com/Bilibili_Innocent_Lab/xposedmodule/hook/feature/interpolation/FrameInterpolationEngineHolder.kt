@@ -87,8 +87,14 @@ internal class FrameInterpolationEngineHolder(
         private set
     @Volatile private var backend: FrameInterpolationBackend? = null
     private var modelOnly = false
+    private val activeUsers = java.util.WeakHashMap<Any, Boolean>()
     fun ahbCandidateLoaded(): Boolean = backend != null && state != State.PREPARING
     internal fun windowEngine() = backend.takeIf { ahbCandidateLoaded() }
+    @Synchronized internal fun retainUser(token: Any): FrameInterpolationBackend? =
+        windowEngine()?.also { activeUsers[token] = true }
+    @Synchronized internal fun releaseUser(token: Any) {
+        activeUsers.remove(token)
+    }
     internal fun windowPixelBudgets(): List<Long> =
         capabilitySizes.map { (w, h) -> w.toLong() * h }.distinct().sortedDescending()
     internal fun reportWindowProbe(detail: String) = log("rife.ahb.probe", detail)
@@ -470,7 +476,7 @@ internal class FrameInterpolationEngineHolder(
         FrameInterpolationSession.Worker { task -> runCatching { executor.execute(task) }.isSuccess }
 
     fun synthesizer(): FrameInterpolationSession.Synthesizer = object : FrameInterpolationSession.Synthesizer {
-        private val sessionEngine = backend.takeIf { ready() }
+        private val sessionEngine = retainReadyEngine(this)
 
         override fun process(left: ByteBuffer, right: ByteBuffer, output: ByteBuffer, format: FrameBufferLedger.Format,
                              alpha: Float, leftId: Long, rightId: Long): FrameInterpolationBackend.Status {
@@ -531,6 +537,32 @@ internal class FrameInterpolationEngineHolder(
             }
             return result
         }
-        override fun close() = Unit
+        override fun close() = releaseUser(this)
+    }
+
+    @Synchronized private fun retainReadyEngine(token: Any): FrameInterpolationBackend? =
+        backend.takeIf { ready() }?.also { activeUsers[token] = true }
+
+    /** Releases the idle RIFE engine when no session or preparation is active. */
+    @Synchronized fun releaseIfIdle(): Boolean {
+        if (activeUsers.isNotEmpty() || state == State.PREPARING) return false
+        val engine = backend ?: return false
+        backend = null
+        state = State.IDLE
+        modelOnly = false
+        capability = FrameProcessingSize.Capability(0L, 0L)
+        measuredMs.clear()
+        loadWindowStartNs = 0L
+        loadWindowUs = 0L
+        recoveryTask?.cancel(false)
+        recoveryTask = null
+        val scheduled = runCatching {
+            executor.execute { runCatching { engine.close() } }
+        }.isSuccess
+        if (!scheduled) {
+            runCatching { recoveryExecutor.execute { runCatching { engine.close() } } }
+        }
+        runCatching { onPreparationChanged?.invoke() }
+        return true
     }
 }
