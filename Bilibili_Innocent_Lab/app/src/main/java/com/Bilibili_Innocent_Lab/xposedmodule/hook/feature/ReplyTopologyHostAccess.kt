@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeFlags
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyThreadKey
@@ -307,29 +308,35 @@ internal class ReplyTopologyHostAccess private constructor(
             ) { proxy, method, args ->
                 when (method.name) {
                     "onNext" -> {
-                        call.retainResponse(args?.getOrNull(0))
+                        HostThreadGuard.run("reply_topology.moss.on_next") {
+                            call.retainResponse(args?.getOrNull(0))
+                        }
                         null
                     }
                     "onError" -> {
-                        val cause = args?.getOrNull(0) as? Throwable
-                            ?: IllegalStateException("Unknown MOSS error")
-                        call.complete(Result.failure(cause))
+                        HostThreadGuard.run("reply_topology.moss.on_error") {
+                            val cause = args?.getOrNull(0) as? Throwable
+                                ?: IllegalStateException("Unknown MOSS error")
+                            call.complete(Result.failure(cause))
+                        }
                         null
                     }
                     "onCompleted" -> {
-                        if (call.isActive) {
-                            val raw = call.responseOrNull()
-                            if (raw == null) {
-                                call.complete(
-                                    Result.failure(IllegalStateException("Empty DetailListReply"))
-                                )
-                            } else {
-                                call.complete(runCatching { parsePage(raw, key) })
+                        HostThreadGuard.run("reply_topology.moss.on_completed") {
+                            if (call.isActive) {
+                                val raw = call.responseOrNull()
+                                if (raw == null) {
+                                    call.complete(
+                                        Result.failure(IllegalStateException("Empty DetailListReply"))
+                                    )
+                                } else {
+                                    call.complete(runCatching { parsePage(raw, key) })
+                                }
                             }
                         }
                         null
                     }
-                    "onNextForAck" -> {
+                    "onNextForAck" -> HostThreadGuard.call("reply_topology.moss.on_next_ack", 0L) {
                         call.retainResponse(args?.getOrNull(0))
                         0L
                     }

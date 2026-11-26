@@ -591,9 +591,9 @@ internal class FrameInterpolationFeatureInstaller(
                 }
                 FramePlaybackRoutes.Result.WaitForMedia -> {
                     // MediaCodec output metadata and AudioTrack attributes can arrive after start.
-                    mediaRetryHandler.postDelayed({
-                        val current = weakCodec.get() ?: return@postDelayed
-                        val next = configured[current] ?: return@postDelayed
+                    mediaRetryHandler.postDelayed(HostThreadGuard.runnable("frame_interp.media_retry") {
+                        val current = weakCodec.get() ?: return@runnable
+                        val next = configured[current] ?: return@runnable
                         if (next.ticket === ticket) awaitEngine(current, next)
                     }, decoder.attempt.mediaRetryDelayMs)
                 }
@@ -683,11 +683,11 @@ internal class FrameInterpolationFeatureInstaller(
             return true
         }
         post {
-            runCatching { activationExecutor.execute {
+            runCatching { activationExecutor.execute(HostThreadGuard.runnable("frame_interp.activate") {
                 try { prepareActivation(apk) }
                 catch (failure: Exception) { log("activate.failed", failure.javaClass.simpleName) }
                 finally { activationScheduled.set(false) }
-            } }.onFailure { activationScheduled.set(false); log("activate.wait", "queue") }
+            }) }.onFailure { activationScheduled.set(false); log("activate.wait", "queue") }
         }
         return true
     }

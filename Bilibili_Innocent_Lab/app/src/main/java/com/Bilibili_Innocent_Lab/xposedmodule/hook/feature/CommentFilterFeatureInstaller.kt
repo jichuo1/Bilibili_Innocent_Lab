@@ -223,9 +223,9 @@ internal class CommentFilterFeatureInstaller(
         }
         // KMP 评论页走 Kotlin KReplyMoss：兜底通道，不计入覆盖单位；Java getter 一个都装不上时也照装。
         installKotlinChannel(environment, accessors, plan, videoIdentity, peerSource)
-        if (videoIdentity != null) fishVideoMetadata?.install(environment)
+        if (videoIdentity != null) fishVideoMetadata?.install(environment, kmpGrpcWireEngine)
         if (plan.fish != null && (accessors.replyMid != null || accessors.hasAuthorMidPath)) {
-            fishAccountMetadata?.install(environment)
+            fishAccountMetadata?.install(environment, kmpGrpcWireEngine)
         }
         if (installed == 0) return missing(environment, "registration-failed")
         // 提前判定层是加速通道，不计入覆盖单位：装不上时仍按"下次加载生效"工作。

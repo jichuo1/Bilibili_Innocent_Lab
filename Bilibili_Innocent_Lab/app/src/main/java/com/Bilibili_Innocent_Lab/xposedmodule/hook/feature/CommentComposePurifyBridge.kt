@@ -62,33 +62,55 @@ internal class CommentComposePurifyBridge(
                 KavaMemberLookup.declaredFields(type).map { it.type }.distinct().singleOrNull { candidate ->
                     if (!candidate.name.startsWith(type.name + "$")) return@singleOrNull false
                     val fields = KavaMemberLookup.declaredFields(candidate).filterNot { it.isStatic }
-                    fields.size == 4 && fields.map { it.name }.toSet() == setOf("a", "b", "c", "d") &&
+                    fields.size == 4 && fields.map { it.type }.distinct().size == 4 &&
                         fields.all { !it.type.isPrimitive && it.type.name.startsWith(type.name + "$") }
                 }
             }
-            val followed = decoration?.let { KavaMemberLookup.fieldOrNull(it, "b") }
-            val constructors = decoration?.let { KavaMemberLookup.declaredConstructors(it).filter {
-                it.parameterCount == 4 && it.parameterTypes[1] == followed?.type
-            } }.orEmpty()
+            val decorationFields = decoration?.let {
+                KavaMemberLookup.declaredFields(it, makeAccessible = true).filterNot { f -> f.isStatic }
+            }.orEmpty()
+            val namedFollowed = decoration?.let { KavaMemberLookup.fieldOrNull(it, "b") }
+            val followField = namedFollowed ?: decorationFields.singleOrNull { f ->
+                f.type.name.substringAfterLast('$').substringAfterLast('.') == "Follow"
+            }
+            val constructors = decoration?.let {
+                KavaMemberLookup.declaredConstructors(it, makeAccessible = true).filter { ctor ->
+                    ctor.parameterCount == 4 &&
+                        decorationFields.all { field -> field.type in ctor.parameterTypes } &&
+                        (followField == null || followField.type in ctor.parameterTypes)
+                }
+            }.orEmpty()
             var installed = 0
             constructors.forEach { constructor ->
-                val slots = KavaMemberLookup.declaredFields(constructor.declaringClass, makeAccessible = true)
-                    .filterNot { it.isStatic }
+                val slots = decorationFields
                 if (!nullableCommentDecoration(constructor, slots)) return@forEach
+                val fixedFollowSlot = followField?.let { f ->
+                    val argIndex = constructor.parameterTypes.indexOf(f.type)
+                    if (argIndex >= 0) argIndex to f else null
+                }
                 runCatching {
                     environment.registrar.constructor("comment.compose.follow.${constructor.declaringClass.name}", constructor) {
                         before {
                             // 只清源码核对为可空的 follow 装饰槽；其它三种装饰原样保留。
-                            val value = argOrNull(1) ?: return@before
+                            val (argIndex, targetField) = fixedFollowSlot ?: run {
+                                val idx = args.indices.firstOrNull {
+                                    args[it]?.toString()?.startsWith("Follow(mid=") == true
+                                } ?: return@before
+                                val field = slots.singleOrNull { it.type == constructor.parameterTypes[idx] }
+                                    ?: return@before
+                                idx to field
+                            }
+                            val value = argOrNull(argIndex) ?: return@before
                             if (!value.toString().startsWith("Follow(mid=")) return@before
                             environment.reportRuntimeEvidence(FOLLOW, FeatureRuntimeStage.OBSERVED)
-                            setObjectExtra("comment.follow.cleared", true)
-                            args[1] = null
+                            setObjectExtra("comment.follow.slot", targetField)
+                            args[argIndex] = null
                         }
                         after {
-                            if (!hasThrowable && getObjectExtra("comment.follow.cleared") == true &&
-                                instance?.let { followed?.get(it) } == null
-                            ) environment.reportRuntimeEvidence(FOLLOW, FeatureRuntimeStage.APPLIED)
+                            val targetField = getObjectExtra("comment.follow.slot") as? Field ?: return@after
+                            if (!hasThrowable && instance?.let { targetField.get(it) } == null) {
+                                environment.reportRuntimeEvidence(FOLLOW, FeatureRuntimeStage.APPLIED)
+                            }
                         }
                     }
                     installed++
@@ -98,7 +120,7 @@ internal class CommentComposePurifyBridge(
                 val candidate = field.type
                 if (!candidate.name.startsWith(type.name + "$")) return@any false
                 val fields = KavaMemberLookup.declaredFields(candidate).filterNot { it.isStatic }
-                fields.size == 3 && fields.map { it.name }.toSet() == setOf("a", "b", "c") &&
+                fields.size == 3 && fields.map { it.type }.distinct().size == 3 &&
                     fields.all { !it.type.isPrimitive && it.type.name.startsWith(type.name + "$") }
             } } == true
             if (decoration != null || !withoutFollow) results[FOLLOW] = outcome(installed, constructors.size)
@@ -110,15 +132,20 @@ internal class CommentComposePurifyBridge(
                 fields.size in 8..9 && fields.count { it.type == classOf<Long>() } == 5 &&
                     fields.count { it.type == classOf<String>() } == 2
             }
-            val stores = if (replyTypes.isEmpty()) emptyList() else (listOf("CardStore") + ('a'..'z').map(Char::toString)).mapNotNull {
-                KavaMemberLookup.classOrNull(loader, "kntr.common.comment.card.store.$it")
+            val rendererStores = if (action == null || replyTypes.isEmpty()) emptyList() else {
+                discoverStoresFromRenderer(loader, action)
             }
+            val stores = if (replyTypes.isEmpty()) emptyList() else (
+                (listOf("CardStore") + ('a'..'z').map(Char::toString)).mapNotNull {
+                    KavaMemberLookup.classOrNull(loader, "kntr.common.comment.card.store.$it")
+                } + rendererStores
+            ).distinct()
             val methods = if (action == null) emptyList() else stores.flatMap { owner ->
                 KavaMemberLookup.declaredMethods(owner).filter {
                     !it.isStatic && it.returnType == Void.TYPE && it.parameterCount == 1 &&
                         it.parameterTypes[0] != classOf<Any>() && action isSubclassOf it.parameterTypes[0]
                 }
-            }
+            }.distinctBy { it.toGenericString() }
             var installed = 0
             methods.forEach { method ->
                 runCatching {
@@ -145,6 +172,24 @@ internal class CommentComposePurifyBridge(
             }
         }
         return results
+    }
+
+    private fun discoverStoresFromRenderer(loader: ClassLoader, action: Class<*>): List<Class<*>> {
+        val renderer = KavaMemberLookup.classOrNull(loader, "$RENDER_PACKAGE.CommentRichTextRenderer")
+            ?: return emptyList()
+        return KavaMemberLookup.declaredMethods(renderer).flatMap { method ->
+            if (method.isStatic || method.parameterTypes.none { it.name == COMPOSER }) return@flatMap emptyList()
+            method.parameterTypes.mapNotNull { param ->
+                if (param.isPrimitive || param.isInterface || param.isArray) return@mapNotNull null
+                val storeFields = KavaMemberLookup.declaredFields(param).filter { field ->
+                    KavaMemberLookup.declaredMethods(field.type).any {
+                        !it.isStatic && it.returnType == Void.TYPE && it.parameterCount == 1 &&
+                            it.parameterTypes[0] != classOf<Any>() && action isSubclassOf it.parameterTypes[0]
+                    }
+                }
+                storeFields.singleOrNull()?.type
+            }
+        }.distinct()
     }
 
     private fun outcome(installed: Int, expected: Int): FeatureInstallResult =

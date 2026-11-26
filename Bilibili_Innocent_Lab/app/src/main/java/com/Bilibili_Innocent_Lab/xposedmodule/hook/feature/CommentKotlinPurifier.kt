@@ -46,6 +46,7 @@ internal class CommentKotlinPurifier(
         var current = message
         if (isSearchUrl != null) current = rewriter.rewrite(current).message
         val shape = topShapeOf(current.javaClass) ?: return current
+        if (shape.defaultInstance != null && current === shape.defaultInstance) return current
         val clears = shape.payloads.filter { field ->
             KotlinMossChannel.raw { field.has.invoke(current) as? Boolean } == true
         }
@@ -53,6 +54,7 @@ internal class CommentKotlinPurifier(
             val control = KotlinMossChannel.raw {
                 if (path.has.invoke(current) as? Boolean == true) path.getter.invoke(current) else null
             } ?: return@let null
+            if (path.controlDefaultInstance != null && control === path.controlDefaultInstance) return@let null
             val hasEmpty = KotlinMossChannel.raw { path.hasEmptyPage.invoke(control) as? Boolean } == true
             if (!hasEmpty) return@let null
             path.controlPlan.edit(control) { builder -> path.clearEmptyPage.invoke(builder) }
@@ -82,13 +84,17 @@ internal class CommentKotlinPurifier(
         val clearUrls: Method,
         val putAllUrls: Method,
         val replyPlan: ProtobufBuilderPlan,
-        val setContent: Method
+        val setContent: Method,
+        val replyDefaultInstance: Any?,
+        val contentDefaultInstance: Any?
     )
 
     private fun stripLinks(reply: Any): Any {
         val predicate = isSearchUrl ?: return reply
         val links = linksOf(reply.javaClass) ?: return reply
+        if (links.replyDefaultInstance != null && reply === links.replyDefaultInstance) return reply
         val content = KotlinMossChannel.raw { links.contentGetter.invoke(reply) } ?: return reply
+        if (links.contentDefaultInstance != null && content === links.contentDefaultInstance) return reply
         @Suppress("UNCHECKED_CAST")
         val urls = KotlinMossChannel.raw { links.urlsGetter.invoke(content) as? Map<Any?, Any?> } ?: return reply
         if (urls.isEmpty()) return reply
@@ -123,7 +129,10 @@ internal class CommentKotlinPurifier(
         val putAllUrls = contentPlan.method("putAllUrls", classOf<Map<*, *>>()) ?: return null
         val replyPlan = ProtobufBuilderPlan.resolve(type) ?: return null
         val setContent = replyPlan.method("setContent", contentClass) ?: return null
-        return Links(contentGetter, urlsGetter, contentPlan, clearUrls, putAllUrls, replyPlan, setContent)
+        return Links(
+            contentGetter, urlsGetter, contentPlan, clearUrls, putAllUrls, replyPlan, setContent,
+            defaultInstanceOf(type), defaultInstanceOf(contentClass)
+        )
     }
 
     // —— 顶层可选字段 ——
@@ -136,10 +145,16 @@ internal class CommentKotlinPurifier(
         val set: Method,
         val hasEmptyPage: Method,
         val controlPlan: ProtobufBuilderPlan,
-        val clearEmptyPage: Method
+        val clearEmptyPage: Method,
+        val controlDefaultInstance: Any?
     )
 
-    private class TopShape(val plan: ProtobufBuilderPlan, val payloads: List<PayloadField>, val subject: SubjectPath?)
+    private class TopShape(
+        val plan: ProtobufBuilderPlan,
+        val payloads: List<PayloadField>,
+        val subject: SubjectPath?,
+        val defaultInstance: Any?
+    )
 
     private fun topShapeOf(type: Class<*>): TopShape? {
         topShapes[type]?.let { return it as? TopShape }
@@ -177,15 +192,20 @@ internal class CommentKotlinPurifier(
             val hasEmpty = noArg(controlClass, "hasEmptyPage")?.takeIf { it.returnType == classOf<Boolean>() } ?: return@run null
             val controlPlan = ProtobufBuilderPlan.resolve(controlClass) ?: return@run null
             val clearEmpty = controlPlan.method("clearEmptyPage") ?: return@run null
-            SubjectPath(has, getter, set, hasEmpty, controlPlan, clearEmpty)
+            SubjectPath(has, getter, set, hasEmpty, controlPlan, clearEmpty, defaultInstanceOf(controlClass))
         }
         if (fields.isEmpty() && subject == null) return null
         missing.forEach { logSkip("top-payload:${type.simpleName}#$it") }
-        return TopShape(plan, fields, subject)
+        return TopShape(plan, fields, subject, defaultInstanceOf(type))
     }
 
     private fun noArg(owner: Class<*>, name: String): Method? =
         KavaMemberLookup.methodOrNull(owner, name)?.takeIf { !it.isStatic && it.parameterCount == 0 }
+
+    private fun defaultInstanceOf(type: Class<*>): Any? =
+        KavaMemberLookup.methodOrNull(type, "getDefaultInstance")
+            ?.takeIf { it.isStatic && it.parameterCount == 0 }
+            ?.let { method -> runCatching { method.invoke(null)?.takeIf { type.isInstance(it) } }.getOrNull() }
 
     companion object {
         const val SEARCH_LINKS_CAPABILITY = "comments_search_links_removed"

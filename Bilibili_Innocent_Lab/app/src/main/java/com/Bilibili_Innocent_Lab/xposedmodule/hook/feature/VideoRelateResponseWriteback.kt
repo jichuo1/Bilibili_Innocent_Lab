@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** 保留宿主 repeated 字段的 protobuf 类型、不可变性及消息缓存；只缓存稳定成员。 */
 internal object VideoRelateResponseWriteback {
     private data class ListPlan(val copy: Method?, val freeze: Method?, val mutable: Method?)
-    private data class CachePlan(val size: Method?, val resetSize: Method?, val hash: Field?)
+    private data class CachePlan(val size: Method?, val resetSize: Method?, val hash: Field?, val defaultInstance: Any?)
     private val lists = ConcurrentHashMap<Class<*>, ListPlan>()
     private val messages = ConcurrentHashMap<Class<*>, CachePlan>()
 
@@ -21,6 +21,9 @@ internal object VideoRelateResponseWriteback {
             val protobuf = field.type.name == "com.google.protobuf.Internal\$ProtobufList"
             val cache = if (protobuf) cachePlan(target.javaClass) else null
             if (protobuf && (cache?.size == null || cache.resetSize == null || cache.hash == null)) {
+                return@synchronized false
+            }
+            if (protobuf && cache?.defaultInstance != null && target === cache.defaultInstance) {
                 return@synchronized false
             }
             val replacement = if (protobuf) protobufCopy(field.type, original, items) else items
@@ -90,6 +93,9 @@ internal object VideoRelateResponseWriteback {
             ?.takeIf { !it.isStatic && it.returnType == Void.TYPE }
         val hash = Lookup.fieldOrNull(type, "memoizedHashCode", includeSuperclasses = true)
             ?.takeIf { !it.isStatic && it.type == Int::class.javaPrimitiveType }
-        CachePlan(size, reset, hash)
+        val defaultInstance = Lookup.methodOrNull(type, "getDefaultInstance")
+            ?.takeIf { it.isStatic && it.parameterCount == 0 }
+            ?.let { method -> runCatching { method.invoke(null)?.takeIf { type.isInstance(it) } }.getOrNull() }
+        CachePlan(size, reset, hash, defaultInstance)
     }
 }

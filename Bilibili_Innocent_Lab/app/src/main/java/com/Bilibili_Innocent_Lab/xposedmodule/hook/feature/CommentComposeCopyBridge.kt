@@ -32,28 +32,57 @@ internal class ComposeCommentText private constructor(
     }
 
     companion object {
+        private val LANGUAGE_STATES = setOf("ORIGIN", "TRANSLATING", "TRANSLATION")
+
         fun resolve(type: Class<*>): ComposeCommentText? = runCatching {
-            val id = KavaMemberLookup.fieldOrNull(type, "a")?.takeIf { it.type == classOf<Long>() }
-                ?: return@runCatching null
-            val language = KavaMemberLookup.fieldOrNull(type, "i")?.takeIf { it.type.isEnum }
-                ?: return@runCatching null
-            val names = language.type.enumConstants.orEmpty().map { (it as Enum<*>).name }.toSet()
-            if (names != setOf("ORIGIN", "TRANSLATING", "TRANSLATION")) return@runCatching null
-            val origin = KavaMemberLookup.fieldOrNull(type, "j") ?: return@runCatching null
-            val translated = KavaMemberLookup.fieldOrNull(type, "k")?.takeIf { it.type == origin.type }
-                ?: return@runCatching null
-            // 核对两个折叠附件槽，避免同形但语义不同的模型被误认成正文。
-            if (listOf("o", "p").any { KavaMemberLookup.fieldOrNull(type, it)?.type != origin.type }) {
-                return@runCatching null
+            val fields = KavaMemberLookup.declaredFields(type, makeAccessible = true)
+                .filterNot { it.isStatic }
+            val language = fields.singleOrNull { field ->
+                field.type.isEnum &&
+                    field.type.enumConstants.orEmpty().map { (it as Enum<*>).name }.toSet() == LANGUAGE_STATES
+            } ?: return@runCatching null
+
+            val namedOrigin = KavaMemberLookup.fieldOrNull(type, "j")
+            val namedTranslated = namedOrigin?.let {
+                KavaMemberLookup.fieldOrNull(type, "k")?.takeIf { f -> f.type == it.type }
             }
-            val raw = KavaMemberLookup.fieldOrNull(origin.type, "a")?.takeIf { it.type == classOf<String>() }
-                ?: return@runCatching null
-            val comment = KavaMemberLookup.fieldOrNull(type, "b")?.takeIf { it.type == classOf<Long>() }
-                ?: return@runCatching null
-            val root = KavaMemberLookup.fieldOrNull(type, "c")?.takeIf { it.type == classOf<Long>() }
-                ?: return@runCatching null
+            val namedAttachmentsOk = namedOrigin != null && listOf("o", "p").all {
+                KavaMemberLookup.fieldOrNull(type, it)?.type == namedOrigin.type
+            }
+            val (origin, translated) = if (namedOrigin != null && namedTranslated != null && namedAttachmentsOk) {
+                namedOrigin to namedTranslated
+            } else {
+                val quadType = fields.map { it.type }
+                    .groupingBy { it }
+                    .eachCount()
+                    .filter { (candidate, count) ->
+                        count == 4 && !candidate.isPrimitive && candidate != language.type &&
+                            stringField(candidate) != null
+                    }
+                    .keys
+                    .singleOrNull() ?: return@runCatching null
+                val quadFields = fields.filter { it.type == quadType }
+                quadFields[0] to quadFields[1]
+            }
+            val raw = stringField(origin.type) ?: return@runCatching null
+
+            val namedId = KavaMemberLookup.fieldOrNull(type, "a")?.takeIf { it.type == classOf<Long>() }
+            val namedComment = KavaMemberLookup.fieldOrNull(type, "b")?.takeIf { it.type == classOf<Long>() }
+            val namedRoot = KavaMemberLookup.fieldOrNull(type, "c")?.takeIf { it.type == classOf<Long>() }
+            val (id, comment, root) = if (namedId != null && namedComment != null && namedRoot != null) {
+                Triple(namedId, namedComment, namedRoot)
+            } else {
+                val longs = fields.filter { it.type == classOf<Long>() }
+                if (longs.size != 3) return@runCatching null
+                Triple(longs[0], longs[1], longs[2])
+            }
             ComposeCommentText(id, language, origin, translated, raw, comment, root)
         }.getOrNull()
+
+        private fun stringField(type: Class<*>): Field? =
+            KavaMemberLookup.fieldOrNull(type, "a")?.takeIf { it.type == classOf<String>() }
+                ?: KavaMemberLookup.declaredFields(type, makeAccessible = true)
+                    .singleOrNull { !it.isStatic && it.type == classOf<String>() }
     }
 }
 

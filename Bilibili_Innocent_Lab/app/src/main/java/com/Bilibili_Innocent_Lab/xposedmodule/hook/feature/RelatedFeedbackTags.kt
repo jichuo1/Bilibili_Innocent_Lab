@@ -52,10 +52,10 @@ internal class RelatedFeedbackTags private constructor(
     companion object {
         fun resolve(cardClass: Class<*>): RelatedFeedbackTags? = runCatching {
             val prefix = cardClass.name.substringBeforeLast('.') + "."
-            val relocated = cardClass.name == RELOCATED_CARD
+            val relocated = isObfuscatedRootName(cardClass.name)
             val cardTypeName = if (relocated) RELOCATED_CARD_TYPE else prefix + "RelateCardType"
             fun isCardModel(type: Class<*>): Boolean =
-                if (relocated) type.name in RELOCATED_MODELS else type.name.startsWith(prefix)
+                if (relocated) isObfuscatedRootName(type.name) else type.name.startsWith(prefix)
             // Card type enum is an independent anchor; unrelated model graphs cannot qualify.
             if (fields(cardClass).count { it.type.name == cardTypeName } != 1) {
                 return@runCatching null
@@ -98,10 +98,10 @@ internal class RelatedFeedbackTags private constructor(
             RelatedFeedbackTags(cardClass, candidates.map { it.first }, tag, name)
         }.getOrNull()
 
-        // 9.19.0: bjx1.d -> iox1.a/b -> hkx1.f -> List<wmx1>; b660.h maps DislikeReasons.tagId.
-        private const val RELOCATED_CARD = "bjx1"
+        // 9.19+: 卡片与原因链模型随 R8 压平至根包短类名，由 RelateCardType + 5 参构造函数结构验真。
         private const val RELOCATED_CARD_TYPE = "com.bilibili.ship.theseus.united.page.intro.module.relate.RelateCardType"
-        private val RELOCATED_MODELS = setOf("iox1", "hkx1", "wmx1")
+        private fun isObfuscatedRootName(name: String): Boolean =
+            name.length in 1..6 && name[0] in 'a'..'z' && name.all { it in 'a'..'z' || it in '0'..'9' }
 
         private fun fields(type: Class<*>): List<Field> = KavaMemberLookup.declaredFields(type, makeAccessible = true) {
             !Modifier.isStatic(it.modifiers) && !it.isSynthetic

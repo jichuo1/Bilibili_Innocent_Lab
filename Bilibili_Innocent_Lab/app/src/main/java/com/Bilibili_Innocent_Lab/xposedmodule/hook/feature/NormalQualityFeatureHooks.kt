@@ -58,6 +58,30 @@ internal class NormalQualityFeatureHooks(private val target: () -> Int?) {
         }
     }
 
+    fun installAutoSwitch(environment: HookEnvironment, autoSwitch: Method) {
+        if ("player.quality.normal.auto_switch" in registered) return
+        try {
+            environment.registrar.exact(
+                "player.quality.normal.auto_switch",
+                autoSwitch.declaringClass,
+                autoSwitch.name,
+                *autoSwitch.parameterTypes
+            ) {
+                after {
+                    if (!hasThrowable && complete && result == true && target() != null) {
+                        runCatching { environment.reportRuntimeEvidence(PlayerQualityFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED) }
+                        result = false
+                        runCatching { environment.reportRuntimeEvidence(PlayerQualityFeatureInstaller.ID, FeatureRuntimeStage.APPLIED) }
+                    }
+                }
+            }
+            registered += "player.quality.normal.auto_switch"
+            ready.set(true)
+        } catch (_: Throwable) {
+            environment.logError("player_quality_normal_registration", "[BIL] 普通默认画质自动策略边界注册不完整")
+        }
+    }
+
     private companion object {
         const val FRAME = "player.quality.normal.frame"
     }

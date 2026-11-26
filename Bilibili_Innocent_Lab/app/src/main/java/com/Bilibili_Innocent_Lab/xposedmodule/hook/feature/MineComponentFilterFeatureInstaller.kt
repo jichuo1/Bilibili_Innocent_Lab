@@ -87,7 +87,8 @@ internal class MineComponentFilterFeatureInstaller(
         adapted.buildMethods.forEachIndexed { index, point ->
             val accountArgument = when (point.paramClassNames) {
                 listOf(point.className, adapted.accountMineClass) -> 1
-                listOf(adapted.accountMineClass) -> 0
+                listOf(adapted.accountMineClass),
+                listOf(adapted.accountMineClass, Boolean::class.javaPrimitiveType!!.name) -> 0
                 else -> return@forEachIndexed
             }
             runCatching {

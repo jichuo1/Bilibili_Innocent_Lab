@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.io.File
@@ -62,7 +63,9 @@ internal class PlayerSubtitleStyleFeatureInstaller(
                 val replacement = patcher.cached(source, store.file) ?: if (Looper.myLooper() != Looper.getMainLooper()) {
                     patcher.prepare(source, store.file, output)
                 } else {
-                    worker.execute { patcher.prepare(source, store.file, output) }
+                    worker.execute(HostThreadGuard.runnable("player.subtitle.worker.load") {
+                        patcher.prepare(source, store.file, output)
+                    })
                     null
                 }
                 if (replacement != null) {
@@ -113,8 +116,10 @@ internal class PlayerSubtitleStyleFeatureInstaller(
                         text = labels.entry
                         isAllCaps = false
                         setOnClickListener {
-                            SubtitleStyleDialog.show(context, SubtitleStyleStore(context)) {
-                                loaded.get() && weakOwner.get()?.let { refresh(it) } == true
+                            HostThreadGuard.run("player.subtitle.open_settings") {
+                                SubtitleStyleDialog.show(context, SubtitleStyleStore(context)) {
+                                    loaded.get() && weakOwner.get()?.let { refresh(it) } == true
+                                }
                             }
                         }
                     }, LinearLayout.LayoutParams(-1, -2))
@@ -126,12 +131,12 @@ internal class PlayerSubtitleStyleFeatureInstaller(
         }
         environment.postToMain?.invoke {
             val app = ReflectAccess.currentApplication() ?: return@invoke
-            worker.execute {
+            worker.execute(HostThreadGuard.runnable("player.subtitle.worker.save") {
                 val sources = listOf(File(app.cacheDir, "main_chronos_pkg/service_danmaku")) +
                     File(app.cacheDir, "chronos_pkg").listFiles()?.filter(File::isFile).orEmpty().take(16)
                 val store = SubtitleStyleStore(app)
                 for (source in sources) patcher.prepare(source, store.file, File(app.cacheDir, "innocent_lab_subtitle/packages"))
-            }
+            })
         }
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         return FeatureInstallResult.Installed(2)

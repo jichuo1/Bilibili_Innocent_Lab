@@ -455,7 +455,7 @@ object RoamingCompatHook {
                 ?: throw NoSuchMethodException("HomeUserCenterFragment menu structure")
             val firstBuild = point.buildMethods.firstOrNull()
                 ?: throw NoSuchMethodException("HomeUserCenterFragment menu callbacks")
-            val moduleInstance = firstBuild.paramClassNames?.size == 1
+            val moduleInstance = firstBuild.paramClassNames?.firstOrNull() != firstBuild.className
             val fragmentClass = KavaMemberLookup.classOrNull(
                 appClassLoader,
                 firstBuild.className

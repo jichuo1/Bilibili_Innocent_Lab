@@ -23,6 +23,8 @@ internal class PlayerSpeedSessions(private val requested: Float) {
     private val registrationLock = Any()
     private val registeredListeners = hashSetOf<Class<*>>()
     private val registeredCores = hashSetOf<Class<*>>()
+    private var modernRunInstalled = false
+    private var modernWrapperInstalled = false
     private val scope = ThreadLocal<Frame?>()
     private data class Frame(val core: Any, val context: Any, val id: String, val speed: Float,
         var consumed: Boolean = false, var changed: Boolean = false)
@@ -76,35 +78,43 @@ internal class PlayerSpeedSessions(private val requested: Float) {
 
     fun installModern(env: HookEnvironment, point: PlayerSpeedSessionLocator.Modern,
         speed: PlayerSpeedLocator.DefaultSpeedPoint) {
-        val method = point.run
-        env.registrar.exact("player.speed.media_session", method.declaringClass, method.name, *method.parameterTypes) {
-            after {
-                if (hasThrowable) return@after
-                val owner = instance ?: return@after
-                runCatching {
-                    // Both first invocation and coroutine resume re-enter this member. Inspect the
-                    // actually bound playable, never the queued argument waiting for the host mutex.
-                    val active = point.active.invoke(owner) ?: return@runCatching
-                    val params = point.params.invoke(active) ?: return@runCatching
-                    val aid = point.aid.invoke(params) as? Long ?: return@runCatching
-                    val cid = point.cid.invoke(params) as? Long ?: return@runCatching
-                    if (aid <= 0 || cid <= 0) return@runCatching
-                    val manager = point.manager.get(owner) ?: return@runCatching
-                    env.reportRuntimeEvidence(CAPABILITY, FeatureRuntimeStage.OBSERVED)
-                    if (applyForMedia(manager, "$aid:$cid", speed)) {
-                        env.reportRuntimeEvidence(CAPABILITY, FeatureRuntimeStage.APPLIED)
+        synchronized(registrationLock) {
+            if (!modernRunInstalled) {
+                val method = point.run
+                env.registrar.exact("player.speed.media_session", method.declaringClass, method.name, *method.parameterTypes) {
+                    after {
+                        if (hasThrowable) return@after
+                        val owner = instance ?: return@after
+                        runCatching {
+                            // Both first invocation and coroutine resume re-enter this member. Inspect the
+                            // actually bound playable, never the queued argument waiting for the host mutex.
+                            val active = point.active.invoke(owner) ?: return@runCatching
+                            val params = point.params.invoke(active) ?: return@runCatching
+                            val aid = point.aid.invoke(params) as? Long ?: return@runCatching
+                            val cid = point.cid.invoke(params) as? Long ?: return@runCatching
+                            if (aid <= 0 || cid <= 0) return@runCatching
+                            val manager = point.manager.get(owner) ?: return@runCatching
+                            env.reportRuntimeEvidence(CAPABILITY, FeatureRuntimeStage.OBSERVED)
+                            if (applyForMedia(manager, "$aid:$cid", speed)) {
+                                env.reportRuntimeEvidence(CAPABILITY, FeatureRuntimeStage.APPLIED)
+                            }
+                        }.onFailure { env.logError("player_speed_session", "[BIL] 默认倍速会话更新失败，保留宿主行为: $it") }
                     }
-                }.onFailure { env.logError("player_speed_session", "[BIL] 默认倍速会话更新失败，保留宿主行为: $it") }
+                }
+                modernRunInstalled = true
             }
-        }
-        point.wrapper?.let { wrapper ->
-            env.registrar.constructor("player.speed.core_bridge", wrapper) {
-                after {
-                    if (hasThrowable) return@after
-                    val core = argOrNull(0) ?: return@after
-                    val owner = argOrNull(1) ?: return@after
-                    runCatching { point.manager.get(owner)?.let { bind(core, it) } }
-                        .onFailure { env.logError("player_speed_bridge", "[BIL] 默认倍速基础状态关联失败: $it") }
+            if (!modernWrapperInstalled) {
+                point.wrapper?.let { wrapper ->
+                    env.registrar.constructor("player.speed.core_bridge", wrapper) {
+                        after {
+                            if (hasThrowable) return@after
+                            val core = argOrNull(0) ?: return@after
+                            val owner = argOrNull(1) ?: return@after
+                            runCatching { point.manager.get(owner)?.let { bind(core, it) } }
+                                .onFailure { env.logError("player_speed_bridge", "[BIL] 默认倍速基础状态关联失败: $it") }
+                        }
+                    }
+                    modernWrapperInstalled = true
                 }
             }
         }

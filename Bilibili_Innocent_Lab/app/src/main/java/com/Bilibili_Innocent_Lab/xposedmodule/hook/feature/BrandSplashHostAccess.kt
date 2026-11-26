@@ -48,17 +48,38 @@ internal class BrandSplashStorageAccess private constructor(
                     ?.takeIf { it.returnType == classOf<SharedPreferences>() } ?: return@mapNotNull null
                 val last = KavaMemberLookup.methodOrNull(owner, names[4], classOf<Context>())
                     ?.takeIf { it.returnType == classOf<String>() } ?: return@mapNotNull null
-                val members = listOf(read, write, mode, prefs, last)
-                val allStatic = members.all { Modifier.isStatic(it.modifiers) }
-                if (!allStatic && members.any { Modifier.isStatic(it.modifiers) }) return@mapNotNull null
-                val receiver: Any? = if (allStatic) null else {
-                    KavaMemberLookup.declaredFields(owner, makeAccessible = true)
-                        .singleOrNull { Modifier.isStatic(it.modifiers) && it.type == owner }?.get(null)
-                        ?: return@mapNotNull null
-                }
-                BrandSplashStorageAccess(owner, receiver, read, write, mode, prefs, last)
+                buildAccess(owner, listOf(read, write, mode, prefs, last))
             }
-            return candidates.singleOrNull()
+            if (candidates.isNotEmpty()) return candidates.singleOrNull()
+            return resolveBySignature(owner)
+        }
+
+        private fun resolveBySignature(owner: Class<*>): BrandSplashStorageAccess? {
+            val declared = KavaMemberLookup.declaredMethods(owner, makeAccessible = true)
+                .filter { !it.isBridge && !it.isSynthetic && it.parameterCount == 1 }
+            return listOf(true, false).mapNotNull { wantStatic ->
+                val pool = declared.filter { Modifier.isStatic(it.modifiers) == wantStatic }
+                fun byAbi(param: Class<*>, returns: Class<*>): Method? = pool.singleOrNull {
+                    it.parameterTypes[0] == param && it.returnType == returns
+                }
+                val read = byAbi(Boolean::class.javaPrimitiveType!!, classOf<List<*>>()) ?: return@mapNotNull null
+                val write = byAbi(classOf<List<*>>(), Void.TYPE) ?: return@mapNotNull null
+                val mode = byAbi(Boolean::class.javaPrimitiveType!!, Void.TYPE) ?: return@mapNotNull null
+                val prefs = byAbi(classOf<Context>(), classOf<SharedPreferences>()) ?: return@mapNotNull null
+                val last = byAbi(classOf<Context>(), classOf<String>()) ?: return@mapNotNull null
+                buildAccess(owner, listOf(read, write, mode, prefs, last))
+            }.singleOrNull()
+        }
+
+        private fun buildAccess(owner: Class<*>, members: List<Method>): BrandSplashStorageAccess? {
+            val allStatic = members.all { Modifier.isStatic(it.modifiers) }
+            if (!allStatic && members.any { Modifier.isStatic(it.modifiers) }) return null
+            val receiver: Any? = if (allStatic) null else {
+                KavaMemberLookup.declaredFields(owner, makeAccessible = true)
+                    .singleOrNull { Modifier.isStatic(it.modifiers) && it.type == owner }?.get(null)
+                    ?: return null
+            }
+            return BrandSplashStorageAccess(owner, receiver, members[0], members[1], members[2], members[3], members[4])
         }
     }
 }

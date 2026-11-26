@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.view.View
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.util.Collections
 import java.util.WeakHashMap
@@ -11,10 +12,12 @@ internal class DynamicVideoTabPreference {
 
     fun schedule(layout: View, tab: Any, onSelected: () -> Unit, onError: (Throwable) -> Unit) {
         if (!scheduled.add(layout)) return
-        layout.postOnAnimation {
+        layout.postOnAnimation(HostThreadGuard.runnable("dynamic_tab.select.anim") {
             // 帧回调可能先于已排队的 commit；再排回主线程，等事务及本帧布局完成。
-            layout.post { selectVideo(layout, tab, onSelected, onError) }
-        }
+            layout.post(HostThreadGuard.runnable("dynamic_tab.select.post") {
+                selectVideo(layout, tab, onSelected, onError)
+            })
+        })
     }
 
     private fun selectVideo(layout: View, tab: Any, onSelected: () -> Unit, onError: (Throwable) -> Unit) {

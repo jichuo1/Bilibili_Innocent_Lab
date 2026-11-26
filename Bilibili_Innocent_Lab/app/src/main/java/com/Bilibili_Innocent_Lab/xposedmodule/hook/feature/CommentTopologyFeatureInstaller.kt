@@ -693,10 +693,10 @@ internal class CommentTopologyFeatureInstaller(
         val postedAt = pendingSeedRetryPostedAtMs[targetRow]
         if (postedAt != null && now - postedAt < SEED_RETRY_STALE_MS) return
         pendingSeedRetryPostedAtMs[targetRow] = now
-        boundView.postOnAnimation {
-            val row = rowRef.get() ?: return@postOnAnimation
+        boundView.postOnAnimation(HostThreadGuard.runnable("comment.topology.seed_retry") {
+            val row = rowRef.get() ?: return@runnable
             runSeedRetry(row, seedStore, host, coordinator, environment)
-        }
+        })
     }
 
     /** 读取该行最新的补绑请求；校验链与原实现逐条一致。 */

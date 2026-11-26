@@ -61,21 +61,10 @@ internal class HomeBannerFeatureInstaller(
                     )
                 }
             }
-        } else {
-            runCatching {
-                environment.registrar.first(
-                    "home_banner.legacy_container",
-                    LEGACY_CONTAINER_CLASS,
-                    LEGACY_ITEMS_METHOD
-                ) { replaceTo(Collections.emptyList<Any>()) }
-                results["legacyContainer"] = true
-            }.onFailure {
-                results["legacyContainer"] = false
-            }
         }
 
         val ready = results.any { (key, registered) ->
-            registered && (key.endsWith("#onAttachedToWindow") || key == "legacyContainer")
+            registered && key.endsWith("#onAttachedToWindow")
         }
         val successfulPaths = results.count { it.value }
         val complete = ready && results.values.all { it }
@@ -96,8 +85,6 @@ internal class HomeBannerFeatureInstaller(
     companion object {
         const val ID = "home_banner"
         private const val CHANNEL_STATUS = "banner_ad_status"
-        private const val LEGACY_CONTAINER_CLASS = "xm3.d"
-        private const val LEGACY_ITEMS_METHOD = "l"
         private const val DEDICATED_CONTAINER_CLASS =
             "com.bilibili.pegasus.holders.bannerv8.BannerV8Container"
         private const val INDICATOR_CLASS =

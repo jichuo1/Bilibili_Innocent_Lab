@@ -8,6 +8,7 @@ import android.os.Bundle
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
@@ -80,12 +81,12 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
                     if (hasThrowable) return@after
                     val root = argOrNull(0) as? View ?: return@after
                     val target = instance
-                    root.post {
+                    root.post(HostThreadGuard.runnable("follow_feed.view_created.post") {
                         if (root.isAttachedToWindow) {
                             controller.attach(root, personalFeed)
                             if (visibleHint != null) controller.visibility(root, visibleHint.invoke(target) == true)
                         }
-                    }
+                    })
                 }
             }
             environment.registrar.exact("$key.destroy", type, "onDestroyView") {

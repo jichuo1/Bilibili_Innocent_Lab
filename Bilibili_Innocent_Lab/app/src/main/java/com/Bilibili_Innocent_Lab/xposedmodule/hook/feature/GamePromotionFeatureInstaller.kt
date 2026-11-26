@@ -42,42 +42,6 @@ internal class GamePromotionFeatureInstaller(
             replaceTo(Collections.emptyList<Any>())
         }
 
-        if (KavaMemberLookup.classOrNull(environment.classLoader, MENTION_FACTORY_CLASS) != null) {
-            runCatching {
-                environment.registrar.first(
-                    "game_mentioned.section_factory",
-                    MENTION_FACTORY_CLASS,
-                    MENTION_FACTORY_METHOD
-                ) {
-                    replaceAny {
-                        try {
-                            val constructor = mentionedSectionConstructor(environment)
-                            environment.logInfo(
-                                "factory",
-                                "[BIL] 已拦截视频提及 section 工厂方法 yx3.a.c"
-                            )
-                            constructor.newInstance()
-                        } catch (throwable: Throwable) {
-                            environment.logError(
-                                "factory_err",
-                                "[BIL] 空 section 构造失败: $throwable"
-                            )
-                            null
-                        }
-                    }
-                }
-                results["sectionFactory"] = true
-            }.onFailure { throwable ->
-                results["sectionFactory"] = false
-                environment.logError(
-                    "factory_hook_err",
-                    "[BIL] 工厂方法 hook 失败: $throwable"
-                )
-            }
-        } else {
-            results["sectionFactory"] = false
-        }
-
         hookMethod("hidden", GAME_CARD_DATA_CLASS, "hidden") { replaceToTrue() }
         hookMethod("benefit_group", GAME_FEED_ITEM_CLASS, "getBottomBenefitTipGroup") {
             replaceTo(0)
@@ -161,7 +125,6 @@ internal class GamePromotionFeatureInstaller(
             environment.logError("header_err", "[BIL] header 组件 hook 失败: $throwable")
         }
 
-        hookMethod("benefit_tip", BENEFIT_WIDGET_CLASS, "I") { intercept() }
         hookMethod("section_cards", MENTIONED_SECTION_CLASS, "getCards") { intercept() }
         hookMethod("section_height", MENTIONED_SECTION_CLASS, "getHeight") { intercept() }
         hookMethod("section_header", MENTIONED_SECTION_CLASS, "getHeader") { intercept() }
@@ -201,19 +164,6 @@ internal class GamePromotionFeatureInstaller(
         else FeatureInstallResult.Skipped(summary)
     }
 
-    private fun mentionedSectionConstructor(environment: HookEnvironment): Constructor<*> =
-        mentionedSectionConstructor ?: synchronized(classOf<GamePromotionFeatureInstaller>()) {
-            mentionedSectionConstructor ?: run {
-                val owner = KavaMemberLookup.classOrNull(
-                    environment.classLoader,
-                    MENTIONED_SECTION_CLASS
-                ) ?: throw ClassNotFoundException(MENTIONED_SECTION_CLASS)
-                KavaMemberLookup.constructorOrNull(owner)
-                    ?.also { mentionedSectionConstructor = it }
-                    ?: throw NoSuchMethodException("$MENTIONED_SECTION_CLASS()")
-            }
-        }
-
     private fun uiComponentConstructor(context: Context): Constructor<*> =
         uiComponentConstructor ?: synchronized(classOf<GamePromotionFeatureInstaller>()) {
             uiComponentConstructor ?: run {
@@ -233,8 +183,6 @@ internal class GamePromotionFeatureInstaller(
         private const val UI_COMPONENT_CLASS = "com.bilibili.app.gemini.ui.UIComponent\$b"
         private const val MENTIONED_HEADER_COMPONENT_CLASS =
             "com.bilibili.biligame.videocard.GameVideoMentionedHeaderComponent"
-        private const val MENTION_FACTORY_CLASS = "yx3.a"
-        private const val MENTION_FACTORY_METHOD = "c"
         private const val MENTION_CLASS = "com.bapis.bilibili.app.viewunite.common.Mention"
         private const val VIDEO_MENTIONS_CLASS =
             "com.bapis.bilibili.app.viewunite.common.VideoMentions"
@@ -244,16 +192,11 @@ internal class GamePromotionFeatureInstaller(
             "com.bilibili.biligame.videocard.GameVideoMentionCardData"
         private const val GAME_FEED_ITEM_CLASS =
             "com.bilibili.biligame.ui.feed.bean.GameFeedItem"
-        private const val BENEFIT_WIDGET_CLASS =
-            "com.bilibili.biligame.ui.feed.widget.bottomtip.BottomGameBenefitWidgetKt"
         private const val MENTIONED_SECTION_CLASS =
             "com.bilibili.playerbizcommonv2.videomentioned.MentionedSectionItem"
         private const val CREATE_VIEW_ENTRY = "createViewEntry"
 
         @Volatile
         private var uiComponentConstructor: Constructor<*>? = null
-
-        @Volatile
-        private var mentionedSectionConstructor: Constructor<*>? = null
     }
 }

@@ -45,7 +45,7 @@ internal class AiRelatesFeedStripper private constructor(
         const val SYNC_METHOD = "executeRelatesFeed"
         const val ASYNC_METHOD = "relatesFeed"
         const val REQUEST_CLASS = "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReq"
-        private const val REPLY_CLASS = "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply"
+        const val REPLY_CLASS = "com.bapis.bilibili.app.viewunite.v1.RelatesFeedReply"
 
         fun resolve(loader: ClassLoader, replyClassName: String = REPLY_CLASS): AiRelatesFeedStripper? = runCatching {
             val reply = KavaMemberLookup.classOrNull(loader, replyClassName) ?: return null

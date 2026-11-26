@@ -354,13 +354,19 @@ internal class PlayerCodecForceFeatureInstaller(
             }
             val currentCode = preferGetter.invoke(targetValue)
             if ((preferredCode == null || currentCode == preferredCode) && fnval == expectedFnval) return null
+            val adaptedFnval = adaptNumber(expectedFnval, fnvalSetter.parameterTypes[0])
             val updatedTarget = targetPlan.edit(targetValue) { builder ->
                 if (preferredCode != null) preferSetter.invoke(builder, preferredCode)
-                fnvalSetter.invoke(builder, adaptNumber(expectedFnval, fnvalSetter.parameterTypes[0]))
+                fnvalSetter.invoke(builder, adaptedFnval)
             }
-            if (targetSetter == null) updatedTarget else requestPlan.edit(original) { builder ->
+            val rebuilt = if (targetSetter == null) updatedTarget else requestPlan.edit(original) { builder ->
                 targetSetter.invoke(builder, updatedTarget)
             }
+            val verifiedTarget = targetGetter?.invoke(rebuilt) ?: rebuilt
+            val verifiedFnval = (fnvalGetter.invoke(verifiedTarget) as? Number)?.toLong() ?: return null
+            if (verifiedFnval != (adaptedFnval as Number).toLong()) return null
+            if (preferredCode != null && preferGetter.invoke(verifiedTarget) != preferredCode) return null
+            rebuilt
         }.getOrNull()
 
         companion object {
