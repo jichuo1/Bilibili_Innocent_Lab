@@ -16,26 +16,53 @@ import org.junit.Test
  */
 class ModalSkinPositionContractTest {
     private val main = LceMotionSource.read("ui/activity/MainActivity.kt")
+    private val presenter = LceMotionSource.read("ui/activity/ModalPresenter.kt")
 
     fun defaultModalEntryNotifiesSkinEveryFrameAndAtTheEnd() {
-        val entry = main.after("container.post {\n            LumenAnimator.property(container)\n                .scaleX(1f).scaleY(1f).alpha(1f)")
-            .before("/**\n     * 勾选式屏蔽面板的")
+        val animate = presenter.after("internal fun animateCenteredEnter(").before("internal fun dismissCentered(")
+        val entry = animate.after("container.post {\n            LumenAnimator.property(container)\n                .scaleX(1f)")
+            .before(".start()")
         val update = entry.after(".setUpdateListener {").before(".withEndAction {")
-        assertTrue(update.contains("notifyPreparedSkinPositionChanged()"))
-        assertTrue(entry.after(".withEndAction {").contains("notifyPreparedSkinPositionChanged()"))
+        assertTrue(update.contains("notifyPositionChanged()"))
+        assertTrue(entry.after(".withEndAction {").contains("notifyPositionChanged()"))
+        assertTrue(
+            presenter.after("internal fun MainActivity.presentSizedModalDialog(")
+                .contains("notifyPositionChanged = ::notifyModalSkinPositionChanged")
+        )
+        assertTrue(
+            main.after("internal fun notifyModalSkinPositionChanged()").before("internal fun modalSurfaceBackground(")
+                .contains("notifyPreparedSkinPositionChanged()")
+        )
     }
 
     fun sharedExitAnimationNotifiesSkinEveryFrame() {
-        val exit = main.after("internal fun dismissWithAnimation(").before(".setListener(")
-        assertTrue(exit.contains("notifyPreparedSkinPositionChanged()"))
+        val exit = presenter.after("internal fun dismissCentered(").before("internal fun presentCenteredDialog(")
+        assertTrue(exit.after(".setUpdateListener {").before(".let { anim ->").contains("notifyPositionChanged()"))
+        assertTrue(
+            presenter.after("internal fun dismissAnchoredOrCentered(").before("internal fun registerAnchoredCloser(")
+                .contains("notifyPositionChanged = activity::notifyModalSkinPositionChanged")
+        )
+        assertTrue(
+            presenter.after("internal fun MainActivity.dismissWithAnimation(").before("internal fun MainActivity.createModalContainer(")
+                .contains("ModalPresenter.dismissAnchoredOrCentered(")
+        )
     }
 
     fun predictiveBackScaleAndBounceNotifySkin() {
-        val progress = main.after("container.scaleX = 1f - 0.05f * progress").before("onCancelled = {")
-        assertTrue(progress.contains("notifyPreparedSkinPositionChanged()"))
-        val bounce = main.after("container.scaleX = 1f - 0.05f * progress")
+        val centered = presenter.after("internal fun presentCenteredDialog(").before("internal fun surfaceBounds(")
+        val centeredProgress = centered.after("container.scaleX = 1f - 0.05f * progress").before("onCancelled = {")
+        assertTrue(centeredProgress.contains("notifyPositionChanged()"))
+        val centeredBounce = centered.after("container.scaleX = 1f - 0.05f * progress")
             .after("onCancelled = {").before("onInvoked = {")
-        assertTrue(bounce.contains("notifyPreparedSkinPositionChanged()"))
+        assertTrue(centeredBounce.contains("notifyPositionChanged()"))
+        assertTrue(centeredBounce.contains("backdropBlur?.apply(container.alpha)"))
+
+        val sized = presenter.after("internal fun MainActivity.presentSizedModalDialog(")
+        val progress = sized.after("container.scaleX = 1f - 0.05f * progress").before("onCancelled = {")
+        assertTrue(progress.contains("notifyModalSkinPositionChanged()"))
+        val bounce = sized.after("container.scaleX = 1f - 0.05f * progress")
+            .after("onCancelled = {").before("onInvoked = {")
+        assertTrue(bounce.contains("notifyModalSkinPositionChanged()"))
         // 黏性监听器：回弹显式设置时必须带上原本隐式沿用的模糊与压暗推进。
         assertTrue(bounce.contains("backdropBlur?.apply(container.alpha)"))
     }
@@ -48,7 +75,7 @@ class ModalSkinPositionContractTest {
         assertTrue(frame.contains("onContentMoved()"))
         val settle = motion.after("private fun settleExpanded()").before("content.elevation = contentElevation")
         assertTrue(settle.indexOf("content.translationY = 0f") < settle.indexOf("onContentMoved()"))
-        assertTrue(main.contains("onContentMoved = { notifyPreparedSkinPositionChanged() }"))
+        assertTrue(presenter.contains("onContentMoved = { notifyModalSkinPositionChanged() }"))
     }
 
     /**

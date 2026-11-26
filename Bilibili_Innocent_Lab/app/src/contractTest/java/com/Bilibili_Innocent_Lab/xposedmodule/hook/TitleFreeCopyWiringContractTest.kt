@@ -14,38 +14,50 @@ import org.junit.Test
  * id/arrow）由 dexq 逐版核对，运行期靠 [TitleFreeCopyPolicy] 判定，不依赖混淆名。
  */
 class TitleFreeCopyWiringContractTest {
-    private fun source() = SourceContract.read("hook/HookEntry.kt")
+    private val gestureFiles = HookEntrySource.freeCopyScopeFiles()
+    private fun source() = HookEntrySource.freeCopyAll()
 
     private fun occurrences(text: String, needle: String): Int = text.split(needle).size - 1
 
-    /** 去掉整行注释（// 与 KDoc 行），契约只钉代码不钉说明文字。 */
-    private fun codeOnly(text: String): String = text.lineSequence().filterNot {
-        val t = it.trimStart()
-        t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
-    }.joinToString("\n")
+    private fun codeOnly(text: String): String = HookEntrySource.code(text)
 
     fun titleSwitchIsStartupOnlyAndDefaultsOff() {
-        val init = source().after("val initialDescriptionFreeCopyEnabled =").before("val commentFreeCopyInstallerRef =")
-        assertTrue(init.contains("runtimeTitleFreeCopyEnabled = hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)"))
-        // 标题声明为“重启宿主生效”，不能混进 NPatch 热应用的回调。
-        val live = source().after("NPatchLiveConfig.registerHost(").before("frameworkLog(\"[BIL] 热应用端点不可用")
+        val init = HookEntrySource.hookEntry()
+            .after("val initialDescriptionFreeCopyEnabled =").before("// Modern API")
+        assertTrue(init.contains("val initialTitleFreeCopyEnabled ="))
+        assertTrue(init.contains("hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)"))
+        assertTrue(
+            HookEntrySource.function("configureStartup", gestureFiles)
+                .contains("runtimeTitleFreeCopyEnabled = titleEnabled")
+        )
+        // 标题声明为“重启宿主生效”，不能混进 NPatch 热应用的回调或 updateLiveConfig。
+        val live = HookEntrySource.hookEntry().after("NPatchLiveConfig.registerHost(").before("frameworkLog(\"[BIL] 热应用端点不可用")
         assertFalse(live.contains("FREE_COPY_TITLE"))
         assertFalse(live.contains("runtimeTitleFreeCopyEnabled"))
+        val liveConfig = HookEntrySource.function("updateLiveConfig", gestureFiles) {
+            !it.contains("FreeCopyRuntimeConfig.updateLiveConfig(")
+        }
+        assertFalse(liveConfig.contains("runtimeTitleFreeCopyEnabled"))
     }
 
     fun bothSetTextHooksShareOneEntryAndTitleCannotBreakDescription() {
-        val hooks = source().after("val descTextHook = object").before("// 强覆盖：B 站官方对 desc")
-        assertEquals(2, occurrences(hooks, "onDetailTextSet(v)"))
+        val hooks = HookEntrySource.function("installDescriptionFreeCopyHooks", gestureFiles)
+            .after("val descTextHook:").before("sharedEnv.registrar.exact(")
+        assertTrue(hooks.contains("FreeCopyBindScheduler.onDetailTextSet(v)"))
+        assertEquals(2, occurrences(hooks, "block = descTextHook"))
         assertTrue(hooks.contains("for (cn in TitleFreeCopyPolicy.WIDGET_CLASS_NAMES)"))
-        assertEquals(2, occurrences(hooks, "if (!descLikeFreeCopyEnabled)"))
-        val entry = source().after("private fun onDetailTextSet(").before("private fun resolveTitleViewIds(")
+        assertTrue(hooks.contains("if (!FreeCopyRuntimeConfig.descLikeFreeCopyEnabled) return@after"))
+        val entry = HookEntrySource.function("onDetailTextSet", gestureFiles)
         // 标题分支被 runCatching 隔离，且排在简介之前，简介部分保持原有早退顺序。
-        assertTrue(entry.indexOf("runCatching { onTitleCandidateTextSet(v) }") in 0 until entry.indexOf("if (!runtimeDescriptionFreeCopyEnabled) return"))
+        assertTrue(
+            entry.indexOf("runCatching { FreeCopyTextExtractor.onTitleCandidateTextSet(v) }") in
+                0 until entry.indexOf("if (!FreeCopyRuntimeConfig.runtimeDescriptionFreeCopyEnabled) return")
+        )
         assertTrue(entry.contains("applyFreeCopyListener(v, null, false)"))
     }
 
     fun titleViewsAreRegisteredOnlyAfterIdClassAndArrowSiblingAllMatch() {
-        val register = source().after("private fun onTitleCandidateTextSet(").before("private fun applyTitleFreeCopyListener(")
+        val register = HookEntrySource.function("onTitleCandidateTextSet", gestureFiles)
         assertTrue(register.contains("if (v.id != titleViewId) return"))
         assertTrue(register.contains("findViewById<View>(titleArrowId)"))
         assertTrue(register.contains("TitleFreeCopyPolicy.isTitleWidget(true, classChain, hasArrowSibling)"))
@@ -57,47 +69,55 @@ class TitleFreeCopyWiringContractTest {
         assertFalse(registerCode.contains("isLongClickable"))
         assertFalse(registerCode.contains(".post {"))
         // 全局热路径：id 不命中立刻返回，只有 id 命中才查弱集合。
-        val gate = source().after("private fun isTitleView(").before("private fun onTitleCandidateTextSet(")
+        val gate = HookEntrySource.function("isTitleView", gestureFiles)
         assertTrue(gate.indexOf("v.id == id") < gate.indexOf("titleViews.containsKey(v)"))
         // 两个资源 id 都解析到才启用，缺一不猜。
-        val ids = source().after("private fun resolveTitleViewIds(").before("private fun isTitleView(")
+        val ids = HookEntrySource.function("resolveTitleViewIds", gestureFiles)
         assertTrue(ids.contains("if (title != 0 && arrow != 0)"))
         assertTrue(ids.indexOf("titleArrowId = arrow") < ids.indexOf("titleViewId = title"))
     }
 
     fun titleSharesTheUnifiedGestureAndBubbleChain() {
-        val listener = source().after("private val sharedFreeCopyListener =").before("private fun hapticFeedback(")
-        assertTrue(listener.contains("val isTitle = !isDescOnly && isTitleView(view)"))
+        val listener = HookEntrySource.property("sharedFreeCopyListener", gestureFiles)
+        assertTrue(listener.contains("val isTitle = !isDescOnly && FreeCopyTextExtractor.isTitleView(view)"))
         assertTrue(listener.contains("val isDesc = isDescOnly || isTitle"))
-        assertTrue(listener.contains("if (isTitle && !runtimeTitleFreeCopyEnabled) return@OnLongClickListener false"))
-        assertTrue(listener.contains("FreeCopyContent(extractTitleText(view))"))
+        assertTrue(listener.contains("if (isTitle && !FreeCopyRuntimeConfig.runtimeTitleFreeCopyEnabled) return@OnLongClickListener false"))
+        assertTrue(listener.contains("FreeCopyContent(FreeCopyTextExtractor.extractTitleText(view))"))
         assertTrue(listener.contains("freeCopyGesture.claim("))
         assertTrue(listener.contains("\"free_copy_title_enabled\""))
-        val dispatch = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
-        assertTrue(dispatch.contains("val isTitleTarget = runtimeTitleFreeCopyEnabled && isTitleView(v)"))
+        val dispatch = HookEntrySource.function("handleDispatchTouchEvent", gestureFiles)
+        assertTrue(dispatch.contains("val isTitleTarget = FreeCopyRuntimeConfig.runtimeTitleFreeCopyEnabled && FreeCopyTextExtractor.isTitleView(v)"))
         // 标题与简介/评论共用同一条判定线，不再单独加长阈值。
         assertFalse(dispatch.contains("TITLE_THRESHOLD_EXTRA_MS"))
         assertTrue(dispatch.after("freeCopyGesture.begin(").contains("freeCopyLongPressThreshold()"))
         assertTrue(dispatch.contains("observeFreeCopyTouch(ev)"))
-        val steal = source().after("\"setOnLongClickListener\",").before("// 简介触摸长按检测：")
-        assertTrue(steal.contains("if (runtimeTitleFreeCopyEnabled && isTitleView(v))"))
-        assertTrue(steal.contains("applyTitleFreeCopyListener(v)"))
+        val steal = HookEntrySource.function("installDescriptionFreeCopyHooks", gestureFiles)
+            .after("\"free-copy:shared:set-on-long-click\"").before("\"free-copy:shared:dispatch-touch\"")
+        assertTrue(steal.contains("FreeCopyRuntimeConfig.runtimeTitleFreeCopyEnabled &&") &&
+            steal.contains("FreeCopyTextExtractor.isTitleView(v)"))
+        assertTrue(steal.contains("FreeCopyBindScheduler.applyTitleFreeCopyListener(v)"))
         // 夺回只替换宿主已经设置的监听器：applyTitleFreeCopyListener 只有这一处调用方。
-        assertEquals(1, Regex("""applyTitleFreeCopyListener\(v\)""").findAll(codeOnly(source())).count())
+        assertEquals(1, Regex("""FreeCopyBindScheduler\.applyTitleFreeCopyListener\(v\)""").findAll(codeOnly(source())).count())
     }
 
     fun commonHooksInstallForTitleAloneAndCapabilityIsPublished() {
-        val tail = source().after("fun publishFreeCopyCapabilities()")
-        assertTrue(tail.contains("if (runtimeTitleFreeCopyEnabled)"))
-        assertTrue(tail.contains("\"free_copy_title_enabled\""))
-        assertEquals(2, occurrences(tail, "runtimeCommentFreeCopyEnabled || descLikeFreeCopyEnabled"))
-        assertTrue(tail.contains("!runtimeCommentFreeCopyEnabled && !descLikeFreeCopyEnabled ->"))
+        val installerFile = HookEntrySource.file("hook/feature/freecopy/FreeCopyFeatureInstaller.kt")
+        val install = HookEntrySource.function("install", listOf("FreeCopyFeatureInstaller.kt" to installerFile))
+        assertTrue(install.contains("FreeCopyRuntimeConfig.runtimeCommentFreeCopyEnabled ||\n            FreeCopyRuntimeConfig.descLikeFreeCopyEnabled"))
+        assertTrue(install.contains("!FreeCopyRuntimeConfig.runtimeCommentFreeCopyEnabled &&\n                !FreeCopyRuntimeConfig.descLikeFreeCopyEnabled ->"))
+        val descHooks = HookEntrySource.function("installDescriptionFreeCopyHooks", gestureFiles)
+        assertTrue(descHooks.contains("!FreeCopyRuntimeConfig.descLikeFreeCopyEnabled &&\n                        !FreeCopyRuntimeConfig.runtimeCommentFreeCopyEnabled"))
+        assertTrue(descHooks.contains("!FreeCopyRuntimeConfig.descLikeFreeCopyEnabled &&\n                            !FreeCopyRuntimeConfig.runtimeCommentFreeCopyEnabled"))
+        val publish = HookEntrySource.function("publishFreeCopyCapabilities", gestureFiles)
+        assertTrue(publish.contains("if (FreeCopyRuntimeConfig.runtimeTitleFreeCopyEnabled)"))
+        assertTrue(publish.contains("CAPABILITY_TITLE"))
+        assertTrue(installerFile.contains("const val CAPABILITY_TITLE = \"free_copy_title_enabled\""))
         // 官方长按触发的震动只在简介/标题手势内拦截，标题与简介一视同仁。
-        assertTrue(source().after("free-copy:haptic:").before("free-copy:popup:").contains("descLikeFreeCopyEnabled &&"))
+        assertTrue(descHooks.after("free-copy:haptic:").before("free-copy:popup:").contains("descLikeFreeCopyEnabled &&"))
     }
 
     fun titleTextPrefersTheOriginalFieldBecauseCollapsedTextIsTruncated() {
-        val extract = source().after("private fun extractTitleText(").before("/** 按类名递归匹配评论正文 TextView")
+        val extract = HookEntrySource.function("extractTitleText", gestureFiles)
         assertTrue(extract.contains("titleOriginField(v.javaClass)"))
         assertTrue(extract.contains("stripSpanPlaceholderChars(it)"))
         assertTrue(extract.contains("TitleFreeCopyPolicy.choose(origin, visible)"))

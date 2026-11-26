@@ -16,15 +16,16 @@ class SystemEnvironmentDexWiringContractTest {
         assertFalse(quick.contains("DexAssistSession("))
         assertFalse(quick.contains("DexRefHookBridge"))
 
-        val adapt = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val adapt = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(adapt.contains("SystemEnvironmentAdapter.planned("))
         assertTrue(adapt.contains("systemEnvPlanned.forEach { add(it.query) }"))
         assertTrue(adapt.contains("SystemEnvironmentAdapter.locate("))
         assertTrue(adapt.contains("SystemEnvironmentAdapter.conclusive("))
         assertTrue(adapt.contains("\"feature-disabled:cached-attempt-preserved\""))
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(")
-            .before("internal fun AdaptResult.applyStartupExclusions(")
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("SystemEnvironmentAdapter.merge(")
+        }
         assertTrue(merge.contains("SystemEnvironmentAdapter.merge("))
 
         val queries = SourceContract.read("hook/adapter/dex/DexMeguvizQueries.kt")
@@ -53,10 +54,13 @@ class SystemEnvironmentDexWiringContractTest {
         assertTrue(
             ensureAdapted.contains("systemEnvironmentEnabled = prefs.getBoolean(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, false)")
         )
-        val adaptFinished = hookEntry.after("override fun onAdaptFinished(ok: Boolean)")
-            .before("if (sponsorInstaller.requiresAdaptationRetry")
-        assertTrue(adaptFinished.contains("if (systemEnvInstaller.requiresAdaptationRetry)"))
-        assertTrue(adaptFinished.contains("systemEnvPointsRef.set(adapted?.systemEnvironment)"))
+        val outcome = hookEntry.after("private fun applyAdaptOutcome(ok: Boolean, showToast: Boolean)")
+            .before("startupCache = startupCache,")
+        assertTrue(outcome.contains("featureInstallCoordinator.retryAdapted(adapted, ok = true)"))
+        val retryRegistration = hookEntry.after("systemEnvInstaller.asAdaptRetryable(")
+            .before("featureInstallCoordinator.registerRetryable(")
+        assertTrue(retryRegistration.contains("requiresRetry = { requiresAdaptationRetry }"))
+        assertTrue(retryRegistration.contains("systemEnvPointsSlot.value = adapted?.systemEnvironment"))
 
         val presenter = SourceContract.read("ui/activity/SettingCommandsPresenter.kt")
         val executeToggle = presenter.after("internal fun MainActivity.executeModeledToggle(")

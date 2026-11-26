@@ -20,7 +20,7 @@ import androidx.core.view.setPadding
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.Bilibili_Innocent_Lab.xposedmodule.R
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCacheStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel
@@ -416,7 +416,7 @@ internal fun MainActivity.showAdaptConfirmDialog(anchor: View? = null) {
             isFocusable = true
             setOnClickListener {
                 dismissWithAnimation(dialog, container) {
-                    runCatching { VersionAdapter.clearCache(activity, runCatching { prefs() }.getOrNull()) }
+                    runCatching { AdaptCacheStore.clearCache(activity, runCatching { prefs() }.getOrNull()) }
                     if (NoRootSupportStore.isDesiredEnabled(applicationContext)) {
                         NoRootSupportStore.markAdapterReset(applicationContext)
                         activity.roamingCacheStatusView?.setText(R.string.roaming_cache_unavailable)

@@ -26,10 +26,15 @@ class LiquidMotionMappingContractTest {
     }
 
     fun preparedModalsDelegateBoundedScrollAndStretchToTheEngine() {
-        val presenter = SourceContract.read("ui/activity/MainActivity.kt")
-            .after("stylePreparedSkinControls(container)").before("val density = resources.displayMetrics.density")
+        val presenter = SourceContract.read("ui/activity/ModalPresenter.kt")
+            .after("styleModalSkinControls(container)").before("val density = resources.displayMetrics.density")
         assertTrue(presenter.contains("LumenPanelScroll.prepare(container)"))
-        assertTrue(presenter.contains("installPreparedLiquidStretch(target)"))
+        assertTrue(presenter.contains("installModalLiquidStretch(target)"))
+        assertTrue(
+            SourceContract.read("ui/activity/MainActivity.kt")
+                .after("internal fun installModalLiquidStretch(").before("internal fun notifyModalSkinPositionChanged(")
+                .contains("installPreparedLiquidStretch(target, canStretch)")
+        )
         val bounded = SourceContract.read("ui/widget/MaxHeightScrollView.kt")
         assertTrue(bounded.contains("typealias MaxHeightScrollView = com.lumen.coacervation.engine.widget.LumenMaxHeightScrollView"))
     }

@@ -63,18 +63,40 @@ class LiquidControlStyleTest {
         // 「管理常用」改用定宽 presentSizedModalDialog（EXACTLY 行宽保证把手钉右缘）。
         assertTrue(SettingsUiSource.function("showSettingsFavoritesDialog").contains("presentSizedModalDialog(dialog, container, width, anchor)"))
         val presenter = SettingsUiSource.function("presentSizedModalDialog")
-        assertTrue(presenter.indexOf("stylePreparedSkinControls(container)") in 0 until presenter.indexOf("dialog.show()"))
+        val modalFile = SettingsUiSource.file("ModalPresenter")
+        val main = SettingsUiSource.mainActivity()
+        assertTrue(presenter.indexOf("styleModalSkinControls(container)") in 0 until presenter.indexOf("dialog.show()"))
+        assertTrue(main.contains("internal fun styleModalSkinControls(root: View) = stylePreparedSkinControls(root)"))
         // 面板与底页分离：窗口内必须有随动画进度淡入的压暗层（平台 dim 不可动画，
         // 会硬切在形变/气泡入场之前），且普通退场的淡出由 dismissWithAnimation 同步。
-        // 2026-09-24：压暗层颜色随主题（浅色为背景色薄纱），统一经 modalScrimColor() 取。
-        assertTrue("弹窗必须铺窗口内压暗层", presenter.contains("setBackgroundColor(modalScrimColor())"))
-        assertTrue("scrim 要注册进 dialogScrims", presenter.contains("dialogScrims[dialog]"))
+        // 2026-09-24：压暗层颜色随主题（浅色为背景色薄纱），统一经 ModalPresenter.scrimColor 取。
+        assertTrue(
+            "弹窗必须铺窗口内压暗层",
+            modalFile.after("internal fun createScrimView(").before("internal fun configureFullscreenWindow(")
+                .contains("setBackgroundColor(scrimColor(monetColors))")
+        )
+        assertTrue("presentSizedModalDialog 要建 scrim", presenter.contains("ModalPresenter.createScrimView(this, monetColors)"))
+        assertTrue("scrim 要注册进 dialogScrims", presenter.contains("ModalPresenter.registerScrim(dialog, it)"))
+        assertTrue(
+            "registerScrim 要写入 dialogScrims",
+            modalFile.after("internal fun registerScrim(").before("internal fun scrimFor(")
+                .contains("dialogScrims[dialog]")
+        )
         assertTrue("scrim alpha 要跟动画进度", presenter.contains("scrim?.alpha"))
-        assertTrue("dismissWithAnimation 要同步收 scrim",
-            SettingsUiSource.function("dismissWithAnimation").contains("dialogScrims[dialog]"))
+        assertTrue(
+            "dismissWithAnimation 要同步收 scrim",
+            SettingsUiSource.function("dismissWithAnimation").contains("ModalPresenter.dismissAnchoredOrCentered(")
+        )
+        assertTrue(
+            "dismissAnchoredOrCentered 要同步收 scrim",
+            modalFile.after("internal fun dismissAnchoredOrCentered(").before("internal fun registerAnchoredCloser(")
+                .contains("dialogScrims[dialog]")
+        )
         val diagnostics = source("ui/activity/DiagnosticsActivity.kt")
         assertTrue(diagnostics.contains("background = skinModalBackground(monetColors.surface)"))
-        assertTrue(diagnostics.contains("stylePreparedSkinControls(container)"))
+        assertTrue(diagnostics.contains("styleControls = ::stylePreparedSkinControls"))
+        val centered = modalFile.after("internal fun presentCenteredDialog(").before("internal fun surfaceBounds(")
+        assertTrue(centered.indexOf("styleControls(container)") in 0 until centered.indexOf("dialog.show()"))
     }
 
     fun `control styling is gated and cannot change preferences or listeners`() {

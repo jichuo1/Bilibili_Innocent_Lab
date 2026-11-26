@@ -30,11 +30,18 @@ class BubbleLayerIntegrationTest {
     }
 
     fun bubbleBorrowsTheModalSkinInsteadOfReplacingItWithAnOpaquePath() {
-        val main = source("MainActivity")
-        val bubble = main.after("fun applyBubbleSurface(").before("val morphLayer =")
+        val present = SettingsUiSource.function("presentSizedModalDialog")
+        val applyBubble = present.after("fun applyBubbleSurface(").before("if (bubblePlacement != null)")
+        assertFalse(applyBubble.contains("BubbleSurfaceDrawable("))
+        val bubble = present.after("val bubbleLayer = if (bubblePlacement != null)").before("val morphLayer =")
         assertFalse(bubble.contains("BubbleSurfaceDrawable("))
-        assertTrue(bubble.contains("modalBackground ?: skinModalBackground"))
-        assertTrue(bubble.contains("skinModalBackground(monetColors.surface, 0f)"))
+        assertTrue(bubble.contains("modalBackground ?: modalSurfaceBackground"))
+        assertTrue(bubble.contains("modalSurfaceBackground(monetColors.surface, 0f)"))
+        assertTrue(
+            source("MainActivity")
+                .after("internal fun modalSurfaceBackground(").before("internal val isModalLiquidSkinEffective")
+                .contains("skinModalBackground(color, radiusDp)")
+        )
         val surface = source("BubbleSkinSurfaceView")
         assertTrue(surface.contains("surface.callback = this"))
         assertTrue(surface.contains("who === surface || super.verifyDrawable(who)"))
@@ -136,7 +143,8 @@ class BubbleLayerIntegrationTest {
     }
 
     fun independentGeometryRefreshWaitsForActualLayoutAndKeepsPendingChanges() {
-        val code = source("MainActivity").after("fun updateBubbleGeometry(): Boolean")
+        val code = SettingsUiSource.function("presentSizedModalDialog")
+            .after("fun updateBubbleGeometry(): Boolean")
             .before("val bubbleLayoutListener")
         assertTrue(code.contains("bubbleGeometryPending || geometryChanged || actualBoundsChanged"))
         assertTrue(code.contains("!layoutChanged && !container.isLayoutRequested"))

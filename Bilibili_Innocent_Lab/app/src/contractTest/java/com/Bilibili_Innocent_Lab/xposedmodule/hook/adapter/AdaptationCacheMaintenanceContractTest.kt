@@ -8,7 +8,7 @@ import org.junit.Test
 
 class AdaptationCacheMaintenanceContractTest {
     fun `cache hit schedules maintenance without synchronous file operations`() {
-        val source = SourceContract.read("hook/VersionAdapter.kt")
+        val source = VersionAdapterSource.versionAdapter()
         val hit = source.after("internal fun ensureAdapted(").after("if (cached != null) {")
             .before("if (!adaptationRunning.compareAndSet(false, true))")
         assertTrue(hit.contains("auditDexSourceAsync(context, cached)"))
@@ -16,26 +16,29 @@ class AdaptationCacheMaintenanceContractTest {
             assertFalse(operation, hit.contains(operation))
         val worker = source.after("private fun auditDexSourceAsync(").before("fun ensureAdapted(")
         assertTrue(worker.contains("HostThreadGuard.run(\"adapter.dex_audit\")"))
-        assertTrue(worker.contains("if (!cacheFile().exists()) writeCache(cached)"))
+        assertTrue(Regex("""if\s*\(!AdaptCacheStore\.cacheFile\(\)\.exists\(\)\)\s*\{\s*AdaptCacheStore\.writeCache\(cached\)\s*\}""").containsMatchIn(worker))
         assertTrue(worker.contains("if (expected == DEX_SOURCE_UNAVAILABLE) return@run"))
         assertTrue(worker.contains("dexAuditRunning.compareAndSet(false, true)"))
     }
 
     fun `repack reuse is background only and verifies content and protocol across all modes`() {
-        val source = SourceContract.read("hook/VersionAdapter.kt")
-        val startup = source.after("internal fun readStartupCache(").before("fun cacheStatus()")
-        assertFalse(startup.contains("rebindRepackedCache("))
-        assertFalse(startup.contains("inspectHostDexSource("))
+        val source = VersionAdapterSource.versionAdapter()
+        val cacheStore = VersionAdapterSource.file("AdaptCacheStore")
+        val startupFacade = source.after("internal fun readStartupCache(").before("fun cacheStatus()")
+        val startupImpl = VersionAdapterSource.functions(cacheStore, "readStartupCache").single()
+        for (startup in listOf(startupFacade, startupImpl)) {
+            assertFalse(startup.contains("rebindRepackedCache("))
+            assertFalse(startup.contains("inspectHostDexSource("))
+            assertFalse(startup.contains("readRawCacheCandidates("))
+        }
         val ensureBeforeWorker = source.after("internal fun ensureAdapted(").before("Thread({")
         assertFalse("onAdaptStarted must be decided inside worker after rebind check", ensureBeforeWorker.contains("onAdaptStarted("))
         val worker = source.after("HostThreadGuard.run(\"adapter.adapt_worker\")").before("result = repacked ?:")
         assertFalse("All-mode rebind must not be gated to NPatch only", worker.contains("HookRuntimeMode.NPATCH_LEGACY"))
-        assertTrue(worker.contains("readRawCacheCandidates(context, resetTimestamp)"))
+        assertTrue(worker.contains("AdaptCacheStore.readRawCacheCandidates(context, resetTimestamp)"))
         assertTrue(worker.contains("verifyProtocolFingerprint(classLoader, previous)"))
         assertTrue(worker.contains("rebindRepackedCache(previous, startup.identity, resetTimestamp, dexSource?.value, actualProtocol)"))
         assertTrue(worker.contains("AdaptDomainCatalog.staleDomains("))
-        val startupRead = source.after("internal fun readStartupCache(").before("fun cacheStatus()")
-        assertFalse(startupRead.contains("readRawCacheCandidates("))
     }
 
     @org.junit.Test

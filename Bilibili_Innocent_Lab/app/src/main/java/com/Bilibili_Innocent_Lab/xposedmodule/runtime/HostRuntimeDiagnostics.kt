@@ -103,8 +103,8 @@ internal data class HostRuntimeDiagnosticsSnapshot(
 internal object HostRuntimeDiagnosticsCodec {
     const val CURRENT_SCHEMA_VERSION = 3
     const val TARGET_PACKAGE = "tv.danmaku.bili"
-    const val MAX_PAYLOAD_CHARS = 64 * 1024
-    const val MAX_FEATURE_COUNT = 256
+    const val MAX_PAYLOAD_CHARS = 128 * 1024
+    const val MAX_FEATURE_COUNT = 512
     const val MAX_COUNTER = 1L
     const val MAX_HOOK_COUNT = 256
 

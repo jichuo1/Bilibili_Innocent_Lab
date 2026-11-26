@@ -3,6 +3,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.summaryRow
 
 import android.graphics.Typeface
 import android.util.Log
@@ -38,34 +39,18 @@ internal fun MainActivity.recommendSummaryRow(
     bindSummaryView: (NativeTextView) -> Unit,
     onClick: (View) -> Unit
 ) = with(scope) {
-    textView(key = "recommend-summary:$titleRes",
-        lparams = params(widthMatchParent = true) {
-            topMargin = 12.dp
-        }
-    ) {
-        bindSummaryView(this)
-        text = stringResource(titleRes) + "\n" + summary()
-        textColor = colorResource(R.color.colorTextGray)
-        textSize = 15f
-        maxLines = 3
-        ellipsize = TextUtils.TruncateAt.END
-        setLineSpacing(5f, 1f)
-        setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-        background = selfRippleBackground(10f)
-        isClickable = true
-        isFocusable = true
-        settingIds.forEach { settingsDestinations.bind(it, this) }
-        setOnClickListener(onClick)
-    }
-    textView(key = "recommend-summary-tip:$titleRes",
-        lparams = params(widthMatchParent = true)
-    ) {
-        alpha = 0.6f
-        setLineSpacing(6f, 1f)
-        text = stringResource(tipRes)
-        textColor = colorResource(R.color.colorTextDark)
-        textSize = 12f
-    }
+    summaryRow(
+        key = "recommend-summary:$titleRes",
+        title = stringResource(titleRes),
+        summary = summary(),
+        helperText = stringResource(tipRes),
+        backgroundDrawable = selfRippleBackground(10f),
+        init = {
+            bindSummaryView(this)
+            settingIds.forEach { settingsDestinations.bind(it, this) }
+        },
+        onClick = onClick
+    )
 }
 
 /** 进阶净化 · PURIFY_SHARED 分类；标题即 marker，必须是本组第一个子控件。 */

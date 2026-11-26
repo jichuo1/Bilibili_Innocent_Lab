@@ -16,8 +16,6 @@ import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -28,8 +26,6 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.Space
 import android.widget.TextView
-import androidx.activity.BackEventCompat
-import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
@@ -56,7 +52,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportPlanner
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
@@ -66,8 +61,6 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import kotlin.math.abs
 
 /** SAF 驱动的设置备份、兼容性预览和确认导入页面。 */
@@ -88,13 +81,11 @@ class SettingsBackupActivity : SkinnedActivity(),
         ViewModelProvider(this)[classOf<SettingsBackupViewModel>()]
     }
     private val planner = SettingsImportPlanner()
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val worker = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "settings-backup-worker").apply { isDaemon = true }
+    private val morphDelegate by lazy(LazyThreadSafetyMode.NONE) {
+        ContainerMorphActivityDelegate(this, workerThreadName = "settings-backup-worker")
     }
+    private val mainHandler get() = morphDelegate.mainHandler
 
-    private var activeFuture: Future<*>? = null
-    private var operationGeneration = 0L
     private var page = Page.HOME
     private var busy = false
     private var pickerOpen = false
@@ -105,7 +96,6 @@ class SettingsBackupActivity : SkinnedActivity(),
     private var launchOrigin: SettingsBackupTransitionOrigin? = null
     private var allowLaunchOriginForExit = true
     private lateinit var motionController: ContainerMorphController
-    private var pageStretchViewport: View? = null
     private var pageScrollView: NestedScrollView? = null
     private var pendingRestoreScrollY = 0
     private var pendingRestoreScrollPage: String? = null
@@ -134,7 +124,7 @@ class SettingsBackupActivity : SkinnedActivity(),
             return
         }
         prepareSkinSession()
-        suppressSystemActivityTransitions()
+        morphDelegate.suppressSystemTransitions()
         window.decorView.setBackgroundColor(Color.TRANSPARENT)
         launchOrigin = SettingsBackupTransitionOrigin.from(intent)
         allowLaunchOriginForExit = savedInstanceState == null
@@ -181,23 +171,7 @@ class SettingsBackupActivity : SkinnedActivity(),
             if (!isFinishing && !isDestroyed) recreate()
         }
         applyPredictiveBackFromPrefs()
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                beginPredictiveBack()
-            }
-
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                progressPredictiveBack(backEvent.progress)
-            }
-
-            override fun handleOnBackCancelled() {
-                cancelPredictiveBack()
-            }
-
-            override fun handleOnBackPressed() {
-                commitBack()
-            }
-        })
+        morphDelegate.attachPredictiveBack(motionController)
         renderHome()
         motionController.start(savedInstanceState == null)
         observeApplyState()
@@ -221,26 +195,11 @@ class SettingsBackupActivity : SkinnedActivity(),
 
     override fun onDestroy() {
         releaseEntrySections()
-        finishPageStretch()
-        pageStretchViewport = null
         pageScrollView = null
         if (::motionController.isInitialized) motionController.onDestroy()
-        operationGeneration += 1L
-        activeFuture?.cancel(true)
-        worker.shutdownNow()
-        mainHandler.removeCallbacksAndMessages(null)
+        morphDelegate.onDestroy(null, ::finishPreparedLiquidStretch)
         super.onDestroy()
     }
-
-    private fun beginPredictiveBack() = motionController.beginPredictiveBack()
-
-    private fun progressPredictiveBack(progress: Float) = motionController.progressPredictiveBack(progress)
-
-    private fun cancelPredictiveBack() = motionController.cancelPredictiveBack()
-
-    private fun commitBack() = motionController.commitBack()
-
-    private fun suppressSystemActivityTransitions() = ContainerMorphController.suppressSystemTransitions(this)
 
     private fun handleBack() = motionController.commitBack()
 
@@ -251,91 +210,50 @@ class SettingsBackupActivity : SkinnedActivity(),
     }
 
     private fun resolveMotionGeometry(): SettingsBackupMotionGeometry? {
-        if (motionHost.width <= 0 || motionHost.height <= 0) return null
-        val display = motionHost.display ?: return null
-        val tolerancePx = dp(4)
-        val originCandidates = if (allowLaunchOriginForExit) {
-            // 新鲜实例的 Intent 与本次 launch 一一对应，不能被另一 MainActivity 实例覆盖。
-            sequenceOf(launchOrigin, SettingsBackupTransitionOriginRegistry.snapshot())
-        } else {
-            // Activity 重建后不再信任旧 Intent 坐标，只接受主界面当前弱引用快照。
-            sequenceOf(SettingsBackupTransitionOriginRegistry.snapshot())
-        }
-        val origin = originCandidates.filterNotNull().firstOrNull { candidate ->
-            candidate.displayId == display.displayId &&
-                candidate.displayRotation == display.rotation &&
-                abs(candidate.sourceWindowWidth - motionHost.width) <= tolerancePx &&
-                abs(candidate.sourceWindowHeight - motionHost.height) <= tolerancePx
-        } ?: return null
+        val origin = morphDelegate.selectOrigin(
+            motionHost = motionHost,
+            preferLiveOrigin = false,
+            allowLaunchOriginForExit = allowLaunchOriginForExit,
+            launchOrigin = launchOrigin,
+            liveSnapshot = { SettingsBackupTransitionOriginRegistry.snapshot() },
+            matchesDisplay = { candidate, display, hostW, hostH, tolerancePx ->
+                candidate.displayId == display.displayId &&
+                    candidate.displayRotation == display.rotation &&
+                    abs(candidate.sourceWindowWidth - hostW) <= tolerancePx &&
+                    abs(candidate.sourceWindowHeight - hostH) <= tolerancePx
+            }
+        ) ?: return null
 
         val hostLocation = IntArray(2)
         motionHost.getLocationOnScreen(hostLocation)
-        val collapsedBounds = origin.cardBoundsOnScreen.toLocal(hostLocation)
-        val collapsedTitleBounds = origin.titleBoundsOnScreen.toLocal(hostLocation)
-        val expandedBounds = SettingsBackupMotionRect(
-            left = 0f,
-            top = 0f,
-            right = motionHost.width.toFloat(),
-            bottom = motionHost.height.toFloat()
-        )
+        val tolerancePx = dp(4)
+        val collapsedBounds = ContainerMorphActivityDelegate.toLocal(origin.cardBoundsOnScreen, hostLocation)
+        val collapsedTitleBounds = ContainerMorphActivityDelegate.toLocal(origin.titleBoundsOnScreen, hostLocation)
+        val hostW = motionHost.width.toFloat()
+        val hostH = motionHost.height.toFloat()
         val destinationTitle = toolbarTitleView ?: return null
         if (destinationTitle.width <= 0 || destinationTitle.height <= 0) return null
-        val expandedTitleBounds = destinationTitle.boundsOnScreen().toLocal(hostLocation)
-
-        val withinWindow = collapsedBounds.left >= -tolerancePx &&
-            collapsedBounds.top >= -tolerancePx &&
-            collapsedBounds.right <= expandedBounds.right + tolerancePx &&
-            collapsedBounds.bottom <= expandedBounds.bottom + tolerancePx
-        val titleWithinWindow = collapsedTitleBounds.left >= -tolerancePx &&
-            collapsedTitleBounds.top >= -tolerancePx &&
-            collapsedTitleBounds.right <= expandedBounds.right + tolerancePx &&
-            collapsedTitleBounds.bottom <= expandedBounds.bottom + tolerancePx
+        val expandedTitleBounds = ContainerMorphActivityDelegate.toLocal(
+            ContainerMorphActivityDelegate.boundsOnScreen(destinationTitle),
+            hostLocation
+        )
         if (
-            !collapsedBounds.isValid ||
-            !collapsedTitleBounds.isValid ||
-            !expandedTitleBounds.isValid ||
-            !withinWindow ||
-            !titleWithinWindow
+            !ContainerMorphActivityDelegate.isWithinWindow(collapsedBounds, hostW, hostH, tolerancePx) ||
+            !ContainerMorphActivityDelegate.isWithinWindow(collapsedTitleBounds, hostW, hostH, tolerancePx)
         ) {
             return null
         }
-        return SettingsBackupMotionGeometry(
+        return morphDelegate.buildGeometry(
+            motionHost = motionHost,
             collapsedBounds = collapsedBounds,
-            expandedBounds = expandedBounds,
             collapsedTitleBounds = collapsedTitleBounds,
             expandedTitleBounds = expandedTitleBounds,
             collapsedTitleTextSizePx = origin.titleTextSizePx,
-            expandedTitleTextSizePx = destinationTitle.textSize,
-            collapsedCornerRadiusPx = dp(SOURCE_CORNER_RADIUS_DP),
-            contentTravelPx = dp(CONTENT_TRAVEL_DP),
-            titleMotionEnabled = SettingsBackupMotionSpec.canMoveTitle(
-                collapsedLineCount = origin.titleLineCount,
-                expandedLineCount = destinationTitle.lineCount,
-                collapsedIsLeftToRight =
-                    origin.titleLayoutDirection == View.LAYOUT_DIRECTION_LTR,
-                expandedIsLeftToRight =
-                    destinationTitle.layoutDirection == View.LAYOUT_DIRECTION_LTR
-            )
-        )
-    }
-
-    private fun SettingsBackupMotionRect.toLocal(
-        hostLocation: IntArray
-    ): SettingsBackupMotionRect = SettingsBackupMotionRect(
-        left = left - hostLocation[0],
-        top = top - hostLocation[1],
-        right = right - hostLocation[0],
-        bottom = bottom - hostLocation[1]
-    )
-
-    private fun View.boundsOnScreen(): SettingsBackupMotionRect {
-        val location = IntArray(2)
-        getLocationOnScreen(location)
-        return SettingsBackupMotionRect(
-            left = location[0].toFloat(),
-            top = location[1].toFloat(),
-            right = (location[0] + width).toFloat(),
-            bottom = (location[1] + height).toFloat()
+            destinationTitle = destinationTitle,
+            collapsedLineCount = origin.titleLineCount,
+            collapsedLayoutDirection = origin.titleLayoutDirection,
+            collapsedCornerRadiusDp = SOURCE_CORNER_RADIUS_DP,
+            contentTravelDp = CONTENT_TRAVEL_DP
         )
     }
 
@@ -495,18 +413,20 @@ class SettingsBackupActivity : SkinnedActivity(),
     ) {
         if (busy) return
         busy = true
-        val generation = ++operationGeneration
         renderWorking(workingMessageRes)
-        activeFuture = worker.submit {
-            val result = runCatching(operation)
-            mainHandler.post {
-                if (generation != operationGeneration || isFinishing || isDestroyed) return@post
-                busy = false
-                result.fold(
-                    onSuccess = onSuccess,
-                    onFailure = ::renderOperationError
-                )
-            }
+        val submitted = morphDelegate.submitTask(
+            isUiDead = { isFinishing || isDestroyed },
+            operation = operation
+        ) { result ->
+            busy = false
+            result.fold(
+                onSuccess = onSuccess,
+                onFailure = ::renderOperationError
+            )
+        }
+        if (!submitted) {
+            busy = false
+            renderHome()
         }
     }
 
@@ -551,7 +471,7 @@ class SettingsBackupActivity : SkinnedActivity(),
         val enabled = runCatching {
             settingsStore.read(requireNotNull(SettingsCatalog.byId["module_ui.predictive_back.enabled"]))
         }.getOrNull()?.value.let { (it as? SettingValue.Bool)?.value ?: false }
-        PredictiveBack.apply(window, enabled)
+        morphDelegate.applyPredictiveBack(enabled)
     }
 
     private fun renderHome(statusRes: Int? = null) {
@@ -709,8 +629,7 @@ class SettingsBackupActivity : SkinnedActivity(),
 
     /**
      * 条目分组手风琴：条目多时整组默认收起，确认/取消按钮不必翻过长列表就能露出。
-     * 结构与设置页折叠分类一致（header + 箭头 + content），动画复用引擎的
-     * [SectionExpansionController]；各组独立切换，互不联动。
+     * 折叠状态下延迟构建条目子视图，首次点击展开时再按序填充，彻底避免未展开组的视图创建开销。
      */
     private fun addEntryGroup(
         content: LinearLayout,
@@ -759,10 +678,10 @@ class SettingsBackupActivity : SkinnedActivity(),
                 visibility = View.GONE
                 setPadding(dp(16), 0, dp(16), dp(16))
             }
-            entries.forEachIndexed { index, entry ->
-                body.addView(entryView(entry, showChanges).withTopMargin(if (index == 0) 0 else 7))
-            }
             addView(body)
+        }
+        val lazyGroup = LazyEntryGroupState(entries) { index, entry ->
+            body.addView(entryView(entry, showChanges).withTopMargin(if (index == 0) 0 else 7))
         }
         val controller = SectionExpansionController(
             card = card,
@@ -776,6 +695,7 @@ class SettingsBackupActivity : SkinnedActivity(),
         header.setOnClickListener {
             val expanded = !controller.expanded
             header.isActivated = expanded
+            if (expanded) lazyGroup.ensurePopulated()
             controller.setExpanded(expanded)
         }
         content.addView(card)
@@ -944,11 +864,13 @@ class SettingsBackupActivity : SkinnedActivity(),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         )
         bindPreparedSkinScrollHost(scrollView)
-        pageStretchViewport = installPreparedLiquidStretch(
-            scrollTarget = scrollView
-        ) {
-            motionController.isSettledExpanded
-        }
+        morphDelegate.trackStretch(
+            installPreparedLiquidStretch(
+                scrollTarget = scrollView
+            ) {
+                motionController.isSettledExpanded
+            }
+        )
         toolbarTitleView = toolbarTitle
         currentPageTitle = title
         motionHost.replacePage(root, toolbarTitle)
@@ -968,7 +890,7 @@ class SettingsBackupActivity : SkinnedActivity(),
     }
 
     private fun finishPageStretch() {
-        finishPreparedLiquidStretch(pageStretchViewport)
+        morphDelegate.finishStretch(::finishPreparedLiquidStretch)
     }
 
     private fun operationCard(
@@ -1183,5 +1105,23 @@ class SettingsBackupActivity : SkinnedActivity(),
         private const val ID_LOG_LEVEL = "diagnostics.logging.level"
         private const val KEY_SCROLL_Y = "settings_backup_scroll_y"
         private const val KEY_SCROLL_PAGE = "settings_backup_scroll_page"
+    }
+}
+
+/**
+ * 折叠分组子视图的懒构建状态机：分组未展开时不触发条目 View 创建，首次展开时按序物化且保证幂等。
+ */
+internal class LazyEntryGroupState<T>(
+    private val entries: List<T>,
+    private val buildChild: (index: Int, entry: T) -> Unit
+) {
+    var populated: Boolean = false
+        private set
+
+    fun ensurePopulated(): Boolean {
+        if (populated || entries.isEmpty()) return false
+        populated = true
+        entries.forEachIndexed(buildChild)
+        return true
     }
 }

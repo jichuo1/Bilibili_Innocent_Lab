@@ -282,16 +282,21 @@ class ModalTitleHandoffTest {
      * 真机 `dumpsys window windows` 里 `anim=` 依旧非零。
      */
     fun theDialogWindowAnimationIsDisabledAfterSetContentView() {
-        // 不能钉 `private fun`：弹窗外移后这个底座已放宽成 internal，
-        // 而 substringAfter 失配会返回整份文件，断言照样通过、护栏静默失效。
         val present = SettingsUiSource.function("presentSizedModalDialog")
-        val setContent = present.indexOf("dialog.setContentView(windowFrame)")
-        val disable = present.indexOf("dialog.window?.setWindowAnimations(0)")
+        assertTrue(
+            "presentSizedModalDialog must delegate window setup to configureFullscreenWindow",
+            present.contains("ModalPresenter.configureFullscreenWindow(dialog, this.window, windowFrame)")
+        )
+        val configure = SettingsUiSource.file("ModalPresenter")
+            .after("internal fun configureFullscreenWindow(")
+            .before("internal fun observeSafeMargins(")
+        val setContent = configure.indexOf("dialog.setContentView(contentRoot)")
+        val disable = configure.indexOf("dialog.window?.setWindowAnimations(0)")
         assertTrue("setContentView not found", setContent > 0)
         assertTrue("window animation must be disabled", disable > 0)
         assertTrue("must be disabled after setContentView", disable > setContent)
         // 别再写回 apply{} 块里（那个块在 setContentView 之前）。
-        val windowBlock = present.after("dialog.window?.apply {").before("}")
+        val windowBlock = configure.after("dialog.window?.apply {").before("if (contentRoot != null)")
         assertFalse(windowBlock.contains("setWindowAnimations"))
     }
 

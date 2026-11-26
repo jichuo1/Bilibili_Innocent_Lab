@@ -2,8 +2,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.widget.CompoundButton
 import android.view.View
-import android.util.Log
-import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
@@ -60,12 +58,13 @@ private fun MainActivity.requestThermalControlSetting(id: String, requested: Boo
         if (isFinishing || isDestroyed) return
         store.request(id, value) {
             val previous = store.state(id).checked
-            val saved = runCatching {
-                val preferences = prefs()
-                preferences.edit { putBoolean(key, value) }
-                check(preferences.getBoolean(key, !value) == value)
-            }.onFailure { Log.e("BilibiliInnocentLab", "write frame thermal control prefs failed", it) }.isSuccess
-            if (saved) value else previous
+            settingsState.persistBoolean(
+                key = key,
+                previous = previous,
+                requested = value,
+                failureMessage = "write frame thermal control prefs failed",
+                verifyReadback = true
+            ).confirmed
         }
     }
     if (requested) showFrameInterpolationThermalConfirmDialog(anchor) { save(true) }
@@ -83,8 +82,13 @@ private fun MainActivity.requestManualLightSetting(id: String, requested: Boolea
                 autoLightConfirmInProgress = false
                 if (isFinishing || isDestroyed) return@confirm
                 freeCopyAutoLight = false
-                runCatching { prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, false) } }
-                    .onFailure { Log.e("BilibiliInnocentLab", "write free copy auto light prefs failed", it) }
+                settingsState.persistBoolean(
+                    key = HookEntry.PREF_FREE_COPY_AUTO_LIGHT,
+                    previous = true,
+                    requested = false,
+                    failureMessage = "write free copy auto light prefs failed",
+                    verifyReadback = false
+                )
                 store.descriptors.singleOrNull { it.storageKey == HookEntry.PREF_FREE_COPY_AUTO_LIGHT }
                     ?.let { store.checked(it.id, false) }
                 onFreeCopyLightModeChanged(requested)

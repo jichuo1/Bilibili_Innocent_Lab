@@ -2,15 +2,10 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
-import com.lumen.coacervation.engine.motion.LumenEasing
-
-import com.lumen.coacervation.engine.motion.LumenAnimator
-
 import com.lumen.coacervation.engine.motion.morph.ContainerMorphController
 
 import android.annotation.SuppressLint
 import android.content.res.ColorStateList
-import android.animation.Animator
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.app.Dialog
@@ -20,30 +15,20 @@ import android.graphics.Typeface
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.os.Build
-import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
-import android.util.Log
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
-import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.BackEventCompat
-import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
-import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -67,19 +52,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapsh
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
-import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import io.github.jichuo1.meguviz.android.extensions.isUiInNightMode
-import io.github.jichuo1.meguviz.android.window.InsetsSlot
 import io.github.jichuo1.meguviz.drawable.android.RecipeDrawable
 import io.github.jichuo1.meguviz.drawable.model.DrawingRecipe
 import io.github.jichuo1.meguviz.drawable.model.FillSpec
@@ -144,7 +124,10 @@ class DiagnosticsActivity : SkinnedActivity(),
     private val viewModel by lazy {
         ViewModelProvider(this)[DiagnosticsViewModel::class.java]
     }
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val morphDelegate by lazy(LazyThreadSafetyMode.NONE) {
+        ContainerMorphActivityDelegate(this)
+    }
+    private val mainHandler get() = morphDelegate.mainHandler
     private val snapshotScheduler by lazy(LazyThreadSafetyMode.NONE) {
         UiScheduler(
             driver = ChoreographerFrameDriver(),
@@ -163,7 +146,6 @@ class DiagnosticsActivity : SkinnedActivity(),
     private var currentSnapshot: ModuleDiagnosticSnapshot? = null
     internal var activeDialog: Dialog? = null
         private set
-    private var stretchViewport: View? = null
     private var stretchScrollTarget: View? = null
     private var scrollView: ScrollView? = null
     private var pendingRestoreScrollY = 0
@@ -235,7 +217,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             return
         }
         prepareSkinSession()
-        suppressSystemActivityTransitions()
+        morphDelegate.suppressSystemTransitions()
         window.decorView.setBackgroundColor(Color.TRANSPARENT)
         launchOrigin = DiagnosticsTransitionOrigin.from(intent)
         allowLaunchOriginForExit = savedInstanceState == null
@@ -285,8 +267,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             resolveGeometry = { resolveMotionGeometry(it) },
             hasLaunchOrigin = { launchOrigin != null || DiagnosticsTransitionOriginRegistry.snapshot() != null }
         )
-        PredictiveBack.apply(
-            window,
+        morphDelegate.applyPredictiveBack(
             prefs().getBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, false)
         )
         val root = buildRoot()
@@ -296,23 +277,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
             if (!isFinishing && !isDestroyed) recreate()
         }
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                beginPredictiveBack()
-            }
-
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                progressPredictiveBack(backEvent.progress)
-            }
-
-            override fun handleOnBackCancelled() {
-                cancelPredictiveBack()
-            }
-
-            override fun handleOnBackPressed() {
-                commitBack()
-            }
-        })
+        morphDelegate.attachPredictiveBack(motionController)
         renderLoading()
         observeState()
         motionController.start(savedInstanceState == null)
@@ -346,26 +311,14 @@ class DiagnosticsActivity : SkinnedActivity(),
         renderGeneration++
         runCatching { snapshotScheduler.close() }
         RemoteHookConfigStore.removeStatusListener(frameworkListener)
-        mainHandler.removeCallbacksAndMessages(null)
         activeDialog?.dismiss()
         activeDialog = null
-        finishPageStretch()
-        stretchViewport = null
         stretchScrollTarget = null
         scrollView = null
         if (::motionController.isInitialized) motionController.onDestroy()
+        morphDelegate.onDestroy(null, ::finishPreparedLiquidStretch)
         super.onDestroy()
     }
-
-    private fun beginPredictiveBack() = motionController.beginPredictiveBack()
-
-    private fun progressPredictiveBack(progress: Float) = motionController.progressPredictiveBack(progress)
-
-    private fun cancelPredictiveBack() = motionController.cancelPredictiveBack()
-
-    private fun commitBack() = motionController.commitBack()
-
-    private fun suppressSystemActivityTransitions() = ContainerMorphController.suppressSystemTransitions(this)
 
     private fun onMotionExpanded() {
         installPageStretch()
@@ -378,29 +331,17 @@ class DiagnosticsActivity : SkinnedActivity(),
     private fun resolveMotionGeometry(
         preferLiveOrigin: Boolean = false
     ): SettingsBackupMotionGeometry? {
-        if (motionHost.width <= 0 || motionHost.height <= 0) return null
-        val display = motionHost.display ?: return null
-        val tolerancePx = 4.dp
-        val liveOrigin = DiagnosticsTransitionOriginRegistry.snapshot(
-            allowHidden = preferLiveOrigin
-        )
-        val originCandidates = if (allowLaunchOriginForExit) {
-            if (preferLiveOrigin) {
-                sequenceOf(liveOrigin, launchOrigin)
-            } else {
-                sequenceOf(launchOrigin, liveOrigin)
+        val origin = morphDelegate.selectOrigin(
+            motionHost = motionHost,
+            preferLiveOrigin = preferLiveOrigin,
+            allowLaunchOriginForExit = allowLaunchOriginForExit,
+            launchOrigin = launchOrigin,
+            liveSnapshot = { DiagnosticsTransitionOriginRegistry.snapshot(allowHidden = it) },
+            matchesDisplay = { candidate, display, _, _, _ ->
+                candidate.displayId == display.displayId &&
+                    candidate.displayRotation == display.rotation
             }
-        } else {
-            sequenceOf(
-                DiagnosticsTransitionOriginRegistry.snapshot(
-                    allowHidden = preferLiveOrigin
-                )
-            )
-        }
-        val origin = originCandidates.filterNotNull().firstOrNull { candidate ->
-            candidate.displayId == display.displayId &&
-                candidate.displayRotation == display.rotation
-        } ?: return null
+        ) ?: return null
 
         val hostLocation = IntArray(2)
         motionHost.getLocationOnScreen(hostLocation)
@@ -410,58 +351,35 @@ class DiagnosticsActivity : SkinnedActivity(),
             destinationWindowHeight = motionHost.height,
             destinationWindowLeftOnScreen = hostLocation[0].toFloat(),
             destinationWindowTopOnScreen = hostLocation[1].toFloat(),
-            tolerancePx = tolerancePx.toFloat()
+            tolerancePx = 4.dp.toFloat()
         ) ?: return null
-        val collapsedBounds = mappedOrigin.entryBounds
-        val collapsedTitleBounds = mappedOrigin.titleBounds
-        val expandedBounds = SettingsBackupMotionRect(
-            left = 0f,
-            top = 0f,
-            right = motionHost.width.toFloat(),
-            bottom = motionHost.height.toFloat()
-        )
         val destinationTitle = toolbarTitleView ?: return null
         if (destinationTitle.width <= 0 || destinationTitle.height <= 0) return null
         val expandedTitleBounds = destinationTitle.boundsWithin(motionHost) ?: return null
-        if (
-            !collapsedBounds.isValid ||
-            !collapsedTitleBounds.isValid ||
-            !expandedTitleBounds.isValid
-        ) {
-            return null
-        }
-        return SettingsBackupMotionGeometry(
-            collapsedBounds = collapsedBounds,
-            expandedBounds = expandedBounds,
-            collapsedTitleBounds = collapsedTitleBounds,
+        return morphDelegate.buildGeometry(
+            motionHost = motionHost,
+            collapsedBounds = mappedOrigin.entryBounds,
+            collapsedTitleBounds = mappedOrigin.titleBounds,
             expandedTitleBounds = expandedTitleBounds,
             collapsedTitleTextSizePx = origin.titleTextSizePx,
-            expandedTitleTextSizePx = destinationTitle.textSize,
-            collapsedCornerRadiusPx = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP *
-                resources.displayMetrics.density,
-            contentTravelPx = CONTENT_TRAVEL_DP * resources.displayMetrics.density,
-            titleMotionEnabled = SettingsBackupMotionSpec.canMoveTitle(
-                collapsedLineCount = origin.titleLineCount,
-                expandedLineCount = destinationTitle.lineCount,
-                collapsedIsLeftToRight =
-                    origin.titleLayoutDirection == View.LAYOUT_DIRECTION_LTR,
-                expandedIsLeftToRight =
-                    destinationTitle.layoutDirection == View.LAYOUT_DIRECTION_LTR
-            )
+            destinationTitle = destinationTitle,
+            collapsedLineCount = origin.titleLineCount,
+            collapsedLayoutDirection = origin.titleLayoutDirection,
+            collapsedCornerRadiusDp = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP,
+            contentTravelDp = CONTENT_TRAVEL_DP
         )
     }
 
     private fun installPageStretch() {
-        if (stretchViewport != null) return
-        val scrollTarget = stretchScrollTarget ?: return
-        stretchViewport = installPreparedLiquidStretch(scrollTarget) {
-            motionController.isSettledExpanded
+        morphDelegate.installStretch(stretchScrollTarget) { target ->
+            installPreparedLiquidStretch(target) {
+                motionController.isSettledExpanded
+            }
         }
     }
 
     private fun finishPageStretch() {
-        finishPreparedLiquidStretch(stretchViewport)
-        stretchViewport = null
+        morphDelegate.finishStretch(::finishPreparedLiquidStretch)
     }
 
     private fun renderOrDefer(state: DiagnosticsScreenState) {
@@ -1160,66 +1078,8 @@ class DiagnosticsActivity : SkinnedActivity(),
     }
 
     private fun hostFeatureTitle(featureId: String): String = getString(
-        com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticCapabilityCatalog.byId[featureId]?.labelRes ?: when (featureId) {
-            "paused_ad" -> R.string.paused_page_ad_enable
-            "game_mentioned_promotion" -> R.string.gamecard_ad_enable
-            "detail_app_promotion" -> R.string.hide_video_detail_app_promotion
-            "follow_up_recommend" -> R.string.hide_follow_up_recommend
-            "live_home_promotion" -> R.string.hide_live_home_promotion
-            "home_banner" -> R.string.banner_ad_enable
-            "merchandise" -> R.string.merch_ad_enable
-            "home_top_bar_purify" -> R.string.home_top_bar_settings
-            "home_vertical_detail" -> R.string.home_vertical_open_detail
-            "home_recommend_purify" -> R.string.diagnostics_host_feature_home_feed
-            "home_tab_filter" -> R.string.custom_home_tab_hide
-            "home_component_filter" -> R.string.custom_home_component_hide
-            "bottom_bar" -> R.string.custom_bottom_bar_hide
-            "story_purify" -> R.string.story_purify_settings
-            "story_action_icons" -> R.string.story_action_icons_title
-            "dynamic_tabs_purify" -> R.string.dynamic_page_settings
-            "dynamic_purify" -> R.string.diagnostics_host_feature_dynamic_feed
-            "search_purify" -> R.string.diagnostics_host_feature_search
-            "mine_vip_purify" -> R.string.hide_mine_vip
-            "video_relate_filter" -> R.string.diagnostics_host_feature_relate
-            "player_portrait_control" -> R.string.hide_player_portrait_control
-            "player_interactive_overlay" -> R.string.hide_player_interactive_overlays
-            "pgc_auto_activity_popup" -> R.string.hide_pgc_auto_activity_popup
-            "player_status_bar" -> R.string.transparent_player_status_bar
-            "danmaku_purify" -> R.string.diagnostics_host_feature_danmaku
-            "live_room_widgets" -> R.string.diagnostics_host_feature_live_room
-            "share_purify" -> R.string.diagnostics_host_feature_share
-            "external_browser" -> R.string.force_external_browser
-            "system_media_notification" -> R.string.system_media_notification
-            "home_frame_lock" -> R.string.home_frame_legacy_lock
-            "home_recommend_early_load" -> R.string.home_recommend_early_load
-            "cloud_key_freeze" -> R.string.cloud_key_freeze
-            "splash_auto_night" -> R.string.splash_auto_night
-            "bv_to_av" -> R.string.show_bv_as_av
-            "system_environment_detection" -> R.string.block_system_env_detection
-            "host_predictive_back" -> R.string.host_predictive_back_enable
-            "guest_browsing" -> R.string.no_login_enabled
-            "incognito_privacy" -> R.string.incognito_enabled
-            "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
-            "comment_purify" -> R.string.diagnostics_host_feature_comment_purify
-            "comment_reply_button" -> R.string.remove_comment_reply_button
-            "comment_section" -> R.string.hide_comment_section
-            "comment_topology" -> R.string.reply_topology_enabled
-            "free_copy" -> R.string.free_copy_enable
-            "player_default_quality" -> R.string.diagnostics_host_feature_quality
-            "player_capabilities" -> R.string.player_capabilities_title
-            "player_speed" -> R.string.player_speed_title
-            "player_buffer" -> R.string.player_buffer_strategy
-            "sponsorblock" -> R.string.sponsorblock_title
-            "sponsorblock_story" -> R.string.sponsorblock_story_enabled
-            "ai_insight" -> R.string.ai_insight_title
-            "splash_ad_purify" -> R.string.diagnostics_host_feature_splash
-            "mine_component_filter" -> R.string.diagnostics_host_feature_mine
-            "block_app_update" -> R.string.block_app_update
-            "full_number_display" -> R.string.show_full_numbers
-            "teenagers_mode_prompt" -> R.string.block_teenagers_mode_prompt
-            "roaming_compat" -> R.string.roaming_compat_enable
-            else -> R.string.diagnostics_host_feature_unknown
-        }
+        com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry.titleResId(featureId)
+            ?: R.string.diagnostics_host_feature_unknown
     )
 
     // Dialog Window 自己消费返回并播放统一退场；底层 Activity 的 predictive back 仍保持 BLOCKED。
@@ -1228,7 +1088,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         if (currentSnapshot == null || viewModel.exportState.value is DiagnosticsExportState.Running) return
         activeDialog?.dismiss()
         val density = resources.displayMetrics.density
-        val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
+        val dialog = Dialog(this)
         val container = BoundedModalContainer(
             this,
             AdaptiveWindowLayout.modalMaxWidthPx(usableWindowSizePx().first, density)
@@ -1247,12 +1107,6 @@ class DiagnosticsActivity : SkinnedActivity(),
             scaleX = 0.85f
             scaleY = 0.85f
             alpha = 0f
-        }
-        val scrim = View(this).apply {
-            setBackgroundColor(SettingsModalScrim.color(monetColors.surface, monetColors.background))
-            alpha = 0f
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            isFocusable = false
         }
         container.addView(
             TextView(this).apply {
@@ -1287,7 +1141,7 @@ class DiagnosticsActivity : SkinnedActivity(),
                 textRes = R.string.diagnostics_report_cancel,
                 filled = false
             ) {
-                dismissExportPreviewDialog(dialog, container, scrim)
+                dismissExportPreviewDialog(dialog, container)
             }
         )
         buttonRow.addView(
@@ -1295,7 +1149,7 @@ class DiagnosticsActivity : SkinnedActivity(),
                 textRes = R.string.diagnostics_report_choose_location,
                 filled = true
             ) {
-                dismissExportPreviewDialog(dialog, container, scrim) { launchDiagnosticsExportPicker(supportBundle) }
+                dismissExportPreviewDialog(dialog, container) { launchDiagnosticsExportPicker(supportBundle) }
             },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1309,144 +1163,21 @@ class DiagnosticsActivity : SkinnedActivity(),
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = (22 * density).toInt() }
         )
-        val root = FrameLayout(this).apply {
-            addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            addView(
-                container,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER
-                    setMargins((32 * density).toInt(), (16 * density).toInt(), (32 * density).toInt(), (16 * density).toInt())
-                }
-            )
-        }
-        val rootScope = dialogWindowSession(dialog)?.scope(root)
-        val rootInsetsSlot = rootScope?.let(InsetsSlot::claimExclusive)
-        val rootInsetsRegistration = rootInsetsSlot?.observe { snapshot ->
-            val safe = snapshot.combined(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            val params = container.layoutParams as? FrameLayout.LayoutParams
-            if (params != null) {
-                val baseSide = (32 * density).toInt()
-                val baseTop = (16 * density).toInt()
-                val left = baseSide + safe.left
-                val top = baseTop + safe.top
-                val right = baseSide + safe.right
-                val bottom = baseTop + safe.bottom
-                if (params.leftMargin != left || params.topMargin != top ||
-                    params.rightMargin != right || params.bottomMargin != bottom
-                ) {
-                    params.setMargins(left, top, right, bottom)
-                    container.layoutParams = params
-                }
-            }
-        }
-        dialog.window?.apply {
-            setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
-            setDimAmount(0f)
-            // Dialog 必须接管系统栏颜色，否则它会把诊断页的浅色状态栏替换成黑色。
-            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            if (Build.VERSION.SDK_INT < 35) {
-                @Suppress("DEPRECATION")
-                statusBarColor = this@DiagnosticsActivity.window.statusBarColor
-                @Suppress("DEPRECATION")
-                navigationBarColor = this@DiagnosticsActivity.window.navigationBarColor
-            }
-            val pageBars = WindowCompat.getInsetsController(this@DiagnosticsActivity.window, this@DiagnosticsActivity.window.decorView)
-            WindowCompat.getInsetsController(this, decorView).apply {
-                isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars
-                isAppearanceLightNavigationBars = pageBars.isAppearanceLightNavigationBars
-            }
-        }
-        dialog.setContentView(root)
-        dialog.window?.setWindowAnimations(0)
-        val backdropBlur = ModalBackdropBlur.createOrNull(dialog.window, ModalBackdropBlurStore.read(this),
-            isMaterialYouSkinEffective, density)
-        val disposeElasticInteraction = installDialogElasticInteraction(dialog)
-        dialog.setCanceledOnTouchOutside(false)
-        val backCallback: Any? = when {
-            AndroidVersion.isAtLeast(AndroidVersion.U) -> PredictiveBackApi33.animationCallback(
-                onStarted = { if (!container.hasTransientState()) LumenAnimator.property(container).cancel() },
-                onProgressed = { progress ->
-                    if (!container.hasTransientState()) {
-                        container.scaleX = 1f - 0.05f * progress
-                        container.scaleY = 1f - 0.05f * progress
-                        container.alpha = 1f - 0.15f * progress
-                        scrim.alpha = container.alpha
-                        notifyPreparedSkinPositionChanged()
-                    }
-                },
-                onCancelled = {
-                    if (!container.hasTransientState()) {
-                        LumenAnimator.property(container).scaleX(1f).scaleY(1f).alpha(1f)
-                            .setDuration(260L).setInterpolator(LumenEasing.emphasizedDecelerate())
-                            .setUpdateListener {
-                                backdropBlur?.apply(container.alpha)
-                                scrim.alpha = container.alpha
-                                notifyPreparedSkinPositionChanged()
-                            }.start()
-                    }
-                },
-                onInvoked = { dismissExportPreviewDialog(dialog, container, scrim) }
-            )
-            AndroidVersion.isAtLeast(AndroidVersion.T) -> PredictiveBackApi33.plainCallback {
-                dismissExportPreviewDialog(dialog, container, scrim)
-            }
-            else -> null
-        }
-        var backDispatcher: Any? = null
-        dialog.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
-                    dismissExportPreviewDialog(dialog, container, scrim)
-                }
-                true
-            } else false
-        }
-        dialog.setOnDismissListener {
-            rootInsetsRegistration?.close()
-            rootInsetsSlot?.close()
-            rootScope?.close()
-            disposeElasticInteraction()
-            backdropBlur?.clear()
-            val dispatcher = backDispatcher
-            if (dispatcher != null && backCallback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
-                backDispatcher = null
-                runCatching { PredictiveBackApi33.unregister(dispatcher, backCallback) }
-            }
-            if (activeDialog === dialog) activeDialog = null
-        }
         activeDialog = dialog
-        stylePreparedSkinControls(container)
-        dialog.show()
-        if (backCallback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
-            runCatching { backDispatcher = PredictiveBackApi33.register(dialog, backCallback) }
-                .onFailure { Log.e("BilibiliInnocentLab", "register diagnostics dialog back callback failed", it) }
-        }
-        dialog.window?.setLayout(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+        ModalPresenter.presentCenteredDialog(
+            activity = this,
+            dialog = dialog,
+            container = container,
+            isMaterialYouSkin = isMaterialYouSkinEffective,
+            styleControls = ::stylePreparedSkinControls,
+            notifyPositionChanged = ::notifyPreparedSkinPositionChanged,
+            onDismissCleanup = {
+                if (activeDialog === dialog) activeDialog = null
+            },
+            onRequestDismiss = {
+                dismissExportPreviewDialog(dialog, container)
+            }
         )
-        container.post {
-            LumenAnimator.property(container)
-                .scaleX(1f)
-                .scaleY(1f)
-                .alpha(1f)
-                .setDuration(260L)
-                .setInterpolator(LumenEasing.emphasizedDecelerate())
-                .setUpdateListener {
-                    backdropBlur?.apply(container.alpha)
-                    scrim.alpha = container.alpha
-                    notifyPreparedSkinPositionChanged()
-                }
-                .withEndAction {
-                    backdropBlur?.apply(1f)
-                    scrim.alpha = 1f
-                    notifyPreparedSkinPositionChanged()
-                }
-                .start()
-        }
     }
 
     private fun modalButton(
@@ -1493,29 +1224,14 @@ class DiagnosticsActivity : SkinnedActivity(),
     private fun dismissExportPreviewDialog(
         dialog: Dialog,
         container: View,
-        scrim: View,
         afterDismiss: () -> Unit = {}
-    ) {
-        if (!dialog.isShowing || container.hasTransientState()) return
-        container.setHasTransientState(true)
-        LumenAnimator.property(container).cancel()
-        LumenAnimator.property(container)
-            .scaleX(0.92f)
-            .scaleY(0.92f)
-            .alpha(0f)
-            .setDuration(180L)
-            .setInterpolator(LumenEasing.emphasizedAccelerate())
-            .setUpdateListener {
-                scrim.alpha = container.alpha
-                notifyPreparedSkinPositionChanged()
-            }
-            .withEndAction {
-                container.setHasTransientState(false)
-                if (dialog.isShowing) dialog.dismiss()
-                afterDismiss()
-            }
-            .start()
-    }
+    ) = ModalPresenter.dismissCentered(
+        dialog = dialog,
+        container = container,
+        notifyPositionChanged = ::notifyPreparedSkinPositionChanged,
+        guardState = true,
+        afterDismiss = afterDismiss
+    )
 
     private fun launchDiagnosticsExportPicker(supportBundle: Boolean = false) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())

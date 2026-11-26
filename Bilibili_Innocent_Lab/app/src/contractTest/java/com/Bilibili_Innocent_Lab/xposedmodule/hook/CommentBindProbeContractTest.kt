@@ -13,16 +13,20 @@ import org.junit.Test
  * 队列上限、generation 与脱离窗口检查。单项游标仍需真实宿主数据证明必要性。
  */
 class CommentBindProbeContractTest {
-    private val source = SourceContract.read("hook/HookEntry.kt")
+    private val scheduler = HookEntrySource.file("hook/feature/freecopy/FreeCopyBindScheduler.kt")
     private val probe = SourceContract.read("hook/feature/CommentBindProbe.kt")
-    private val drain = source.after("private fun drainCommentBinds() {").before("override fun onModuleLoaded(")
+    private val drain = HookEntrySource.function("drainCommentBinds", HookEntrySource.freeCopyScopeFiles())
 
     @Test fun probeIsOffByDefaultAndOnlyTheInstallPathTurnsItOn() {
         assertTrue(probe.contains("var enabled: Boolean = false"))
-        assertEquals("exactly one production assignment", 1, Regex("""commentBindProbe\.enabled\s*=""").findAll(source).count())
-        val install = source.after("if (!commentFreeCopyHooksInstalled.compareAndSet(false, true)) return@installCommentHooks")
-            .before("// 读版本适配缓存")
-        assertTrue(install.contains("android.util.Log.isLoggable(CommentBindProbe.LOG_TAG, android.util.Log.DEBUG)"))
+        val totalAssignments = HookEntrySource.freeCopyScopeFiles().sumOf { (_, raw) ->
+            Regex("""commentBindProbe\.enabled\s*=""").findAll(HookEntrySource.code(raw)).count()
+        }
+        assertEquals("exactly one production assignment", 1, totalAssignments)
+        val install = HookEntrySource.function("installCommentFreeCopyHooks", HookEntrySource.freeCopyScopeFiles())
+            .after("val isInitialAttempt = commentFreeCopyHooksInstalled.compareAndSet(false, true)")
+            .before("try {")
+        assertTrue(install.contains("Log.isLoggable(CommentBindProbe.LOG_TAG, Log.DEBUG)"))
         assertTrue("a failed lookup leaves it off", install.contains(".getOrDefault(false)"))
         assertTrue("tag fits Log.isLoggable's 23-character limit", Regex("""LOG_TAG = "(\w+)"""").find(probe)!!.groupValues[1].length <= 23)
     }
@@ -38,14 +42,14 @@ class CommentBindProbeContractTest {
     }
 
     @Test fun nodeCountingIsGuardedByAFlagReadOncePerTree() {
-        val apply = source.after("private fun applyFreeCopyListener(").before("/** 缓存 RecyclerView.ViewHolder.itemView 字段")
+        val apply = HookEntrySource.function("applyFreeCopyListener", HookEntrySource.freeCopyScopeFiles())
         assertTrue(apply.contains("val probing = commentBindProbe.enabled"))
         assertEquals(1, Regex("""commentBindProbe\.countNode\(\)""").findAll(apply).count())
         assertTrue(apply.contains("if (probing) commentBindProbe.countNode()"))
         assertTrue(apply.contains("if (probing) commentBindProbe.noteBindable(views.size)"))
         // 仍是一次收集 + 共享监听器，没有为测量多走一遍子树。
         assertEquals(1, Regex("""\n\s+collect\(root\)""").findAll(apply).count())
-        assertTrue(apply.contains("setLongClickListenerNoHook(v, sharedFreeCopyListener)"))
+        assertTrue(apply.contains("setLongClickListenerNoHook(v, FreeCopyGestureState.sharedFreeCopyListener)"))
     }
 
     @Test fun everyDeferralGateReportsItsReasonBeforeRetrying() {
@@ -71,17 +75,17 @@ class CommentBindProbeContractTest {
     }
 
     @Test fun itemTimingCoversTheTreeWorkAndDroppedItemsAreCountedNotTimed() {
-        val loop = drain.after("CommentBindBudget.run(").before("// 提前结束的项")
-        val stale = loop.before("// 仅绑定仍挂载的 view")
+        val loop = drain.after("CommentBindBudget.run(").before("var queueAfter = 0")
+        val stale = loop.before("if (v.isAttachedToWindow)")
         assertTrue(stale.contains("commentBindProbe.noteStale()") && stale.contains("return@run"))
         assertTrue(loop.indexOf("commentBindProbe.beginItem()") < loop.indexOf("applyFreeCopyListener(v, raw, checkReply)"))
         assertTrue(loop.indexOf("applyFreeCopyListener(v, raw, checkReply)") < loop.indexOf("commentBindProbe.endItem(itemToken, enqueuedAtNanos, validComment)"))
-        val detached = loop.after("} else {\n                    commentBindProbe.noteDetached()")
+        val detached = loop.after("} else {").after("commentBindProbe.noteDetached()")
         assertTrue(detached.trimStart().startsWith("unregisterCommentRoot(v, expectedGeneration = generation)"))
     }
 
     @Test fun enqueueStampsAndCountsInsideTheExistingQueueLock() {
-        val enqueue = source.after("private fun scheduleCommentBind(").before("/** 主线程分帧批量绑定")
+        val enqueue = HookEntrySource.function("scheduleCommentBind", HookEntrySource.freeCopyScopeFiles())
         assertTrue(enqueue.contains("val enqueuedAtNanos = commentBindClock.nanoTime()"))
         assertTrue(enqueue.contains("PendingCommentBind(view, rawText, checkReply, rawTrusted, commentItem)"))
         assertTrue(enqueue.contains("replacedBinds = queued.replaced") && enqueue.contains("overflowBinds = queued.overflowDropped"))
@@ -92,7 +96,7 @@ class CommentBindProbeContractTest {
     @Test fun budgetIntegrationKeepsTheExistingBindProtections() {
         // 单次树收集、共享 listener、滚动暂停、LIFO、96 项上限、generation 与脱离窗口检查保持不变。
         assertTrue(drain.contains("if (isAnyRecyclerViewScrolling()) {"))
-        assertTrue(source.contains("private val pendingCommentBinds = CommentBindQueue<PendingCommentBind>()"))
+        assertTrue(scheduler.contains("private val pendingCommentBinds = CommentBindQueue<PendingCommentBind>()"))
         assertTrue(drain.contains("pendingCommentBinds.takeBatch(drainStartedNs, commentBindBudgetPolicy.starvationLimitNs)"))
         assertTrue(drain.contains("latestCommentBindingGeneration[v] == generation"))
         assertTrue(drain.contains("if (v.isAttachedToWindow) {"))

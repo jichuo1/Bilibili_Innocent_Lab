@@ -129,7 +129,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRemoteGateway
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsImportApplier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPublishState
@@ -158,7 +157,6 @@ import com.lumen.coacervation.engine.LumenEngine
 import com.lumen.coacervation.engine.background.LiquidBackgroundImportResult
 import com.lumen.coacervation.engine.background.LiquidBackgroundStore
 import com.lumen.coacervation.engine.model.SkinId
-import io.github.jichuo1.meguviz.android.window.InsetsSlot
 import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -873,6 +871,7 @@ class MainActivity : SkinnedActivity() {
     private var settingsSearchScrollView: androidx.core.widget.NestedScrollView? = null
     internal var settingsHome: SettingsHomePresenter? = null
     internal var settingStore: SettingStore? = null
+    internal val settingsState = SettingsStateHolder(preferencesProvider = { runCatching { prefs() }.getOrNull() })
     private var settingModelPreferences: SharedPreferences? = null
     private val settingModelListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
         runOnUiThread {
@@ -993,7 +992,7 @@ class MainActivity : SkinnedActivity() {
 
     // Material You 标准动效插值器
     internal val emphasizedDecelerate = LumenEasing.emphasizedDecelerate()   // 展开（减速收尾）
-    private val emphasizedAccelerate = LumenEasing.emphasizedAccelerate()   // 收起（加速开始）
+    internal val emphasizedAccelerate = LumenEasing.emphasizedAccelerate()   // 收起（加速开始）
     // 超长二级菜单使用独立的 Material 3 风格曲线：快速建立反馈，保留更长的柔和收尾。
     // 不复用上方插值器，避免改变弹窗、日志滑块等已有动画的节奏。
     internal val secondaryExpandInterpolator = LumenEasing.secondaryExpand()
@@ -1551,95 +1550,16 @@ class MainActivity : SkinnedActivity() {
         renderNoRootUi()
     }
 
-    /** 弹窗退场动画（scale 缩小 + fade out），结束后 dismiss 并回调 */
-    /**
-     * 已装上锚点动画的弹窗的收起入口。
-     *
-     * 全仓有 72 处直接调用 [dismissWithAnimation]（关闭按钮、各行点击后关闭等），它们本来会绕过
-     * 锚点动画去跑旧的 0.92 缩放淡出——入场是气泡/形变、退场是另一套，观感就是"没有退出动画"。
-     * 在这里登记后，那 72 处**一处不改**也全部走对应的收起动画。
-     *
-     * 签名是 `(interactiveCommit, afterClose) -> handled`：`afterClose` 为空时用弹窗自己的
-     * `onBackDismiss`，非空时用调用点传进来的那个（例如"关闭后打开链接"）。
-     */
-    private val dialogAnchoredClosers =
-        java.util.WeakHashMap<Dialog, (Boolean, (() -> Unit)?) -> Boolean>()
-
-    /** 弹窗窗口内的背板压暗层（位于卡片之下）；随各路径的动画进度同步 alpha。 */
-    private val dialogScrims = java.util.WeakHashMap<Dialog, View>()
-
-    /**
-     * 弹窗**卡片矩形**与**可见表面**之间的差。
-     *
-     * 气泡面板的小角高度是加在 container 的 padding 上的（`applyBubbleSurface`），所以
-     * `modalAnchorBounds(container)` 拿到的矩形比真正画出来的表面**大一条**：2026-09-17
-     * 真机实测 GitHub 面板容器 top=283，而描边亮线在 y=314，正好差 31px＝9dp＝小角高。
-     *
-     * 子面板要"严丝合缝盖住父面板"就必须按可见表面对齐，否则上方会多出这条。
-     * 只有气泡面板非零；普通弹窗查不到就是全零。
-     */
-    private val dialogSurfaceInsets = java.util.WeakHashMap<Dialog, android.graphics.Rect>()
-
-    /** 弹窗画出来的那块表面在屏幕上的矩形。拿不到布局位置时返回 null。 */
-    internal fun modalSurfaceBounds(dialog: Dialog, container: View): SettingsBackupMotionRect? {
-        val bounds = modalAnchorBounds(container) ?: return null
-        val insets = dialogSurfaceInsets[dialog] ?: return bounds
-        return SettingsBackupMotionRect(
-            left = bounds.left + insets.left,
-            top = bounds.top + insets.top,
-            right = bounds.right - insets.right,
-            bottom = bounds.bottom - insets.bottom
-        ).takeIf { it.isValid }
-    }
-
-    // internal：弹窗正按主题外移到同包的 Dialogs 文件（`internal fun MainActivity.showX()`），
-    // 扩展函数拿不到 private 成员。下面几个 create*/present*/dismiss* 是外移弹窗的共用底座。
-    /**
-     * 收起动画的末帧先按时上屏，下一帧再移窗并执行后续回调。
-     *
-     * `dialog.dismiss()` 同步移窗，并在进程共享的 RenderThread 上销毁这个窗口的硬件渲染资源
-     * （玻璃效果层、纹理）。原来它就跑在动画结束回调里，与收拢到底的最后一帧挤在同一帧：
-     * 2026-09-24 atrace（9 次开关）关闭末帧 `notifyAnimEnd` 7–11ms，偶发紧接两帧
-     * `dequeueBuffer` 15–18ms。推迟一帧后，这段开销落在画面静止的帧里；末帧已收拢到 0、
-     * 窗口动画已关（setWindowAnimations(0)），推迟期间屏幕上没有可见内容。
-     */
-    private fun dismissAfterFinalFrame(dialog: Dialog, then: () -> Unit) {
-        val decor = dialog.window?.decorView
-        val finish = {
-            if (dialog.isShowing) runCatching { dialog.dismiss() }
-            then()
-        }
-        if (decor == null || !decor.isAttachedToWindow || isFinishing || isDestroyed) {
-            finish()
-        } else {
-            decor.postOnAnimation { finish() }
-        }
-    }
-
-    internal fun dismissWithAnimation(
-        dialog: Dialog,
-        container: View,
-        onDismissed: () -> Unit
-    ) {
-        if (dialogAnchoredClosers[dialog]?.invoke(false, onDismissed) == true) return
-        LumenAnimator.property(container)
-            .scaleX(0.92f).scaleY(0.92f).alpha(0f)
-            .setDuration(180L)
-            .setInterpolator(emphasizedAccelerate)
-            // 背板压暗层随卡片淡出：锚点路径由 controller 的 onFrame 自己推进度，不走这里。
-            // 缩放会移动卡片里的玻璃表面，逐帧通知皮肤按新位置重新采样（见入场处注释）。
-            .setUpdateListener {
-                dialogScrims[dialog]?.alpha = container.alpha
-                notifyPreparedSkinPositionChanged()
-            }
-            .setListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    dialog.dismiss()
-                    onDismissed()
-                }
-            })
-            .start()
-    }
+    /** 由 [ModalPresenter] 复用的受保护皮肤与弹性边界桥接入口。 */
+    internal fun clearModalElasticInteractions() = clearElasticInteractions()
+    internal fun styleModalSkinControls(root: View) = stylePreparedSkinControls(root)
+    internal fun installModalLiquidStretch(target: View, canStretch: () -> Boolean) =
+        installPreparedLiquidStretch(target, canStretch)
+    internal fun notifyModalSkinPositionChanged() = notifyPreparedSkinPositionChanged()
+    internal fun modalSurfaceBackground(color: Int, radiusDp: Float = ModalPresenter.MODAL_CORNER_RADIUS_DP) =
+        skinModalBackground(color, radiusDp)
+    internal val isModalLiquidSkinEffective: Boolean get() = isLiquidSkinEffective
+    internal val isModalMaterialYouSkinEffective: Boolean get() = isMaterialYouSkinEffective
 
     /**
      * 自绘点击涟漪背景（统一入口，不解析主题属性 selectableItemBackground*）。
@@ -1934,7 +1854,7 @@ class MainActivity : SkinnedActivity() {
 
 
     /** 右上角 GitHub 图标的二级菜单。 */
-    private fun scheduleReleaseHighlights() {
+    internal fun scheduleReleaseHighlights() {
         updateUiHandler.removeCallbacks(showHighlightsWhenIdle)
         if (highlightsDisposed || isFinishing || isDestroyed ||
             highlightNavigationInFlight || (pendingHighlightsFrom == null && pendingHighlightDestination == null) || !updateUiResumed) return
@@ -2492,30 +2412,6 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
-    /** 弹窗卡片圆角；图标锚点形变的展开端半径必须与它一致，否则末帧会有一次圆角跳变。 */
-    private val MODAL_CORNER_RADIUS_DP = 28f
-
-    /**
-     * 弹窗背板颜色随主题。深色沿用 40% 黑；浅色改为浅色薄纱。
-     *
-     * 2026-09-24 用户报告浅色下形变动画"深色"：背板按进度整屏淡入，而面板从按钮/行里逐渐长出，
-     * 面板最终区域在没被盖满前透出的是已压暗的底页，比打开前和打开后都暗（真机：该区域
-     * 175–190，首尾约 224）。40% 黑是按深色主题定的，深色底上看不出；浅色底上就是一块跟着
-     * 形变伸缩的暗区。薄纱把底页文字对比压下来（文字约 50 → 137，背景基本不变），可读性目的
-     * 不变，形变过程中未覆盖区域不再变暗。
-     */
-    private fun modalScrimColor(): Int = SettingsModalScrim.color(monetColors.surface, monetColors.background)
-
-    /** 正文起始位移上限（每轴）。够看出"从锚点方向飞来"，又不至于让长卡片整体晃动。 */
-    private val CONTENT_TRAVEL_CAP_DP = 20f
-
-    /** 气泡边距与小角尺寸（宽度按宿主可用窗宽自适应，见 [AdaptiveWindowLayout.bubbleMaxWidthPx]）。 */
-    private val BUBBLE_SIDE_MARGIN_DP = 12f
-    private val BUBBLE_EDGE_MARGIN_DP = 16f
-    private val BUBBLE_GAP_DP = 6f
-    private val BUBBLE_TAIL_HEIGHT_DP = 9f
-    private val BUBBLE_TAIL_HALF_WIDTH_DP = 11f
-
     /**
      * 锚点弹窗的两种形态。
      *
@@ -2523,62 +2419,6 @@ class MainActivity : SkinnedActivity() {
      * [BUBBLE]：来源是工具栏上的小图标，弹窗贴在图标旁边并伸出指向它的小角。
      */
     internal enum class AnchorStyle { CONTAINER, BUBBLE }
-
-    /** 只使用当前可见的点击条目，不能拿整个可滚动父分组作为来源。 */
-    internal fun modalAnchorBounds(anchor: View): SettingsBackupMotionRect? {
-        if (!anchor.isAttachedToWindow || !anchor.isShown) return null
-        val visible = android.graphics.Rect()
-        if (!anchor.getGlobalVisibleRect(visible) || visible.isEmpty) return null
-        val sourceRoot = anchor.rootView
-        if (sourceRoot.scaleX != 1f || sourceRoot.scaleY != 1f || sourceRoot.rotation != 0f ||
-            sourceRoot.rotationX != 0f || sourceRoot.rotationY != 0f) return null
-        // GlobalVisibleRect 属于 rootView 坐标；补上根窗口屏幕位置（含 adjustPan），
-        // 后续才可以与 Dialog 的 getLocationOnScreen 相减。
-        val rootLocation = IntArray(2)
-        sourceRoot.getLocationOnScreen(rootLocation)
-        visible.offset(rootLocation[0], rootLocation[1])
-        return SettingsBackupMotionRect(visible.left.toFloat(), visible.top.toFloat(),
-            visible.right.toFloat(), visible.bottom.toFloat()).takeIf { it.isValid }
-    }
-
-    /**
-     * 把来源图标（屏幕坐标）与已完成布局的卡片换算成承载层内的形变几何。
-     *
-     * 卡片是承载层的直接 child，所以展开端直接用 `left/top/right/bottom`；折叠端要扣掉承载层
-     * 自己的窗口原点——弹窗与设置页是两个 Window，不能假设两者原点相同。
-     */
-    private fun resolveIconAnchoredGeometry(
-        layer: IconAnchoredMotionLayer,
-        card: View,
-        anchorOnScreen: SettingsBackupMotionRect,
-        density: Float
-    ): IconAnchoredMotionGeometry? {
-        if (!layer.isAttachedToWindow || layer.width <= 0 || layer.height <= 0) return null
-        if (card.width <= 0 || card.height <= 0) return null
-        val layerLocation = IntArray(2)
-        layer.getLocationOnScreen(layerLocation)
-        val collapsed = SettingsBackupMotionRect(
-            left = anchorOnScreen.left - layerLocation[0],
-            top = anchorOnScreen.top - layerLocation[1],
-            right = anchorOnScreen.right - layerLocation[0],
-            bottom = anchorOnScreen.bottom - layerLocation[1]
-        )
-        val expanded = SettingsBackupMotionRect(
-            left = card.left.toFloat(),
-            top = card.top.toFloat(),
-            right = card.right.toFloat(),
-            bottom = card.bottom.toFloat()
-        )
-        // 折叠端圆角取短边一半：27dp 图标收成正圆；设置行这类扁矩形则收成胶囊，
-        // 两种来源都不会出现"方角小块"。
-        return IconAnchoredMotionGeometry(
-            collapsedBounds = collapsed,
-            expandedBounds = expanded,
-            collapsedRadiusPx = minOf(collapsed.width, collapsed.height) / 2f,
-            expandedRadiusPx = MODAL_CORNER_RADIUS_DP * density,
-            contentTravelCapPx = CONTENT_TRAVEL_CAP_DP * density
-        ).takeIf { it.isUsable }
-    }
 
     internal fun adaptiveModalMaxWidthPx(maxWidthDp: Int = AdaptiveWindowLayout.MODAL_MAX_WIDTH_DP): Int =
         AdaptiveWindowLayout.modalMaxWidthPx(usableWindowSizePx().first, resources.displayMetrics.density, maxWidthDp)
@@ -2594,828 +2434,6 @@ class MainActivity : SkinnedActivity() {
             windowFraction,
             minFloorDp
         )
-
-    internal fun createModalContainer(): NativeLinearLayout {
-        val density = resources.displayMetrics.density
-        return BoundedModalContainer(this, adaptiveModalMaxWidthPx()).apply {
-            orientation = NativeLinearLayout.VERTICAL
-            minimumWidth = (292 * density).toInt()
-            setPadding(
-                (24 * density).toInt(),
-                (26 * density).toInt(),
-                (24 * density).toInt(),
-                (18 * density).toInt()
-            )
-            background = skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP)
-            // 玻璃皮肤下卡片是半透明的，不能用系统 elevation 投影：系统按不透明物体画阴影，
-            // 半影有一半落在卡片内侧，透过玻璃显成一圈灰带（浅色下约 100px 宽，中间像套了
-            // 一个直角亮框；2026-09-24 用户报告"边缘颜色异常"）。与气泡面板一致不带投影，
-            // 面板靠描边与背板区分。无皮肤时卡片不透明，保留原投影。
-            elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density
-            scaleX = 0.85f
-            scaleY = 0.85f
-            alpha = 0f
-        }
-    }
-
-    // GestureBackNavigation 抑制说明：targetSdk 37 下手势导航的返回已由上方注册的
-    // OnBackInvokedCallback（API 33+）接管并收敛到同一退场动画；此处的 KEYCODE_BACK
-    // 拦截仅服务三键/硬件导航（它们仍派发按键事件），lint 的启发式检查不感知该
-    // 双路径迁移，故定点抑制。
-    internal fun presentModalDialog(
-        dialog: Dialog,
-        container: NativeLinearLayout,
-        morphAnchor: View? = null,
-        anchorStyle: AnchorStyle = AnchorStyle.CONTAINER,
-        onExpanded: () -> Unit = {},
-        onBackDismiss: () -> Unit = {},
-        morphAnchorBounds: SettingsBackupMotionRect? = null,
-        coverBounds: SettingsBackupMotionRect? = null,
-        onDismissed: (() -> Unit)? = null
-    ) = presentSizedModalDialog(dialog, container, null, morphAnchor, anchorStyle,
-        onExpanded, onBackDismiss, morphAnchorBounds, coverBounds, onDismissed)
-
-    /**
-     * @param morphAnchor 传入无文字的来源图标（如工具栏的搜索/GitHub 按钮）即启用图标锚点形变：
-     *   弹窗表面从该图标的位置与圆角长成整张卡片。传 null 保持原有的居中缩放入场，**默认不变**，
-     *   30 个既有调用点一个都不受影响。
-     * @param morphAnchorBounds 来源控件**在另一张弹窗里**时用它：那张弹窗会先收起，来源 View
-     *   随之从窗口上摘掉，`modalAnchorBounds` 事后只会拿到 null。调用点在**点击那一刻**抓好的
-     *   屏幕矩形从这里传进来，走的仍是同一套 `IconAnchoredMotion*`，不另开动画。
-     *   仅在 `morphAnchor == null` 且为 [AnchorStyle.CONTAINER] 时生效：气泡路径要拿来源
-     *   ImageView 做图案交接，静态矩形顶不了它的位置。
-     * @param coverBounds **叠在父弹窗上**的子面板：把卡片摆到这张屏幕矩形（父面板卡片的位置与
-     *   尺寸）上，形变的展开端因此正好盖住父面板，父面板**不关闭**、留在下面。
-     *   传了它就意味着"这是子面板"，于是三件事一起变：不硬关当前 `activeConfirmDialog`、
-     *   关闭时把它还回去、不再叠第二层背景模糊（父面板那层已经在了）。
-     *   传进来的必须是父面板**画出来的表面**（见 [modalSurfaceBounds]），不是它的容器矩形：
-     *   气泡面板的小角高度加在 container 的 padding 上，用容器矩形会让子面板上方多出 9dp。
-     *   宽度与左上角严格对齐父面板；**高度取"父面板高度"与"内容自然高度"的较大值**——
-     *   "完全遮挡"是目的，为了对齐把内容裁掉或塞进滚动区不是。
-     */
-    // 气泡 margin 与锚点均为物理窗口坐标，LEFT 不可替换成会再镜像一次的 START。
-    @Suppress("GestureBackNavigation", "RtlHardcoded")
-    internal fun presentSizedModalDialog(
-        dialog: Dialog,
-        container: NativeLinearLayout,
-        preferredWidth: Int?,
-        morphAnchor: View? = null,
-        anchorStyle: AnchorStyle = AnchorStyle.CONTAINER,
-        onExpanded: () -> Unit = {},
-        onBackDismiss: () -> Unit = {},
-        morphAnchorBounds: SettingsBackupMotionRect? = null,
-        coverBounds: SettingsBackupMotionRect? = null,
-        onDismissed: (() -> Unit)? = null
-    ) {
-        clearElasticInteractions()
-        container.tag = com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController.CONTAINER_TAG
-        // 子面板要盖在父面板上，父面板就不能被硬关；关闭时再把它还回 activeConfirmDialog，
-        // 否则更新检查那几处 `activeConfirmDialog?.isShowing` 会以为没有弹窗开着。
-        val cover = coverBounds?.takeIf { it.isValid && anchorStyle == AnchorStyle.CONTAINER }
-        val coveredParent = if (cover != null) activeConfirmDialog?.takeIf { it.isShowing } else null
-        if (cover == null) activeConfirmDialog?.dismiss()
-        stylePreparedSkinControls(container)
-        com.lumen.coacervation.engine.motion.modal.LumenPanelScroll.prepare(container) { target ->
-            installPreparedLiquidStretch(target) { dialog.isShowing && !isFinishing && !isDestroyed }
-        }
-        val density = resources.displayMetrics.density
-        // 由 dismissWithAnimation 传进来的一次性收尾回调（例如"关闭后打开链接"）；
-        // 为空时用弹窗自己的 onBackDismiss。每次弹窗独立一份，不能提到 Activity 字段上。
-        val pendingAnchoredAfterClose =
-            java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
-        // 静态来源矩形只服务"来源在另一张弹窗里"这一种情况：气泡要拿来源 ImageView 做图案
-        // 交接，拿不到 View 就没有气泡可言，所以这里把它挡在 CONTAINER 之外。
-        val capturedAnchorBounds = morphAnchorBounds
-            ?.takeIf { morphAnchor == null && anchorStyle == AnchorStyle.CONTAINER && it.isValid }
-        // 来源矩形必须在点击那一刻取：形变开始后弹窗窗口会盖住图标，事后查位置不可靠。
-        // 实时 View 与静态矩形走同一条几何解析，动画本身没有分支。
-        fun resolveAnchorOnScreen(): SettingsBackupMotionRect? =
-            morphAnchor?.let(::modalAnchorBounds) ?: capturedAnchorBounds
-        val anchorBounds = morphAnchor?.takeIf {
-            it.isAttachedToWindow && it.width > 0 && it.height > 0 &&
-                (anchorStyle == AnchorStyle.BUBBLE || ValueAnimator.areAnimatorsEnabled())
-        }?.let(::modalAnchorBounds)
-            ?: capturedAnchorBounds?.takeIf { ValueAnimator.areAnimatorsEnabled() }
-        // 工具栏上的 27dp 小图标飞到屏幕正中会显得莫名，改成贴在图标旁边、伸出小角的气泡。
-        fun placeBubble(anchor: SettingsBackupMotionRect, width: Float, height: Float) =
-            AdaptiveWindowLayout.bubbleMaxWidthPx(width.toInt(), density).let { bubbleWidthPx ->
-                BubblePlacementSpec.place(
-                    anchor = anchor,
-                    windowWidth = width,
-                    windowHeight = height,
-                    desiredWidth = bubbleWidthPx,
-                    maxWidthPx = bubbleWidthPx,
-                    sideMarginPx = BUBBLE_SIDE_MARGIN_DP * density,
-                    edgeMarginPx = BUBBLE_EDGE_MARGIN_DP * density,
-                    gapPx = BUBBLE_GAP_DP * density,
-                    tailHeightPx = BUBBLE_TAIL_HEIGHT_DP * density,
-                    tailHalfWidthPx = BUBBLE_TAIL_HALF_WIDTH_DP * density,
-                    cornerRadiusPx = MODAL_CORNER_RADIUS_DP * density
-                )
-            }
-        val bubblePlacement = if (anchorStyle == AnchorStyle.BUBBLE && anchorBounds != null) {
-            val (usableW, usableH) = usableWindowSizePx()
-            placeBubble(anchorBounds, usableW.toFloat(), usableH.toFloat())
-        } else {
-            null
-        }
-        val originalPaddingTop = container.paddingTop
-        val originalPaddingBottom = container.paddingBottom
-        val modalBackground = container.background
-        fun applyBubbleSurface(placement: BubblePlacement) {
-            // 小角占掉整体高度的一条，内容要让开，否则文字会压在尖上。
-            val tailPadding = (BUBBLE_TAIL_HEIGHT_DP * density).toInt()
-            container.setPadding(
-                container.paddingLeft,
-                originalPaddingTop +
-                    if (placement.tailEdge == BubbleTailEdge.TOP) tailPadding else 0,
-                container.paddingRight,
-                originalPaddingBottom +
-                    if (placement.tailEdge == BubbleTailEdge.BOTTOM) tailPadding else 0
-            )
-            // 皮肤背景移交独立表面；正文保持原生尺寸，不再用纯色气泡替换 Liquid。
-            container.background = null
-        }
-        if (bubblePlacement != null) {
-            applyBubbleSurface(bubblePlacement)
-            // 小角那条只在 container 的 padding 里，不在画出来的表面里；记下来，
-            // 子面板要盖住本面板时才有办法按可见表面对齐（见 modalSurfaceBounds）。
-            val tailPadding = (BUBBLE_TAIL_HEIGHT_DP * density).toInt()
-            dialogSurfaceInsets[dialog] = android.graphics.Rect(
-                0,
-                if (bubblePlacement.tailEdge == BubbleTailEdge.TOP) tailPadding else 0,
-                0,
-                if (bubblePlacement.tailEdge == BubbleTailEdge.BOTTOM) tailPadding else 0
-            )
-            container.scaleX = 1f
-            container.scaleY = 1f
-            container.elevation = 0f
-        }
-        val bubbleLayer = if (bubblePlacement != null) {
-            BubblePanelLayer(this, container, morphAnchor as? android.widget.ImageView,
-                modalBackground ?: skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP),
-                skinModalBackground(monetColors.surface, 0f), monetColors.surface,
-                MODAL_CORNER_RADIUS_DP * density, BUBBLE_TAIL_HEIGHT_DP * density,
-                BUBBLE_TAIL_HALF_WIDTH_DP * density).apply { setPlacement(bubblePlacement) }
-        } else null
-        val morphLayer = anchorBounds?.takeIf { bubblePlacement == null }
-            ?.let {
-                IconAnchoredMotionLayer(
-                    this,
-                    // 所有锚点弹窗都把卡片表面托管给持久表面 View：形变首尾与落定画的是
-                    // 同一个 Drawable，落定瞬间不再有 drawable 交接。覆盖式面板沿用此路径。
-                    surfaceBackground = modalBackground
-                        ?: skinModalBackground(monetColors.surface, MODAL_CORNER_RADIUS_DP),
-                    fallbackColor = monetColors.surface,
-                    surfaceRadiusPx = MODAL_CORNER_RADIUS_DP * density,
-                    // 卡片阴影移交表面 View，随帧矩形生长/落定；覆盖式面板保持无阴影。
-                    surfaceElevation = if (cover == null) container.elevation else 0f
-                ).also { layer ->
-                    if (layer.usesPersistentSurface) {
-                        // 填充、描边与投影始终归承载表面；正文只负责内容动画。
-                        container.background = null
-                        container.elevation = 0f
-                    }
-                }
-            }
-        // 窗口内压暗层：盖在卡片之下、整窗铺开，随卡片/形变进度同步淡入淡出——
-        // 平台 dim（FLAG_DIM_BEHIND）不可动画，且会硬切在自绘的形变/气泡入场之前。
-        // 叠在父面板上的子面板不再加一层：父面板那层还在，两层 scrim 会叠加得更暗。
-        val scrim = if (cover == null) View(this).apply {
-            setBackgroundColor(modalScrimColor())
-            alpha = 0f
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            isFocusable = false
-        } else null
-        val root = ModalCardRoot(this).apply {
-            val cardParams = if (bubblePlacement != null) {
-                NativeFrameLayout.LayoutParams(
-                    bubblePlacement.width.toInt(),
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    // 几何来自物理屏幕坐标，不能在 RTL 下再次镜像。
-                    gravity = Gravity.TOP or Gravity.LEFT
-                    leftMargin = bubblePlacement.left.toInt()
-                    topMargin = bubblePlacement.top.toInt()
-                }
-            } else if (cover != null) {
-                // 几何来自物理屏幕坐标，和气泡一样不能在 RTL 下再镜像一次；
-                // 真正的 margin 要等 root 拿到屏幕位置才算得准，见 applyCoverPlacement()。
-                NativeFrameLayout.LayoutParams(
-                    cover.width.toInt(),
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { gravity = Gravity.TOP or Gravity.LEFT }
-            } else {
-                NativeFrameLayout.LayoutParams(
-                    preferredWidth ?: ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER
-                    setMargins((32 * density).toInt(), 0, (32 * density).toInt(), 0)
-                }
-            }
-            if (bubbleLayer != null) {
-                bubbleLayer.setContentLayoutParams(cardParams)
-                addView(bubbleLayer, NativeFrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            } else if (morphLayer != null) {
-                // 承载层必须全屏：outline 要从工具栏里的图标一路长到屏幕中央的卡片，
-                // 折叠端矩形本来就落在卡片之外。
-                morphLayer.addView(container, cardParams)
-                addView(
-                    morphLayer,
-                    NativeFrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                )
-            } else {
-                addView(container, cardParams)
-            }
-        }
-        // 窗口铺满整屏（见下方 dialog.window 配置），压暗层在最外层盖住状态栏与导航栏；
-        // root 按系统栏内缩，卡片、气泡、覆盖式面板仍以 root 为坐标原点，几何与原来一致。
-        // 2026-09-24 用户报告：原来窗口避开系统栏，打开面板后状态栏一条不被压暗。
-        val windowFrame = NativeFrameLayout(this).apply {
-            scrim?.let {
-                addView(it, NativeFrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            }
-            addView(root, NativeFrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        }
-        val frameScope = dialogWindowSession(dialog)?.scope(windowFrame)
-        val frameInsetsSlot = frameScope?.let(InsetsSlot::claimExclusive)
-        val frameInsetsRegistration = frameInsetsSlot?.observe { snapshot ->
-            // 与原来 decor 的默认内缩一致：只让开系统栏与刘海。弹窗是 adjustPan，
-            // 输入法由系统平移窗口处理，不在这里内缩。
-            val safe = snapshot.combined(
-                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
-                    androidx.core.view.WindowInsetsCompat.Type.displayCutout()
-            )
-            val params = root.layoutParams as NativeFrameLayout.LayoutParams
-            if (params.leftMargin != safe.left || params.topMargin != safe.top ||
-                params.rightMargin != safe.right || params.bottomMargin != safe.bottom
-            ) {
-                params.setMargins(safe.left, safe.top, safe.right, safe.bottom)
-                root.layoutParams = params
-            }
-        }
-        // 子面板贴到父面板矩形上。两张 Dialog 的窗口原点不保证相同（状态栏、adjustPan），
-        // 所以每次都拿 root 的屏幕位置换算，不假设 0。
-        val coverLocation = IntArray(2)
-        fun applyCoverPlacement(): Boolean {
-            val target = cover ?: return false
-            if (root.width <= 0 || root.height <= 0) return false
-            root.getLocationOnScreen(coverLocation)
-            val params = container.layoutParams as? NativeFrameLayout.LayoutParams ?: return false
-            val left = (target.left - coverLocation[0]).toInt()
-            val top = (target.top - coverLocation[1]).toInt()
-            val width = target.width.toInt()
-            // 高度必须**算出来写死**，不能用 WRAP_CONTENT + minimumHeight：后者在
-            // FrameLayout 里会被剩余空间撑到窗口底部（2026-09-17 实测卡片落到
-            // [278,314][1398,3078]，而父面板底边是 2337）。
-            // 先按目标宽度量一次自然高度：内容比父面板矮就取父面板高度（完全覆盖，
-            // 空档由关闭行上方的弹性占位吸收），更高就取内容高度（不裁内容）。
-            // 但不能超出窗口：从父面板顶边到 root 底边（已让开系统栏）再留 16dp 是上限，
-            // 超出时由面板里的滚动区承担（如 NPatch 向导的正文），底部按钮不会被挤出屏幕。
-            container.measure(
-                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-            )
-            val available = root.height - top - (16 * density).toInt()
-            val height = maxOf(target.height.toInt(), minOf(container.measuredHeight, available))
-            var changed = false
-            if (params.width != width) { params.width = width; changed = true }
-            if (params.height != height) { params.height = height; changed = true }
-            if (params.leftMargin != left) { params.leftMargin = left; changed = true }
-            if (params.topMargin != top) { params.topMargin = top; changed = true }
-            if (changed) container.requestLayout()
-            return changed
-        }
-        var currentBubblePlacement = bubblePlacement
-        var bubbleAnchor = anchorBounds
-        fun notifyExpanded() {
-            if (dialog.isShowing && !isFinishing && !isDestroyed) onExpanded()
-        }
-        // 背景浅毛玻璃：跟着弹窗自己的进度渐进，让面板与背景分层。
-        // 用户开关 + Material You 美学 + API 31+ + 系统允许跨窗口模糊，四道门都在工厂里判。
-        // 子面板不再叠一层：父面板那层还在，两层 blur-behind 会把底页糊到发灰，
-        // 而且会把我们特意留在下面的父面板一起糊掉。
-        // 被盖住的父面板：形变末段让它整窗淡出，终态只剩子面板那一条描边。
-        // 两张卡片矩形完全重合时，两条半透明描边会叠加成更亮的一条（实测左边缘 87 → 103），
-        // 这一跳发生在最后一帧，就是"末尾边缘抖动"。
-        //
-        // **必须淡整个 decorView，不能只淡内容容器**：气泡面板的表面（连同描边）是
-        // `BubblePanelLayer` 画的，容器自己 `background = null`，淡容器只会让文字变淡、
-        // 描边纹丝不动——这条是实测撞出来的，改回去就白修了。
-        // 覆盖式子面板要淡出的是父面板的**卡片层**，绝不能淡整张 decorView——父面板的
-        // 压暗层（scrim）就在那张 decorView 里，跟着淡到 0 等于背景压暗整个消失，而子面板
-        // 按"父面板那层还在"的前提**故意没有自己的 scrim**，两条假设一撞就是全屏变亮
-        // （2026-09-22 真机实测：面板外背景 BGR 25.7/29.3/26.1 → 42.0/48.0/42.7，
-        // 底页文字明显透出）。父面板窗口层的孩子是 [scrim, root(卡片层, 飞行标题浮层)]，
-        // 取第一个非 scrim 的孩子即内缩后的 root；拿不到就退回旧行为，不让排版异常变成崩溃。
-        val coveredContent = if (cover != null) coveredParent?.let { parent ->
-            val parentScrim = dialogScrims[parent]
-            val parentRoot = parentScrim?.parent as? ViewGroup
-            val cardLayer = if (parentRoot == null) null else (0 until parentRoot.childCount)
-                .map(parentRoot::getChildAt)
-                .firstOrNull { it !== parentScrim }
-            cardLayer ?: parent.window?.decorView
-        } else null
-        val backdropBlur = if (cover != null) null else ModalBackdropBlur.createOrNull(
-            window = dialog.window,
-            userEnabled = ModalBackdropBlurStore.read(this),
-            materialYouSkin = isMaterialYouSkinEffective,
-            density = density
-        )
-        scrim?.let { dialogScrims[dialog] = it }
-        val bubbleController = if (bubbleLayer != null) {
-            BubbleMotionController(
-                layer = bubbleLayer,
-                onFrame = { progress ->
-                    backdropBlur?.apply(progress)
-                    scrim?.alpha = progress
-                    coveredContent?.alpha = IconAnchoredMotionSpec.coveredParentAlpha(progress)
-                },
-                onExpanded = ::notifyExpanded,
-                onContentMoved = { notifyPreparedSkinPositionChanged() },
-                onClosed = {
-                    dismissAfterFinalFrame(dialog) {
-                        (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
-                    }
-                }
-            )
-        } else {
-            null
-        }
-        val titleMotion = if (morphLayer != null) {
-            ModalTitleMotion.create(morphAnchor, container.firstChildOrNull<NativeTextView>(), root)
-                ?.also { title ->
-                    // 承载层带 elevation 后 Z>0，会把 Z=0 的兄弟盖到表面之下；
-                    // 飞行标题只抬 Z 序（空 outline，自身不投影），保持在面板之上。
-                    title.elevation = morphLayer.elevation + 1f
-                    root.addView(title, NativeFrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-                }
-        } else null
-        val morphController = if (morphLayer != null) {
-            // 形变不缩放卡片（缩放会把文字压扁），只驱动 outline + alpha，因此先抹掉
-            // createModalContainer 为缩放入场准备的 0.85；alpha 0 仍然保留给正文淡入。
-            container.scaleX = 1f
-            container.scaleY = 1f
-            IconAnchoredMotionController(
-                layer = morphLayer,
-                content = container,
-                // 必须和卡片用**同一种**背景（skinModalBackground），不能用
-                // skinMotionSurfaceBackground：后者是为全屏容器形变准备的半透明"运动表面"，
-                // 用在这里会让飞入过程变成一团能透看底页的鬼影，且抵达展开端时与卡片
-                // 交接会出现一次可见的不透明度跳变。
-                surfaceDrawable = skinModalBackground(
-                    monetColors.surface,
-                    MODAL_CORNER_RADIUS_DP
-                ),
-                resolveGeometry = {
-                    resolveAnchorOnScreen()?.let { currentAnchor ->
-                        resolveIconAnchoredGeometry(morphLayer, container, currentAnchor, density)
-                    }
-                },
-                titleMotion = titleMotion,
-                onFrame = { progress ->
-                    backdropBlur?.apply(progress)
-                    scrim?.alpha = progress
-                    coveredContent?.alpha = IconAnchoredMotionSpec.coveredParentAlpha(progress)
-                    // 父面板在子面板当前覆盖的区域里按子面板不透明度让位：外轮廓不回缩、
-                    // 开头不露底、结尾不叠亮，见 ModalCardRoot。承载层 alpha 已在本帧回调前设好。
-                    (coveredContent as? ModalCardRoot)?.excludeMotionSurface(morphLayer, morphLayer.alpha)
-                },
-                onExpanded = ::notifyExpanded,
-                onContentMoved = { notifyPreparedSkinPositionChanged() },
-                onClosed = {
-                    dismissAfterFinalFrame(dialog) {
-                        (pendingAnchoredAfterClose.getAndSet(null) ?: onBackDismiss).invoke()
-                    }
-                }
-            )
-        } else {
-            null
-        }
-        // 登记收起入口：全仓 72 处 dismissWithAnimation 由此自动走对应的收起动画。
-        val anchoredCloser: ((Boolean, (() -> Unit)?) -> Boolean)? = when {
-            bubbleController != null -> { interactive, after ->
-                // 关闭按钮后紧接返回键不能覆盖第一次关闭的业务回调。
-                if (!bubbleController.isClosing) pendingAnchoredAfterClose.set(after)
-                bubbleController.requestClose(interactive)
-            }
-            morphController != null -> { interactive, after ->
-                if (!morphController.isClosing) pendingAnchoredAfterClose.set(after)
-                morphController.requestClose(interactive)
-            }
-            else -> null
-        }
-        if (anchoredCloser != null) dialogAnchoredClosers[dialog] = anchoredCloser
-        val bubbleRootLocation = IntArray(2)
-        val bubbleSourceLocation = IntArray(2)
-        var bubbleLaidOut = false
-        var previousBubbleHeight = 0
-        var bubbleGeometryPending = false
-        var previousBubbleLeft = Int.MIN_VALUE
-        var previousBubbleTop = Int.MIN_VALUE
-        var previousBubbleRight = Int.MIN_VALUE
-        var previousBubbleBottom = Int.MIN_VALUE
-        fun updateBubbleGeometry(): Boolean {
-            if (bubbleController == null || bubbleController.isClosing || root.width <= 0 || root.height <= 0) return false
-            val source = morphAnchor ?: return false
-            if (!source.isAttachedToWindow) return false
-            root.getLocationOnScreen(bubbleRootLocation)
-            source.getLocationOnScreen(bubbleSourceLocation)
-            // Dialog 的内容原点可能位于状态栏下面；统一转换后才计算小角与收回目标。
-            val x = (bubbleSourceLocation[0] - bubbleRootLocation[0]).toFloat()
-            val y = (bubbleSourceLocation[1] - bubbleRootLocation[1]).toFloat()
-            val localAnchor = SettingsBackupMotionRect(x, y, x + source.width, y + source.height)
-            val placement = placeBubble(localAnchor, root.width.toFloat(), root.height.toFloat()) ?: return false
-            val params = container.layoutParams as NativeFrameLayout.LayoutParams
-            val top = BubblePlacementSpec.resolveTop(placement, localAnchor, container.height.toFloat(),
-                BUBBLE_GAP_DP * density, BUBBLE_EDGE_MARGIN_DP * density).toInt()
-            val layoutChanged = params.width != placement.width.toInt() ||
-                params.leftMargin != placement.left.toInt() || params.topMargin != top
-            // 键盘只改变可用高度、但卡片本身仍放得下时，不打断仍在进行的展开动画。
-            val shapeChanged = placement.tailEdge != currentBubblePlacement?.tailEdge ||
-                placement.tailCenterX != currentBubblePlacement?.tailCenterX ||
-                placement.tailBaseCenterX != currentBubblePlacement?.tailBaseCenterX
-            val geometryChanged = layoutChanged || shapeChanged || localAnchor != bubbleAnchor ||
-                previousBubbleHeight != container.height
-            val actualBoundsChanged = container.left != previousBubbleLeft ||
-                container.top != previousBubbleTop || container.right != previousBubbleRight ||
-                container.bottom != previousBubbleBottom
-            bubbleGeometryPending = bubbleGeometryPending || geometryChanged || actualBoundsChanged
-            bubbleAnchor = localAnchor
-            if (shapeChanged) applyBubbleSurface(placement)
-            bubbleLayer?.setPlacement(placement)
-            bubbleLayer?.setAnchor(localAnchor)
-            currentBubblePlacement = placement
-            previousBubbleHeight = container.height
-            if (layoutChanged) {
-                params.width = placement.width.toInt()
-                params.leftMargin = placement.left.toInt()
-                params.topMargin = top
-                container.layoutParams = params
-            }
-            // 参数写入不是布局完成；等实际四边就绪后再刷新独立背景与正文裁剪。
-            if (!layoutChanged && !container.isLayoutRequested) {
-                if (bubbleLaidOut && bubbleGeometryPending) bubbleController.handleWindowSizeChange()
-                bubbleGeometryPending = false
-                previousBubbleLeft = container.left
-                previousBubbleTop = container.top
-                previousBubbleRight = container.right
-                previousBubbleBottom = container.bottom
-            }
-            return layoutChanged
-        }
-        val bubbleLayoutListener = if (bubbleController != null) {
-            android.view.ViewTreeObserver.OnGlobalLayoutListener { updateBubbleGeometry() }
-                .also { root.viewTreeObserver.addOnGlobalLayoutListener(it) }
-        } else null
-        morphLayer?.addOnLayoutChangeListener { _, left, top, right, bottom,
-                                                oldLeft, oldTop, oldRight, oldBottom ->
-            val hadLayout = (oldRight - oldLeft) > 0 && (oldBottom - oldTop) > 0
-            val resized = (right - left) != (oldRight - oldLeft) ||
-                (bottom - top) != (oldBottom - oldTop)
-            // 旋转/分屏/输入法改变窗口后旧矩形失效，直接落到稳定端而不是继续按旧几何插值。
-            if (hadLayout && resized && morphController?.isExpanded == false) {
-                morphController.handleWindowSizeChange()
-            }
-        }
-
-        dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setDimAmount(0f)
-            // 关掉平台级窗口进出动画。本项目所有弹窗动画都是手绘的（形变 / 气泡 / 缩放淡出），
-            // 窗口动画只会叠在上面捣乱：`dialog.dismiss()` 是同步移窗，而
-            // WindowManager 的退出动画搬的是这个 surface **最后一次真正绘制**的那一帧——
-            // 而 `apply(0f)` 与 `titleMotion.closed()` 都发生在 animator 回调里、
-            // 在本帧 TRAVERSAL **之前**，所以它们压根没被画出来。
-            // 于是最后一帧里那份满不透明的飞行标题被窗口动画拖着向上飘走并淡出，
-            // 现场就是"返回动画末端，文字上方冒出一个重影往上飞着消失"。
-            // 实测本机这两个窗口的 `anim=` 是非零的（`dumpsys window windows`），确认动画开着。
-            // 铺到系统栏下面：浮动窗口默认按系统栏缩框，压暗层盖不到状态栏。
-            // 内容区的内缩由 windowFrame 的 insets 监听自己做。
-            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(this, false)
-            if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
-                attributes = attributes.apply {
-                    fitInsetsTypes = 0
-                    layoutInDisplayCutoutMode =
-                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                }
-            } else {
-                addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-                if (AndroidVersion.isAtLeast(AndroidVersion.P)) {
-                    attributes = attributes.apply {
-                        layoutInDisplayCutoutMode =
-                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                    }
-                }
-            }
-            // 弹窗窗口不带 DRAWS_SYSTEM_BAR_BACKGROUNDS 时，系统按旧语义在它盖住的状态栏上
-            // 画一条不透明黑底、图标强制变白（真机实测状态栏整条 0,0,0，诊断确认弹窗自身
-            // 在该区域没有任何绘制）。由窗口自己接管系统栏背景并设为透明，压暗层才透得出来。
-            addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            @Suppress("DEPRECATION")
-            statusBarColor = Color.TRANSPARENT
-            @Suppress("DEPRECATION")
-            navigationBarColor = Color.TRANSPARENT
-            if (AndroidVersion.isAtLeast(AndroidVersion.Q)) {
-                isStatusBarContrastEnforced = false
-                isNavigationBarContrastEnforced = false
-            }
-            // 窗口盖住状态栏后由它决定图标明暗；沿用页面的设置，打开面板时图标不跳色。
-            val pageBars = androidx.core.view.WindowCompat.getInsetsController(this@MainActivity.window, this@MainActivity.window.decorView)
-            androidx.core.view.WindowCompat.getInsetsController(this, decorView).apply {
-                isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars
-                isAppearanceLightNavigationBars = pageBars.isAppearanceLightNavigationBars
-            }
-        }
-        dialog.setContentView(windowFrame)
-        // 平台弹窗布局（screen_simple 一类）里有 fitsSystemWindows="true" 的容器，会把整个内容区
-        // 连同压暗层按状态栏高度下推，空出的那条由 DecorView 的兜底背景填成黑色（真机实测
-        // 状态栏整条 0,0,0）。祖先链一律不吃 insets，内缩只由 windowFrame 的监听做。
-        var fitAncestor = windowFrame.parent as? View
-        while (fitAncestor != null && fitAncestor !== dialog.window?.decorView) {
-            fitAncestor.fitsSystemWindows = false
-            fitAncestor.setPadding(0, 0, 0, 0)
-            fitAncestor = fitAncestor.parent as? View
-        }
-        val releaseElasticInteraction = installDialogElasticInteraction(dialog)
-        // **必须在 setContentView 之后**：`PhoneWindow.generateLayout()`（由 setContentView 触发）
-        // 会从主题里重新读 `windowAnimationStyle` 覆盖 `params.windowAnimations`，
-        // 放在前面写的 0 会被原样抹掉——真机 `dumpsys window windows` 里 `anim=` 依旧非零，
-        // 实测踩过一次。
-        dialog.window?.setWindowAnimations(0)
-        // 系统返回键也必须走项目统一的 180ms scale + fade 退场动画。
-        // 预测性返回启用（targetSdk 33+ 注册、Android 16+ 系统强制）后，手势导航的
-        // 返回不再向 Dialog 派发 KEYCODE_BACK，改走 OnBackInvokedCallback；三键导航
-        // 仍派发按键并保留 setOnKeyListener。两条路径都收敛到同一退场动画与回调。
-        // API 34+ 进一步注册 OnBackAnimationCallback：手势拖动时弹窗按
-        // BackEvent.progress（0..1）预览缩小（对齐退场终值 0.92 的中途态）、取消时
-        // 回弹、松手提交时从当前预览状态无缝续接 180ms 退场（ViewPropertyAnimator
-        // 天然从当前值起步）。API 33 的普通回调没有进度事件，保持松手才动画。
-        // dismissing 防重入：退场动画一旦启动，后续手势/按键回调一律忽略——四个回调
-        // 都要判，`onBackStarted` 尤其不能漏，它才是调用 LumenAnimator.property(container).cancel()
-        // 的那处，取消在途退场会立刻触发收尾监听器（见该回调内注释）。
-        var dismissing = false
-        fun requestDismiss(interactiveCommit: Boolean = false) {
-            if (dismissing) return
-            dismissing = true
-            // 锚点动画接管失败（几何不可用）时回落到既有 scale 退场，不留半截形状。
-            if (anchoredCloser?.invoke(interactiveCommit, null) == true) return
-            dismissWithAnimation(dialog, container, onBackDismiss)
-        }
-        // 类型必须是 `Any?`：一旦写成 API 33 的 `OnBackInvokedCallback?`，这个被 lambda
-        // 捕获的 var 就会把那个类型引用带进 dismiss 回调的字节码，ART 在 API 32 及以下
-        // 进入那个方法时直接抛 NoClassDefFoundError（下面的 SDK 判断和 runCatching 都
-        // 来不及生效）。类型本身只许出现在 PredictiveBackApi33 里，见该文件类注释。
-        var predictiveBackCallback: Any? = null
-        if (AndroidVersion.isAtLeast(AndroidVersion.U)) {
-            predictiveBackCallback = PredictiveBackApi33.animationCallback(
-                onStarted = {
-                    // 退场动画期间再起手势必须整条忽略：`dismissWithAnimation` 用
-                    // AnimatorListenerAdapter 收尾，而 ViewPropertyAnimator 在 cancel()
-                    // 后仍会派发 onAnimationEnd，取消在途退场会让 dialog.dismiss() 与
-                    // onDismissed() 立刻执行、180ms 退场被截断。
-                    if (!dismissing) {
-                        // 形变路径由 controller 自己接管在途动画并按当前速度续接，
-                        // 不能在这里 cancel 掉 container 的 ViewPropertyAnimator（它根本没在跑）。
-                        if (bubbleController != null) {
-                            bubbleController.beginPredictiveBack()
-                        } else if (morphController != null) {
-                            morphController.beginPredictiveBack()
-                        } else {
-                            // 中断在途动画（入场或回弹），后续属性由手势进度直接驱动
-                            LumenAnimator.property(container).cancel()
-                        }
-                    }
-                },
-                onProgressed = { progress ->
-                    if (!dismissing) {
-                        if (bubbleController != null) {
-                            bubbleController.progressPredictiveBack(progress)
-                        } else if (morphController != null) {
-                            morphController.progressPredictiveBack(progress)
-                        } else {
-                            container.scaleX = 1f - 0.05f * progress
-                            container.scaleY = 1f - 0.05f * progress
-                            container.alpha = 1f - 0.15f * progress
-                            scrim?.alpha = container.alpha
-                            notifyPreparedSkinPositionChanged()
-                        }
-                    }
-                },
-                onCancelled = {
-                    if (!dismissing) {
-                        if (bubbleController != null) {
-                            bubbleController.cancelPredictiveBack()
-                        } else if (morphController != null) {
-                            morphController.cancelPredictiveBack()
-                        } else {
-                            LumenAnimator.property(container)
-                                .scaleX(1f).scaleY(1f).alpha(1f)
-                                .setDuration(260L)
-                                .setInterpolator(emphasizedDecelerate)
-                                // ViewPropertyAnimator 的监听器是黏性的：原先这里隐式沿用入场监听器推进
-                                // 模糊与压暗，显式设置时要把那两项带上，再加上逐帧位置通知。
-                                .setUpdateListener {
-                                    backdropBlur?.apply(container.alpha)
-                                    scrim?.alpha = container.alpha
-                                    notifyPreparedSkinPositionChanged()
-                                }
-                                .withEndAction { notifyPreparedSkinPositionChanged() }
-                                .start()
-                            scrim?.let(LumenAnimator::property)?.alpha(1f)
-                                ?.setDuration(260L)
-                                ?.setInterpolator(emphasizedDecelerate)
-                                ?.start()
-                        }
-                    }
-                },
-                onInvoked = {
-                    // 手势松手：形变按当前值与当前速度续接，controller 内部再判断
-                    // 本次返回是否真的从手势开始（三键/按键路径 hadInteractiveStart 为 false）。
-                    requestDismiss(interactiveCommit = true)
-                }
-            )
-        } else if (AndroidVersion.isAtLeast(AndroidVersion.T)) {
-            predictiveBackCallback = PredictiveBackApi33.plainCallback { requestDismiss() }
-        }
-        val callbackToRegister = predictiveBackCallback
-        // 注册必须发生在 show() **之后**，见下面 registerBackCallback 的说明；
-        // 记住当时那个 dispatcher，注销才对得上同一个对象。类型同样必须是 `Any?`：
-        // 这个 var 正是 2026-09-11 那次崩溃里被 dismiss 回调捕获、把
-        // OnBackInvokedDispatcher 带进字节码的那一个。
-        var registeredBackDispatcher: Any? = null
-        /**
-         * 把系统返回（手势与三键）接到项目自己的退场动画上。
-         *
-         * 原来在 `dialog.show()` **之前**注册：那时 decor 还没挂上 `ViewRootImpl`，
-         * API 33 又没有 API 34 才加的 `ProxyOnBackInvokedDispatcher` 来缓存 attach 前的注册，
-         * 于是这次注册被丢掉，而 `Dialog.show()` 自己会注册一个 system 级默认回调
-         * （`onBackPressed → cancel → dismiss`，**瞬间消失、没有任何动画**）。
-         * 结果就是两条返回路径行为不一致：三键/按键走 `Dialog.dispatchKeyEvent` →
-         * 先问 `mOnKeyListener`（下面那个）→ 有动画；而**手势**走 dispatcher →
-         * 只剩系统默认回调 → 没动画。
-         *
-         * 放到 attach 之后注册，我们的 `PRIORITY_DEFAULT` 就压在系统默认回调之上
-         * （system 优先级低于 default），两条路径都收敛到 `requestDismiss()`。
-         * 失败要留日志：这里原本被 `runCatching` 静默吞掉，正是它让上面那条不一致
-         * 长期不可观测。
-         */
-        fun registerBackCallback() {
-            if (callbackToRegister == null || !AndroidVersion.isAtLeast(AndroidVersion.T)) return
-            if (registeredBackDispatcher != null) return
-            runCatching {
-                registeredBackDispatcher = PredictiveBackApi33.register(dialog, callbackToRegister)
-            }.onFailure {
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "register OnBackInvokedCallback failed; back gesture loses its animation", it
-                )
-            }
-        }
-        dialog.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
-                    requestDismiss()
-                }
-                true
-            } else {
-                false
-            }
-        }
-        dialog.setOnDismissListener {
-            frameInsetsRegistration?.close()
-            frameInsetsSlot?.close()
-            frameScope?.close()
-            releaseElasticInteraction()
-            // 其他入口硬关（presentSizedModalDialog 开头的 activeConfirmDialog?.dismiss()）
-            // 也要收掉在途 animator，否则回调会继续驱动一个已经消失的窗口。
-            morphController?.cancelMotion()
-            bubbleController?.cancelMotion()
-            // 硬关会停在半路；窗口撤掉后模糊本来就没了，这里归零只为不把带 FLAG_BLUR_BEHIND
-            // 的属性留在一个可能被复用的 window 上。
-            backdropBlur?.clear()
-            if (bubbleLayoutListener != null && root.viewTreeObserver.isAlive) {
-                root.viewTreeObserver.removeOnGlobalLayoutListener(bubbleLayoutListener)
-            }
-            dialogAnchoredClosers.remove(dialog)
-            dialogSurfaceInsets.remove(dialog)
-            dialogScrims.remove(dialog)
-            // 硬关会把形变停在半路，父面板不能留着半透明的 alpha：它马上就要重新露出来。
-            coveredContent?.alpha = 1f
-            (coveredContent as? ModalCardRoot)?.clearExclusion()
-            // 子面板收起后父面板重新露出来，它必须变回"当前弹窗"：这个字段是更新检查
-            // 与激活卡那几处 `activeConfirmDialog?.isShowing` 的唯一依据，留空会让它们
-            // 以为没有弹窗开着，从而在父面板脸上再弹一个。
-            if (activeConfirmDialog === dialog) {
-                activeConfirmDialog = coveredParent?.takeIf { it.isShowing }
-            }
-            val callback = predictiveBackCallback
-            // 注销要冲着**当时注册成功的那个** dispatcher；窗口已 detach 时重新向
-            // dialog 取一次，可能拿到换过的对象、也可能直接抛。取的动作本身在
-            // PredictiveBackApi33 里，这个函数不许再出现（有单测盯着）。
-            val dispatcher = registeredBackDispatcher
-            // 两个都非空只可能发生在 API 33+（注册路径本身就压在 SDK 判断后面），
-            // 但 SDK 判断仍要显式写出来：它决定 PredictiveBackApi33 这个类会不会被加载。
-            if (callback != null && dispatcher != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
-                registeredBackDispatcher = null
-                runCatching { PredictiveBackApi33.unregister(dispatcher, callback) }
-            }
-            if (releaseHighlightsDialog === dialog) {
-                releaseHighlightsDialog = null
-                activeHighlightsFrom = null
-            }
-            scheduleReleaseHighlights()
-            // 调用方的收尾在这里跑，而不是让调用方再 setOnDismissListener——
-            // 那是单字段覆盖，会把本监听器承担的全部清理整条换掉。
-            onDismissed?.invoke()
-        }
-        activeConfirmDialog = dialog
-        dialog.show()
-        dialog.window?.setLayout(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        )
-        // show() 之后：窗口已 attach，dispatcher 是真的那一个，
-        // 且我们的回调会压在 Dialog.show() 刚注册的 system 级默认回调之上。
-        registerBackCallback()
-
-        if (bubbleController != null) {
-            // 在实际 Dialog 坐标和最终测量尺寸就绪后才开始，避免先闪一帧或从错误位置展开。
-            root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
-                override fun onPreDraw(): Boolean {
-                    if (updateBubbleGeometry() || container.isLayoutRequested) return false
-                    root.viewTreeObserver.removeOnPreDrawListener(this)
-                    if (!dialog.isShowing || bubbleController.isClosing) return true
-                    bubbleLaidOut = true
-                    bubbleController.prepareFirstFrame()
-                    bubbleController.startEntry()
-                    return true
-                }
-            })
-            return
-        }
-        if (morphController != null && morphLayer != null) {
-            // 必须在首帧绘制**之前**压到来源端，否则会先闪一帧完整卡片再跳回图标。
-            morphLayer.viewTreeObserver.addOnPreDrawListener(
-                object : android.view.ViewTreeObserver.OnPreDrawListener {
-                    override fun onPreDraw(): Boolean {
-                        // 先把卡片摆到父面板矩形上再压首帧：位置还没定就 prepareFirstFrame，
-                        // 展开端会按旧的居中矩形算，形变会往错的地方长。
-                        if (applyCoverPlacement() || (cover != null && container.isLayoutRequested)) {
-                            return false
-                        }
-                        morphLayer.viewTreeObserver.removeOnPreDrawListener(this)
-                        if (!dialog.isShowing || morphController.isClosing) return true
-                        if (!morphController.prepareFirstFrame()) {
-                            // 尺寸未就绪或几何非法：直接落到展开端，不留半截形状。
-                            morphController.snapToExpanded()
-                            return true
-                        }
-                        morphLayer.post {
-                            if (dialog.isShowing && !morphController.isClosing) morphController.startEntry()
-                        }
-                        return true
-                    }
-                }
-            )
-            return
-        }
-        container.post {
-            LumenAnimator.property(container)
-                .scaleX(1f).scaleY(1f).alpha(1f)
-                .setDuration(260L)
-                .setInterpolator(emphasizedDecelerate)
-                // 无锚点弹窗没有形变时钟，借它自己的入场进度推模糊。退场由
-                // 共用的 dismissWithAnimation 负责，窗口撤掉时模糊随之消失（硬切，
-                // 与这条路径本来的淡出观感一致），不去改那 72 个调用点。
-                // 缩放入场会移动卡片里按钮等玻璃表面的屏幕位置，但属性动画既不触发滚动回调，
-                // 也不重录子 View 的显示列表：不逐帧通知的话，表面采样会停在动画中途的位置，
-                // 要等下一次无关重绘才按真实位置重采，按钮光影就会在打开后整体跳一下。
-                // 与锚点形变路径（IconAnchoredMotionController.onContentMoved，2026-09-26 真机
-                // 插桩 + 录屏验证）同一机制；本路径未单独做真机录屏。
-                .setUpdateListener {
-                    backdropBlur?.apply(container.alpha)
-                    scrim?.alpha = container.alpha
-                    notifyPreparedSkinPositionChanged()
-                }
-                .withEndAction {
-                    backdropBlur?.apply(1f)
-                    scrim?.alpha = 1f
-                    notifyPreparedSkinPositionChanged()
-                    notifyExpanded()
-                }
-                .start()
-        }
-    }
 
     /**
      * 勾选式屏蔽面板的"面"描述符：把四个面的差异全部收敛到这一处。
@@ -3679,12 +2697,13 @@ class MainActivity : SkinnedActivity() {
 
     /** 手动亮色开关生效（写 prefs + 更新状态，供确认对话框确认后调用） */
     internal fun onFreeCopyLightModeChanged(value: Boolean) {
-        freeCopyLightMode = value
-        runCatching {
-            prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_LIGHT_MODE, value) }
-        }.onFailure { t ->
-            Log.e("BilibiliInnocentLab", "write free copy light mode prefs failed", t)
-        }
+        bindSettingsStateMirrors()
+        settingsState.persistBoolean(
+            key = HookEntry.PREF_FREE_COPY_LIGHT_MODE,
+            previous = freeCopyLightMode,
+            requested = value,
+            failureMessage = "write free copy light mode prefs failed"
+        )
     }
 
     /**
@@ -4927,6 +3946,9 @@ class MainActivity : SkinnedActivity() {
         logVerbose =
             uiSettings.string(HookEntry.PREF_LOG_LEVEL) != HookEntry.LOG_LEVEL_MINIMAL
 
+        settingsState.bindSnapshot(uiSettings)
+        bindSettingsStateMirrors()
+
         val descriptors = (SettingsUiCatalog.descriptors() + SettingsActionCatalog.descriptors() + RuntimeSettingsNavigationCatalog.descriptors()).distinctBy { it.id }
         settingStore = SettingStore(descriptors, descriptors.filter { it.favoriteEligible }
             .associate { it.storageKey to uiSettings.bool(it.storageKey) })
@@ -5599,9 +4621,13 @@ class MainActivity : SkinnedActivity() {
     internal val isLauncherIconShowing
         get() = packageManager?.isActivityComponentEnabled(homeComponent) == true
     internal fun writeSemanticSwitch(key: String, checked: Boolean) {
-        runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure { throwable ->
-            Log.e("BilibiliInnocentLab", "write semantic filter switch failed", throwable)
-        }
+        bindSettingsStateMirrors()
+        settingsState.persistBoolean(
+            key = key,
+            previous = settingsState.readBoolean(key),
+            requested = checked,
+            failureMessage = "write semantic filter switch failed"
+        )
     }
 
 }

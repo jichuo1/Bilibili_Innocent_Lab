@@ -2,17 +2,24 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.drawable.Drawable
+import android.text.TextUtils
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.Space
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
+import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.lumen.coacervation.engine.widget.LumenSegmentScrubBar
+import io.github.jichuo1.meguviz.android.extensions.textColor
 import io.github.jichuo1.meguviz.android.extensions.toPx
 import io.github.jichuo1.meguviz.ui.ComponentType
 import io.github.jichuo1.meguviz.ui.ParentPolicy
@@ -37,6 +44,7 @@ private val spaceWidget = SettingsWidget(Space::class.java) { Space(it.context) 
 private val viewWidget = SettingsWidget(View::class.java) { View(it.context) }
 private val switchWidget = SettingsWidget(MaterialSwitch::class.java) { MaterialSwitch(it.context, null) }
 private val scrubWidget = SettingsWidget(LumenSegmentScrubBar::class.java) { LumenSegmentScrubBar(it.context, null) }
+private val seekBarWidget = SettingsWidget(SeekBar::class.java) { SeekBar(it.context) }
 private val linearWidget = SettingsWidget(LinearLayout::class.java) { LinearLayout(it.context) }
 private val frameWidget = SettingsWidget(FrameLayout::class.java) { FrameLayout(it.context) }
 private val scrollWidget = SettingsWidget(NestedScrollView::class.java) { NestedScrollView(it.context) }
@@ -118,6 +126,9 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
     fun logSegmentScrubBar(key: String, lparams: LP = params(), init: LumenSegmentScrubBar.() -> Unit = {}): LumenSegmentScrubBar =
         create(key, lparams, scrubWidget, init)
 
+    fun seekBar(key: String, lparams: LP = params(), init: SeekBar.() -> Unit = {}): SeekBar =
+        create(key, lparams, seekBarWidget, init)
+
     fun linearLayout(key: String, lparams: LP = params(), init: LinearLayout.() -> Unit = {}, content: LinearSettingsScope.() -> Unit = {}): LinearLayout {
         val ref = createRef(key, lparams, linearWidget, init)
         val view = ref.get()
@@ -146,6 +157,189 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
     }
 
     fun component(content: SettingsScope<P, LP>.() -> Unit) = content()
+}
+
+/** 声明式说明文本行，复用设置页 12sp 次级文字与 6f 行距排版。 */
+internal fun LinearSettingsScope.tipText(
+    key: String,
+    text: CharSequence,
+    lparams: LinearLayout.LayoutParams = params(widthMatchParent = true),
+    init: TextView.() -> Unit = {}
+): TextView = textView(key = key, lparams = lparams) {
+    alpha = 0.6f
+    setLineSpacing(6f, 1f)
+    this.text = text
+    textColor = colorResource(R.color.colorTextDark)
+    textSize = 12f
+    init()
+}
+
+/** 声明式开关行及其可选说明文本，消除 `*Sections.kt` 重复样板。 */
+internal fun LinearSettingsScope.switchRow(
+    key: String,
+    title: CharSequence,
+    summary: CharSequence? = null,
+    lparams: LinearLayout.LayoutParams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+        bottomMargin = 5.dp
+    },
+    summaryTopMarginDp: Int = 0,
+    onTip: (TextView) -> Unit = {},
+    bind: MaterialSwitch.() -> Unit
+): MaterialSwitch {
+    val toggle = materialSwitch(key = key, lparams = lparams) {
+        text = title
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        bind()
+    }
+    if (summary != null) {
+        tipText(
+            key = "$key:tip",
+            text = summary,
+            lparams = params(widthMatchParent = true) {
+                if (summaryTopMarginDp != 0) topMargin = summaryTopMarginDp.dp
+            },
+            init = onTip
+        )
+    }
+    return toggle
+}
+
+/** 声明式可点操作行（带可选副标题与点击事件）。 */
+internal fun LinearSettingsScope.actionRow(
+    key: String,
+    title: CharSequence,
+    summary: CharSequence? = null,
+    lparams: LinearLayout.LayoutParams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+    },
+    backgroundDrawable: Drawable? = null,
+    init: TextView.() -> Unit = {},
+    onClick: (View) -> Unit
+): TextView = textView(key = key, lparams = lparams) {
+    text = if (summary.isNullOrEmpty()) title else "$title\n$summary"
+    textColor = colorResource(R.color.colorTextGray)
+    textSize = 15f
+    setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+    if (backgroundDrawable != null) background = backgroundDrawable
+    isClickable = true
+    isFocusable = true
+    init()
+    setOnClickListener(onClick)
+}
+
+/** 声明式双行摘要可点行与下方辅助说明行。 */
+internal fun LinearSettingsScope.summaryRow(
+    key: String,
+    title: CharSequence,
+    summary: CharSequence,
+    helperText: CharSequence? = null,
+    lparams: LinearLayout.LayoutParams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+    },
+    backgroundDrawable: Drawable? = null,
+    helperInit: TextView.() -> Unit = {},
+    init: TextView.() -> Unit = {},
+    onClick: (View) -> Unit
+): TextView {
+    val view = actionRow(
+        key = key,
+        title = title,
+        summary = summary,
+        lparams = lparams,
+        backgroundDrawable = backgroundDrawable,
+        init = {
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            init()
+        },
+        onClick = onClick
+    )
+    if (!helperText.isNullOrEmpty()) {
+        tipText(key = "$key:tip", text = helperText, init = helperInit)
+    }
+    return view
+}
+
+/** 声明式分段滑动选择器行（可选标题、弹性防冲突 scrub bar 与下方档位说明）。 */
+internal fun LinearSettingsScope.segmentScrubRow(
+    key: String,
+    label: CharSequence? = null,
+    description: CharSequence? = null,
+    descriptionInit: TextView.() -> Unit = {},
+    init: LumenSegmentScrubBar.() -> Unit
+): LumenSegmentScrubBar {
+    if (!label.isNullOrEmpty()) {
+        textView(
+            key = "$key:label",
+            lparams = params(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 6.dp
+            }
+        ) {
+            alpha = 0.85f
+            isSingleLine = true
+            text = label
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 13f
+        }
+    }
+    val bar = logSegmentScrubBar(key = key, lparams = params(widthMatchParent = true)) {
+        tag = ElasticInteractionController.EXCLUDED_TAG
+        init()
+    }
+    if (!description.isNullOrEmpty()) {
+        tipText(
+            key = "$key:desc",
+            text = description,
+            lparams = params(widthMatchParent = true) {
+                topMargin = 6.dp
+            },
+            init = descriptionInit
+        )
+    }
+    return bar
+}
+
+/** 声明式滑块行（标题、SeekBar 与可选数值变化回调）。 */
+internal fun LinearSettingsScope.sliderRow(
+    key: String,
+    title: CharSequence,
+    max: Int,
+    progress: Int,
+    lparams: LinearLayout.LayoutParams = params(widthMatchParent = true) {
+        topMargin = 12.dp
+    },
+    seekBarInit: SeekBar.() -> Unit = {},
+    onProgressChanged: (SeekBar, Int, Boolean) -> Unit = { _, _, _ -> }
+): SeekBar {
+    textView(
+        key = "$key:title",
+        lparams = params(widthMatchParent = true) {
+            bottomMargin = 4.dp
+        }
+    ) {
+        text = title
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 14f
+        gravity = Gravity.START or Gravity.CENTER_VERTICAL
+    }
+    return seekBar(key = key, lparams = lparams) {
+        this.max = max
+        this.progress = progress
+        contentDescription = title
+        seekBarInit()
+        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) =
+                onProgressChanged(seekBar, progress, fromUser)
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+    }
 }
 
 internal fun settingsComponent(content: LinearSettingsScope.() -> Unit): LinearSettingsScope.() -> Unit = content

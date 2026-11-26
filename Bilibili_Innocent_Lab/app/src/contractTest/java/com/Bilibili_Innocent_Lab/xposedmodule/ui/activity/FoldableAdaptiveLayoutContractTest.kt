@@ -41,11 +41,10 @@ class FoldableAdaptiveLayoutContractTest {
 
     @Test
     fun mainActivityModalsAndSecondaryActivitiesFollowAdaptiveLayoutAndPreserveScroll() {
-        val main = SourceContract.read("ui/activity/MainActivity.kt")
-        val createModal = main.after("internal fun createModalContainer()").before("internal fun presentModalDialog(")
+        val createModal = SettingsUiSource.function("createModalContainer")
         assertTrue(createModal.contains("BoundedModalContainer(this, adaptiveModalMaxWidthPx())"))
 
-        val presentModal = main.after("internal fun presentSizedModalDialog(").before("val originalPaddingTop =")
+        val presentModal = SettingsUiSource.function("presentSizedModalDialog").before("val originalPaddingTop =")
         assertTrue(presentModal.contains("usableWindowSizePx()"))
         assertTrue(presentModal.contains("AdaptiveWindowLayout.bubbleMaxWidthPx("))
 

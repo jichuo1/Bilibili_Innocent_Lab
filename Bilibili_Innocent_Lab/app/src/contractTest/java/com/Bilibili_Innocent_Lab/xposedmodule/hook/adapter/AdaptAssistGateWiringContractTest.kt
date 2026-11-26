@@ -13,8 +13,8 @@ import org.junit.Test
  * 门控判定本身由 AdaptAssistGateTest 覆盖，这里锁定接线：不得再有「直接定位没找到就无条件查询」的路径。
  */
 class AdaptAssistGateWiringContractTest {
-    private val adapter = SourceContract.read("hook/VersionAdapter.kt")
-    private val adapt = adapter.after("private fun adapt(context: Context").before("private data class ProtocolFingerprint")
+    private val adapter = VersionAdapterSource.versionAdapter()
+    private val adapt = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
 
     fun plannedQueriesComeFromTheGateNotFromDirectLocationAlone() {
         val planned = adapt.after("planned = buildSet {").before("classicMissing.forEach")
@@ -51,17 +51,23 @@ class AdaptAssistGateWiringContractTest {
     }
 
     fun cacheFastPathRequestsASupplementalScanWhenAFeatureIsEnabledLater() {
-        val refreshCheck = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
-            .before("val refreshRequested = usable?.let(::requiresFeatureRefresh)")
-        assertTrue(refreshCheck.contains("assistRefreshNeeded(classLoader, value, blockUpdateEnabled, playerQualityEnabled, commentTopologyEnabled)"))
+        val ensureAdapted = VersionAdapterSource.function("ensureAdapted") {
+            it.contains("startupCache: StartupCacheSnapshot")
+        }
+        val refreshCheck = VersionAdapterSource.functions(ensureAdapted, "requiresFeatureRefresh").single()
+        assertTrue(refreshCheck.contains("DexFeatureRegistry.requiresFeatureRefresh("))
+        val registryFile = VersionAdapterSource.file("DexFeatureAdapter")
+        assertTrue(registryFile.contains("VersionAdapter.assistRefreshNeeded("))
         // 冷启动快路径只能查「从未尝试过」的家族（isAttemptedInCache），禁止因可重试失败反复弹适配提示。
-        assertTrue(refreshCheck.contains("AdaptAssistGate.isAttemptedInCache(it)"))
-        assertFalse(refreshCheck.contains("AdaptAssistGate.isConclusiveMissing("))
-        assertTrue(refreshCheck.contains("val valueChromeAttempted ="))
-        assertTrue(refreshCheck.contains("val valueSemanticsAttempted ="))
-        val ensureHistory = adapter.after("internal fun ensureAdapted(")
-            .before("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
-        assertTrue(ensureHistory.contains("AdaptAssistGate.isConclusiveMissing(it)"))
+        assertTrue(registryFile.contains("AdaptAssistGate::isAttemptedInCache"))
+        assertFalse(registryFile.contains("AdaptAssistGate.isConclusiveMissing("))
+        assertFalse(registryFile.contains("AdaptAssistGate::isConclusiveMissing"))
+        val chromeAdapter = registryFile.after("private val homeChromeAdapter =").before("private val homeChromeSemanticsAdapter =")
+        assertTrue(chromeAdapter.contains("val attempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf())"))
+        assertTrue(chromeAdapter.contains("value.isDiagnosticAttemptedInCache(HomeChromeAdapter.diagnostic(query))"))
+        assertTrue(registryFile.contains("private val homeChromeSemanticsAdapter ="))
+        val ensureHistory = ensureAdapted.after("val historyDiagnosticsById =").before("return adapt(")
+        assertTrue(ensureHistory.contains("AdaptAssistGate::isConclusiveMissing"))
         assertTrue(adapt.contains("semanticsPlanned && dexAssist == null -> \"no-dex-source\""))
         assertTrue(adapt.contains("query in chromePlanned && dexAssist == null -> \"no-dex-source\""))
         assertTrue(adapter.contains("val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() }"))

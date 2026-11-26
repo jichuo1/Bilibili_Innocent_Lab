@@ -95,7 +95,7 @@ class AdaptPlanWiringContractTest {
     }
 
     fun `adapt applies the same plan and carries only covered families`() {
-        val adapt = adapter.after("private fun adapt(context: Context").before("private data class ProtocolFingerprint")
+        val adapt = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         val calls = locatorCalls(adapt)
         assertEquals(PointFamily.entries.toSet(), calls.map { it.first }.toSet())
         assertEquals(PointFamily.entries.size, calls.size)
@@ -142,15 +142,24 @@ class AdaptPlanWiringContractTest {
         assertTrue("先于任何定位", install.indexOf("val adaptPlan = ") < install.indexOf("val startupCache by lazy"))
         // 两处同步定位都必须带版本码：9.18+ 的媒体 owner 只有按构建查 VERIFIED_MEDIA_OWNERS 才能命中，
         // 漏传会静默退化成候选表，丢掉已验真实现并让诊断误分类。精确锁住两种形态，禁止传 null 绕过。
-        val quickCalls = Regex("""VersionAdapter\.quickLocate\(biliClassLoader, adaptPlan[^)]*\)""")
+        val freeCopyInstaller = SourceContract.read("hook/feature/freecopy/FreeCopyFeatureInstaller.kt")
+        val quickEntry = Regex("""VersionAdapter\.quickLocate\(\s*biliClassLoader,\s*adaptPlan[^)]*\)""")
             .findAll(entry).map { it.value }.toList()
+        val quickFreeCopy = Regex("""VersionAdapter\.quickLocate\(\s*loader,\s*adaptPlan[^)]*\)""")
+            .findAll(freeCopyInstaller).map { it.value }.toList()
+        val quickCalls = quickEntry + quickFreeCopy
         assertEquals(2, quickCalls.size)
-        assertTrue(quickCalls.toString(), quickCalls.any { it.contains("adaptPlan, locateTimings, hostVersionCode)") })
-        assertTrue(quickCalls.toString(), quickCalls.any { it.contains("adaptPlan, hostVersionCode = startupCache.identity.versionCode)") })
+        assertTrue(quickCalls.toString(), quickEntry.any { it.contains("adaptPlan, locateTimings, hostVersionCode)") })
+        assertTrue(quickCalls.toString(), quickFreeCopy.any { it.contains("adaptPlan, hostVersionCode = hostVersionCode()") })
+        assertTrue(install.contains("hostVersionCode = { startupCache.identity.versionCode }"))
         assertTrue(install.contains("val hostVersionCode = startupCache.identity.versionCode"))
         // 计时观察点只在 debug 构建创建，release 的同步路径不计时。
         assertTrue(entry.contains("if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null"))
-        assertEquals("不得再有不带计划的同步定位", 0, Regex("""VersionAdapter\.quickLocate\(biliClassLoader\)""").findAll(entry).count())
+        assertEquals(
+            "不得再有不带计划的同步定位",
+            0,
+            Regex("""VersionAdapter\.quickLocate\((?:biliClassLoader|loader)\)""").findAll(entry + "\n" + freeCopyInstaller).count()
+        )
         val ensure = entry.after("VersionAdapter.ensureAdapted(").before("}.onFailure")
         assertTrue(ensure.contains("plan = adaptPlan"))
         // 配置代际随快照一起交付，计划记录自己由哪一代生成。
@@ -272,12 +281,13 @@ class AdaptPlanWiringContractTest {
     }
 
     fun `diagnostics are built lazily per planned family`() {
-        val diagnostics = adapter.after("internal fun buildDiagnostics(").before("private fun Method.toHookPoint()")
+        val diagnostics = adapter.after("internal fun buildDiagnostics(").before("fun locateMineEntry(")
         // 候选类探测必须是惰性的：计划外的家族不能被探测。
         assertFalse(Regex("""\n        val \w+CandidateExists = """).containsMatchIn(diagnostics))
         assertTrue(Regex("""\n        val \w+CandidateExists by lazy""").findAll(diagnostics).count() >= 30)
         assertTrue(diagnostics.contains("if (plan.needs(family)) {"))
         assertTrue(diagnostics.contains("AdaptDiagnostic(id, AdaptState.NOT_APPLICABLE, PLAN_NOT_REQUESTED)"))
+        assertTrue(VersionAdapterSource.file("locators/LocatorReflectUtils").contains("fun Method.toHookPoint()"))
     }
 
     @org.junit.Test

@@ -10,7 +10,7 @@ class WeChatShareDexWiringContractTest {
         val quick = adapter.after("fun quickLocate").before("private fun adapt(")
         assertFalse(quick.contains("WeChatShareCompatAccess.assisted"))
         assertFalse(quick.contains("DexAssistSession("))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (weChatSharePlanned) addAll(WeChatShareCompatAccess.queries)"))
         assertTrue(background.contains("WeChatShareCompatAccess.refreshCache(weChatShareEnabled,"))
         val installer = SourceContract.read("hook/feature/WeChatShareCompatFeatureInstaller.kt")

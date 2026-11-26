@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntrySource
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,8 +30,7 @@ class CommentSurfaceWiringContractTest {
     }
 
     fun fullTreeLoadingSwitchesBudgetBeforeInspectingAnInFlightRequest() {
-        val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
-        val open = source.after("override fun onFullTreeRequested()").before("override fun onOpacityCommitted")
+        val open = HookEntrySource.function("onFullTreeRequested", HookEntrySource.commentTopologyFiles())
         assertTrue(open.before("if (!state.loadingRequest)").contains("if (!state.loadAll) state.guard.beginBatch"))
         val host = SourceContract.read("hook/feature/ReplyTopologyHostAccess.kt")
         assertTrue(host.contains("MAX_MAPPER_SEED_NODES, requireReplies = true"))
@@ -44,10 +44,11 @@ class CommentSurfaceWiringContractTest {
     }
 
     fun storyPanelUsesTheClickedCommentWindowAndRetainsOnlyWeakOwnership() {
-        val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
-        assertTrue(source.contains("coordinator?.open(activity, currentSeed, this@ReplyTopologyAnchorView)"))
-        assertTrue(source.contains("state.sourceAnchor?.get()"))
-        val geometry = source.after("private class AnchorGeometry(").before("fun toTarget(")
+        val binder = HookEntrySource.file("hook/feature/comment/ReplyTopologyAnchorBinder.kt")
+        val pager = HookEntrySource.file("hook/feature/comment/ReplyTopologyPager.kt")
+        assertTrue(binder.contains("coordinator?.open(activity, currentSeed, this@ReplyTopologyAnchorView)"))
+        assertTrue(pager.contains("state.sourceAnchor?.get()"))
+        val geometry = binder.after("private class AnchorGeometry(").before("fun toTarget(")
         assertTrue(geometry.contains("val include: WeakReference<ViewGroup>"))
         assertTrue(geometry.contains("val row: WeakReference<ViewGroup>"))
         assertTrue(geometry.contains("val referenceView: WeakReference<View>"))
@@ -61,8 +62,7 @@ class CommentSurfaceWiringContractTest {
     }
 
     fun imageAndPushDoNotTurnEveryContentIdIntoAComment() {
-        val hook = SourceContract.read("hook/HookEntry.kt")
-        val ids = hook.after("private fun isCommentBodyTextView").before("private fun clearCommentTouchSession")
+        val ids = HookEntrySource.function("isCommentBodyTextView", HookEntrySource.freeCopyScopeFiles())
         assertFalse(ids.contains("getIdentifier(\"content\""))
         val bridge = SourceContract.read("hook/feature/CommentNativeSupplementBridge.kt")
         assertTrue(bridge.contains("entry.plan.body.get(binding) !== view"))
@@ -83,8 +83,12 @@ class CommentSurfaceWiringContractTest {
     }
 
     fun composeMoreActionInvalidatesPreviousContextBeforeAnyBindingFallback() {
-        val hook = SourceContract.read("hook/HookEntry.kt")
-        assertTrue(hook.contains("resetMore = commentTopologyInstaller::clearComposeMenu"))
+        val hook = HookEntrySource.hookEntry()
+        assertTrue(hook.contains("onComposeResetMore = commentTopologyInstaller::clearComposeMenu"))
+        assertTrue(
+            HookEntrySource.file("hook/feature/freecopy/FreeCopyFeatureInstaller.kt")
+                .contains("resetMore = onComposeResetMore")
+        )
         val dispatch = SourceContract.read("hook/feature/CommentComposeCopyBridge.kt")
             .after("val request = argOrNull(0)?.takeIf(action::isInstance)")
             .before("actionInstalled++")
@@ -106,15 +110,16 @@ class CommentSurfaceWiringContractTest {
         assertTrue(bridge.after("fun install(environment").before("val loader").contains("if (!enabled()) return emptyMap()"))
         assertTrue(bridge.contains("setter.declaringClass"))
         assertFalse(bridge.contains("free.copy.image.spannable"))
-        val hook = SourceContract.read("hook/HookEntry.kt").after("val installCommentFreeCopyHooks:")
-            .before("if (!commentFreeCopyHooksInstalled.compareAndSet")
-        assertTrue(hook.contains("if (!runtimeCommentFreeCopyEnabled)"))
-        assertTrue(hook.contains("composeCommentCopy.install(hookEnvironment)"))
-        assertTrue(hook.contains("return@installCommentHooks"))
-        val topology = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
-        assertTrue(topology.contains("ProtobufReplyTreeVisitor(host.replyInfoClass)"))
-        assertTrue(topology.contains("reader.visit(reply); reply"))
-        for (file in listOf("CommentTopologyFeatureInstaller.kt", "CommentFilterFeatureInstaller.kt", "CommentPurifyFeatureInstaller.kt")) {
+        val installComment = HookEntrySource.function("installCommentFreeCopyHooks", HookEntrySource.freeCopyScopeFiles())
+            .before("val isInitialAttempt =")
+        assertTrue(installComment.contains("if (!FreeCopyRuntimeConfig.runtimeCommentFreeCopyEnabled)"))
+        assertTrue(installComment.contains("composeCommentCopy.install(commentEnv)"))
+        assertTrue(installComment.contains("return"))
+        val seedBridge = HookEntrySource.file("hook/feature/comment/ReplyTopologySeedBridge.kt")
+        assertTrue(seedBridge.contains("ProtobufReplyTreeVisitor(host.replyInfoClass)"))
+        assertTrue(seedBridge.contains("reader.visit(reply); reply"))
+        assertTrue(seedBridge.contains("shareUnchangedReply = true"))
+        for (file in listOf("CommentFilterFeatureInstaller.kt", "CommentPurifyFeatureInstaller.kt")) {
             assertTrue(SourceContract.read("hook/feature/$file").contains("shareUnchangedReply = true"))
         }
         assertFalse(SourceContract.read("hook/feature/SearchPurifyFeatureInstaller.kt").contains("shareUnchangedReply = true"))

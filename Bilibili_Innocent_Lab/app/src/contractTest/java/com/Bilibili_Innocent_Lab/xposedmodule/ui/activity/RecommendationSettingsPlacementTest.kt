@@ -25,8 +25,17 @@ class RecommendationSettingsPlacementTest {
             }
         }
         val diagnostics = SettingsUiSource.file("DiagnosticsActivity")
-        assertTrue(diagnostics.contains("\"guest_browsing\" -> R.string.no_login_enabled"))
-        assertTrue(diagnostics.contains("\"incognito_privacy\" -> R.string.incognito_enabled"))
+        assertTrue(diagnostics.contains("DiagnosticFeatureRegistry.titleResId(featureId)"))
+        assertTrue(
+            com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry
+                .titleResId("guest_browsing") ==
+                com.Bilibili_Innocent_Lab.xposedmodule.R.string.no_login_enabled
+        )
+        assertTrue(
+            com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticFeatureRegistry
+                .titleResId("incognito_privacy") ==
+                com.Bilibili_Innocent_Lab.xposedmodule.R.string.incognito_enabled
+        )
     }
 
     fun feedbackAndRulesAreGroupedInEnhancementBrowsing() {

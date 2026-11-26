@@ -5,6 +5,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AdvancedSettingsCategory
 
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.segmentScrubRow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
 import android.content.Intent
@@ -1756,61 +1757,34 @@ internal fun MainActivity.logSettingsCard(scope: LinearSettingsScope) = with(sco
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        // 详细度档位选择器（精简 / 完整）
-        textView(key = "SettingsCardSections:1724",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 12.dp
-                bottomMargin = 6.dp
-            }
-        ) {
-            alpha = 0.85f
-            isSingleLine = true
-            text = stringResource(R.string.log_level_label)
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 13f
-        }
-        // 详细度档位选择器：底栏同款 scrub 控件（长按拖动切换 + 触点高光 + 弹簧回弹）。
+        // 详细度档位选择器（精简 / 完整）：底栏同款 scrub 控件（长按拖动切换 + 触点高光 + 弹簧回弹）。
         // 不走 skinSelectionControl：它会把这里整份替换成 surface 系表面，
         // 轨道与滑块就都成了灰白系，滑块的 primary 填充随之丢失。
-        logSegmentScrubBar(key = "SettingsCardSections:1739",
-            lparams = params(widthMatchParent = true),
-            init = {
-                bindSettingDestination(this, HookEntry.PREF_LOG_LEVEL)
-                // 控件整体接管触摸（轻点/拖动/回弹），与全局长按弹性手势互斥，
-                // 打上排除标记（底栏 dock 同款处理）。
-                tag = com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController.EXCLUDED_TAG
-                configure(
-                    labels = listOf(
-                        stringResource(R.string.log_level_minimal),
-                        stringResource(R.string.log_level_complete)
-                    ),
-                    colors = com.lumen.coacervation.engine.widget.NavigationBarColors(
-                        text = colorResource(R.color.colorTextGray),
-                        selectedText = monetColors.onPrimary,
-                        highlight = monetColors.primary
-                    ),
-                    thumbBackground = logLevelThumbBg(),
-                    trackBackground = GradientDrawable().apply {
-                        cornerRadius = resources.displayMetrics.density * 10f
-                        setColor(monetColors.background)
-                    },
-                    selectedIndex = if (logVerbose) 1 else 0,
-                    onSelect = ::commitLogLevel
-                )
-            }
-        )
-        // 档位描述（随选中项动态更新）
-        textView(key = "SettingsCardSections:1767",
-            lparams = params(widthMatchParent = true) {
-                topMargin = 6.dp
-            }
+        segmentScrubRow(
+            key = "SettingsCardSections:1739",
+            label = stringResource(R.string.log_level_label),
+            description = stringResource(if (logVerbose) R.string.log_level_complete_desc else R.string.log_level_minimal_desc),
+            descriptionInit = { logLevelDesc = this }
         ) {
-            logLevelDesc = this
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(if (logVerbose) R.string.log_level_complete_desc else R.string.log_level_minimal_desc)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
+            bindSettingDestination(this, HookEntry.PREF_LOG_LEVEL)
+            configure(
+                labels = listOf(
+                    stringResource(R.string.log_level_minimal),
+                    stringResource(R.string.log_level_complete)
+                ),
+                colors = com.lumen.coacervation.engine.widget.NavigationBarColors(
+                    text = colorResource(R.color.colorTextGray),
+                    selectedText = monetColors.onPrimary,
+                    highlight = monetColors.primary
+                ),
+                thumbBackground = logLevelThumbBg(),
+                trackBackground = GradientDrawable().apply {
+                    cornerRadius = resources.displayMetrics.density * 10f
+                    setColor(monetColors.background)
+                },
+                selectedIndex = if (logVerbose) 1 else 0,
+                onSelect = ::commitLogLevel
+            )
         }
     }
 }

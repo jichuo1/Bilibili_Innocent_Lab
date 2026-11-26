@@ -74,9 +74,9 @@ class ReplyTopologyPanelFilterContractTest {
     }
 
     fun ownedClipboardWritesAreExemptBeforeAnySemanticSuppression() {
-        val hook = SourceContract.read("hook/HookEntry.kt")
-            .after("val clip = args.getOrNull(0) as? android.content.ClipData")
-            .before("logInfo(\"free_copy_desc_ok\"")
+        val hook = SourceContract.read("hook/feature/freecopy/FreeCopyFeatureInstaller.kt")
+            .after("val clip = args.getOrNull(0) as? ClipData")
+            .before("free_copy_desc_ok")
         assertTrue(hook.before("val clipText").contains("ReplyTopologyClipboardWrite.owns(clip)"))
         val export = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
             .after("private fun exportCurrentTopology").before("private fun clearKeywordFocus")

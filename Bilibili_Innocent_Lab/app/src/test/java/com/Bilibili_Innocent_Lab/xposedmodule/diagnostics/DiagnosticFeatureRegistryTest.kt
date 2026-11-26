@@ -1,6 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.diagnostics
 
+import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,10 +19,13 @@ class DiagnosticFeatureRegistryTest {
     }
 
     fun `registry is unique bounded and covers specialized feature paths`() {
+        assertEquals(512, HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
+        assertEquals(128 * 1024, HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS)
+        assertEquals(3, HostRuntimeDiagnosticsCodec.CURRENT_SCHEMA_VERSION)
         assertEquals(DiagnosticCapabilityCatalog.leafIds.size + DiagnosticCapabilityCatalog.splitParents.size,
             DiagnosticFeatureRegistry.descriptors.size)
         assertTrue(DiagnosticFeatureRegistry.descriptors.size <=
-            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
+            HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
         assertEquals(
             DiagnosticFeatureRegistry.descriptors.size,
             DiagnosticFeatureRegistry.ids.size
@@ -56,6 +63,32 @@ class DiagnosticFeatureRegistryTest {
         )
     }
 
+    fun `titleResId covers every registered feature id and prefers capability label`() {
+        DiagnosticFeatureRegistry.descriptors.forEach { descriptor ->
+            assertNotNull("missing labelRes on descriptor ${descriptor.id}", descriptor.labelRes)
+            assertTrue("zero labelRes on descriptor ${descriptor.id}", descriptor.labelRes != 0)
+            val resolved = DiagnosticFeatureRegistry.titleResId(descriptor.id)
+            assertNotNull("missing titleResId for ${descriptor.id}", resolved)
+            assertTrue("zero titleResId for ${descriptor.id}", resolved != 0)
+        }
+        DiagnosticCapabilityCatalog.definitions.forEach { definition ->
+            assertEquals(
+                "catalog label must win for ${definition.id}",
+                definition.labelRes,
+                DiagnosticFeatureRegistry.titleResId(definition.id)
+            )
+        }
+        assertEquals(R.string.no_login_enabled, DiagnosticFeatureRegistry.titleResId("guest_browsing"))
+        assertEquals(R.string.incognito_enabled, DiagnosticFeatureRegistry.titleResId("incognito_privacy"))
+        assertEquals(R.string.diagnostics_host_feature_home_feed, DiagnosticFeatureRegistry.titleResId("home_recommend_purify"))
+        assertEquals(R.string.detail_module_purify_settings, DiagnosticFeatureRegistry.titleResId("detail_module_purify"))
+        assertEquals(R.string.block_ai_declared_videos, DiagnosticFeatureRegistry.titleResId("ai_declared_video_block"))
+        assertEquals(R.string.purify_splash_ads, DiagnosticFeatureRegistry.titleResId("splash_ad_purify"))
+        assertEquals(R.string.sponsorblock_enabled, DiagnosticFeatureRegistry.titleResId("sponsorblock"))
+        assertNull(DiagnosticFeatureRegistry.titleResId("unknown_feature_id"))
+        assertNull(DiagnosticFeatureRegistry.titleResId(""))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DiagnosticFeatureRegistryTest) -> Unit) {
@@ -64,5 +97,6 @@ class DiagnosticFeatureRegistryTest {
         }
         runIsolated { s -> s.`guest browsing and incognito are independent general groups expecting runtime evidence`() }
         runIsolated { s -> s.`registry is unique bounded and covers specialized feature paths`() }
+        runIsolated { s -> s.`titleResId covers every registered feature id and prefers capability label`() }
     }
 }

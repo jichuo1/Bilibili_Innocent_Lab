@@ -97,8 +97,16 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(SettingsCatalog.specs.map { it.id }.toSet(),
             catalog.definitions.flatMap { it.settingIds }.toSet() + catalog.localOnlySettings.keys)
         assertTrue(catalog.leafIds.all { it.matches(Regex("^[a-z][a-z0-9_]{0,63}$")) })
+        assertEquals(512, HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
+        assertEquals(128 * 1024, HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS)
         assertTrue(DiagnosticFeatureRegistry.ids.size <= HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
         assertTrue(catalog.splitParents.intersect(catalog.leafIds).isEmpty())
+        catalog.definitions.forEach { definition ->
+            assertEquals(definition.labelRes, DiagnosticFeatureRegistry.titleResId(definition.id))
+        }
+        catalog.splitParents.forEach { parentId ->
+            assertNotNull("Missing titleResId for split parent $parentId", DiagnosticFeatureRegistry.titleResId(parentId))
+        }
     }
 
     fun interactiveWhitelistChangesRequireExplicitDiagnosticMapping() {

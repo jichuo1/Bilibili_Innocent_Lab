@@ -110,15 +110,19 @@ class TelemetryMenuStructureTest {
         val row = SettingsUiSource.function("createTelemetryMenuRow")
         assertTrue(row.contains("cover = modalSurfaceBounds(dialog, dialogContainer)"))
         val surface = SettingsUiSource.function("modalSurfaceBounds")
-        assertTrue(surface.contains("bounds.top + insets.top"))
-        assertTrue(surface.contains("bounds.bottom - insets.bottom"))
+        assertTrue(surface.contains("ModalPresenter.surfaceBounds(dialog, container, this)"))
+        val impl = SettingsUiSource.file("ModalPresenter")
+            .after("internal fun surfaceBounds(")
+            .before("internal fun dismissAnchoredOrCentered(")
+        assertTrue(impl.contains("bounds.top + insets.top"))
+        assertTrue(impl.contains("bounds.bottom - insets.bottom"))
     }
 
     fun `a captured rect never hijacks the bubble path or the live anchor`() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
         // 气泡要拿来源 ImageView 做图案交接（见 09-10 的图案守恒铁律），静态矩形顶不了，
         // 只准服务居中卡片这一条；实时 View 永远优先，既有 30 个调用点行为不变。
-        assertTrue(present.contains("morphAnchor == null && anchorStyle == AnchorStyle.CONTAINER"))
+        assertTrue(present.contains("morphAnchor == null && anchorStyle == MainActivity.AnchorStyle.CONTAINER"))
         assertTrue(present.contains("morphAnchor?.let(::modalAnchorBounds) ?: capturedAnchorBounds"))
         // 关掉系统动画时静态矩形同样不得启用形变。
         assertTrue(present.contains("capturedAnchorBounds?.takeIf { ValueAnimator.areAnimatorsEnabled() }"))

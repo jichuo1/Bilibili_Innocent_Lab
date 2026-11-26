@@ -142,6 +142,37 @@ class DiagnosticReportCodecTest {
         DiagnosticReportCodec.validate(ByteArray(DiagnosticReportCodec.MAX_FILE_BYTES + 1))
     }
 
+    fun `host feature bound follows expanded 512 limit`() {
+        assertEquals(
+            512,
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT
+        )
+        assertEquals(
+            128 * 1024,
+            com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS
+        )
+        val json = JSONObject(
+            DiagnosticReportCodec.encode(ModuleHealthEvaluator.evaluate(inputs())).toString(StandardCharsets.UTF_8)
+        )
+        val hostFeatures = json.getJSONObject("runtime").getJSONArray("hostFeatures")
+        val template = JSONObject()
+            .put("id", "comment_filter")
+            .put("evidence", "ADAPTED")
+            .put("installState", "INSTALLED")
+            .put("installedHookCount", 1)
+            .put("runtimeError", false)
+            .put("installReasonCode", JSONObject.NULL)
+            .put("runtimeEvidenceExpected", true)
+        repeat(com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT + 1) {
+            hostFeatures.put(JSONObject(template.toString()))
+        }
+        assertTrue(
+            runCatching {
+                DiagnosticReportCodec.validate(json.toString().toByteArray(StandardCharsets.UTF_8))
+            }.isFailure
+        )
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DiagnosticReportCodecTest) -> Unit) {
@@ -156,5 +187,6 @@ class DiagnosticReportCodecTest {
         runIsolated { s -> s.`encoded report validates and declares its privacy exclusions`() }
         runIsolated { s -> s.`report schema never contains user values paths logs or exception details`() }
         runIsolated { s -> try { s.`oversized report is rejected before parsing`(); org.junit.Assert.fail("Expected IllegalArgumentException") } catch (_: IllegalArgumentException) {} }
+        runIsolated { s -> s.`host feature bound follows expanded 512 limit`() }
     }
 }

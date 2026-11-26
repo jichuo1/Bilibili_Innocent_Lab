@@ -195,6 +195,11 @@ private class HostReceiptPayloadCases {
         val payload = HostRuntimeDiagnosticsCodec.encode(HostRuntimeDiagnosticsSnapshot(1, "tv.danmaku.bili", emptyList()))
         assertEquals(ReceiptQueryFailure.NONE, validate("diagnostics", payload))
         assertEquals(ReceiptQueryFailure.MALFORMED_RESPONSE, validate("diagnostics", scan("mine")))
+        val expanded = payload + " ".repeat(70_000)
+        assertTrue(expanded.length > 64 * 1024 && expanded.length <= HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS)
+        assertEquals(ReceiptQueryFailure.NONE, validate("diagnostics", expanded))
+        val overExpanded = payload + " ".repeat(HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS)
+        assertEquals(ReceiptQueryFailure.MALFORMED_RESPONSE, validate("diagnostics", overExpanded))
     }
 
     fun verifyAllCases() {
@@ -321,6 +326,36 @@ private class HostRuntimeDiagnosticsCodecCases {
         assertNull(HostRuntimeDiagnosticsCodec.decodeOrNull(installedWithoutHooks))
     }
 
+    fun `expanded limits preserve schema 3 wire compatibility up to 512 features and 128 KiB`() {
+        assertEquals(3, HostRuntimeDiagnosticsCodec.CURRENT_SCHEMA_VERSION)
+        assertEquals(512, HostRuntimeDiagnosticsCodec.MAX_FEATURE_COUNT)
+        assertEquals(128 * 1024, HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS)
+
+        val entries512 = List(512) { HostRuntimeFeatureEvidence("comment_filter", 1L, 0L, 0L) }
+        val encoded512 = HostRuntimeDiagnosticsCodec.encode(
+            HostRuntimeDiagnosticsSnapshot(123L, HostRuntimeDiagnosticsCodec.TARGET_PACKAGE, entries512)
+        )
+        assertNotNull(HostRuntimeDiagnosticsCodec.decodeOrNull(encoded512))
+        assertTrue(
+            runCatching {
+                HostRuntimeDiagnosticsCodec.encode(
+                    HostRuntimeDiagnosticsSnapshot(
+                        123L,
+                        HostRuntimeDiagnosticsCodec.TARGET_PACKAGE,
+                        entries512 + HostRuntimeFeatureEvidence("comment_filter", 1L, 0L, 0L)
+                    )
+                )
+            }.exceptionOrNull() is IllegalArgumentException
+        )
+
+        val paddingCount = HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS - encoded512.length
+        assertTrue(paddingCount > 64 * 1024)
+        val exactMaxPayload = encoded512 + " ".repeat(paddingCount)
+        assertEquals(HostRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS, exactMaxPayload.length)
+        assertNotNull(HostRuntimeDiagnosticsCodec.decodeOrNull(exactMaxPayload))
+        assertNull(HostRuntimeDiagnosticsCodec.decodeOrNull(exactMaxPayload + " "))
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (HostRuntimeDiagnosticsCodecCases) -> Unit) {
             val s = HostRuntimeDiagnosticsCodecCases()
@@ -330,6 +365,7 @@ private class HostRuntimeDiagnosticsCodecCases {
         runIsolated { s -> s.`unknown feature never enters the protocol`() }
         runIsolated { s -> s.`decoder rejects unknown duplicate and invalid counters`() }
         runIsolated { s -> s.`decoder rejects impossible bootstrap and install combinations`() }
+        runIsolated { s -> s.`expanded limits preserve schema 3 wire compatibility up to 512 features and 128 KiB`() }
     }
 }
 

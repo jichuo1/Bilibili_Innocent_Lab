@@ -108,16 +108,23 @@ class SettingsDialogExtractionTest {
         assertEquals(emptyList<String>(), offenders)
     }
 
-    /** 共用底座必须留在 MainActivity：它承载返回手势、形变、气泡与模糊的整条时序。 */
-    fun `the shared modal presenter stays in MainActivity`() {
+    /** 共用底座必须集中在 ModalPresenter 且不得被其它分卷分叉：它承载返回手势、形变、气泡与模糊的整条时序。 */
+    fun `the shared modal presenter lives exclusively in ModalPresenter`() {
+        val presenter = SettingsUiSource.file("ModalPresenter")
+        listOf(
+            "fun MainActivity.presentSizedModalDialog(",
+            "fun MainActivity.presentModalDialog(",
+            "fun MainActivity.createModalContainer(",
+            "fun MainActivity.dismissWithAnimation("
+        ).forEach { assertTrue(it, presenter.contains(it)) }
         val main = SettingsUiSource.mainActivity()
         listOf(
             "fun presentSizedModalDialog(",
             "fun presentModalDialog(",
             "fun createModalContainer(",
             "fun dismissWithAnimation("
-        ).forEach { assertTrue(it, main.contains(it)) }
-        volumeFiles().forEach { (name, text) ->
+        ).forEach { assertFalse("MainActivity must not duplicate $it", main.contains(it)) }
+        volumeFiles().filter { (name, _) -> name != "ModalPresenter.kt" }.forEach { (name, text) ->
             assertFalse("$name must not fork the presenter",
                 text.contains("fun MainActivity.presentSizedModalDialog("))
         }
@@ -134,6 +141,6 @@ class SettingsDialogExtractionTest {
         runIsolated { s -> s.`extracted dialog files do not register lifecycle-scoped callbacks`() }
         runIsolated { s -> s.`top-level functions are MainActivity extensions or pure helpers`() }
         runIsolated { s -> s.`files that concatenate setText content carry the same file-level suppression`() }
-        runIsolated { s -> s.`the shared modal presenter stays in MainActivity`() }
+        runIsolated { s -> s.`the shared modal presenter lives exclusively in ModalPresenter`() }
     }
 }

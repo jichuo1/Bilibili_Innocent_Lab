@@ -15,9 +15,14 @@ class BubbleSkinPositionContractTest {
         assertTrue(frame.indexOf("layer.applyFrame(clamped, entryShape)") < frame.indexOf("onContentMoved()"))
         val settle = controller.after("private fun settleExpanded()").before("fun beginPredictiveBack(")
         assertTrue(settle.indexOf("layer.settleExpanded()") < settle.indexOf("onContentMoved()"))
-        val presenter = LceMotionSource.read("ui/activity/MainActivity.kt")
+        val presenter = LceMotionSource.read("ui/activity/ModalPresenter.kt")
             .after("val bubbleController = if (bubbleLayer != null)").before("val titleMotion =")
-        assertTrue(presenter.contains("onContentMoved = { notifyPreparedSkinPositionChanged() }"))
+        assertTrue(presenter.contains("onContentMoved = { notifyModalSkinPositionChanged() }"))
+        assertTrue(
+            LceMotionSource.read("ui/activity/MainActivity.kt")
+                .after("internal fun notifyModalSkinPositionChanged()").before("internal fun modalSurfaceBackground(")
+                .contains("notifyPreparedSkinPositionChanged()")
+        )
     }
 
     fun unnotifiedWindowPanIsDetectedBeforeTheSurfaceBatchGate() {

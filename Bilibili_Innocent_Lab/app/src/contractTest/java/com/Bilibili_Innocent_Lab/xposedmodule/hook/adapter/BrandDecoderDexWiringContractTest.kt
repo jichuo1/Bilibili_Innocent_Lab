@@ -43,11 +43,15 @@ private class CommentClassicDexWiringContractCases {
         val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
         assertFalse(quick.contains("DexAssistSession("))
         assertFalse(quick.contains("CommentClassicStyleLocator.locate"))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader)"))
         assertTrue(background.contains("classicMissing.forEach { add(it.query) }"))
         assertTrue(background.contains("DexAssistAttemptGuard("))
-        assertTrue(adapter.contains("CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle)"))
+        assertTrue(
+            VersionAdapterSource.function("mergeRuntimeWithCached") {
+                it.contains("CommentClassicStyleLocator.merge(")
+            }.contains("CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle)")
+        )
         val installer = SourceContract.read("hook/feature/CommentClassicStyleFeatureInstaller.kt")
         assertFalse(installer.contains("DexRefHookBridge"))
         assertFalse(installer.contains("DexAssistSession("))
@@ -55,7 +59,8 @@ private class CommentClassicDexWiringContractCases {
         assertTrue(installer.contains("!nativeFallbackReady"))
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("commentClassicStyleEnabled = prefs.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false)"))
-        assertTrue(hook.contains("featureInstallCoordinator.installAll(listOf(classicInstaller))"))
+        assertTrue(hook.contains("classicInstaller.asAdaptRetryable("))
+        assertTrue(hook.contains("coordinator.installAll(listOf(this))"))
     }
 
     fun `literal callers are never installed as replacements`() {
@@ -111,7 +116,7 @@ private class KotlinDefaultWordsDexWiringContractCases {
         val quick = adapter.after("fun quickLocate").before("private fun adapt(")
         assertFalse(quick.contains("DexAssistSession("))
         assertFalse(quick.contains("locateKotlinDefaultWordsByDex("))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (defaultWordsNeedsAssist) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)"))
         assertTrue(background.contains("DexAssistAttemptGuard("))
         assertTrue(background.contains("if (defaultWordsNeedsAssist) locateKotlinDefaultWordsByDex(dexAssist)"))
@@ -120,13 +125,17 @@ private class KotlinDefaultWordsDexWiringContractCases {
     fun featureFlagAndCachedFailurePreventUnrequestedAndRepeatedScans() {
         val hook = SourceContract.read("hook/HookEntry.kt").after("VersionAdapter.ensureAdapted(").before("}.onFailure")
         assertTrue(hook.contains("kotlinDefaultWordsEnabled = prefs.getBoolean(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, false)"))
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
         // 相同宿主的快照先被保留给其它家族；默认词 refresh 仍只能拒绝已经 usable 的快照。
-        val refresh = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean")
-            .before("val refreshRequested = usable?.let(::requiresFeatureRefresh)")
-        assertTrue(refresh.contains("kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache"))
-        assertTrue(refresh.contains("AdaptAssistGate.isAttemptedInCache(it)"))
-        assertFalse(refresh.contains("AdaptAssistGate.isConclusiveMissing(it)"))
+        val ensureAdapted = VersionAdapterSource.function("ensureAdapted") { it.contains("startupCache: StartupCacheSnapshot") }
+        val refreshFn = VersionAdapterSource.functions(ensureAdapted, "requiresFeatureRefresh").single()
+        assertTrue(refreshFn.contains("DexFeatureRegistry.requiresFeatureRefresh("))
+        val kotlinWordsAdapter = registry.after("private val kotlinDefaultWordsAdapter =").before("private val assistGateAdapter =")
+        assertTrue(kotlinWordsAdapter.contains("ctx.flags.kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache"))
+        assertTrue(registry.contains("AdaptAssistGate::isAttemptedInCache"))
+        assertFalse(registry.contains("AdaptAssistGate.isConclusiveMissing("))
+        assertFalse(registry.contains("AdaptAssistGate::isConclusiveMissing"))
         // Repacked results must use the same feature-refresh gate as an ordinary startup cache hit.
         val worker = adapter.after("HostThreadGuard.run(\"adapter.adapt_worker\")").before("result = repacked ?:")
         assertTrue(worker.contains("reboundUsable?.let(::requiresFeatureRefresh)"))
@@ -148,31 +157,38 @@ private class KotlinDefaultWordsDexWiringContractCases {
 
 private class PlayerPopupDexWiringContractCases {
     fun `popup dex queries remain gated in the shared background session and cached per family`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
         assertFalse(quick.contains("DexAssistSession("))
         assertFalse(quick.contains("PlayerPopupPromotionAdapter.locate("))
         assertFalse(quick.contains("PlayerPopupPromotionAdapter.direct("))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader)"))
         assertTrue(background.contains("popupPlanned.forEach { add(it.query) }"))
         assertTrue(background.contains("PlayerPopupPromotionAdapter.planned(loader, previousPopup, previouslyMissingPopup, playerPopupPromotionEnabled)"))
         assertTrue(background.contains("PlayerPopupPromotionAdapter.locate(loader, dexAssist, true, previousPopup, popupPlanned)"))
         assertTrue(background.contains("DexAssistAttemptGuard("))
-        assertTrue(adapter.contains("PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion)"))
-        val refresh = adapter.after("val popupRefresh =").before("val classicRefresh =")
-        assertTrue(refresh.contains("it.id == family.diagnostic && AdaptAssistGate.isAttemptedInCache(it)"))
+        assertTrue(
+            VersionAdapterSource.function("mergeRuntimeWithCached") {
+                it.contains("PlayerPopupPromotionAdapter.merge(")
+            }.contains("PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion)")
+        )
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
+        val popupRefresh = registry.after("private val playerPopupPromotionAdapter =").before("private val commentClassicStyleAdapter =")
+        assertTrue(popupRefresh.contains("!value.isDiagnosticAttemptedInCache(family.diagnostic)"))
+        assertTrue(registry.contains("AdaptAssistGate::isAttemptedInCache"))
         val inheritance = adapter.after("val usable = startup.usableCache(highCandidateExists)").before("val cached = usable?.takeUnless")
         assertTrue(inheritance.contains("val popupHistory = rawPopupHistory?.let"))
         assertTrue(inheritance.contains("AdaptDomainCatalog.staleDomains("))
         assertTrue(inheritance.contains("previousPopup = history?.playerPopupPromotion"))
-        assertTrue(inheritance.contains("history?.diagnostics.orEmpty()"))
+        assertTrue(inheritance.contains("val historyDiagnosticsById = history?.diagnosticsById.orEmpty()"))
         val installer = SourceContract.read("hook/feature/PlayerPopupPromotionFeatureInstaller.kt")
         assertFalse(installer.contains("DexRefHookBridge")); assertFalse(installer.contains("DexAssistSession("))
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("playerPopupPromotionEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false)"))
-        assertTrue(hook.contains("cachedPoints = { popupPointsRef.get() }"))
-        assertTrue(hook.contains("featureInstallCoordinator.installAll(listOf(popupInstaller))"))
+        assertTrue(hook.contains("cachedPoints = popupPointsSlot::read"))
+        assertTrue(hook.contains("popupInstaller.asAdaptRetryable("))
+        assertTrue(hook.contains("endPageInstaller,\n                    popupInstaller"))
     }
 
     fun `skipped cache families cannot trigger the sessions unplanned fallback query`() {
@@ -234,7 +250,7 @@ private class PlayerSpeedCalculatorDexWiringContractCases {
         val quick = adapter.after("fun quickLocate").before("private fun adapt(")
         assertFalse(quick.contains("PlayerSpeedLocator.assistedCalculator"))
         assertFalse(quick.contains("DexAssistSession("))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (speedCalculatorPlanned) addAll(PlayerSpeedLocator.calculatorQueries)"))
         assertTrue(background.contains("DexAssistAttemptGuard("))
         val installer = SourceContract.read("hook/feature/PlayerSpeedFeatureInstaller.kt")
@@ -248,11 +264,11 @@ private class PlayerSpeedCalculatorDexWiringContractCases {
 
 private class PlayerSpeedSessionDexWiringContractCases {
     fun speedSessionDexIsFeatureGatedAndNeverRunsInsideInstallationOrQuickLookup() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate").before("private fun adapt(")
         assertFalse(quick.contains("PlayerSpeedSessionLocator.assisted"))
         assertFalse(quick.contains("DexAssistSession("))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (speedSessionPlanned) addAll(PlayerSpeedSessionLocator.queries)"))
         assertTrue(background.contains("DexAssistAttemptGuard("))
         assertTrue(background.contains("PlayerSpeedSessionLocator.refreshCache(playerSpeedSessionEnabled,"))
@@ -267,11 +283,11 @@ private class PlayerSpeedSessionDexWiringContractCases {
 
 private class SponsorDexWiringContractCases {
     fun sponsorDexIsFeatureGatedAndNeverRunsInsideInstallationOrQuickLookup() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate").before("private fun adapt(")
         assertFalse(quick.contains("SponsorPlayerLocator.assisted"))
         assertFalse(quick.contains("DexAssistSession("))
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)"))
         assertTrue(background.contains("DexAssistAttemptGuard("))
         assertTrue(background.contains("sponsorBlockEnabled && SponsorPlayerLocator.needsQuery"))
@@ -280,25 +296,30 @@ private class SponsorDexWiringContractCases {
         assertTrue(installer.contains("registrationStarted.compareAndSet(false, true)"))
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("sponsorBlockEnabled = prefs.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false)"))
-        assertTrue(hook.contains("if (sponsorInstaller.requiresAdaptationRetry)"))
-        assertTrue(hook.contains("featureInstallCoordinator.installAll(listOf(sponsorInstaller))"))
+        assertTrue(hook.contains("sponsorInstaller,"))
+        val retry = hook.after("sponsorInstaller.asAdaptRetryable(").before("featureInstallCoordinator.registerRetryable(")
+        assertTrue(retry.contains("requiresRetry = { requiresAdaptationRetry }"))
     }
 }
 
 private class CommentComposeAndWireDexWiringContractCases {
     fun `compose menu and kmp wire engine use shared background dex session only`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
         assertFalse(quick.contains("CommentComposeMenuAdapter.locate("))
         assertFalse(quick.contains("KmpGrpcWireAdapter.locate("))
         assertFalse(quick.contains("DexAssistSession("))
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
-        assertTrue(merge.contains("CommentComposeMenuAdapter.DIAGNOSTIC"))
-        assertTrue(merge.contains("KmpGrpcWireAdapter.DIAGNOSTIC"))
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("CommentComposeMenuAdapter.merge(")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
+        assertTrue(merge.contains("val retainedQuickLocateIds = DexFeatureRegistry.quickLocateMissingRetainedDiagnosticIds"))
+        assertTrue(registry.contains("CommentComposeMenuAdapter.DIAGNOSTIC"))
+        assertTrue(registry.contains("KmpGrpcWireAdapter.DIAGNOSTIC"))
         assertTrue(merge.contains("CommentComposeMenuAdapter.merge("))
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("CommentComposeMenuAdapter.needsQuery("))
         assertTrue(background.contains("KmpGrpcWireAdapter.needsQuery("))
         assertTrue(background.contains("if (composeMenuPlanned) add(CommentComposeMenuAdapter.query)"))
@@ -307,6 +328,10 @@ private class CommentComposeAndWireDexWiringContractCases {
 
         for (installer in listOf(
             "hook/feature/CommentTopologyFeatureInstaller.kt",
+            "hook/feature/comment/ReplyTopologySeedBridge.kt",
+            "hook/feature/comment/ReplyTopologyAnchorBinder.kt",
+            "hook/feature/comment/ReplyTopologyPager.kt",
+            "hook/feature/MossRpcChannel.kt",
             "hook/feature/ReplyTopologyComposeMenu.kt",
             "hook/feature/CommentFilterFeatureInstaller.kt",
             "hook/feature/CommentPurifyFeatureInstaller.kt",
@@ -321,13 +346,29 @@ private class CommentComposeAndWireDexWiringContractCases {
         val hook = SourceContract.read("hook/HookEntry.kt")
         assertTrue(hook.contains("composeMenuPoints = hostAdaptResult?.commentComposeMenu"))
         assertTrue(hook.contains("kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine"))
-        assertTrue(hook.contains("retryComposeInstallIfNeeded(hookEnvironment)"))
+        assertTrue(hook.contains("featureInstallCoordinator.installAll(listOf(commentTopologyInstaller))"))
+        assertTrue(
+            SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
+                .after("override fun retryAdapted(").before("override fun install(")
+                .contains("retryComposeInstallIfNeeded(environment)")
+        )
         assertTrue(hook.contains("kmpGrpcWireEnabled ="))
     }
 
     fun `comment kmp installers prefer raw wire byte channel over kotlinx roundtrip`() {
+        val topology = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
+        assertTrue(topology.contains("seedBridge.installComposeSeeds("))
+        val seedBridge = SourceContract.read("hook/feature/comment/ReplyTopologySeedBridge.kt")
+        assertTrue(seedBridge.contains("MossRpcChannel.resolveWireSurface("))
+        assertTrue(seedBridge.contains("MossRpcChannel.mountKmpWireOrKotlin("))
+        val mossRpc = SourceContract.read("hook/feature/MossRpcChannel.kt")
+        assertTrue(mossRpc.contains("KmpGrpcWireAdapter.resolve("))
+        assertTrue(mossRpc.contains("KmpGrpcWireChannel.install("))
+        assertTrue(
+            "MossRpcChannel should check wire before KotlinMossChannel fallback",
+            mossRpc.indexOf("KmpGrpcWireChannel.install(") < mossRpc.indexOf("KotlinMossChannel.install(")
+        )
         for (file in listOf(
-            "hook/feature/CommentTopologyFeatureInstaller.kt",
             "hook/feature/CommentFilterFeatureInstaller.kt",
             "hook/feature/CommentPurifyFeatureInstaller.kt"
         )) {
@@ -355,18 +396,22 @@ private class CommentComposeAndWireDexWiringContractCases {
 
 private class BrandKntrAndCloudKeyDexWiringContractCases {
     fun `kntr brand draw and cloud key freeze contract use shared background dex session only`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
         assertFalse(quick.contains("BrandSplashKntrAdapter.locate("))
         assertFalse(quick.contains("CloudKeyFreezeAdapter.locate("))
         assertFalse(quick.contains("DexAssistSession("))
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
-        assertTrue(merge.contains("BrandSplashKntrAdapter.DIAGNOSTIC"))
-        assertTrue(merge.contains("CloudKeyFreezeAdapter.DIAGNOSTIC"))
-        assertTrue(merge.contains("DEX_ASSIST_BLOCK_UPDATE_ID"))
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("retainedQuickLocateIds")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
+        assertTrue(registry.contains("BrandSplashKntrAdapter.DIAGNOSTIC"))
+        assertTrue(registry.contains("CloudKeyFreezeAdapter.DIAGNOSTIC"))
+        assertTrue(merge.contains("AdaptAssistGate.ID_PREFIX"))
+        assertTrue(adapter.contains("DEX_ASSIST_BLOCK_UPDATE_ID = AdaptAssistGate.BLOCK_UPDATE_ID"))
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("BrandSplashKntrAdapter.needsQuery("))
         assertTrue(background.contains("CloudKeyFreezeAdapter.needsQuery("))
         assertTrue(background.contains("if (brandKntrPlanned) add(BrandSplashKntrAdapter.query)"))
@@ -407,16 +452,20 @@ private class BrandKntrAndCloudKeyDexWiringContractCases {
 
 private class Wave2PrivacyAndKmpWireWiringContractCases {
     fun `privacy ignet and kneuron adapters run only through shared background dex session`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
         assertFalse(quick.contains("PrivacyChannelAdapter.locate"))
         assertFalse(quick.contains("DexAssistSession("))
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
-        assertTrue(merge.contains("PrivacyChannelAdapter.DIAGNOSTIC_IGNET"))
-        assertTrue(merge.contains("PrivacyChannelAdapter.DIAGNOSTIC_KNEURON"))
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("retainedQuickLocateIds")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
+        assertTrue(registry.contains("PrivacyChannelAdapter.DIAGNOSTIC_IGNET"))
+        assertTrue(registry.contains("PrivacyChannelAdapter.DIAGNOSTIC_KNEURON"))
+        assertTrue(merge.contains("id in retainedQuickLocateIds"))
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("PrivacyChannelAdapter.needsIgnetQuery("))
         assertTrue(background.contains("PrivacyChannelAdapter.needsKNeuronQuery("))
         assertTrue(background.contains("if (privacyIgnetPlanned) add(PrivacyChannelAdapter.queryIgnet)"))
@@ -490,14 +539,17 @@ private class Wave3DexWiringContractCases {
         assertFalse(quick.contains("CommentReplyButtonAdapter.locate("))
         assertFalse(quick.contains("DexAssistSession("))
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
-        assertTrue(merge.contains("NormalQualityLocator.DIAGNOSTIC"))
-        assertTrue(merge.contains("DetailSpecialTagAdapter.DIAGNOSTIC"))
-        assertTrue(merge.contains("CommentReplyButtonAdapter.DIAGNOSTIC"))
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("retainedQuickLocateIds")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
+        assertTrue(registry.contains("NormalQualityLocator.DIAGNOSTIC"))
+        assertTrue(registry.contains("DetailSpecialTagAdapter.DIAGNOSTIC"))
+        assertTrue(registry.contains("CommentReplyButtonAdapter.DIAGNOSTIC"))
         assertTrue(merge.contains("detailSpecialTagMapper"))
         assertTrue(merge.contains("commentReplyButtonOwners"))
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("NormalQualityLocator.needsQuery("))
         assertTrue(background.contains("DetailSpecialTagAdapter.needsQuery("))
         assertTrue(background.contains("CommentReplyButtonAdapter.needsQuery("))
@@ -538,16 +590,19 @@ private class Wave3DexWiringContractCases {
 
 private class HomeEarlyLoadDexWiringContractCases {
     fun `home recommend early load adapter runs only through shared background dex session and never inside quickLocate or installer`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private val EMPTY_PAUSE_POINTS")
         assertFalse(quick.contains("HomeRecommendEarlyLoadAdapter.locate("))
         assertFalse(quick.contains("DexAssistSession("))
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
-        assertTrue(merge.contains("HomeRecommendEarlyLoadAdapter.DIAGNOSTIC"))
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("retainedQuickLocateIds")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
+        assertTrue(registry.contains("HomeRecommendEarlyLoadAdapter.DIAGNOSTIC"))
         assertTrue(merge.contains("homeRecommendEarlyLoadListener"))
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         assertTrue(background.contains("HomeRecommendEarlyLoadAdapter.needsQuery("))
         assertTrue(background.contains("HomeRecommendEarlyLoadAdapter.query"))
 
@@ -575,7 +630,7 @@ private class HomeEarlyLoadDexWiringContractCases {
 
 private class Phase3Batch2DexWiringContractCases {
     fun `batch 2 tier-a adapters run only in shared background session and never inside quickLocate or installers`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private val EMPTY_PAUSE_POINTS")
         for (forbidden in listOf(
             "CommentQuickReplyAdapter.",
@@ -588,14 +643,21 @@ private class Phase3Batch2DexWiringContractCases {
             assertFalse("quickLocate must not call $forbidden", quick.contains(forbidden))
         }
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("retainedQuickLocateIds")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
         for (token in listOf(
             "BrandSplashKntrAdapter.DIAGNOSTIC_EXIT",
             "BrandSplashKntrAdapter.DIAGNOSTIC_PAGE",
             "CommentQuickReplyAdapter.DIAGNOSTIC",
             "PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN",
             "PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API",
-            "HomeTabResourceAdapter.DIAGNOSTIC",
+            "HomeTabResourceAdapter.DIAGNOSTIC"
+        )) {
+            assertTrue("DexFeatureAdapter must register $token", registry.contains(token))
+        }
+        for (token in listOf(
             "mergeCommentPurify(",
             "brandSplashKntrExit",
             "brandSplashKntrPage",
@@ -604,7 +666,7 @@ private class Phase3Batch2DexWiringContractCases {
             assertTrue("mergeRuntimeWithCached must preserve $token", merge.contains(token))
         }
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         for (token in listOf(
             "BrandSplashKntrAdapter.needsExitQuery(",
             "BrandSplashKntrAdapter.needsPageQuery(",
@@ -638,7 +700,7 @@ private class Phase3Batch2DexWiringContractCases {
 
         val hook = SourceContract.read("hook/HookEntry.kt")
         for (token in listOf(
-            "pausedPointsRef",
+            "pausedPointsSlot",
             "kntrExitClass = hostAdaptResult?.brandSplashKntrExit",
             "kntrPageMethod = hostAdaptResult?.brandSplashKntrPage",
             "commentQuickReplyEnabled =",
@@ -658,7 +720,7 @@ private class Phase3Batch2DexWiringContractCases {
 
 private class Phase3Batch3DexWiringContractCases {
     fun `batch 3 tier-b adapters run only in shared background session and never inside quickLocate or installers`() {
-        val adapter = SourceContract.read("hook/VersionAdapter.kt")
+        val adapter = VersionAdapterSource.versionAdapter()
         val quick = adapter.after("fun quickLocate(").before("private fun adapt(")
         for (forbidden in listOf(
             "AiPlaylistDirectorAdapter.locate",
@@ -671,13 +733,20 @@ private class Phase3Batch3DexWiringContractCases {
             assertFalse("quickLocate must not contain $forbidden", quick.contains(forbidden))
         }
 
-        val merge = adapter.after("internal fun mergeRuntimeWithCached(").before("internal fun ensureAdapted(")
+        val merge = VersionAdapterSource.function("mergeRuntimeWithCached") {
+            it.contains("retainedQuickLocateIds")
+        }
+        val registry = VersionAdapterSource.file("DexFeatureAdapter")
         for (token in listOf(
             "AiPlaylistDirectorAdapter.DIAGNOSTIC",
             "FollowUpRecommendAdapter.DIAGNOSTIC",
             "DetailRelateGameAdapter.DIAGNOSTIC",
             "LegacyStoryDanmakuAdapter.DIAGNOSTIC",
-            "PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC",
+            "PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC"
+        )) {
+            assertTrue("DexFeatureAdapter must register $token", registry.contains(token))
+        }
+        for (token in listOf(
             "aiPlaylistDirector",
             "followUpRecommendBodies",
             "detailRelateGameComponent",
@@ -687,7 +756,11 @@ private class Phase3Batch3DexWiringContractCases {
             assertTrue("mergeRuntimeWithCached must preserve $token", merge.contains(token))
         }
 
-        val refresh = adapter.after("fun requiresFeatureRefresh(value: AdaptResult): Boolean").before("val refreshRequested =")
+        val ensureAdapted = VersionAdapterSource.function("ensureAdapted") { it.contains("startupCache: StartupCacheSnapshot") }
+        assertTrue(
+            VersionAdapterSource.functions(ensureAdapted, "requiresFeatureRefresh").single()
+                .contains("DexFeatureRegistry.requiresFeatureRefresh(")
+        )
         for (token in listOf(
             "AiPlaylistDirectorAdapter.needsQuery(",
             "FollowUpRecommendAdapter.needsQuery(",
@@ -695,11 +768,12 @@ private class Phase3Batch3DexWiringContractCases {
             "LegacyStoryDanmakuAdapter.needsQuery(",
             "PlayerSpeedLocator.theseus2LongPressNeedsQuery("
         )) {
-            assertTrue("requiresFeatureRefresh must check $token", refresh.contains(token))
+            assertTrue("DexFeatureAdapter must check $token", registry.contains(token))
         }
-        assertFalse(refresh.contains("AdaptAssistGate.isConclusiveMissing("))
+        assertFalse(registry.contains("AdaptAssistGate.isConclusiveMissing("))
+        assertFalse(registry.contains("AdaptAssistGate::isConclusiveMissing"))
 
-        val background = adapter.after("private fun adapt(").before("private data class ProtocolFingerprint")
+        val background = VersionAdapterSource.function("adapt") { it.contains("previousPopup:") }
         for (token in listOf(
             "AiPlaylistDirectorAdapter.needsQuery(",
             "FollowUpRecommendAdapter.needsQuery(",
@@ -730,15 +804,15 @@ private class Phase3Batch3DexWiringContractCases {
 
         val hook = SourceContract.read("hook/HookEntry.kt")
         for (token in listOf(
-            "aiPlaylistDirectorRef",
-            "followUpRecommendBodiesRef",
-            "detailRelateGameComponentRef",
-            "legacyStoryDanmakuBindRef",
-            "playerSpeedTheseus2LongPressRef",
-            "aiDeclaredVideoInstaller.requiresAdaptationRetry",
-            "followUpRecommendInstaller.requiresAdaptationRetry",
-            "detailAppPromotionInstaller.requiresAdaptationRetry",
-            "storyActionIconsInstaller.requiresAdaptationRetry",
+            "aiPlaylistDirectorSlot",
+            "followUpRecommendBodiesSlot",
+            "detailRelateGameComponentSlot",
+            "legacyStoryDanmakuBindSlot",
+            "playerSpeedTheseus2LongPressSlot",
+            "aiDeclaredVideoInstaller.asAdaptRetryable(",
+            "followUpRecommendInstaller.asAdaptRetryable(",
+            "detailAppPromotionInstaller.asAdaptRetryable(",
+            "storyActionIconsInstaller.asAdaptRetryable(",
             "aiDeclaredVideoEnabled =",
             "followUpRecommendEnabled =",
             "detailRelateGameEnabled =",

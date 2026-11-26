@@ -36,11 +36,18 @@ class FrostedMotionSurfaceIntegrationTest {
         }
 
         val diagnostics = source("activity/DiagnosticsActivity")
-        val preview = diagnostics.after("private fun showExportPreview(").before("private fun dismissExportPreviewDialog")
+        val preview = diagnostics.after("private fun showExportPreview(").before("private fun modalButton")
         assertTrue(preview.contains("background = skinModalBackground(monetColors.surface)"))
-        val install = preview.indexOf("val disposeElasticInteraction = installDialogElasticInteraction(dialog)")
-        assertTrue(install > preview.indexOf("dialog.setContentView(root)"))
-        assertTrue(preview.indexOf("dialog.setOnDismissListener") > install)
-        assertTrue(preview.contains("disposeElasticInteraction()"))
+        assertFalse("must not install elastic interaction before setContentView", preview.contains("installDialogElasticInteraction("))
+        assertTrue(preview.contains("ModalPresenter.presentCenteredDialog("))
+        val modalPresenter = source("activity/ModalPresenter")
+        val configure = modalPresenter.after("internal fun configureFullscreenWindow(").before("internal fun observeSafeMargins(")
+        assertTrue(configure.contains("dialog.setContentView(contentRoot)"))
+        val centered = modalPresenter.after("internal fun presentCenteredDialog(").before("internal fun surfaceBounds(")
+        val setContent = centered.indexOf("configureFullscreenWindow(dialog, activity.window, root)")
+        val install = centered.indexOf("val disposeElasticInteraction = activity.installDialogElasticInteraction(dialog)")
+        assertTrue(setContent >= 0 && install > setContent)
+        assertTrue(centered.indexOf("dialog.setOnDismissListener") > install)
+        assertTrue(centered.contains("disposeElasticInteraction()"))
     }
 }

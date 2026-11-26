@@ -106,7 +106,9 @@ class ModalBackdropBlurSpecTest {
         )
         // 开关行在外观卡片里，已外移到 SettingsCardSections.kt；扫整个设置页。
         val main = SettingsUiSource.settingsPage()
-        assertTrue(main.contains("userEnabled = ModalBackdropBlurStore.read(this)"))
+        val presenter = source("ModalPresenter")
+        assertTrue(presenter.contains("userEnabled = ModalBackdropBlurStore.read(this)"))
+        assertTrue(presenter.contains("userEnabled = ModalBackdropBlurStore.read(activity)"))
         // 开关落在配色规范那条的下面，并且登记进备份目录。先后只在同一个文件里比才有意义，
         // 设置页是多文件拼接，跨文件比较的是拼接顺序。
         val layout = SettingsUiSource.settingsPageFiles().map { it.second }.singleOrNull {
@@ -160,21 +162,23 @@ class ModalBackdropBlurSpecTest {
             .engine("core/host/LumenActivityDelegate.kt")
         assertTrue(delegate.contains("session?.effectiveSkin == SkinId.LIQUID"))
         val main = source("MainActivity")
-        assertTrue(main.contains("materialYouSkin = isMaterialYouSkinEffective"))
+        val presenter = source("ModalPresenter")
+        assertTrue(main.contains("val isModalMaterialYouSkinEffective: Boolean get() = isMaterialYouSkinEffective"))
+        assertTrue(presenter.contains("materialYouSkin = isModalMaterialYouSkinEffective"))
         // 两条形变时钟都要驱动，无锚点弹窗借自己的入场进度。
         // 钉的是"两条时钟都推了模糊"，不是那行 lambda 写成一行还是多行——
         // 覆盖式子面板要在同一个 onFrame 里顺带淡出父面板，那行已经不是单行了。
         assertEquals(
             2,
             Regex("onFrame = \\{ progress ->[\\s\\S]{0,160}?backdropBlur\\?\\.apply\\(progress\\)")
-                .findAll(main).count()
+                .findAll(presenter).count()
         )
         // 同一个监听器里还要顺带推 scrim 淡入，断言块内语义而不是单行写法。
         assertTrue(
             Regex("setUpdateListener \\{[\\s\\S]{0,160}?backdropBlur\\?\\.apply\\(container\\.alpha\\)")
-                .containsMatchIn(main)
+                .containsMatchIn(presenter)
         )
-        assertTrue(main.contains("backdropBlur?.clear()"))
+        assertTrue(presenter.contains("backdropBlur?.clear()"))
     }
 
     private fun source(name: String): String {

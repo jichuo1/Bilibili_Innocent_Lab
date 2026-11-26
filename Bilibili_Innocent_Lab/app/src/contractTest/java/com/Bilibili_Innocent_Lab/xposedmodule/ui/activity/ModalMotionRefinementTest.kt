@@ -146,7 +146,13 @@ class ModalMotionRefinementTest {
      */
     fun coveringASubPanelKeepsTheParentScrimAlive() {
         val present = SettingsUiSource.function("presentSizedModalDialog")
-        assertTrue("必须从 dialogScrims 认出父面板的压暗层", present.contains("dialogScrims[parent]"))
+        assertTrue("必须从 ModalPresenter.scrimFor 认出父面板的压暗层",
+            present.contains("ModalPresenter.scrimFor(parent)"))
+        assertTrue(
+            SettingsUiSource.file("ModalPresenter")
+                .after("internal fun scrimFor(").before("internal fun setSurfaceInsets(")
+                .contains("dialogScrims[dialog]")
+        )
         assertTrue("淡出目标必须是非 scrim 的那个卡片层",
             present.contains("firstOrNull { it !== parentScrim }"))
         val coveredIndex = present.indexOf("val coveredContent")
@@ -281,25 +287,28 @@ class ModalMotionRefinementTest {
      * 把内容区下推；窗口不带 DRAWS_SYSTEM_BAR_BACKGROUNDS 时系统在状态栏上画不透明黑底。
      */
     fun modalScrimCoversTheSystemBars() {
-        val main = source("MainActivity")
-        val present = main.after("internal fun presentSizedModalDialog(")
+        val presenter = source("ModalPresenter")
+        val present = SettingsUiSource.function("presentSizedModalDialog")
         // 压暗层挂在最外层窗口层上，卡片层 root 按系统栏内缩，几何仍以 root 为原点。
         val frame = present.after("val windowFrame = NativeFrameLayout(this).apply {")
-            .before("val frameScope = dialogWindowSession(dialog)?.scope(windowFrame)")
+            .before("val closeInsets = ModalPresenter.observeSafeMargins(")
         assertTrue(frame.indexOf("scrim?.let {") in 0 until frame.indexOf("addView(root,"))
         val rootInit = present.after("val root = ModalCardRoot(this).apply {")
             .before("val windowFrame = NativeFrameLayout(this).apply {")
         assertFalse("压暗层不能再挂在内缩后的 root 里", rootInit.contains("scrim?.let"))
-        val insets = present.after("frameInsetsSlot?.observe { snapshot ->")
-            .before("// 子面板贴到父面板矩形上。")
-        assertTrue(insets.contains("WindowInsetsCompat.Type.systemBars() or"))
-        assertTrue(insets.contains("params.setMargins(safe.left, safe.top, safe.right, safe.bottom)"))
-        assertTrue(present.contains("dialog.setContentView(windowFrame)"))
-        assertTrue(present.contains("WindowCompat.setDecorFitsSystemWindows(this, false)"))
-        assertTrue(present.contains("fitInsetsTypes = 0"))
-        assertTrue(present.contains("addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)"))
-        assertTrue(present.contains("statusBarColor = Color.TRANSPARENT"))
-        assertTrue(present.contains("fitAncestor.fitsSystemWindows = false"))
+        val margins = presenter.after("internal fun observeSafeMargins(")
+            .before("internal fun animateCenteredEnter(")
+        assertTrue(margins.contains("WindowInsetsCompat.Type.systemBars() or"))
+        assertTrue(margins.contains("params.setMargins(left, top, right, bottom)"))
+        val fullscreen = presenter.after("internal fun configureFullscreenWindow(")
+            .before("internal fun observeSafeMargins(")
+        assertTrue(fullscreen.contains("dialog.setContentView(contentRoot)"))
+        assertTrue(fullscreen.contains("WindowCompat.setDecorFitsSystemWindows(this, false)"))
+        assertTrue(fullscreen.contains("fitInsetsTypes = 0"))
+        assertTrue(fullscreen.contains("WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS"))
+        assertTrue(fullscreen.contains("statusBarColor = Color.TRANSPARENT"))
+        assertTrue(fullscreen.contains("fitAncestor.fitsSystemWindows = false"))
+        assertTrue(present.contains("ModalPresenter.configureFullscreenWindow(dialog, this.window, windowFrame)"))
         // 覆盖式子面板淡的是父面板压暗层之外的那一层（现在就是 root），不能淡整窗。
         assertTrue(present.contains("firstOrNull { it !== parentScrim }"))
     }
@@ -351,12 +360,23 @@ class ModalMotionRefinementTest {
      */
     fun lightThemeMorphsNeverFlashDark() {
         val main = source("MainActivity")
-        val scrim = main.after("private fun modalScrimColor(): Int =").before("/** 正文起始位移上限")
+        val presenter = source("ModalPresenter")
+        val scrim = presenter.after("internal fun scrimColor(").before("internal fun createScrimView(")
         assertTrue(scrim.contains("SettingsModalScrim.color(monetColors.surface, monetColors.background)"))
-        assertTrue(source("DiagnosticsActivity").contains("SettingsModalScrim.color(monetColors.surface, monetColors.background)"))
-        assertTrue(SettingsUiSource.function("presentSizedModalDialog").contains("setBackgroundColor(modalScrimColor())"))
+        assertTrue(
+            presenter.after("internal fun createScrimView(").before("internal fun configureFullscreenWindow(")
+                .contains("setBackgroundColor(scrimColor(monetColors))")
+        )
+        assertTrue(source("DiagnosticsActivity").contains("ModalPresenter.presentCenteredDialog("))
+        assertTrue(
+            presenter.after("internal fun presentCenteredDialog(").before("internal fun surfaceBounds(")
+                .contains("createScrimView(activity, activity.monetColors)")
+        )
+        assertTrue(SettingsUiSource.function("presentSizedModalDialog").contains("ModalPresenter.createScrimView(this, monetColors)"))
         val container = SettingsUiSource.function("createModalContainer")
-        assertTrue(container.contains("elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density"))
+        assertTrue(container.contains("elevation = if (isModalLiquidSkinEffective || isModalMaterialYouSkinEffective) 0f else 12 * density"))
+        assertTrue(main.contains("val isModalLiquidSkinEffective: Boolean get() = isLiquidSkinEffective"))
+        assertTrue(main.contains("val isModalMaterialYouSkinEffective: Boolean get() = isMaterialYouSkinEffective"))
         assertTrue(source("DiagnosticsActivity").contains("elevation = if (isLiquidSkinEffective || isMaterialYouSkinEffective) 0f else 12 * density"))
         // 飞行图标：交接段保持 1（与真实图标总量守恒），离开原位后才压低。
         assertEquals(1f, BubbleLayerMotionSpec.lightThemeTravelFactor(0.03f), 0f)

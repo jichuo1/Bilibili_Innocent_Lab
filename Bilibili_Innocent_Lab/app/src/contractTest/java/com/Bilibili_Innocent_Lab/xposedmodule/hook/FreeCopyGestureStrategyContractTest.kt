@@ -19,36 +19,39 @@ import org.junit.Test
  * 锚点缺失一律失败（SourceContract.after/before），不允许单参数 substring 回退。
  */
 class FreeCopyGestureStrategyContractTest {
-    private fun source() = SourceContract.read("hook/HookEntry.kt")
+    private val gestureFiles = HookEntrySource.freeCopyScopeFiles()
+    private fun source() = HookEntrySource.freeCopyAll()
     private fun detector() = SourceContract.read("hook/feature/FreeCopyGestureDetector.kt")
     private fun policy() = SourceContract.read("hook/feature/FreeCopyPressPolicy.kt")
 
-    /** 去掉整行注释（// 与 KDoc 行）：契约只钉代码，不钉说明文字。 */
-    private fun codeOnly(text: String): String = text.lineSequence().filterNot {
-        val t = it.trimStart()
-        t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
-    }.joinToString("\n")
+    private fun codeOnly(text: String): String = HookEntrySource.code(text)
 
-    private fun dispatchWindow() = source().after("// 简介触摸长按检测：").before("// 拦截官方「复制简介全文」实现")
+    private fun dispatchWindow() = HookEntrySource.function("handleDispatchTouchEvent", gestureFiles)
 
     fun noSurfaceOrUpSpecificDelayRemainsAnywhereInTheCode() {
+        val codeAll = codeOnly(source())
         for (name in listOf("claimAtUp", "TITLE_THRESHOLD_EXTRA_MS", "UP_CLAIM_MARGIN_MS")) {
-            assertFalse("HookEntry 不得再出现 $name", codeOnly(source()).contains(name))
+            assertFalse("HookEntry/FreeCopy 分卷不得再出现 $name", codeAll.contains(name))
             assertFalse("检测器不得再出现 $name", codeOnly(detector()).contains(name))
             assertFalse("策略不得再出现 $name", codeOnly(policy()).contains(name))
         }
         // 判定线只有一个来源：系统长按超时经策略取值，所有 begin() 调用点共用。
-        val threshold = source().after("private fun freeCopyLongPressThreshold()").before("private fun freeCopyHoldSlop(")
+        val threshold = HookEntrySource.function("freeCopyLongPressThreshold", gestureFiles)
         assertTrue(threshold.contains("FreeCopyPressPolicy.thresholdMs("))
         assertTrue(threshold.contains("ViewConfiguration.getLongPressTimeout()"))
-        val begins = Regex("""freeCopyGesture\.begin\(""").findAll(codeOnly(source())).count()
+        val begins = Regex("""freeCopyGesture\.begin\(""").findAll(codeAll).count()
         assertEquals("评论与简介/标题两个 begin 调用点", 2, begins)
-        assertEquals(2, Regex("""freeCopyHoldSlop\(v\)""").findAll(codeOnly(source())).count())
-        assertEquals(2, Regex("""freeCopyLongPressThreshold\(\)""").findAll(codeOnly(source().after("private fun freeCopyDueDelayMs()"))).count())
+        assertEquals(2, Regex("""freeCopyHoldSlop\(v\)""").findAll(codeAll).count())
+        val gestureDispatchAndRetarget = dispatchWindow() + "\n" +
+            HookEntrySource.function("beginOrRetargetCommentTouch", gestureFiles)
+        assertEquals(
+            2,
+            Regex("""freeCopyLongPressThreshold\(\)""").findAll(codeOnly(gestureDispatchAndRetarget)).count()
+        )
     }
 
     fun dueDelayAndSlopComeFromThePolicyForEverySurface() {
-        val due = source().after("private fun freeCopyDueDelayMs()").before("private fun revokePrematurePopupIfShortTap(")
+        val due = HookEntrySource.function("freeCopyDueDelayMs", gestureFiles)
         assertTrue(due.contains("FreeCopyPressPolicy.dueDelayMs("))
         val scheduleCalls = Regex("""freeCopyDueDelayMs\(\)""").findAll(codeOnly(source())).count()
         assertEquals("定义 1 + 评论 1 + 简介/标题 1", 3, scheduleCalls)
@@ -66,11 +69,14 @@ class FreeCopyGestureStrategyContractTest {
         val commentTerminal = dispatch.indexOf("var handled = commentLongPressHandled")
         assertTrue(ancestor in 0 until commentTerminal)
         val ancestorBlock = dispatch.after("if ((descTouchedView != null || descLongPressHandled) &&")
-            .before("if (!runtimeCommentFreeCopyEnabled) return@before")
-        assertTrue(ancestorBlock.contains("if (finishDescLikeTouch(ev, null)) this.result = true"))
-        assertTrue(ancestorBlock.contains("return@before"))
+            .before("if (!FreeCopyRuntimeConfig.runtimeCommentFreeCopyEnabled) return false")
+        assertTrue(ancestorBlock.contains("return finishDescLikeTouch(ev, null)"))
+        val installer = HookEntrySource.function("installDescriptionFreeCopyHooks", gestureFiles)
+        assertTrue(
+            installer.contains("if (FreeCopyGestureState.handleDispatchTouchEvent(v, ev)) {\n                            this.result = true")
+        )
 
-        val finish = source().after("private fun finishDescLikeTouch(").before("private var suppressOfficialUntilMs = 0L")
+        val finish = HookEntrySource.function("finishDescLikeTouch", gestureFiles)
         // 交还宿主的条件都在这里：会话不匹配/目标不符 → 清理放行；UP 才可能消费。
         assertTrue(finish.contains("!freeCopyGesture.matches(ev.downTime) || (hitView != null && target !== hitView)"))
         assertTrue(finish.contains("return false"))
@@ -92,33 +98,36 @@ class FreeCopyGestureStrategyContractTest {
     }
 
     fun terminalCleanupNeverTouchesTheHostPressStateAndTitlesAreNeverCancelledThroughIt() {
-        val src = codeOnly(source())
-        // 整个文件里 cancelLongPress() 的调用点：评论树的宿主交互不在此列，这里只数自由复制会话相关函数。
-        val clear = codeOnly(source().after("private fun clearDescTouchSession(").before("* 让出给滑动时取消模块长按"))
+        val gestureState = codeOnly(HookEntrySource.file("hook/feature/freecopy/FreeCopyGestureState.kt"))
+        // 整个手势状态分卷里 cancelLongPress() 的调用点：只有简介让出给滑动这一处。
+        val clear = codeOnly(HookEntrySource.function("clearDescTouchSession", gestureFiles))
         assertFalse(clear.contains("cancelLongPress"))
-        val cancel = codeOnly(source().after("private fun cancelDescLongPressCandidate()").before("private fun observeFreeCopyTouch("))
-        assertTrue(cancel.contains("if (!isTitleView(view)) runCatching { view.cancelLongPress() }"))
+        val cancel = codeOnly(HookEntrySource.function("cancelDescLongPressCandidate", gestureFiles))
+        assertTrue(cancel.contains("if (!FreeCopyTextExtractor.isTitleView(view)) runCatching { view.cancelLongPress() }"))
         assertEquals("自由复制会话只有这一处 cancelLongPress（简介让出给滑动）", 1,
-            Regex("""\.cancelLongPress\(\)""").findAll(src).count())
+            Regex("""\.cancelLongPress\(\)""").findAll(gestureState).count())
         // 弹泡自身清理会话时（resetHandled=false）同样不碰按压状态。
-        val popup = source().after("private fun showFreeCopyPopup(anchor: View, rawContent: FreeCopyContent)")
-            .before("/** 评论日期文本特征")
+        val popup = HookEntrySource.function("showFreeCopyPopup", gestureFiles) {
+            it.contains("rawContent: FreeCopyContent")
+        }
         assertFalse(codeOnly(popup).contains("cancelLongPress"))
     }
 
     fun titleKeepsTheHostTouchSemanticsBecauseTheModuleOnlyRecognisesLongPressItself() {
         // 标题登记不挂监听、不改可点击性：宿主容器点击展开（9.19：setEnableTouchToggle(false) + 容器 setOnClickListener）
         // 与标题自身点击监听（旧版本）都保持原样。
-        val register = codeOnly(source().after("private fun onTitleCandidateTextSet(").before("private fun applyTitleFreeCopyListener("))
+        val register = codeOnly(HookEntrySource.function("onTitleCandidateTextSet", gestureFiles))
         assertTrue(register.contains("titleViews[v] = true"))
         for (forbidden in listOf("setLongClickListenerNoHook", "setOnLongClickListener", "isLongClickable", "isClickable", "v.post")) {
             assertFalse("标题登记不得出现 $forbidden", register.contains(forbidden))
         }
         // 夺回只发生在宿主自己给标题设了长按监听之后（官方 setOnLongClickListener 钩子）。
-        val steal = source().after("\"setOnLongClickListener\",").before("// 简介触摸长按检测：")
-        assertTrue(steal.contains("if (runtimeTitleFreeCopyEnabled && isTitleView(v))"))
+        val steal = HookEntrySource.function("installDescriptionFreeCopyHooks", gestureFiles)
+            .after("\"free-copy:shared:set-on-long-click\"").before("\"free-copy:shared:dispatch-touch\"")
+        assertTrue(steal.contains("FreeCopyRuntimeConfig.runtimeTitleFreeCopyEnabled &&") &&
+            steal.contains("FreeCopyTextExtractor.isTitleView(v)"))
         // 长按本身由 dispatchTouchEvent 钩子 + 到期 Runnable 识别，目标是标题时照常工作。
-        val runnable = source().after("private val freeCopyLongPressRunnable: Runnable =").before("private fun freeCopyPoster(")
+        val runnable = HookEntrySource.property("freeCopyLongPressRunnable", gestureFiles)
         assertTrue(runnable.contains("sharedFreeCopyListener.onLongClick(descTarget)"))
     }
 
@@ -127,6 +136,8 @@ class FreeCopyGestureStrategyContractTest {
         assertTrue("缺失锚点必须失败，不能回退成整份文件", missing.isFailure)
         val missingBefore = runCatching { source().before("this anchor does not exist anywhere in HookEntry") }
         assertTrue(missingBefore.isFailure)
+        val missingFn = runCatching { HookEntrySource.function("thisFunctionDoesNotExistAnywhereInFreeCopy", gestureFiles) }
+        assertTrue("HookEntrySource.function 缺失同样必须失败", missingFn.isFailure)
     }
 
     @org.junit.Test

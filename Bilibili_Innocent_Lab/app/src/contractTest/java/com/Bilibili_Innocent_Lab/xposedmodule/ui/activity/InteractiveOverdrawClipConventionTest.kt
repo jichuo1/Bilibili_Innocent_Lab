@@ -26,7 +26,7 @@ class InteractiveOverdrawClipConventionTest {
 
     private companion object {
         /** 已知会溢出自身边界的交互控件：实例化签名字符串。 */
-        val OVERDRAW_CONTROLS = listOf("logSegmentScrubBar(", "LumenNavigationBar(")
+        val OVERDRAW_CONTROLS = listOf("logSegmentScrubBar(", "segmentScrubRow(", "LumenNavigationBar(")
     }
 
     /** MainActivity 与全部外移分卷的 builder 函数（类成员 4 缩进 + 顶层扩展 0 缩进，去重）。 */
@@ -46,6 +46,10 @@ class InteractiveOverdrawClipConventionTest {
         assertTrue("没扫到任何宿主函数，护栏会静默通过：$names", names.size >= 2)
         assertTrue("logSettingsCard（LogSegmentScrubBar 的宿主）应在扫描范围内", "logSettingsCard" in names)
         assertTrue("install（LumenNavigationBar 的宿主）应在扫描范围内", "install" in names)
+        val scrubWrapper = SourceContract.read("ui/meguviz/SettingsScope.kt")
+            .after("fun LinearSettingsScope.segmentScrubRow(")
+            .before("fun LinearSettingsScope.sliderRow(")
+        assertTrue("segmentScrubRow 必须封装 logSegmentScrubBar", scrubWrapper.contains("logSegmentScrubBar("))
     }
 
     fun overdrawingControlsLiveInContainersWithBothClipFlagsOff() {

@@ -47,10 +47,15 @@ class ElasticExpandableRowGateTest {
 
     /** 排除机制本身要保住：只剩角标不独占手势与 scrub 条自管触摸两处。 */
     fun gestureOwnersStayExcluded() {
-        assertEquals(2, main().split("EXCLUDED_TAG").size - 1)
+        val scope = SourceContract.read("ui/meguviz/SettingsScope.kt")
+        assertEquals(1, main().split("EXCLUDED_TAG").size - 1)
+        assertEquals(1, scope.split("EXCLUDED_TAG").size - 1)
         val badge = main().after("githubUpdateBadge = this")
             .before("visibility = View.INVISIBLE")
         assertTrue(badge.contains("ElasticInteractionController.EXCLUDED_TAG"))
+        val scrub = scope.after("fun LinearSettingsScope.segmentScrubRow(")
+            .before("fun LinearSettingsScope.sliderRow(")
+        assertTrue(scrub.contains("ElasticInteractionController.EXCLUDED_TAG"))
     }
 
     /**

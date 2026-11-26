@@ -22,7 +22,7 @@ class BubbleMotionIntegrationTest {
             assertTrue(source.after("fun $name() {").trimStart()
                 .startsWith("if (state != MotionState.PREPARING_ENTRY) return"))
         }
-        assertTrue(source("MainActivity").contains("if (!dialog.isShowing || bubbleController.isClosing) return true"))
+        assertTrue(source("ModalPresenter").contains("if (!dialog.isShowing || bubbleController.isClosing) return true"))
     }
 
     fun `retarget duration is scaled exactly once and predictive start is captured`() {
@@ -35,7 +35,7 @@ class BubbleMotionIntegrationTest {
     }
 
     fun `dialog placement uses actual root coordinates and keeps first close callback`() {
-        val source = source("MainActivity")
+        val source = source("ModalPresenter")
         assertTrue(source.contains("bubbleSourceLocation[0] - bubbleRootLocation[0]"))
         assertTrue(source.contains("bubbleSourceLocation[1] - bubbleRootLocation[1]"))
         assertTrue(source.contains("bubbleLayer?.setAnchor(localAnchor)"))
