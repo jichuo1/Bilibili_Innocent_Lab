@@ -28,7 +28,8 @@ internal class DetailUnitedModulePurifyFeatureInstaller(
      */
     private val hideVideoMentions: Boolean = false,
     /** 「UP 主分享好物」商品卡。同样沿用默认开的老开关，理由见 [hideVideoMentions]。 */
-    private val hideMerchandise: Boolean = false
+    private val hideMerchandise: Boolean = false,
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = DetailUnitedModulePurifyPolicy.ID
@@ -75,71 +76,110 @@ internal class DetailUnitedModulePurifyFeatureInstaller(
             )
         }
 
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val kotlinMossName = KotlinMossBridgeMembers.kotlinMossClassName(DetailUnitedModulePurifyPolicy.MOSS_CLASS)
+        val hasKotlinMoss = kotlinMossName != null && KavaMemberLookup.classOrNull(loader, kotlinMossName) != null
         val mossClass = KavaMemberLookup.classOrNull(loader, DetailUnitedModulePurifyPolicy.MOSS_CLASS)
-            ?: return missing(environment, "not-applicable-host")
         val requestClass = KavaMemberLookup.classOrNull(loader, DetailUnitedModulePurifyPolicy.REQUEST_CLASS)
-            ?: return missing(environment, "not-applicable-host")
+        val replyClass = KavaMemberLookup.classOrNull(loader, DetailUnitedModulePurifyPolicy.REPLY_CLASS)
+        if (((mossClass == null || requestClass == null) && wireSurface == null && !hasKotlinMoss) || replyClass == null) {
+            return missing(environment, "not-applicable-host")
+        }
         val handlerClass = KavaMemberLookup.classOrNull(loader, HANDLER_CLASS)
 
         var routes = 0
-        runCatching {
-            environment.registrar.exact(
-                "detail_united_module.sync.${DetailUnitedModulePurifyPolicy.SYNC_METHOD}",
-                mossClass,
-                DetailUnitedModulePurifyPolicy.SYNC_METHOD,
-                requestClass
-            ) {
-                after {
-                    if (hasThrowable) return@after
-                    val original = result ?: return@after
-                    environment.reportRuntimeEvidence(
-                        DetailUnitedModulePurifyPolicy.ID, FeatureRuntimeStage.OBSERVED
-                    )
-                    val updated = cleaner.clean(original, environment)
-                    if (updated !== original) result = updated
-                }
-            }
-            routes++
-        }.onFailure {
-            environment.logError(
-                "detail_united_module_sync",
-                "[BIL] United 详情页模块同步响应 Hook 注册失败: $it"
-            )
-        }
-
-        if (handlerClass != null) {
+        if (mossClass != null && requestClass != null) {
             runCatching {
                 environment.registrar.exact(
-                    "detail_united_module.async.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
+                    "detail_united_module.sync.${DetailUnitedModulePurifyPolicy.SYNC_METHOD}",
                     mossClass,
-                    DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
-                    requestClass,
-                    handlerClass
+                    DetailUnitedModulePurifyPolicy.SYNC_METHOD,
+                    requestClass
                 ) {
-                    before {
-                        val original = argOrNull(1) ?: return@before
-                        val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, original) { reply ->
-                            environment.reportRuntimeEvidence(
-                                DetailUnitedModulePurifyPolicy.ID, FeatureRuntimeStage.OBSERVED
-                            )
-                            cleaner.clean(reply, environment)
-                        } ?: return@before
-                        args[1] = proxy
+                    after {
+                        if (hasThrowable) return@after
+                        val original = result ?: return@after
+                        environment.reportRuntimeEvidence(
+                            DetailUnitedModulePurifyPolicy.ID, FeatureRuntimeStage.OBSERVED
+                        )
+                        val updated = cleaner.clean(original, environment)
+                        if (updated !== original) result = updated
                     }
                 }
                 routes++
             }.onFailure {
                 environment.logError(
-                    "detail_united_module_async",
-                    "[BIL] United 详情页模块异步响应 Hook 注册失败: $it"
+                    "detail_united_module_sync",
+                    "[BIL] United 详情页模块同步响应 Hook 注册失败: $it"
                 )
             }
-        } else {
-            environment.logError(
-                "detail_united_module_handler_absent",
-                "[BIL] 未找到 MossResponseHandler，United 详情页模块净化只覆盖同步路径"
-            )
+
+            if (handlerClass != null) {
+                runCatching {
+                    environment.registrar.exact(
+                        "detail_united_module.async.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
+                        mossClass,
+                        DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                        requestClass,
+                        handlerClass
+                    ) {
+                        before {
+                            val original = argOrNull(1) ?: return@before
+                            val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, original) { reply ->
+                                environment.reportRuntimeEvidence(
+                                    DetailUnitedModulePurifyPolicy.ID, FeatureRuntimeStage.OBSERVED
+                                )
+                                cleaner.clean(reply, environment)
+                            } ?: return@before
+                            args[1] = proxy
+                        }
+                    }
+                    routes++
+                }.onFailure {
+                    environment.logError(
+                        "detail_united_module_async",
+                        "[BIL] United 详情页模块异步响应 Hook 注册失败: $it"
+                    )
+                }
+            } else {
+                environment.logError(
+                    "detail_united_module_handler_absent",
+                    "[BIL] 未找到 MossResponseHandler，United 详情页模块净化只覆盖同步路径"
+                )
+            }
         }
+
+        val transformKmp: (Any) -> Any = { reply ->
+            environment.reportRuntimeEvidence(DetailUnitedModulePurifyPolicy.ID, FeatureRuntimeStage.OBSERVED)
+            cleaner.clean(reply, environment)
+        }
+        val kmpWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
+            environment = environment,
+            surface = wireSurface,
+            javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+            rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+            javaReplyClass = replyClass,
+            what = "United 详情页模块净化",
+            logKey = "detail_united_module_kmoss",
+            transformJava = transformKmp
+        )
+        val kmpInstalled = kmpWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
+            environment, loader, "United 详情页模块净化", "detail_united_module_kmoss"
+        )?.let { bridge ->
+            KotlinMossChannel.install(
+                environment = environment,
+                loader = loader,
+                members = bridge,
+                javaMossClassName = DetailUnitedModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailUnitedModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                hookId = "${DetailUnitedModulePurifyPolicy.ID}.kmoss.${DetailUnitedModulePurifyPolicy.ASYNC_METHOD}",
+                what = "United 详情页模块净化",
+                logKey = "detail_united_module_kmoss",
+                transformJava = transformKmp
+            )
+        } == true)
+        if (routes == 0 && kmpInstalled) routes = 1
 
         if (routes == 0) return missing(environment, "no-safe-united-path")
 

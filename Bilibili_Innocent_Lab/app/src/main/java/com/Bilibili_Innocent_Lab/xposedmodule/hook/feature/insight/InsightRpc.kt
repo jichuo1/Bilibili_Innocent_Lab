@@ -1,6 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpGrpcWireChannel
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossChannel
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossBridgeMembers
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MossResponseHandlerProxy
@@ -9,23 +12,56 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 
 /** 每个响应闭包绑定其请求，不能用“最近一次 CID”关联并发 RPC。网络和模型从不在 Hook 内执行。 */
 internal object InsightRpc {
-    fun install(env: HookEnvironment, mossName: String, rpc: String, requestClass: Class<*>, replyClass: Class<*>,
-        transformRequest: ((Any) -> Any)? = null, transform: (Any, Any) -> Any): Int =
-        register(env, mossName, rpc, requestClass, replyClass, "insight.rpc", "AI Insight", true, transformRequest) { req, reply ->
+    fun install(
+        env: HookEnvironment,
+        mossName: String,
+        rpc: String,
+        requestClass: Class<*>,
+        replyClass: Class<*>,
+        transformRequest: ((Any) -> Any)? = null,
+        kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+        transform: (Any, Any) -> Any
+    ): Int =
+        register(
+            env, mossName, rpc, requestClass, replyClass,
+            "insight.rpc", "AI Insight", true, transformRequest, kmpGrpcWireEngine
+        ) { req, reply ->
             transform(requireNotNull(req), reply)
         }
 
     /** 只观察响应，不对 Kotlin 请求做字节往返。 */
-    fun observe(env: HookEnvironment, mossName: String, rpc: String, requestClass: Class<*>, replyClass: Class<*>,
-        hookIdPrefix: String, what: String, onReply: (Any) -> Unit): Int =
-        register(env, mossName, rpc, requestClass, replyClass, hookIdPrefix, what, false, null) { _, reply ->
+    fun observe(
+        env: HookEnvironment,
+        mossName: String,
+        rpc: String,
+        requestClass: Class<*>,
+        replyClass: Class<*>,
+        hookIdPrefix: String,
+        what: String,
+        kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+        onReply: (Any) -> Unit
+    ): Int =
+        register(
+            env, mossName, rpc, requestClass, replyClass,
+            hookIdPrefix, what, false, null, kmpGrpcWireEngine
+        ) { _, reply ->
             if (replyClass.isInstance(reply)) onReply(reply)
             reply
         }
 
-    private fun register(env: HookEnvironment, mossName: String, rpc: String, requestClass: Class<*>, replyClass: Class<*>,
-        hookIdPrefix: String, what: String, needsRequest: Boolean, transformRequest: ((Any) -> Any)?,
-        transform: (Any?, Any) -> Any): Int {
+    private fun register(
+        env: HookEnvironment,
+        mossName: String,
+        rpc: String,
+        requestClass: Class<*>,
+        replyClass: Class<*>,
+        hookIdPrefix: String,
+        what: String,
+        needsRequest: Boolean,
+        transformRequest: ((Any) -> Any)?,
+        kmpGrpcWireEngine: VersionAdapter.HookPoint?,
+        transform: (Any?, Any) -> Any
+    ): Int {
         val loader = env.classLoader ?: return 0
         var count = 0
         val handler = Lookup.classOrNull(loader, "com.bilibili.lib.moss.api.MossResponseHandler")
@@ -54,6 +90,25 @@ internal object InsightRpc {
             }
         }
         // 通用 KotlinMossChannel 的变换器只接收响应；这里需要请求 CID，复用它的 codec/代理边界并按单次调用捕获。
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        if (wireSurface != null && KmpGrpcWireChannel.install(
+                environment = env,
+                surface = wireSurface,
+                javaMossClassName = mossName,
+                rpc = rpc,
+                javaReplyClass = replyClass,
+                what = what,
+                logKey = hookIdPrefix,
+                javaRequestClass = if (needsRequest || transformRequest != null) requestClass else null,
+                transformRequest = transformRequest,
+                transformWithRequest = if (needsRequest) { req, reply ->
+                    if (req != null) transform(req, reply) else reply
+                } else null,
+                transformJava = { reply -> if (needsRequest) reply else transform(null, reply) }
+            )
+        ) {
+            return count + 1
+        }
         val kotlinName = KotlinMossBridgeMembers.kotlinMossClassName(mossName) ?: return count
         val kotlin = Lookup.classOrNull(loader, kotlinName) ?: return count
         val entry = KotlinMossBridgeMembers.callbackEntry(kotlin, rpc)

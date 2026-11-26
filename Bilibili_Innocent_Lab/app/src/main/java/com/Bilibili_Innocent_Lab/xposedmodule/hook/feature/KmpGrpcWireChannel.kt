@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossBridgeMembers.JavaReplyCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossResponseHandlerProxy.ConfirmedReply
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
@@ -26,6 +27,7 @@ internal object KmpGrpcWireChannel {
     private const val HOOK_ID = "kmp.grpc.wire.channel"
     private const val MAX_CACHED_DESCRIPTORS = 4096
     private val DESCRIPTOR = Regex("""packageName=([^,]+), serviceName=([^,]+), methodName=([^,]+),""")
+    private val OBJECT_TO_STRING = Regex("""^[A-Za-z0-9_.$]+@[0-9a-fA-F]+$""")
     private val EMPTY_ARGS = emptyArray<Any?>()
 
     private val dispatchersLock = Any()
@@ -41,6 +43,7 @@ internal object KmpGrpcWireChannel {
         val requestCodec: JavaReplyCodec?,
         val transformRequest: ((Any) -> Any)?,
         val confirmedTransform: ((Any) -> ConfirmedReply)?,
+        val transformWithRequest: ((Any?, Any) -> Any)?,
         val transformJava: (Any) -> Any,
         val onCall: () -> Unit,
         val onRequestFailed: (Throwable) -> Unit,
@@ -59,15 +62,21 @@ internal object KmpGrpcWireChannel {
             for (index in steps.indices) {
                 steps[index].onCall()
             }
+            val needsRequestParse = steps.any {
+                it.requestCodec != null && (it.transformRequest != null || it.transformWithRequest != null)
+            }
+            val capturedRequests = if (steps.any { it.transformWithRequest != null }) arrayOfNulls<Any?>(steps.size) else null
             val rawRequest = args.getOrNull(surface.requestBytesIndex) as? ByteArray
-            if (rawRequest != null && steps.any { it.requestCodec != null && it.transformRequest != null }) {
+            if (rawRequest != null && needsRequestParse) {
                 var currentBytes: ByteArray = rawRequest
                 var parsedRequest: Any? = null
                 var parsedRequestClass: Class<*>? = null
                 for (index in steps.indices) {
                     val step = steps[index]
                     val codec = step.requestCodec ?: continue
-                    val transform = step.transformRequest ?: continue
+                    val transform = step.transformRequest
+                    val capturesRequest = step.transformWithRequest != null
+                    if (transform == null && !capturesRequest) continue
                     try {
                         val source = if (parsedRequest != null && parsedRequestClass === step.javaRequestClass) {
                             parsedRequest
@@ -77,11 +86,17 @@ internal object KmpGrpcWireChannel {
                                 parsedRequestClass = step.javaRequestClass
                             }
                         }
-                        val updated = transform(source)
-                        if (updated !== source) {
-                            currentBytes = codec.serialize(updated)
-                            parsedRequest = updated
-                            parsedRequestClass = step.javaRequestClass
+                        val effective = if (transform != null) {
+                            val updated = transform(source)
+                            if (updated !== source) {
+                                currentBytes = codec.serialize(updated)
+                                parsedRequest = updated
+                                parsedRequestClass = step.javaRequestClass
+                            }
+                            updated
+                        } else source
+                        if (capturedRequests != null && capturesRequest) {
+                            capturedRequests[index] = effective
                         }
                     } catch (failure: Throwable) {
                         runCatching { step.onRequestFailed(failure) }
@@ -99,7 +114,7 @@ internal object KmpGrpcWireChannel {
                 args[surface.handlerIndex] = Proxy.newProxyInstance(
                     loader,
                     arrayOf(handlerType),
-                    WireHandler(delegate, snapshot)
+                    WireHandler(delegate, snapshot, capturedRequests)
                 )
             }
         }
@@ -107,7 +122,8 @@ internal object KmpGrpcWireChannel {
 
     private class WireHandler(
         private val delegate: Any,
-        private val steps: Array<Registration>
+        private val steps: Array<Registration>,
+        private val capturedRequests: Array<Any?>?
     ) : InvocationHandler {
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
             if (method.declaringClass == Any::class.java) {
@@ -125,7 +141,8 @@ internal object KmpGrpcWireChannel {
                     var currentBytes: ByteArray = originalBytes
                     var mirror: Any? = null
                     var mirrorClass: Class<*>? = null
-                    for (step in steps) {
+                    for (index in steps.indices) {
+                        val step = steps[index]
                         try {
                             val source = if (mirror != null && mirrorClass === step.javaReplyClass) {
                                 mirror
@@ -136,7 +153,9 @@ internal object KmpGrpcWireChannel {
                                 }
                             }
                             val confirmed = step.confirmedTransform?.invoke(source)
-                            val updated = confirmed?.message ?: step.transformJava(source)
+                            val updated = confirmed?.message
+                                ?: step.transformWithRequest?.invoke(capturedRequests?.getOrNull(index), source)
+                                ?: step.transformJava(source)
                             if (updated !== source) {
                                 val rewritten = step.replyCodec.serialize(updated)
                                 val readback = if (confirmed != null) {
@@ -187,11 +206,32 @@ internal object KmpGrpcWireChannel {
 
     internal fun parseDescriptorName(descriptor: Any): String? = synchronized(descriptorNames) {
         if (descriptorNames.containsKey(descriptor)) return descriptorNames[descriptor]
-        val match = DESCRIPTOR.find(descriptor.toString())
+        val raw = descriptor.toString()
+        val match = DESCRIPTOR.find(raw)
         val name = match?.let { "${it.groupValues[1]}.${it.groupValues[2]}/${it.groupValues[3]}" }
+            ?: if (OBJECT_TO_STRING.matches(raw)) descriptorFromMembers(descriptor) else null
         if (descriptorNames.size >= MAX_CACHED_DESCRIPTORS) descriptorNames.clear()
         descriptorNames[descriptor] = name
         name
+    }
+
+    private fun descriptorFromMembers(descriptor: Any): String? {
+        fun read(memberNames: List<String>): String? {
+            val type = descriptor.javaClass
+            for (name in memberNames) {
+                Lookup.fieldOrNull(type, name, includeSuperclasses = true)?.takeIf { it.type == String::class.java }?.let { field ->
+                    return (runCatching { field.get(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
+                }
+                Lookup.inheritedMethodOrNull(type, name)?.takeIf { it.parameterCount == 0 && it.returnType == String::class.java }?.let { method ->
+                    return (runCatching { method.invoke(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
+                }
+            }
+            return null
+        }
+        val pkg = read(listOf("packageName", "getPackageName")) ?: return null
+        val svc = read(listOf("serviceName", "getServiceName")) ?: return null
+        val mtd = read(listOf("methodName", "getMethodName")) ?: return null
+        return "$pkg.$svc/$mtd"
     }
 
     fun install(
@@ -205,6 +245,7 @@ internal object KmpGrpcWireChannel {
         javaRequestClass: Class<*>? = null,
         transformRequest: ((Any) -> Any)? = null,
         confirmedTransform: ((Any) -> ConfirmedReply)? = null,
+        transformWithRequest: ((Any?, Any) -> Any)? = null,
         transformJava: (Any) -> Any
     ): Boolean {
         fun skip(reason: String): Boolean {
@@ -213,7 +254,7 @@ internal object KmpGrpcWireChannel {
         }
         val rpcFullName = fullMethodName(javaMossClassName, rpc) ?: return skip("no-full-method-name")
         val replyCodec = JavaReplyCodec.resolve(javaReplyClass) ?: return skip("no-java-codec")
-        val requestCodec = javaRequestClass?.takeIf { transformRequest != null }
+        val requestCodec = javaRequestClass?.takeIf { transformRequest != null || transformWithRequest != null }
             ?.let { JavaReplyCodec.resolve(it) ?: return skip("no-java-request-codec") }
         val dispatcher = obtainDispatcher(environment, surface, rpc, what, logKey) ?: return false
         val called = AtomicBoolean(false)
@@ -228,6 +269,7 @@ internal object KmpGrpcWireChannel {
             requestCodec = requestCodec,
             transformRequest = transformRequest,
             confirmedTransform = confirmedTransform,
+            transformWithRequest = transformWithRequest,
             transformJava = transformJava,
             onCall = {
                 if (called.compareAndSet(false, true)) {

@@ -90,8 +90,11 @@ internal class FishAccountMetadata(
         }
     }
 
-    fun install(environment: HookEnvironment) {
-        runCatching { activity.install(environment) { uid, points -> remember(uid, activity = points) } }
+    fun install(
+        environment: HookEnvironment,
+        kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
+    ) {
+        runCatching { activity.install(environment, kmpGrpcWireEngine) { uid, points -> remember(uid, activity = points) } }
         val loader = environment.classLoader ?: return
         val access = SpaceResponses.resolve(loader) ?: return
         val pending = ArrayDeque<Pair<WeakReference<Any>, Route>>(MAX_PENDING_BODIES)

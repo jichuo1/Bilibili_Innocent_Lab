@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
@@ -59,7 +60,7 @@ internal object KotlinMossResponseHandlerProxy {
                             }
                         } catch (failure: Throwable) {
                             // 此阶段失败仍将此前成功的响应交给下一阶段，不影响其他防线或宿主回调。
-                            runCatching { step.failed(failure) }
+                            HostThreadGuard.run("kotlin_moss.handler.failed") { step.failed(failure) }
                         }
                     }
                     if (current !== original) arguments = arrayOf(current) else receipts = null
@@ -70,7 +71,7 @@ internal object KotlinMossResponseHandlerProxy {
             } catch (invocation: InvocationTargetException) {
                 throw invocation.targetException ?: invocation
             }
-            receipts?.forEach { receipt -> runCatching(receipt) }
+            receipts?.forEach { receipt -> HostThreadGuard.run("kotlin_moss.handler.receipt") { receipt() } }
             return returned
         }
     }

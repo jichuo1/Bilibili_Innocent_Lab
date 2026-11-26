@@ -54,7 +54,8 @@ internal class DanmakuPurifyFeatureInstaller(
     private val semanticLogDir: java.io.File? = null,
     /** 主线程上只查缓存、绝不联网；单测可替换。 */
     private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
-    private val liveRules: (() -> LiveDanmakuRules)? = null
+    private val liveRules: (() -> LiveDanmakuRules)? = null,
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -91,8 +92,13 @@ internal class DanmakuPurifyFeatureInstaller(
 
         // wire 自检在 resolveMembers 内做，需要把环境日志接进去；先于 resolveMembers 设置。
         wireLog = environment.logError
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val kotlinMossName = KotlinMossBridgeMembers.kotlinMossClassName(DM_MOSS_CLASS)
+        val hasKotlinMoss = kotlinMossName != null && KavaMemberLookup.classOrNull(loader, kotlinMossName) != null
         val mossClass = environment.hookPoints.resolveClass("danmaku.purify.moss", DM_MOSS_CLASS)
-            ?: return missing(environment, "missing-moss-class")
+        if (mossClass == null && wireSurface == null && !hasKotlinMoss) {
+            return missing(environment, "missing-moss-class")
+        }
         val replyClass = environment.hookPoints.resolveClass(
             "danmaku.purify.reply",
             DM_SEG_REPLY_CLASS
@@ -116,71 +122,81 @@ internal class DanmakuPurifyFeatureInstaller(
         var installed = 0
         var expected = 0
 
-        // 同步链路：仅在副本构建成功后替换返回值。
-        SYNC_METHOD_NAMES.forEach { name ->
-            val method = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
-                !it.isStatic && it.name == name && it.parameterCount == 1 &&
-                    it.returnType == replyClass
-            }.singleOrNull() ?: return@forEach
-            expected += 1
-            runCatching {
-                environment.registrar.exact(
-                    "danmaku.purify.sync.$name",
-                    method.declaringClass,
-                    method.name,
-                    *method.parameterTypes
-                ) {
-                    after {
-                        if (hasThrowable) return@after
-                        val reply = result ?: return@after
-                        result = purify(environment, reply, members, defaultReply)
-                    }
-                }
-                installed += 1
-            }.onFailure { throwable ->
-                environment.logError(
-                    "danmaku_purify_sync_$name",
-                    "[BIL] 弹幕净化同步边界注册失败(${mossClass.name}#$name): $throwable"
-                )
-            }
-        }
-
-        // 异步链路：宿主回调是匿名类，只能整体换成透明代理。
-        if (handlerClass != null) {
-            ASYNC_METHOD_NAMES.forEach { name ->
+        if (mossClass != null) {
+            // 同步链路：仅在副本构建成功后替换返回值。
+            SYNC_METHOD_NAMES.forEach { name ->
                 val method = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
-                    !it.isStatic && it.name == name && it.parameterCount == 2 &&
-                        it.parameterTypes[1] == handlerClass &&
-                        it.returnType == Void.TYPE
+                    !it.isStatic && it.name == name && it.parameterCount == 1 &&
+                        it.returnType == replyClass
                 }.singleOrNull() ?: return@forEach
                 expected += 1
                 runCatching {
                     environment.registrar.exact(
-                        "danmaku.purify.async.$name",
+                        "danmaku.purify.sync.$name",
                         method.declaringClass,
                         method.name,
                         *method.parameterTypes
                     ) {
-                        before {
-                            val delegate = args.getOrNull(1) ?: return@before
-                            val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) {
-                                purify(environment, it, members, defaultReply)
-                            } ?: return@before
-                            args[1] = proxy
+                        after {
+                            if (hasThrowable) return@after
+                            val reply = result ?: return@after
+                            result = purify(environment, reply, members, defaultReply)
                         }
                     }
                     installed += 1
                 }.onFailure { throwable ->
                     environment.logError(
-                        "danmaku_purify_async_$name",
-                        "[BIL] 弹幕净化异步边界注册失败(${mossClass.name}#$name): $throwable"
+                        "danmaku_purify_sync_$name",
+                        "[BIL] 弹幕净化同步边界注册失败(${mossClass.name}#$name): $throwable"
                     )
+                }
+            }
+
+            // 异步链路：宿主回调是匿名类，只能整体换成透明代理。
+            if (handlerClass != null) {
+                ASYNC_METHOD_NAMES.forEach { name ->
+                    val method = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
+                        !it.isStatic && it.name == name && it.parameterCount == 2 &&
+                            it.parameterTypes[1] == handlerClass &&
+                            it.returnType == Void.TYPE
+                    }.singleOrNull() ?: return@forEach
+                    expected += 1
+                    runCatching {
+                        environment.registrar.exact(
+                            "danmaku.purify.async.$name",
+                            method.declaringClass,
+                            method.name,
+                            *method.parameterTypes
+                        ) {
+                            before {
+                                val delegate = args.getOrNull(1) ?: return@before
+                                val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) {
+                                    purify(environment, it, members, defaultReply)
+                                } ?: return@before
+                                args[1] = proxy
+                            }
+                        }
+                        installed += 1
+                    }.onFailure { throwable ->
+                        environment.logError(
+                            "danmaku_purify_async_$name",
+                            "[BIL] 弹幕净化异步边界注册失败(${mossClass.name}#$name): $throwable"
+                        )
+                    }
                 }
             }
         }
 
-        if (installed == 0) return missing(environment, "no-danmaku-hook-point")
-        val sharedExpected = SYNC_METHOD_NAMES.size + ASYNC_METHOD_NAMES.size
+        val kmpInstalled = installKmpDanmaku(
+            environment, loader, wireSurface, hasKotlinMoss, replyClass, members, defaultReply
+        )
+        if (installed == 0 && kmpInstalled == 0) return missing(environment, "no-danmaku-hook-point")
+        val sharedExpected = if (mossClass != null && installed > 0) {
+            SYNC_METHOD_NAMES.size + ASYNC_METHOD_NAMES.size
+        } else {
+            installed = kmpInstalled
+            ASYNC_METHOD_NAMES.size
+        }
         if (minimumWeight != null) environment.reportCapabilityCoverage(
             "player_danmaku_weight_filter_enabled", usableWeight, installed, sharedExpected
         )
@@ -244,6 +260,60 @@ internal class DanmakuPurifyFeatureInstaller(
             )
         }
         return FeatureInstallResult.Installed(installed, complete = installed == expected)
+    }
+
+    private fun installKmpDanmaku(
+        environment: HookEnvironment,
+        loader: ClassLoader,
+        wireSurface: com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.WireSurface?,
+        hasKotlinMoss: Boolean,
+        replyClass: Class<*>,
+        members: ReplyMembers,
+        defaultReply: Any?
+    ): Int {
+        if (wireSurface == null && !hasKotlinMoss) return 0
+        var installed = 0
+        var bridge: KotlinMossBridgeMembers? = null
+        var bridgeChecked = false
+        val transformJava: (Any) -> Any = { reply -> purify(environment, reply, members, defaultReply) }
+        for (rpc in ASYNC_METHOD_NAMES) {
+            if (wireSurface != null && KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = DM_MOSS_CLASS,
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    what = "弹幕净化",
+                    logKey = "danmaku_purify_kmoss",
+                    transformJava = transformJava
+                )
+            ) {
+                installed++
+                continue
+            }
+            if (!hasKotlinMoss) continue
+            if (!bridgeChecked) {
+                bridgeChecked = true
+                bridge = KotlinMossChannel.prepare(environment, loader, "弹幕净化", "danmaku_purify_kmoss")
+            }
+            val readyBridge = bridge ?: continue
+            if (KotlinMossChannel.install(
+                    environment = environment,
+                    loader = loader,
+                    members = readyBridge,
+                    javaMossClassName = DM_MOSS_CLASS,
+                    rpc = rpc,
+                    javaReplyClass = replyClass,
+                    hookId = "danmaku.purify.kmoss.$rpc",
+                    what = "弹幕净化",
+                    logKey = "danmaku_purify_kmoss",
+                    transformJava = transformJava
+                )
+            ) {
+                installed++
+            }
+        }
+        return installed
     }
 
     /** 一次响应只做一次净化；两条链路共用，重复调用对同一 reply 是幂等的。 */

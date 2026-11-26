@@ -16,7 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class BlockComponentLibraryFeatureInstaller(
     private val enabled: Boolean,
-    private val targetKeywords: Set<String> = ComponentLibraryPoolMatcher.DEFAULT_KEYWORDS
+    private val targetKeywords: Set<String> = ComponentLibraryPoolMatcher.DEFAULT_KEYWORDS,
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
     override val id: String = ID
     override val capabilityIds: List<String> = listOf(CAPABILITY)
@@ -24,6 +25,10 @@ internal class BlockComponentLibraryFeatureInstaller(
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) return skipped(environment, "disabled")
         val loader = environment.classLoader ?: return skipped(environment, "missing-class-loader")
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val hasKotlinMoss = MOSS_CLASSES.filter { it.contains(".K") }.any {
+            KavaMemberLookup.classOrNull(loader, it) != null
+        }
         val resolved = MOSS_CLASSES.asSequence().flatMap { mossName ->
             REQUEST_CLASSES.asSequence().mapNotNull { requestName ->
                 val moss = KavaMemberLookup.classOrNull(loader, mossName) ?: return@mapNotNull null
@@ -36,11 +41,13 @@ internal class BlockComponentLibraryFeatureInstaller(
                 Triple(moss, request, sync)
             }
         }.firstOrNull()
-            ?: return skipped(environment, "not-applicable-host")
-        val moss = resolved.first
-        val request = resolved.second
-        val method = resolved.third
-        val strategy = ComponentLibraryReplyStrategy.resolve(method.returnType, targetKeywords)
+        val replyClass = resolved?.third?.returnType ?: if (wireSurface != null || hasKotlinMoss) {
+            REPLY_CLASSES.firstNotNullOfOrNull { KavaMemberLookup.classOrNull(loader, it) }
+        } else null
+        if ((resolved == null && wireSurface == null && !hasKotlinMoss) || replyClass == null) {
+            return skipped(environment, "not-applicable-host")
+        }
+        val strategy = ComponentLibraryReplyStrategy.resolve(replyClass, targetKeywords)
             ?: return skipped(environment, "missing-host-structure")
         val observationLogged = AtomicBoolean(false)
         val publisher = ScanSnapshotPublisher(
@@ -68,51 +75,94 @@ internal class BlockComponentLibraryFeatureInstaller(
         }
         var installed = 0
         var available = 0
-        runCatching {
-            environment.registrar.exact("$ID.sync", moss, method.name, request) {
-                after {
-                    if (hasThrowable) return@after
-                    val reply = result ?: return@after
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                    observe(reply)
-                    strategy.clearMatchedPools(reply)?.let { changed ->
-                        result = changed
-                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                    }
-                }
-            }
-            installed++
-        }.onFailure { environment.logError("$ID.sync", "[BIL] 组件库同步清单 Hook 注册失败") }
-        available++
-
-        val handlerClass = KavaMemberLookup.classOrNull(loader, MOSS_HANDLER)?.takeIf { it.isInterface }
-        if (handlerClass != null) {
-            val async = KavaMemberLookup.methods(moss, includeSuperclasses = true, makeAccessible = true) {
-                it.name in METHOD_NAMES && it.parameterTypes.contentEquals(arrayOf(request, handlerClass)) &&
-                    it.returnType == Void.TYPE && !Modifier.isStatic(it.modifiers)
-            }.singleOrNull()
-            if (async != null) {
-                available++
-                if (runCatching {
-                    environment.registrar.exact(ID, moss, async.name, request, handlerClass) {
-                        before {
-                            val delegate = argOrNull(1) ?: return@before
-                    val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) { reply ->
-                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                                observe(reply)
-                                strategy.clearMatchedPools(reply)?.also {
-                                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                                } ?: reply
-                            } ?: return@before
-                            args[1] = proxy
+        if (resolved != null) {
+            val moss = resolved.first
+            val request = resolved.second
+            val method = resolved.third
+            runCatching {
+                environment.registrar.exact("$ID.sync", moss, method.name, request) {
+                    after {
+                        if (hasThrowable) return@after
+                        val reply = result ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        observe(reply)
+                        strategy.clearMatchedPools(reply)?.let { changed ->
+                            result = changed
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                         }
                     }
-                }.isSuccess) {
-                    installed++
-                } else {
-                    environment.logError("$ID.async", "[BIL] 组件库异步清单 Hook 注册失败")
+                }
+                installed++
+            }.onFailure { environment.logError("$ID.sync", "[BIL] 组件库同步清单 Hook 注册失败") }
+            available++
+
+            val handlerClass = KavaMemberLookup.classOrNull(loader, MOSS_HANDLER)?.takeIf { it.isInterface }
+            if (handlerClass != null) {
+                val async = KavaMemberLookup.methods(moss, includeSuperclasses = true, makeAccessible = true) {
+                    it.name in METHOD_NAMES && it.parameterTypes.contentEquals(arrayOf(request, handlerClass)) &&
+                        it.returnType == Void.TYPE && !Modifier.isStatic(it.modifiers)
+                }.singleOrNull()
+                if (async != null) {
+                    available++
+                    if (runCatching {
+                        environment.registrar.exact(ID, moss, async.name, request, handlerClass) {
+                            before {
+                                val delegate = argOrNull(1) ?: return@before
+                                val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) { reply ->
+                                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                                    observe(reply)
+                                    strategy.clearMatchedPools(reply)?.also {
+                                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                                    } ?: reply
+                                } ?: return@before
+                                args[1] = proxy
+                            }
+                        }
+                    }.isSuccess) {
+                        installed++
+                    } else {
+                        environment.logError("$ID.async", "[BIL] 组件库异步清单 Hook 注册失败")
+                    }
                 }
             }
+        }
+        val kmpMossFamily = "com.bapis.bilibili.app.resource.v1.ModuleMoss"
+        val transformKmp: (Any) -> Any = { reply ->
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+            observe(reply)
+            strategy.clearMatchedPools(reply)?.also {
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+            } ?: reply
+        }
+        val kmpWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
+            environment = environment,
+            surface = wireSurface,
+            javaMossClassName = kmpMossFamily,
+            rpc = "list",
+            javaReplyClass = replyClass,
+            what = "组件库清单拦截",
+            logKey = "block_component_library_kmoss",
+            transformJava = transformKmp
+        )
+        val kmpInstalled = kmpWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
+            environment, loader, "组件库清单拦截", "block_component_library_kmoss"
+        )?.let { bridge ->
+            KotlinMossChannel.install(
+                environment = environment,
+                loader = loader,
+                members = bridge,
+                javaMossClassName = kmpMossFamily,
+                rpc = "list",
+                javaReplyClass = replyClass,
+                hookId = "$ID.kmoss.list",
+                what = "组件库清单拦截",
+                logKey = "block_component_library_kmoss",
+                transformJava = transformKmp
+            )
+        } == true)
+        if (installed == 0 && kmpInstalled) {
+            installed = 1
+            available = 1
         }
         if (installed == 0) return skipped(environment, "registration-failed")
         return runCatching {
@@ -151,15 +201,14 @@ internal class BlockComponentLibraryFeatureInstaller(
         private const val MOSS_HANDLER = "com.bilibili.lib.moss.api.MossResponseHandler"
         private val MOSS_CLASSES = listOf(
             "com.bapis.bilibili.app.resource.v1.ModuleMoss",
-            "com.bapis.bilibili.app.resource.v1.KModuleMoss",
-            "com.bapis.bilibili.p4218app.resource.p4240v1.ModuleMoss",
-            "com.bapis.bilibili.p4218app.resource.p4240v1.KModuleMoss"
+            "com.bapis.bilibili.app.resource.v1.KModuleMoss"
         )
         private val REQUEST_CLASSES = listOf(
             "com.bapis.bilibili.app.resource.v1.ListReq",
-            "com.bapis.bilibili.app.resource.v1.KListReq",
-            "com.bapis.bilibili.p4218app.resource.p4240v1.ListReq",
-            "com.bapis.bilibili.p4218app.resource.p4240v1.KListReq"
+            "com.bapis.bilibili.app.resource.v1.KListReq"
+        )
+        private val REPLY_CLASSES = listOf(
+            "com.bapis.bilibili.app.resource.v1.ListReply"
         )
         private val METHOD_NAMES = listOf("executeList", "list")
     }

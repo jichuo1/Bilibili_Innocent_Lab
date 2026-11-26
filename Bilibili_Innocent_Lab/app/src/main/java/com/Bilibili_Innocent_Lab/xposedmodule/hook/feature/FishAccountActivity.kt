@@ -66,14 +66,25 @@ internal class FishAccountActivity {
         return observePosts(uid, posts, nowMillis)
     }
 
-    fun install(environment: HookEnvironment, onScore: (uid: Long, points: Int) -> Unit) {
+    fun install(
+        environment: HookEnvironment,
+        kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null,
+        onScore: (uid: Long, points: Int) -> Unit
+    ) {
         val loader = environment.classLoader ?: return
         val routes = runCatching {
             val request = KavaMemberLookup.classOrNull(loader, BASE + "DynSpaceReq") ?: return@runCatching 0
             val reply = KavaMemberLookup.classOrNull(loader, BASE + "DynSpaceRsp") ?: return@runCatching 0
             val uid = hostGetter(request, "getHostUid", classOf<Long>()) ?: return@runCatching 0
             val reader = NativePosts.resolve(loader, reply) ?: return@runCatching 0
-            InsightRpc.install(environment, BASE + "DynamicMoss", "dynSpace", request, reply) { req, rsp ->
+            InsightRpc.install(
+                environment,
+                BASE + "DynamicMoss",
+                "dynSpace",
+                request,
+                reply,
+                kmpGrpcWireEngine = kmpGrpcWireEngine
+            ) { req, rsp ->
                 val owner = (hostRead(uid, req) as? Long)?.takeIf { it > 0L } ?: return@install rsp
                 val now = System.currentTimeMillis()
                 val posts = reader.read(rsp, owner, dateAt(now))

@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -56,7 +58,8 @@ internal class DynamicPurifyFeatureInstaller(
     /** debug 构建的观测日志目录（宿主私有 files）；release 为 null，不写任何文件。 */
     private val semanticLogDir: File? = null,
     /** 主线程上只查缓存、绝不联网；单测可替换。 */
-    private val isMainThread: () -> Boolean = { Looper.myLooper() == Looper.getMainLooper() }
+    private val isMainThread: () -> Boolean = { Looper.myLooper() == Looper.getMainLooper() },
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -99,8 +102,12 @@ internal class DynamicPurifyFeatureInstaller(
             return FeatureInstallResult.Skipped("non-main-process")
         }
         val loader = environment.classLoader ?: return missing(environment, "missing-class-loader")
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS)
         val mossClass = environment.hookPoints.resolveClass("dynamic.purify.moss", DYNAMIC_MOSS_CLASS)
-            ?: return missing(environment, "missing-moss-class")
+        if (mossClass == null && kotlinMoss == null && wireSurface == null) {
+            return missing(environment, "missing-moss-class")
+        }
 
         val itemMembers = if (hideFrequentVisits && keywords.isEmpty() && authorRules.isEmpty() &&
             !removePromotion && !removeLockedChargeOnly && semanticJudge == null) null else resolveItemMembers(loader)
@@ -121,7 +128,6 @@ internal class DynamicPurifyFeatureInstaller(
             semanticLogDir?.let { SemanticDebugLog.append(it, "${System.currentTimeMillis()} install $state") }
         }
 
-        val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS)
         val kotlinNames = kotlinMoss?.let { owner -> KavaMemberLookup.declaredMethods(owner).map { it.name }.toSet() }.orEmpty()
         val topicSpecs = if (hideTopicList) FEED_METHODS.filter { spec ->
             spec.replyClassName == TOPIC_REPLY_CLASS || KavaMemberLookup.classOrNull(loader, spec.replyClassName)?.let { reply ->
@@ -138,8 +144,11 @@ internal class DynamicPurifyFeatureInstaller(
             KavaMemberLookup.classOrNull(loader, spec.replyClassName) != null || spec.asyncName in kotlinNames
         }
         val specs = mainSpecs + if (rootApplicable) ROOT_FEED_METHODS else emptyList()
-        val kotlinExpected = specs.filter { it.asyncName in kotlinNames }.map { it.asyncName }.toSet()
-        val feeds = specs.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }.filter { feed ->
+        val kotlinExpected = if (wireSurface != null) specs.map { it.asyncName }.toSet()
+            else specs.filter { it.asyncName in kotlinNames }.map { it.asyncName }.toSet()
+        val feeds = specs.mapNotNull { spec ->
+            resolveFeedForChannel(loader, mossClass, spec, allowKotlinOnly = wireSurface != null || spec.asyncName in kotlinNames)
+        }.filter { feed ->
             (plan.hasAnyItemJudgement && feed.listBuilder != null) ||
                 (hideTopicList && feed.clearTopicList != null) || (removeLiveUpEntries && feed.upList != null) ||
                 (hideFrequentVisits && feed.wholeUpList != null)
@@ -166,7 +175,7 @@ internal class DynamicPurifyFeatureInstaller(
             }
             pathsByFeed[feed] = installed - before
         }
-        val covered = installKotlinMoss(environment, loader, feeds, itemMembers, plan, specs)
+        val covered = installKotlinMoss(environment, loader, wireSurface, feeds, itemMembers, plan, specs)
         feeds.forEach { feed ->
             val rpc = specs.first { it.replyClassName == feed.replyClass.name }.asyncName
             if (rpc in covered) {
@@ -175,13 +184,14 @@ internal class DynamicPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        val sharedExpected = specs.size * 2 + kotlinExpected.size
+        val javaRoutesPerSpec = if (mossClass != null) 2 else 0
+        val sharedExpected = specs.size * javaRoutesPerSpec + kotlinExpected.size
         val mainFeeds = feeds.filterNot { it.rootList }
-        val mainExpected = FEED_METHODS.size * 2 + FEED_METHODS.count { it.asyncName in kotlinExpected }
+        val mainExpected = FEED_METHODS.size * javaRoutesPerSpec + FEED_METHODS.count { it.asyncName in kotlinExpected }
         val topicReplyClasses = topicSpecs.mapTo(hashSetOf()) { it.replyClassName }
         val topicFeeds = mainFeeds.filter { it.replyClass.name in topicReplyClasses && it.clearTopicList != null }
         val topicDataComplete = topicFeeds.size == topicSpecs.size
-        val topicExpected = topicSpecs.size * 2 + topicSpecs.count { it.asyncName in kotlinExpected }
+        val topicExpected = topicSpecs.size * javaRoutesPerSpec + topicSpecs.count { it.asyncName in kotlinExpected }
         for (capability in capabilityIds) {
             val compatibleFeeds = if (capability == "dynamic_topic_list_hidden") topicFeeds else feeds.filter { feed -> when (capability) {
                 "dynamic_frequent_visits_hidden" -> feed.wholeUpList != null
@@ -341,20 +351,55 @@ internal class DynamicPurifyFeatureInstaller(
     private fun installKotlinMoss(
         environment: HookEnvironment,
         loader: ClassLoader,
+        wireSurface: KmpGrpcWireAdapter.WireSurface?,
         feeds: List<FeedMembers>,
         itemMembers: ItemMembers?,
         plan: DynamicPurifyPolicy.Plan,
         specs: List<FeedSpec>
     ): Set<String> {
-        val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS) ?: return emptySet()
+        val installed = mutableSetOf<String>()
+        if (wireSurface != null) {
+            specs.forEach { spec ->
+                val feed = feeds.firstOrNull { it.replyClass.name == spec.replyClassName } ?: run {
+                    environment.logInfo(
+                        "dynamic_kmoss_filter_skip_${spec.asyncName}",
+                        "[BIL] 动态页新通道过滤跳过 ${spec.asyncName}: no-java-feed"
+                    )
+                    return@forEach
+                }
+                val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+                val ok = KmpGrpcWireChannel.install(
+                    environment = environment,
+                    surface = wireSurface,
+                    javaMossClassName = DYNAMIC_MOSS_CLASS,
+                    rpc = spec.asyncName,
+                    javaReplyClass = feed.replyClass,
+                    what = "动态页",
+                    logKey = "dynamic_kmoss_filter",
+                    confirmedTransform = { javaReply ->
+                        if (reported.compareAndSet(false, true)) {
+                            environment.logInfo(
+                                "dynamic_kmoss_active",
+                                "[BIL] 动态页新通道 wire(${spec.asyncName}) 已收到响应并进入过滤" +
+                                    "（javaPathObserved=${javaPathObserved.get()}）"
+                            )
+                        }
+                        confirmedReply(environment, javaReply, feed, itemMembers, plan)
+                    }
+                ) { it }
+                if (ok) installed += spec.asyncName
+            }
+        }
+        val remainingSpecs = specs.filterNot { it.asyncName in installed }
+        if (remainingSpecs.isEmpty()) return installed
+        val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS) ?: return installed
         val members = KotlinMossBridgeMembers.resolve(loader)
         if (members == null) {
             environment.logInfo("dynamic_kmoss_filter_skip", "[BIL] 动态页新通道过滤未安装: kotlinx.serialization 成员缺失")
-            return emptySet()
+            return installed
         }
-        if (!KotlinMossBridgeSelfTest.allows(environment, loader, members, "动态页")) return emptySet()
-        val installed = mutableSetOf<String>()
-        specs.forEach { spec ->
+        if (!KotlinMossBridgeSelfTest.allows(environment, loader, members, "动态页")) return installed
+        remainingSpecs.forEach { spec ->
             // 装不上不能再静默：每个页签只在缺东西时记一条原因（有界：页签个数）。
             fun skip(reason: String) = environment.logInfo(
                 "dynamic_kmoss_filter_skip_${spec.asyncName}",
@@ -362,7 +407,12 @@ internal class DynamicPurifyFeatureInstaller(
             )
             val feed = feeds.firstOrNull { it.replyClass.name == spec.replyClassName } ?: return@forEach skip("no-java-feed")
             val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(feed.replyClass) ?: return@forEach skip("no-java-codec")
-            val entry = KotlinMossBridgeMembers.callbackEntry(kotlinMoss, spec.asyncName) ?: return@forEach skip("no-callback-entry")
+            val entry = KotlinMossBridgeMembers.callbackEntry(kotlinMoss, spec.asyncName)
+                ?: KotlinMossBridgeMembers.legacyCallbackEntry(kotlinMoss, spec.asyncName)
+                ?: return@forEach skip("no-callback-entry")
+            val hasProtoBufParam = entry.parameterCount >= 5
+            val fallbackProtoBuf = if (hasProtoBufParam) null else members.defaultProtoBuf()
+                ?: return@forEach skip("no-default-protobuf")
             val handlerClass = entry.parameterTypes[3]
             val reported = java.util.concurrent.atomic.AtomicBoolean(false)
             val called = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -381,9 +431,10 @@ internal class DynamicPurifyFeatureInstaller(
                             )
                         }
                         val delegate = args.getOrNull(3) ?: return@before
-                        val bridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(2), codec)
-                            ?: return@before
-                        val key = KotlinMossResponseHandlerProxy.Key(entry, feed.replyClass, args[4]!!, args[2]!!)
+                        val protoBuf = if (hasProtoBufParam) args.getOrNull(4) else fallbackProtoBuf
+                        val serializer = args.getOrNull(2) ?: return@before
+                        val bridge = members.bridgeFor(protoBuf, serializer, codec) ?: return@before
+                        val key = KotlinMossResponseHandlerProxy.Key(entry, feed.replyClass, protoBuf!!, serializer)
                         val proxy = KotlinMossResponseHandlerProxy.wrap(handlerClass, delegate, key, bridge,
                             failed = { throwable ->
                                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
@@ -715,6 +766,13 @@ internal class DynamicPurifyFeatureInstaller(
         loader: ClassLoader,
         mossClass: Class<*>,
         spec: FeedSpec
+    ): FeedMembers? = resolveFeedForChannel(loader, mossClass, spec, allowKotlinOnly = false)
+
+    private fun resolveFeedForChannel(
+        loader: ClassLoader,
+        mossClass: Class<*>?,
+        spec: FeedSpec,
+        allowKotlinOnly: Boolean = false
     ): FeedMembers? {
         val replyClass = KavaMemberLookup.classOrNull(loader, spec.replyClassName) ?: return null
         val builder = ProtobufBuilderPlan.resolve(replyClass) ?: return null
@@ -733,16 +791,20 @@ internal class DynamicPurifyFeatureInstaller(
         val itemCarrierReady = itemClass != null && indexedGetter?.returnType == itemClass &&
             (spec.rootList || setDynamicList != null) && listGetter != null && clearList != null && addAllList != null
 
-        val syncMethod = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
-            !it.isStatic && it.name == spec.syncName && it.parameterCount == 1 &&
-                it.returnType == replyClass
-        }.singleOrNull()
-        val asyncMethod = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
-            !it.isStatic && it.name == spec.asyncName && it.parameterCount == 2 &&
-                it.returnType == Void.TYPE &&
-                it.parameterTypes[1].name == MOSS_HANDLER_CLASS
-        }.singleOrNull()
-        if (syncMethod == null && asyncMethod == null) return null
+        val syncMethod = mossClass?.let { owner ->
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && it.name == spec.syncName && it.parameterCount == 1 &&
+                    it.returnType == replyClass
+            }.singleOrNull()
+        }
+        val asyncMethod = mossClass?.let { owner ->
+            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) {
+                !it.isStatic && it.name == spec.asyncName && it.parameterCount == 2 &&
+                    it.returnType == Void.TYPE &&
+                    it.parameterTypes[1].name == MOSS_HANDLER_CLASS
+            }.singleOrNull()
+        }
+        if (syncMethod == null && asyncMethod == null && !allowKotlinOnly) return null
 
         val hasTopic = if (spec.rootList) null else booleanNoArg(replyClass, "hasTopicList")
         val clearTopic = builder.method("clearTopicList")

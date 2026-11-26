@@ -30,14 +30,23 @@ internal class FishVideoMetadata {
         }
     }
 
-    fun install(environment: HookEnvironment) {
+    fun install(
+        environment: HookEnvironment,
+        kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
+    ) {
         val loader = environment.classLoader ?: return
-        val legacy = installRoute(environment, loader, LEGACY_VIEW, united = false)
-        val united = installRoute(environment, loader, UNITED_VIEW, united = true)
+        val legacy = installRoute(environment, loader, LEGACY_VIEW, united = false, kmpGrpcWireEngine = kmpGrpcWireEngine)
+        val united = installRoute(environment, loader, UNITED_VIEW, united = true, kmpGrpcWireEngine = kmpGrpcWireEngine)
         environment.logInfo(HOOK_ID, "[BIL] 评论视频复述来源: legacy=$legacy united=$united")
     }
 
-    private fun installRoute(environment: HookEnvironment, loader: ClassLoader, family: String, united: Boolean): Int =
+    private fun installRoute(
+        environment: HookEnvironment,
+        loader: ClassLoader,
+        family: String,
+        united: Boolean,
+        kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
+    ): Int =
         runCatching {
             val request = Lookup.classOrNull(loader, "$family.ViewReq") ?: return 0
             val response = Lookup.classOrNull(loader, "$family.ViewReply") ?: return 0
@@ -48,7 +57,7 @@ internal class FishVideoMetadata {
             val legacyDesc = if (united) null else hostGetter(arc.returnType, "getDesc", String::class.java)
             val unitedDesc = if (united) HostUnitedVideoDescription.resolve(loader, response) else null
             if (title == null && legacyDesc == null && unitedDesc == null) return 0
-            InsightRpc.observe(environment, "$family.ViewMoss", "view", request, response, HOOK_ID, "评论视频复述") { reply ->
+            InsightRpc.observe(environment, "$family.ViewMoss", "view", request, response, HOOK_ID, "评论视频复述", kmpGrpcWireEngine) { reply ->
                 if (hostRead(hasArc, reply) != true) return@observe
                 val value = hostRead(arc, reply) ?: return@observe
                 val videoId = hostRead(aid, value) as? Long ?: return@observe

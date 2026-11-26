@@ -59,7 +59,8 @@ internal class HomeTopBarFeatureInstaller(
     private val hideGameMenu: Boolean,
     private val hideSearchDefaultWord: Boolean,
     private val points: VersionAdapter.HomeTopBarPoints?,
-    private val frameResolver: (ClassLoader?) -> HomeFrameTabLocator.Resolution = HomeFrameTabLocator::resolve
+    private val frameResolver: (ClassLoader?) -> HomeFrameTabLocator.Resolution = HomeFrameTabLocator::resolve,
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -232,7 +233,8 @@ internal class HomeTopBarFeatureInstaller(
         // 新版搜索仓库走 KSearchMoss.defaultWords；响应类也会混淆，复用请求实际携带的序列化器。
         // 与原生两条入口并行；只有原开关开启且宿主含 K 通道时，才解析／自检／安装。
         val kotlinSearchProtocol = if (hideSearchDefaultWord && environment.classLoader?.let {
-                points?.kotlinDefaultWords != null || KotlinDefaultWordsLocator.applicable(it)
+                points?.kotlinDefaultWords != null || KotlinDefaultWordsLocator.applicable(it) ||
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(it, kmpGrpcWireEngine) != null
             } == true) installKotlinDefaultWords(environment) else null
         installedCount += (kotlinSearchProtocol as? FeatureInstallResult.Installed)?.hookCount ?: 0
         val kotlinSearchProtocolReady = kotlinSearchProtocol == null ||
@@ -321,6 +323,19 @@ internal class HomeTopBarFeatureInstaller(
             ?: return FeatureInstallResult.Skipped("missing-java-default-words")
         val cleaner = SearchDefaultWordsCleaner.resolve(reply)
             ?: return FeatureInstallResult.Skipped("missing-default-words-cleaner")
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        if (wireSurface != null && KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = wireSurface,
+                javaMossClassName = SEARCH_MOSS_CLASS,
+                rpc = "defaultWords",
+                javaReplyClass = reply,
+                what = "搜索默认词",
+                logKey = "search_default_words_kmoss"
+            ) { cleaner.clean(it, environment) }
+        ) {
+            return FeatureInstallResult.Installed(1, complete = cleaner.complete)
+        }
         val members = KotlinMossChannel.prepare(environment, loader, "搜索默认词", "search_default_words_kmoss")
             ?: return FeatureInstallResult.Skipped("kotlin-default-words-bridge-unavailable")
         val installed = KotlinMossChannel.install(environment, loader, members,

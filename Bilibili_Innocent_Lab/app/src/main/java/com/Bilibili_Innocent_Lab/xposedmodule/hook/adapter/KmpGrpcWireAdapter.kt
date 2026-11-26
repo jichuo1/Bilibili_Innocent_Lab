@@ -34,7 +34,8 @@ internal object KmpGrpcWireAdapter {
     )
 
     fun applicable(loader: ClassLoader): Boolean =
-        Lookup.hasClass(loader, ENGINE) || Lookup.hasClass(loader, INTERCEPTOR) || Lookup.hasClass(loader, REPLY_MOSS)
+        Lookup.hasClass(loader, ENGINE) || Lookup.hasClass(loader, INTERCEPTOR) ||
+            Lookup.hasClass(loader, REPLY_MOSS) || Lookup.hasClass(loader, "kntr.base.config.KConfig")
 
     fun inspectEntry(method: Method): WireSurface? {
         if (!method.isPublic || method.isStatic || method.isSynthetic || method.isBridge) return null

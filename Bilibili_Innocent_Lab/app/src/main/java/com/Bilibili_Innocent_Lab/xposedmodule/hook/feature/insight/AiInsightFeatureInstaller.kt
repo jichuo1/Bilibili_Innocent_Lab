@@ -30,6 +30,7 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
     private val source: AgentModelSource?, private val cacheRoot: File,
     private val outputBudget: Int = InsightConfig.DEFAULT_OUTPUT_BUDGET,
     private val timeoutMs: Int = InsightConfig.DEFAULT_TIMEOUT_MS,
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null,
     private val cachedClasses: () -> SponsorPlayerClasses? = { null }) : FeatureInstaller {
     /** 直接定位失败且尚无后台适配缓存时为 true；适配完成后由 HookEntry 重试，与 SponsorBlock 相同。 */
     @Volatile var requiresAdaptationRetry = false
@@ -99,7 +100,7 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
             val aid = request?.let { Lookup.methodOrNull(it, "getAid") }?.takeIf { it.returnType == Long::class.javaPrimitiveType }
             val cid = request?.let { Lookup.methodOrNull(it, "getCid") }?.takeIf { it.returnType == Long::class.javaPrimitiveType }
             if (request != null && aid != null && cid != null) chapterRoutes = InsightRpc.install(environment,
-                "$VIEW.ViewMoss", "viewProgress", request, nativeClass) { req, reply ->
+                "$VIEW.ViewMoss", "viewProgress", request, nativeClass, kmpGrpcWireEngine = kmpGrpcWireEngine) { req, reply ->
                 val avid = aid.invoke(req) as Long; val part = cid.invoke(req) as Long
                 val bvid = SponsorVideoId.bvidFromAvid(avid)
                 if (bvid == null || part <= 0) reply else {
@@ -170,7 +171,7 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
         val setWithout = plan?.method("setWithoutSubtitle", Boolean::class.javaPrimitiveType!!)
         return InsightRpc.install(environment, "$family.$moss", rpc, request, reply, transformRequest = { original ->
             if (setWithout == null) original else plan.edit(original) { setWithout.invoke(it, false) }
-        }) { req, response ->
+        }, kmpGrpcWireEngine = kmpGrpcWireEngine) { req, response ->
             val part = cid.invoke(req) as Long
             val subtitles = list.invoke(read.invoke(response)) as? List<*> ?: return@install response
             environment.logInfo("insight.subtitle.$rpc.${subtitles.isNotEmpty()}", "AI Insight subtitle rpc=$rpc sources=${subtitles.size} cid=$part")
@@ -190,7 +191,7 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
         val bvid = Lookup.methodOrNull(owner, "getBvid")?.takeIf { it.returnType == String::class.java } ?: return 0
         val title = Lookup.methodOrNull(owner, "getTitle")?.takeIf { it.returnType == String::class.java } ?: return 0
         val duration = Lookup.methodOrNull(owner, "getDuration")?.takeIf { it.returnType == Long::class.javaPrimitiveType } ?: return 0
-        return InsightRpc.install(environment, "$VIEW.ViewMoss", "view", request, reply) { _, response ->
+        return InsightRpc.install(environment, "$VIEW.ViewMoss", "view", request, reply, kmpGrpcWireEngine = kmpGrpcWireEngine) { _, response ->
             val value = arc.invoke(response) ?: return@install response
             val seconds = duration.invoke(value) as Long; val avid = aid.invoke(value) as Long; val part = cid.invoke(value) as Long
             val identifier = (bvid.invoke(value) as String).ifBlank { SponsorVideoId.bvidFromAvid(avid).orEmpty() }
@@ -214,7 +215,7 @@ internal class AiInsightFeatureInstaller(private val enabled: Boolean, private v
         val lists = listOfNotNull(Lookup.methodOrNull(response, "getTopRepliesList"), Lookup.methodOrNull(response, "getRepliesList"))
             .filter { List::class.java.isAssignableFrom(it.returnType) }
         if (lists.isEmpty()) return 0
-        return InsightRpc.install(environment, "$family.ReplyMoss", "mainList", request, response) { req, reply ->
+        return InsightRpc.install(environment, "$family.ReplyMoss", "mainList", request, response, kmpGrpcWireEngine = kmpGrpcWireEngine) { req, reply ->
             val avid = oid.invoke(req) as Long
             if (avid > 0 && (type.invoke(req) as Number).toLong() == 1L) {
                 val sampled = lists.flatMap { (it.invoke(reply) as? List<*>).orEmpty().take(40) }.filterNotNull()

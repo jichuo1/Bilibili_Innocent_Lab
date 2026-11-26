@@ -20,7 +20,8 @@ import java.lang.reflect.Method
  * - **子项独立降级**：某个字段在将来版本消失，只把该子项标记未覆盖，其余继续工作。
  */
 internal class DetailModulePurifyFeatureInstaller(
-    private val enabledKeys: Set<String>
+    private val enabledKeys: Set<String>,
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -59,61 +60,100 @@ internal class DetailModulePurifyFeatureInstaller(
             )
         }
 
+        val wireSurface = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
+        val kotlinMossName = KotlinMossBridgeMembers.kotlinMossClassName(DetailModulePurifyPolicy.MOSS_CLASS)
+        val hasKotlinMoss = kotlinMossName != null && KavaMemberLookup.classOrNull(loader, kotlinMossName) != null
         val mossClass = KavaMemberLookup.classOrNull(loader, DetailModulePurifyPolicy.MOSS_CLASS)
-            ?: return missing(environment, "not-applicable-host")
         val requestClass = KavaMemberLookup.classOrNull(loader, DetailModulePurifyPolicy.REQUEST_CLASS)
-            ?: return missing(environment, "not-applicable-host")
+        val replyClass = KavaMemberLookup.classOrNull(loader, DetailModulePurifyPolicy.REPLY_CLASS)
+        if (((mossClass == null || requestClass == null) && wireSurface == null && !hasKotlinMoss) || replyClass == null) {
+            return missing(environment, "not-applicable-host")
+        }
         val handlerClass = KavaMemberLookup.classOrNull(loader, HANDLER_CLASS)
 
         var routes = 0
-        runCatching {
-            environment.registrar.exact(
-                "detail_module.sync.${DetailModulePurifyPolicy.SYNC_METHOD}",
-                mossClass,
-                DetailModulePurifyPolicy.SYNC_METHOD,
-                requestClass
-            ) {
-                after {
-                    if (hasThrowable) return@after
-                    val original = result ?: return@after
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                    val updated = cleaner.clean(original, environment)
-                    if (updated !== original) result = updated
-                }
-            }
-            routes++
-        }.onFailure {
-            environment.logError("detail_module_sync", "[BIL] 详细页组件同步响应 Hook 注册失败: $it")
-        }
-
-        if (handlerClass != null) {
+        if (mossClass != null && requestClass != null) {
             runCatching {
                 environment.registrar.exact(
-                    "detail_module.async.${DetailModulePurifyPolicy.ASYNC_METHOD}",
+                    "detail_module.sync.${DetailModulePurifyPolicy.SYNC_METHOD}",
                     mossClass,
-                    DetailModulePurifyPolicy.ASYNC_METHOD,
-                    requestClass,
-                    handlerClass
+                    DetailModulePurifyPolicy.SYNC_METHOD,
+                    requestClass
                 ) {
-                    before {
-                        val original = argOrNull(1) ?: return@before
-                        val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, original) { reply ->
-                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                            cleaner.clean(reply, environment)
-                        } ?: return@before
-                        args[1] = proxy
+                    after {
+                        if (hasThrowable) return@after
+                        val original = result ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        val updated = cleaner.clean(original, environment)
+                        if (updated !== original) result = updated
                     }
                 }
                 routes++
             }.onFailure {
-                environment.logError("detail_module_async", "[BIL] 详细页组件异步响应 Hook 注册失败: $it")
+                environment.logError("detail_module_sync", "[BIL] 详细页组件同步响应 Hook 注册失败: $it")
             }
-        } else {
-            environment.logError(
-                "detail_module_handler_absent",
-                "[BIL] 未找到 MossResponseHandler，详细页组件净化只覆盖同步路径"
-            )
+
+            if (handlerClass != null) {
+                runCatching {
+                    environment.registrar.exact(
+                        "detail_module.async.${DetailModulePurifyPolicy.ASYNC_METHOD}",
+                        mossClass,
+                        DetailModulePurifyPolicy.ASYNC_METHOD,
+                        requestClass,
+                        handlerClass
+                    ) {
+                        before {
+                            val original = argOrNull(1) ?: return@before
+                            val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, original) { reply ->
+                                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                                cleaner.clean(reply, environment)
+                            } ?: return@before
+                            args[1] = proxy
+                        }
+                    }
+                    routes++
+                }.onFailure {
+                    environment.logError("detail_module_async", "[BIL] 详细页组件异步响应 Hook 注册失败: $it")
+                }
+            } else {
+                environment.logError(
+                    "detail_module_handler_absent",
+                    "[BIL] 未找到 MossResponseHandler，详细页组件净化只覆盖同步路径"
+                )
+            }
         }
+
+        val transformKmp: (Any) -> Any = { reply ->
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+            cleaner.clean(reply, environment)
+        }
+        val kmpWireInstalled = wireSurface != null && KmpGrpcWireChannel.install(
+            environment = environment,
+            surface = wireSurface,
+            javaMossClassName = DetailModulePurifyPolicy.MOSS_CLASS,
+            rpc = DetailModulePurifyPolicy.ASYNC_METHOD,
+            javaReplyClass = replyClass,
+            what = "详细页组件净化",
+            logKey = "detail_module_kmoss",
+            transformJava = transformKmp
+        )
+        val kmpInstalled = kmpWireInstalled || (hasKotlinMoss && KotlinMossChannel.prepare(
+            environment, loader, "详细页组件净化", "detail_module_kmoss"
+        )?.let { bridge ->
+            KotlinMossChannel.install(
+                environment = environment,
+                loader = loader,
+                members = bridge,
+                javaMossClassName = DetailModulePurifyPolicy.MOSS_CLASS,
+                rpc = DetailModulePurifyPolicy.ASYNC_METHOD,
+                javaReplyClass = replyClass,
+                hookId = "$ID.kmoss.${DetailModulePurifyPolicy.ASYNC_METHOD}",
+                what = "详细页组件净化",
+                logKey = "detail_module_kmoss",
+                transformJava = transformKmp
+            )
+        } == true)
+        if (routes == 0 && kmpInstalled) routes = 1
 
         if (routes == 0) return missing(environment, "no-safe-detail-path")
 
