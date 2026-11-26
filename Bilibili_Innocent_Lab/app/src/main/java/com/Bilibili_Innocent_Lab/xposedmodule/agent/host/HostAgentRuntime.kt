@@ -24,18 +24,34 @@ import org.json.JSONObject
 /** 只由已完成授权的主进程安装链初始化；与诊断查询使用不同 Binder 和事务协议。 */
 internal object HostAgentRuntime {
     @Volatile private var runtime: Runtime? = null
+    @Volatile private var injectedModuleUid = -1
+    @Volatile internal var currentUidProvider: () -> Int = { android.os.Process.myUid() }
+
+    fun setModuleUid(uid: Int) {
+        if (uid < android.os.Process.FIRST_APPLICATION_UID || !isValidModuleUid(uid, currentUidProvider())) return
+        injectedModuleUid = uid
+        runtime?.setModuleUid(uid)
+    }
+
+    internal fun isValidModuleUid(uid: Int, hostUid: Int): Boolean =
+        uid >= android.os.Process.FIRST_APPLICATION_UID && uid != hostUid
 
     @Synchronized
     fun initialize(context: Context, classLoader: ClassLoader, accountReadAuthorized: Boolean = false) {
         if (runtime != null) return
         val application = (context.applicationContext ?: context) as? Application ?: return
         if (application.packageName != AgentWire.TARGET_PACKAGE) return
-        runtime = Runtime(application, classLoader, accountReadAuthorized)
+        runtime = Runtime(application, classLoader, accountReadAuthorized, injectedModuleUid)
     }
 
     fun endpoint(): IBinder? = runtime?.endpoint
 
-    private class Runtime(private val app: Application, private val loader: ClassLoader, private val accountReadAuthorized: Boolean) {
+    private class Runtime(
+        private val app: Application,
+        private val loader: ClassLoader,
+        private val accountReadAuthorized: Boolean,
+        initialModuleUid: Int = -1
+    ) {
         private val main = Handler(Looper.getMainLooper())
         private val session = HostAgentSession(AgentWire.MAX_LEASE_MS, AgentWire.IPC_TIMEOUT_MS)
         private val admissionLock = Any()
@@ -51,19 +67,27 @@ internal object HostAgentRuntime {
             runCatching { app.packageManager.getPackageInfo(AgentWire.TARGET_PACKAGE, 0) }.getOrNull()
         }
         private val router by lazy { HostAgentRouter.resolve(loader) }
-        @Volatile private var moduleUid = -1
+        @Volatile private var moduleUid = initialModuleUid.takeIf { isValidModuleUid(it, currentUidProvider()) } ?: -1
         private var binding: Binding? = null // 主线程所有
         private var expiry: Expiry? = null // 一个任务只保留一个可重排的 TTL 回调
         private val cacheLock = Any()
         private val detailCache = AgentTaskCache(AgentTaskCache.DETAIL_CAPACITY, AgentTaskCache.DETAIL_TTL_MS)
         private var cacheGeneration: Long? = null // cacheLock 所有；不在锁内执行 RPC
 
+        fun setModuleUid(uid: Int) {
+            if (isValidModuleUid(uid, currentUidProvider())) moduleUid = uid
+        }
+
         init {
             operations.execute {
-                moduleUid = runCatching {
+                if (moduleUid >= 0) return@execute
+                val hostUid = runCatching { currentUidProvider() }.getOrNull() ?: return@execute
+                val resolvedUid = runCatching {
                     app.packageManager.getApplicationInfo(BuildConfig.APPLICATION_ID, 0).uid
-                        .takeIf { it >= 10_000 && it != android.os.Process.myUid() } ?: -1
-                }.getOrDefault(-1)
+                }.getOrNull()?.takeIf { isValidModuleUid(it, hostUid) }
+                if (resolvedUid != null && moduleUid < 0) {
+                    moduleUid = resolvedUid
+                }
             }
         }
 

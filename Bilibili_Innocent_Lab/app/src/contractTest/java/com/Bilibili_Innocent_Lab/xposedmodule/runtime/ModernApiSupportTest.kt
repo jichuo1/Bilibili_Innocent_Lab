@@ -18,7 +18,7 @@ class ModernApiSupportTest {
         assertEquals("protective", properties.getProperty("exceptionMode"))
         assertEquals("true", properties.getProperty("staticScope"))
         assertEquals("false", properties.getProperty("autoHotReload"))
-        assertEquals(listOf("tv.danmaku.bili", "android"), File(root,
+        assertEquals(listOf("tv.danmaku.bili"), File(root,
             "resources/META-INF/xposed/scope.list").readLines().filter(String::isNotBlank))
     }
 

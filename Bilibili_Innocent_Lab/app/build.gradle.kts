@@ -4,7 +4,11 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
@@ -20,6 +24,7 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.process.CommandLineArgumentProvider
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import java.time.LocalDateTime
 
@@ -39,6 +44,114 @@ if (baselineProfileTooling) {
         setProperty("dexLayoutOptimization", true)
     }
     dependencies.add("baselineProfile", project(":baselineprofile"))
+}
+
+/** Pure-Kotlin ELF64 16KB page-size and ZIP STORED LFH alignment verifier (Configuration Cache safe). */
+object MediaElf16KbCheck {
+    private const val PAGE_16K = 16384L
+
+    fun verifyElf64PageAlignment(bytes: ByteArray, label: String) {
+        check(bytes.size >= 64) { "$label is too small for ELF64 header" }
+        check(bytes[0] == 0x7f.toByte() && bytes[1] == 'E'.code.toByte() &&
+            bytes[2] == 'L'.code.toByte() && bytes[3] == 'F'.code.toByte()) {
+            "$label is not an ELF binary"
+        }
+        check(bytes[4] == 2.toByte() && bytes[5] == 1.toByte()) {
+            "$label must be little-endian ELF64"
+        }
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val phoff = buf.getLong(32)
+        val phentsize = buf.getShort(54).toInt() and 0xFFFF
+        val phnum = buf.getShort(56).toInt() and 0xFFFF
+        check(phoff >= 64L && phentsize >= 56 && phnum > 0 &&
+            phoff + phnum.toLong() * phentsize <= bytes.size.toLong()) {
+            "$label has invalid ELF64 program headers"
+        }
+        var loadSegments = 0
+        for (i in 0 until phnum) {
+            val off = (phoff + i.toLong() * phentsize).toInt()
+            val pType = buf.getInt(off).toLong() and 0xFFFF_FFFFL
+            if (pType == 1L) {
+                loadSegments++
+                val pAlign = buf.getLong(off + 48)
+                check(pAlign >= PAGE_16K && pAlign % PAGE_16K == 0L) {
+                    "$label PT_LOAD[$i] p_align=$pAlign is not 16KB aligned"
+                }
+            }
+        }
+        check(loadSegments > 0) { "$label has no PT_LOAD segments" }
+    }
+
+    fun verifyApk16KbAlignment(apk: File, expectedStoredSos: Set<String>) {
+        if (expectedStoredSos.isEmpty()) return
+        RandomAccessFile(apk, "r").use { raf ->
+            val fileLen = raf.length()
+            check(fileLen >= 22L) { "${apk.name} is too small to be a ZIP" }
+            val tailSize = minOf(fileLen, 22L + 65535L).toInt()
+            val tail = ByteArray(tailSize)
+            raf.seek(fileLen - tailSize)
+            raf.readFully(tail)
+            val tailBuf = ByteBuffer.wrap(tail).order(ByteOrder.LITTLE_ENDIAN)
+            var eocdPos = -1
+            for (pos in (tailSize - 22) downTo 0) {
+                if (tailBuf.getInt(pos) == 0x06054b50) {
+                    val commentLen = tailBuf.getShort(pos + 20).toInt() and 0xFFFF
+                    if (pos + 22 + commentLen == tailSize) {
+                        eocdPos = pos
+                        break
+                    }
+                }
+            }
+            check(eocdPos >= 0) { "Missing ZIP EOCD in ${apk.name}" }
+            val cdSize = tailBuf.getInt(eocdPos + 12).toLong() and 0xFFFF_FFFFL
+            val cdOffset = tailBuf.getInt(eocdPos + 16).toLong() and 0xFFFF_FFFFL
+            check(cdOffset >= 0L && cdSize > 0L && cdOffset + cdSize <= fileLen && cdSize <= Int.MAX_VALUE) {
+                "Invalid ZIP central directory in ${apk.name}"
+            }
+            val cd = ByteArray(cdSize.toInt())
+            raf.seek(cdOffset)
+            raf.readFully(cd)
+            val cdBuf = ByteBuffer.wrap(cd).order(ByteOrder.LITTLE_ENDIAN)
+            val seen = mutableSetOf<String>()
+            val lfh = ByteArray(30)
+            val lfhBuf = ByteBuffer.wrap(lfh).order(ByteOrder.LITTLE_ENDIAN)
+            var p = 0
+            while (p < cd.size) {
+                check(p + 46 <= cd.size && cdBuf.getInt(p) == 0x02014b50) {
+                    "Corrupt ZIP central directory entry in ${apk.name}"
+                }
+                val method = cdBuf.getShort(p + 10).toInt() and 0xFFFF
+                val nameLen = cdBuf.getShort(p + 28).toInt() and 0xFFFF
+                val extraLen = cdBuf.getShort(p + 30).toInt() and 0xFFFF
+                val commentLen = cdBuf.getShort(p + 32).toInt() and 0xFFFF
+                val lfhOff = cdBuf.getInt(p + 42).toLong() and 0xFFFF_FFFFL
+                check(p + 46 + nameLen + extraLen + commentLen <= cd.size) {
+                    "Truncated CEN record in ${apk.name}"
+                }
+                val name = String(cd, p + 46, nameLen, Charsets.UTF_8)
+                if (name in expectedStoredSos) {
+                    check(seen.add(name)) { "Duplicate ZIP CEN entry $name in ${apk.name}" }
+                    check(method == ZipEntry.STORED) { "$name in ${apk.name} must be STORED (method=$method)" }
+                    check(lfhOff + 30L <= cdOffset) { "$name LFH offset out of range in ${apk.name}" }
+                    raf.seek(lfhOff)
+                    raf.readFully(lfh)
+                    check(lfhBuf.getInt(0) == 0x04034b50) { "$name missing LFH magic in ${apk.name}" }
+                    val lfhMethod = lfhBuf.getShort(8).toInt() and 0xFFFF
+                    check(lfhMethod == ZipEntry.STORED) { "$name LFH method=$lfhMethod != STORED in ${apk.name}" }
+                    val lfhNameLen = lfhBuf.getShort(26).toInt() and 0xFFFF
+                    val lfhExtraLen = lfhBuf.getShort(28).toInt() and 0xFFFF
+                    val dataOffset = lfhOff + 30L + lfhNameLen + lfhExtraLen
+                    check(dataOffset % PAGE_16K == 0L) {
+                        "$name in ${apk.name} has dataOffset=$dataOffset (not 16KB aligned)"
+                    }
+                }
+                p += 46 + nameLen + extraLen + commentLen
+            }
+            check(seen == expectedStoredSos) {
+                "Missing expected arm64-v8a .so in CEN of ${apk.name}: ${expectedStoredSos - seen}"
+            }
+        }
+    }
 }
 
 /** Repackage the native bytes from the same published AAR as the Java API for lazy host loading. */
@@ -63,6 +176,9 @@ abstract class PackFrameNativePayload : DefaultTask() {
                 check(nativeEntry.size in 1..16L * 1024 * 1024) { "Native payload exceeds fixed bound." }
                 val bytes = aar.getInputStream(nativeEntry).use { it.readNBytes(nativeEntry.size.toInt()) }
                 check(bytes.size.toLong() == nativeEntry.size) { "Incomplete MeguvizMedia native payload." }
+                if (abi == "arm64-v8a") {
+                    MediaElf16KbCheck.verifyElf64PageAlignment(bytes, "PackFrameNativePayload:$abi/$library")
+                }
                 val archive = assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile
                 archive.parentFile.mkdirs()
                 ZipOutputStream(archive.outputStream()).use { zip ->
@@ -101,18 +217,55 @@ abstract class VerifyMediaApk : DefaultTask() {
     @TaskAction fun verify() {
         val apks = apkDirectory.get().asFile.walkTopDown().filter { it.isFile && it.extension == "apk" }.toList()
         check(apks.isNotEmpty()) { "Media packaging check found no APK" }
-        for (apk in apks) ZipFile(apk).use { zip ->
-            val forbidden = zip.entries().asSequence().filter { entry ->
-                entry.name.endsWith("/libonnxruntime.so") || entry.name.endsWith("/libonnxruntime4j_jni.so") ||
-                    entry.name.startsWith("assets/audio-rescue/") && entry.name.endsWith(".onnx")
-            }.map { it.name }.toList()
-            check(forbidden.isEmpty()) { "Optional audio payload leaked into APK: $forbidden" }
-            val abis = zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }
-                .map { it.substringAfter("lib/").substringBefore('/') }.toSet()
-            check(abis.isNotEmpty() && abis.all { (zip.getEntry("lib/$it/libmeguviz_qcom_motion.so")?.size ?: 0L) > 0 }) {
-                "QCOM motion library missing for a packaged ABI: $abis"
+        for (apk in apks) {
+            val arm64Sos = mutableSetOf<String>()
+            ZipFile(apk).use { zip ->
+                val forbidden = zip.entries().asSequence().filter { entry ->
+                    entry.name.endsWith("/libonnxruntime.so") || entry.name.endsWith("/libonnxruntime4j_jni.so") ||
+                        entry.name.startsWith("assets/audio-rescue/") && entry.name.endsWith(".onnx")
+                }.map { it.name }.toList()
+                check(forbidden.isEmpty()) { "Optional audio payload leaked into APK: $forbidden" }
+                val abis = zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }
+                    .map { it.substringAfter("lib/").substringBefore('/') }.toSet()
+                check(abis.isNotEmpty() && abis.all { (zip.getEntry("lib/$it/libmeguviz_qcom_motion.so")?.size ?: 0L) > 0 }) {
+                    "QCOM motion library missing for a packaged ABI: $abis"
+                }
+                val arm64Entries = zip.entries().asSequence().filter { entry ->
+                    !entry.isDirectory && entry.name.startsWith("lib/arm64-v8a/") && entry.name.endsWith(".so")
+                }.toList()
+                check(arm64Entries.isNotEmpty()) { "Missing arm64-v8a native libraries in ${apk.name}" }
+                for (entry in arm64Entries) {
+                    check(entry.method == ZipEntry.STORED) {
+                        "${entry.name} in ${apk.name} must be STORED for 16KB page alignment"
+                    }
+                    check(entry.size > 0 && entry.size == entry.compressedSize) {
+                        "${entry.name} in ${apk.name} has compressed size mismatch"
+                    }
+                    val soBytes = zip.getInputStream(entry).use { it.readAllBytes() }
+                    MediaElf16KbCheck.verifyElf64PageAlignment(soBytes, "${apk.name}:${entry.name}")
+                    arm64Sos += entry.name
+                }
+                val visionPath = "assets/native-packing/arm64-v8a/VisionTool.zip"
+                val visionEntry = requireNotNull(zip.getEntry(visionPath)) { "Missing $visionPath in ${apk.name}" }
+                val visionBytes = zip.getInputStream(visionEntry).use { it.readAllBytes() }
+                var visionSoCount = 0
+                ZipInputStream(ByteArrayInputStream(visionBytes)).use { zis ->
+                    while (true) {
+                        val inner = zis.nextEntry ?: break
+                        if (!inner.isDirectory && inner.name.endsWith(".so")) {
+                            visionSoCount++
+                            MediaElf16KbCheck.verifyElf64PageAlignment(
+                                zis.readAllBytes(),
+                                "${apk.name}:$visionPath/${inner.name}"
+                            )
+                        }
+                        zis.closeEntry()
+                    }
+                }
+                check(visionSoCount > 0) { "No .so found inside $visionPath of ${apk.name}" }
+                logger.lifecycle("Media packaging verified: ${apk.name} (${apk.length()} bytes), QCOM motion for $abis, 16KB verified for ${arm64Sos.size} arm64-v8a .so(s)")
             }
-            logger.lifecycle("Media packaging verified: ${apk.name} (${apk.length()} bytes), QCOM motion for $abis")
+            MediaElf16KbCheck.verifyApk16KbAlignment(apk, arm64Sos)
         }
     }
 }

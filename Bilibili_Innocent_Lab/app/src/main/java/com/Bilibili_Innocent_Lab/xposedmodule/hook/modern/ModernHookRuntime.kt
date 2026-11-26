@@ -24,6 +24,7 @@ import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Constructor
 import java.lang.reflect.Executable
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.security.MessageDigest
 
 /**
@@ -160,6 +161,7 @@ internal class ModernHookRuntime(
         block: ModernMemberHookCreator.() -> Unit
     ): ModernHookHandle {
         check(module.apiVersion >= ModernApiSupport.MIN_API) { "Modern API 102 or newer is required" }
+        require(!Modifier.isAbstract(executable.modifiers)) { "Cannot hook abstract executable: $executable" }
         val creator = ModernMemberHookCreator(executable).apply(block)
         val hookId = ModernHookIds.of(id, executable)
         // 只有保护模式的功能 Hook 才登记归属：DELIVER_TO_HOST 的异常是刻意交给宿主的，不是故障。

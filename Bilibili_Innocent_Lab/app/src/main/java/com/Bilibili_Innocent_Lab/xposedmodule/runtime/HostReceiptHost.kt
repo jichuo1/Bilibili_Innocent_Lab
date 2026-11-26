@@ -34,6 +34,12 @@ internal object HostReceiptHost {
     @Volatile private var moduleUid = -1
     @Volatile private var source: HostRuntimeDiagnosticsSource? = null
 
+    fun setModuleUid(uid: Int) {
+        if (uid >= android.os.Process.FIRST_APPLICATION_UID && uid != android.os.Process.myUid()) {
+            moduleUid = uid
+        }
+    }
+
     private val endpoint = object : Binder() {
         override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
             if (code != HostReceiptWire.QUERY) return super.onTransact(code, data, reply, flags)
@@ -130,8 +136,13 @@ internal object HostReceiptHost {
 
     private fun envelope(channel: String, value: Publication): Bundle? = runCatching {
         val app = context ?: return@runCatching null
-        // PackageManager 可能发生 IPC，必须位于本地排序点之外。
-        if (moduleUid < 0) moduleUid = app.packageManager.getApplicationInfo(BuildConfig.APPLICATION_ID, 0).uid
+        // PackageManager 可能发生 IPC，必须位于本地排序点之外；受 HMA/包可见性限制失败时只保留 moduleUid = -1。
+        if (moduleUid < 0) {
+            val resolvedUid = runCatching {
+                app.packageManager.getApplicationInfo(BuildConfig.APPLICATION_ID, 0).uid
+            }.getOrNull()
+            if (resolvedUid != null) setModuleUid(resolvedUid)
+        }
         val stamped = receiptSequence.capture {
             // 快照与编号一同固定，旧载荷不能在另一通道发送新值后领取较大的编号。
             if (channel == HostReceiptWire.DIAGNOSTICS)

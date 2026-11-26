@@ -510,16 +510,19 @@ internal object HostAdmissionClient {
                         .putExtra(RoamingOpenReceiver.EXTRA_ADMISSION_NONCE, extras.getString("nonce"))
                         .putExtra(RoamingOpenReceiver.EXTRA_ADMISSION_CALLER_PROOF, proof)
                         .putExtra(RoamingOpenReceiver.EXTRA_ADMISSION_RESPONSE_ACTION, responseAction)
+                    val orderedHandled = AtomicBoolean(false)
+                    val orderedCompleted = AtomicBoolean(false)
                     val resultReceiver = object : BroadcastReceiver() {
                         override fun onReceive(context: Context, intent: Intent) {
                             runCatching {
                                 val result = getResultExtras(false)
                                 if (result?.getBoolean(RoamingOpenReceiver.EXTRA_ADMISSION_HANDLED, false) == true) {
+                                    orderedHandled.set(true)
                                     responseCoordinator.completeSafely(responseAction) {
                                         result.getBundle(RoamingOpenReceiver.EXTRA_ADMISSION_RESPONSE)
                                     }
-                                } else if (responseCoordinator.completeUnhandled(responseAction, canFinishUnhandled)) {
-                                    Log.i(TAG, "[BIL] 启动授权广播不可达，结束本路等待(method=$method)")
+                                } else {
+                                    orderedCompleted.set(true)
                                 }
                             }.onFailure {
                                 log(Log.WARN, "[BIL] 启动授权 ordered 回执解析失败(type=${it.javaClass.simpleName})"
@@ -528,6 +531,16 @@ internal object HostAdmissionClient {
                         }
                     }
                     try {
+                        fun remainingMs(): Long = deadline - SystemClock.elapsedRealtime()
+                        fun awaitStage(budgetMs: Long): Bundle? {
+                            if (response.isDone) return runCatching { response.get() }.getOrNull()
+                            if (budgetMs <= 0L) return null
+                            return runCatching {
+                                response.get(budgetMs, TimeUnit.MILLISECONDS)
+                            }.getOrNull()
+                        }
+
+                        var resolved: Bundle? = null
                         CrossAppBroadcastCompat.sendOrderedBroadcast(
                             context,
                             intent,
@@ -535,46 +548,60 @@ internal object HostAdmissionClient {
                             callbackHandler
                         )
                         log(Log.INFO, "[BIL] 启动授权广播已发送(method=$method)")
-                        runCatching {
-                            // MIUI 某些版本会丢弃后台有序广播，但允许同一显式组件的普通广播；
-                            // 两路共用 nonce，由接收端短时去重并回送同一结果，保留有序回执作为首选。
-                            CrossAppBroadcastCompat.sendBroadcast(context, Intent(intent))
-                            log(Log.INFO, "[BIL] 启动授权广播回退已发送(method=$method)")
-                        }.onFailure {
-                            log(Log.WARN, "[BIL] 启动授权广播回退发送失败(method=$method, type=${it.javaClass.simpleName})")
-                        }
-                        runCatching {
-                            // 部分 MIUI 构建只在 sendBroadcastAsUser 路径保留显式跨包投递；
-                            // 该路仍受模块端 PendingIntent、UID、nonce 和租约校验保护。
-                            context.sendBroadcastAsUser(Intent(intent), android.os.Process.myUserHandle())
-                            log(Log.INFO, "[BIL] 启动授权广播用户回退已发送(method=$method)")
-                        }.onFailure {
-                            log(Log.WARN, "[BIL] 启动授权广播用户回退发送失败(method=$method, type=${it.javaClass.simpleName})")
-                        }
-                        runCatching {
-                            // PendingIntent 由宿主 UID 创建后交给系统调度，可绕过 MIUI 对普通
-                            // Context 广播的包可见性拦截；请求内容仍包含同一回调证明和 nonce。
-                            val requestToken = PendingIntent.getBroadcast(
-                                context,
-                                nonce.hashCode() xor method.hashCode(),
-                                Intent(intent),
-                                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                            )
-                            try {
-                                requestToken.send(context, 0, null)
-                            } finally {
-                                requestToken.cancel()
+                        resolved = awaitStage(minOf(180L, remainingMs()))
+
+                        if (resolved == null && !response.isDone && remainingMs() > 0L) {
+                            runCatching {
+                                // MIUI 某些版本会丢弃后台有序广播，但允许同一显式组件的普通广播；
+                                // 两路共用 nonce，由接收端短时去重并回送同一结果，保留有序回执作为首选。
+                                CrossAppBroadcastCompat.sendBroadcast(context, Intent(intent))
+                                log(Log.INFO, "[BIL] 启动授权广播回退已发送(method=$method)")
+                            }.onFailure {
+                                log(Log.WARN, "[BIL] 启动授权广播回退发送失败(method=$method, type=${it.javaClass.simpleName})")
                             }
-                            log(Log.INFO, "[BIL] 启动授权 PendingIntent 回退已发送(method=$method)")
-                        }.onFailure {
-                            log(Log.WARN, "[BIL] 启动授权 PendingIntent 回退发送失败(method=$method, type=${it.javaClass.simpleName})")
+                            resolved = awaitStage(minOf(120L, remainingMs()))
                         }
-                        runCatching {
-                            response.get(
-                                (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1L),
-                                TimeUnit.MILLISECONDS
-                            )
-                        }.getOrNull().also {
+
+                        if (resolved == null && !response.isDone && remainingMs() > 0L) {
+                            runCatching {
+                                // 部分 MIUI 构建只在 sendBroadcastAsUser 路径保留显式跨包投递；
+                                // 该路仍受模块端 PendingIntent、UID、nonce 和租约校验保护。
+                                context.sendBroadcastAsUser(Intent(intent), android.os.Process.myUserHandle())
+                                log(Log.INFO, "[BIL] 启动授权广播用户回退已发送(method=$method)")
+                            }.onFailure {
+                                log(Log.WARN, "[BIL] 启动授权广播用户回退发送失败(method=$method, type=${it.javaClass.simpleName})")
+                            }
+                            resolved = awaitStage(minOf(120L, remainingMs()))
+                        }
+
+                        if (resolved == null && !response.isDone && remainingMs() > 0L) {
+                            runCatching {
+                                // PendingIntent 由宿主 UID 创建后交给系统调度，可绕过 MIUI 对普通
+                                // Context 广播的包可见性拦截；请求内容仍包含同一回调证明和 nonce。
+                                val requestToken = PendingIntent.getBroadcast(
+                                    context,
+                                    nonce.hashCode() xor method.hashCode(),
+                                    Intent(intent),
+                                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                                )
+                                try {
+                                    requestToken.send(context, 0, null)
+                                } finally {
+                                    requestToken.cancel()
+                                }
+                                log(Log.INFO, "[BIL] 启动授权 PendingIntent 回退已发送(method=$method)")
+                            }.onFailure {
+                                log(Log.WARN, "[BIL] 启动授权 PendingIntent 回退发送失败(method=$method, type=${it.javaClass.simpleName})")
+                            }
+                            resolved = awaitStage(remainingMs())
+                        }
+
+                        if (resolved == null && !response.isDone && orderedCompleted.get() && !orderedHandled.get()) {
+                            if (responseCoordinator.completeUnhandled(responseAction, canFinishUnhandled)) {
+                                Log.i(TAG, "[BIL] 启动授权广播不可达，结束本路等待(method=$method)")
+                            }
+                        }
+                        resolved.also {
                             if (it != null) log(Log.INFO, "[BIL] 启动授权广播收到回执(method=$method)")
                         }
                     } finally {

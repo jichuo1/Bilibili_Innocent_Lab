@@ -69,6 +69,7 @@ class Wave4RuntimeHardeningTest {
             block: ModernMemberHookCreator.() -> Unit
         ) {
             val m = owner.getDeclaredMethod(methodName, *parameterTypes)
+            require(!java.lang.reflect.Modifier.isAbstract(m.modifiers)) { "Cannot hook abstract executable: $m" }
             exactHooks[id] = Entry(m, ModernMemberHookCreator(m).apply(block))
         }
 

@@ -6,6 +6,8 @@ import io.github.jichuo1.meguviz.hook.backend.libxposed102.LibXposed102Backend
 import io.github.jichuo1.meguviz.hook.backend.libxposed102.LibXposed102Context
 import io.github.jichuo1.meguviz.hook.core.HookEnvironment
 import io.github.libxposed.api.XposedInterface
+import java.lang.reflect.Executable
+import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 
 /**
@@ -21,13 +23,21 @@ internal class FakeXposedFramework(private val apiVersion: Int = 102) {
     var replaced = 0
     var unhooks = 0
 
-    val xposed: XposedInterface = proxy { name, _ ->
+    val xposed: XposedInterface = proxy { name, args ->
         when (name) {
             "getApiVersion" -> apiVersion
             "getFrameworkName" -> "fake"
             "getFrameworkVersion" -> "1"
             "getFrameworkVersionCode" -> 1L
-            "hook" -> newBuilder()
+            "hook" -> {
+                val executable = args.firstOrNull { it is Executable } as? Executable
+                if (executable != null) {
+                    require(!Modifier.isAbstract(executable.modifiers)) {
+                        "Cannot hook abstract executable: $executable"
+                    }
+                }
+                newBuilder()
+            }
             "log" -> null
             else -> error("unexpected framework call: $name")
         }

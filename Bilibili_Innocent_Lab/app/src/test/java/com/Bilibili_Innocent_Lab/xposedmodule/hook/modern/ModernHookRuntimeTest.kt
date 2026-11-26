@@ -541,6 +541,26 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         assertTrue("constructor receivers are only visible on the framework chain", constructor.usesDirectChain(HookDispatchEngine.SDK))
     }
 
+    @Test
+    fun `abstract and interface executables are rejected by runtime and test framework`() {
+        val framework = FakeXposedFramework()
+        val runtime = ModernHookRuntime(framework.xposed, engine)
+        val abstractMethod = AbstractFixture::class.java.getDeclaredMethod("render")
+        val interfaceMethod = InterfaceFixture::class.java.getDeclaredMethod("applyModifier", Any::class.java)
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.install("abstract", abstractMethod) { before { } }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.install("interface", interfaceMethod) { before { } }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            framework.xposed.hook(abstractMethod)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            framework.xposed.hook(interfaceMethod)
+        }
+    }
+
     // --- 差分：与迁移前实现逐组合比对 ---------------------------------------------------------------------------
 
     private enum class BeforeAction { NONE, NOOP, SET_RESULT, SET_THROWABLE, MUTATE_ARG, THROW, EXTRA }
@@ -706,5 +726,13 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         var value = 0
         fun sum(a: Int, b: Int): Int = a + b
         fun pair(a: Any?, b: Any?): Any? = a
+    }
+
+    abstract class AbstractFixture {
+        abstract fun render()
+    }
+
+    interface InterfaceFixture {
+        fun applyModifier(value: Any?)
     }
 }
