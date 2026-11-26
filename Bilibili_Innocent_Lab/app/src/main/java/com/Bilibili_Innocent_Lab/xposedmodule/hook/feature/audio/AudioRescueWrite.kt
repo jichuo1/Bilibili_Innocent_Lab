@@ -15,9 +15,10 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         val originalBuffer: ByteBuffer?,
         val originalPosition: Int,
         internal val input: FloatArray,
+        internal val sampleCount: Int,
         internal val output: FloatArray,
         internal val checkpoint: DoubleArray,
-        internal val postCheckpoint: DoubleArray,
+        internal var postCheckpoint: DoubleArray?,
         internal val samplesPerUnit: Double
     )
     private class Continuation(
@@ -39,33 +40,36 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         if (offset < 0 || count <= 0 || count > MAX_UNITS) return null
         val bytesPerSample = when (encoding) { 2 -> 2; 3 -> 1; 4 -> 4; else -> return null }
         val input: FloatArray
+        val sampleCount: Int
         val units: Double
         val original = data as? ByteBuffer
         when (data) {
             is ByteArray -> {
                 if (encoding == 4 || offset > data.size - count || count % (bytesPerSample * processor.channelCount) != 0) return null
                 val buffer = ByteBuffer.wrap(data, offset, count).slice().order(ByteOrder.nativeOrder())
-                val sampleCount = count / bytesPerSample
+                sampleCount = count / bytesPerSample
                 input = acquireInput(sampleCount)
                 decodeInto(buffer, input, sampleCount)
                 units = 1.0 / bytesPerSample
             }
             is ShortArray -> {
                 if (encoding != 2 || offset > data.size - count || count % processor.channelCount != 0) return null
-                input = acquireInput(count)
-                for (i in 0 until count) input[i] = data[offset + i] / 32768f
+                sampleCount = count
+                input = acquireInput(sampleCount)
+                for (i in 0 until sampleCount) input[i] = data[offset + i] / 32768f
                 units = 1.0
             }
             is FloatArray -> {
                 if (encoding != 4 || offset > data.size - count || count % processor.channelCount != 0) return null
-                input = acquireInput(count)
-                System.arraycopy(data, offset, input, 0, count)
+                sampleCount = count
+                input = acquireInput(sampleCount)
+                System.arraycopy(data, offset, input, 0, sampleCount)
                 units = 1.0
             }
             is ByteBuffer -> {
                 if (count > data.remaining() || count % (bytesPerSample * processor.channelCount) != 0) return null
                 val buffer = data.duplicate().order(ByteOrder.nativeOrder())
-                val sampleCount = count / bytesPerSample
+                sampleCount = count / bytesPerSample
                 input = acquireInput(sampleCount)
                 decodeInto(buffer, input, sampleCount)
                 units = 1.0 / bytesPerSample
@@ -75,22 +79,21 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         val cached = continuation
         continuation = null
         val checkpoint = acquireCheckpoint(exclude1 = cached?.postCheckpoint).also(processor::checkpointInto)
-        val output = acquireOutput(input.size)
-        val postCheckpoint: DoubleArray
-        if (cached != null && input.contentEquals(cached.remainingInput)) {
+        val output = acquireOutput(sampleCount)
+        val postCheckpoint: DoubleArray?
+        if (cached != null && arraysEqualPrefix(input, sampleCount, cached.remainingInput)) {
             cached.remainingOutput.copyInto(output)
             processor.restore(cached.postCheckpoint)
             postCheckpoint = cached.postCheckpoint
         } else {
-            input.copyInto(output)
+            input.copyInto(output, 0, 0, sampleCount)
             try {
                 processor.process(output)
             } catch (failure: Throwable) {
                 processor.restore(checkpoint)
                 throw failure
             }
-            postCheckpoint = acquireCheckpoint(exclude1 = checkpoint, exclude2 = cached?.postCheckpoint)
-                .also(processor::checkpointInto)
+            postCheckpoint = null
         }
         val replacement: Any = when (data) {
             is ShortArray -> {
@@ -115,7 +118,7 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
                 target
             }
         }
-        return Pending(replacement, count, original, original?.position() ?: 0, input, output, checkpoint, postCheckpoint, units)
+        return Pending(replacement, count, original, original?.position() ?: 0, input, sampleCount, output, checkpoint, postCheckpoint, units)
     }
 
     /** Never rewrite the return value. Android advances only the private replacement buffer. */
@@ -123,18 +126,26 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         val valid = accepted in 0..pending.count
         val units = if (valid) accepted else 0
         if (units != pending.count) {
-            processor.restore(pending.checkpoint)
             val rawSamples = units * pending.samplesPerUnit
             val samples = rawSamples.toInt()
             val frames = samples / processor.channelCount
             val alignedSamples = frames * processor.channelCount
-            processor.process(pending.input, frames)
             val exactSlice = units == 0 || (rawSamples == alignedSamples.toDouble() && alignedSamples < pending.output.size)
-            continuation = if (valid && exactSlice) {
+            val continuationCheckpoint = if (valid && exactSlice) {
+                pending.postCheckpoint ?: acquireCheckpoint(exclude1 = pending.checkpoint).also {
+                    processor.checkpointInto(it)
+                    pending.postCheckpoint = it
+                }
+            } else {
+                null
+            }
+            processor.restore(pending.checkpoint)
+            processor.process(pending.input, frames)
+            continuation = if (continuationCheckpoint != null) {
                 Continuation(
-                    remainingInput = pending.input.copyOfRange(alignedSamples, pending.input.size),
+                    remainingInput = pending.input.copyOfRange(alignedSamples, pending.sampleCount),
                     remainingOutput = pending.output.copyOfRange(alignedSamples, pending.output.size),
-                    postCheckpoint = pending.postCheckpoint
+                    postCheckpoint = continuationCheckpoint
                 )
             } else {
                 null
@@ -208,8 +219,16 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         return DoubleArray(needed)
     }
 
+    private fun arraysEqualPrefix(a: FloatArray, count: Int, b: FloatArray): Boolean {
+        if (b.size != count) return false
+        for (i in 0 until count) {
+            if (a[i] != b[i]) return false
+        }
+        return true
+    }
+
     private fun acquireInput(size: Int): FloatArray =
-        reusableInput?.takeIf { it.size == size } ?: FloatArray(size).also { reusableInput = it }
+        reusableInput?.takeIf { it.size >= size } ?: FloatArray(size).also { reusableInput = it }
 
     private fun acquireOutput(size: Int): FloatArray =
         reusableOutput?.takeIf { it.size == size } ?: FloatArray(size).also { reusableOutput = it }

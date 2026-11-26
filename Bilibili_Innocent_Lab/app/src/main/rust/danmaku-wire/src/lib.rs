@@ -101,6 +101,7 @@ pub struct SrcSignal {
     pub kind: Option<i32>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ScanOut {
     pub elems: Vec<ElemSignal>,
     pub srcs: Vec<SrcSignal>,
@@ -335,6 +336,15 @@ pub fn rewrite(buf: &[u8], fields: &WireFields, mask: &RewriteMask) -> Result<Ve
     fields.validated()?;
     if buf.len() > MAX_REPLY_BYTES {
         return Err(WireError::TooLarge);
+    }
+    if mask.keep_elem.len() != mask.recolor_elem.len() {
+        return Err(WireError::MaskLength);
+    }
+    if mask.keep_elem.len() > MAX_ELEMS {
+        return Err(WireError::TooManyElems);
+    }
+    if mask.keep_src.len() > MAX_SRCS {
+        return Err(WireError::TooManySrcs);
     }
     let mut out = Vec::new();
     out.try_reserve(buf.len()).map_err(|_| WireError::TooLarge)?;
@@ -1148,5 +1158,159 @@ mod tests {
             dw_free_u8(std::ptr::NonNull::<u8>::dangling().as_ptr(), 0, 0);
             dw_free_i32(std::ptr::NonNull::<i32>::dangling().as_ptr(), 0, 0);
         }
+    }
+
+    #[test]
+    fn rejects_oversized_and_mismatched_masks_and_handles_elem_src_and_reply_limits() {
+        // 1. 超过 MAX_REPLY_BYTES 的载荷必须在 scan/rewrite/C-ABI 三条路径安全拒绝。
+        let too_large = vec![0u8; MAX_REPLY_BYTES + 1];
+        assert_eq!(scan(&too_large, &F), Err(WireError::TooLarge));
+        let empty_mask = RewriteMask { keep_elem: &[], recolor_elem: &[], keep_src: &[] };
+        assert_eq!(rewrite(&too_large, &F, &empty_mask), Err(WireError::TooLarge));
+
+        let mut scan_out: *mut i32 = std::ptr::null_mut();
+        let mut scan_len: usize = 0;
+        let mut scan_cap: usize = 0;
+        assert_eq!(
+            unsafe { dw_scan(too_large.as_ptr(), too_large.len(), &F, &mut scan_out, &mut scan_len, &mut scan_cap) },
+            DW_ERR_DECLINE
+        );
+        assert!(scan_out.is_null());
+
+        let dangling = std::ptr::NonNull::<u8>::dangling().as_ptr();
+        let mut rw_out: *mut u8 = std::ptr::null_mut();
+        let mut rw_len: usize = 0;
+        let mut rw_cap: usize = 0;
+        assert_eq!(
+            unsafe {
+                dw_rewrite(
+                    too_large.as_ptr(), too_large.len(), &F,
+                    dangling, 0, dangling, 0, dangling, 0,
+                    &mut rw_out, &mut rw_len, &mut rw_cap,
+                )
+            },
+            DW_ERR_DECLINE
+        );
+        assert!(rw_out.is_null());
+
+        // 2. 掩码长度不一致 / 超过 MAX_ELEMS / 超过 MAX_SRCS 在解析前直接拒绝。
+        assert_eq!(
+            rewrite(&[], &F, &RewriteMask { keep_elem: &[1], recolor_elem: &[], keep_src: &[] }),
+            Err(WireError::MaskLength)
+        );
+        let max_elems_plus_one = vec![1u8; MAX_ELEMS + 1];
+        assert_eq!(
+            rewrite(
+                &[], &F,
+                &RewriteMask {
+                    keep_elem: &max_elems_plus_one,
+                    recolor_elem: &max_elems_plus_one,
+                    keep_src: &[],
+                }
+            ),
+            Err(WireError::TooManyElems)
+        );
+        let max_srcs_plus_one = vec![1u8; MAX_SRCS + 1];
+        assert_eq!(
+            rewrite(
+                &[], &F,
+                &RewriteMask {
+                    keep_elem: &[],
+                    recolor_elem: &[],
+                    keep_src: &max_srcs_plus_one,
+                }
+            ),
+            Err(WireError::TooManySrcs)
+        );
+        assert_eq!(
+            unsafe {
+                dw_rewrite(
+                    dangling, 0, &F,
+                    max_elems_plus_one.as_ptr(), max_elems_plus_one.len(),
+                    max_elems_plus_one.as_ptr(), max_elems_plus_one.len(),
+                    dangling, 0,
+                    &mut rw_out, &mut rw_len, &mut rw_cap,
+                )
+            },
+            DW_ERR_DECLINE
+        );
+
+        // 3. dw_rewrite 空输入 + 空掩码合法返回 DW_OK 且 handover 为 (null, 0, 0)。
+        assert_eq!(
+            unsafe {
+                dw_rewrite(
+                    dangling, 0, &F,
+                    dangling, 0, dangling, 0, dangling, 0,
+                    &mut rw_out, &mut rw_len, &mut rw_cap,
+                )
+            },
+            DW_OK
+        );
+        assert!(rw_out.is_null());
+        assert_eq!(rw_len, 0);
+        assert_eq!(rw_cap, 0);
+
+        // 4. MAX_ELEMS 精确边界通过，MAX_ELEMS + 1 拒绝；MAX_SRCS 精确边界通过，MAX_SRCS + 1 拒绝。
+        let one_empty_elem = bytes_field(F.elems_field, &[]);
+        let mut max_elems_reply = Vec::with_capacity(one_empty_elem.len() * (MAX_ELEMS + 1));
+        for _ in 0..MAX_ELEMS {
+            max_elems_reply.extend_from_slice(&one_empty_elem);
+        }
+        assert_eq!(scan(&max_elems_reply, &F).unwrap().elems.len(), MAX_ELEMS);
+        let keep_all_elems = vec![1u8; MAX_ELEMS];
+        let recolor_none_elems = vec![0u8; MAX_ELEMS];
+        assert_eq!(
+            rewrite(
+                &max_elems_reply,
+                &F,
+                &RewriteMask {
+                    keep_elem: &keep_all_elems,
+                    recolor_elem: &recolor_none_elems,
+                    keep_src: &[],
+                },
+            )
+            .unwrap()
+            .len(),
+            max_elems_reply.len()
+        );
+        max_elems_reply.extend_from_slice(&one_empty_elem);
+        assert_eq!(scan(&max_elems_reply, &F), Err(WireError::TooManyElems));
+
+        let one_empty_src = bytes_field(F.colorful_src_field, &[]);
+        let mut max_srcs_reply = Vec::with_capacity(one_empty_src.len() * (MAX_SRCS + 1));
+        for _ in 0..MAX_SRCS {
+            max_srcs_reply.extend_from_slice(&one_empty_src);
+        }
+        assert_eq!(scan(&max_srcs_reply, &F).unwrap().srcs.len(), MAX_SRCS);
+        let keep_all_srcs = vec![1u8; MAX_SRCS];
+        assert_eq!(
+            rewrite(
+                &max_srcs_reply,
+                &F,
+                &RewriteMask { keep_elem: &[], recolor_elem: &[], keep_src: &keep_all_srcs },
+            )
+            .unwrap()
+            .len(),
+            max_srcs_reply.len()
+        );
+        max_srcs_reply.extend_from_slice(&one_empty_src);
+        assert_eq!(scan(&max_srcs_reply, &F), Err(WireError::TooManySrcs));
+
+        // 5. 多字节 tag 的彩字字段改色时保留多字节 tag 原样并归零值字节。
+        let high_fields = WireFields { colorful_field: 200, ..F };
+        let high_elem = {
+            let mut body = Vec::new();
+            body.extend(varint_field(high_fields.colorful_field, 60001));
+            bytes_field(high_fields.elems_field, &body)
+        };
+        let rewritten = rewrite(
+            &high_elem,
+            &high_fields,
+            &RewriteMask { keep_elem: &[1], recolor_elem: &[1], keep_src: &[] },
+        )
+        .unwrap();
+        let rescanned = scan(&rewritten, &high_fields).unwrap();
+        assert_eq!(rescanned.elems.len(), 1);
+        assert_eq!(rescanned.elems[0].colorful, Some(0));
     }
 }

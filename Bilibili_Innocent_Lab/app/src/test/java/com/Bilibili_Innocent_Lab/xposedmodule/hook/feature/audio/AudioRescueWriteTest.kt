@@ -174,13 +174,15 @@ class AudioRescueWriteTest {
         val first = writer.prepare(input, 0, input.size)!!
         val callsAfterFirst = inferCalls
         assertTrue(callsAfterFirst > 0)
-        assertTrue(first.checkpoint !== first.postCheckpoint)
+        assertNull(first.postCheckpoint)
         // WRITE_NON_BLOCKING returns 0 -> retry identical buffer without running ONNX inference again.
         writer.finish(first, 0)
+        assertNotNull(first.postCheckpoint)
+        assertTrue(first.checkpoint !== first.postCheckpoint)
         val zeroRetry = writer.prepare(input, 0, input.size)!!
         assertEquals(callsAfterFirst, inferCalls)
         assertSame(first.data, zeroRetry.data)
-        assertTrue(zeroRetry.checkpoint !== first.postCheckpoint)
+        assertSame(first.postCheckpoint, zeroRetry.postCheckpoint)
         assertTrue(zeroRetry.checkpoint !== zeroRetry.postCheckpoint)
         // Partial write of 1600 floats commits the accepted prefix, then retries remaining 3200 floats without running ONNX inference again.
         writer.finish(zeroRetry, 1600)
@@ -202,15 +204,17 @@ class AudioRescueWriteTest {
             actualProcessor.checkpointInto(DoubleArray(actualProcessor.stateSize - 1))
         }
 
-        // Cache miss while continuation retains a pooled checkpoint must never alias all three arrays.
+        // Cache miss while continuation retains a pooled checkpoint must never alias active buffers,
+        // and completing a full write skips postCheckpoint capture.
         val missSeed = writer.prepare(input, 0, input.size)!!
         writer.finish(missSeed, 0)
+        assertNotNull(missSeed.postCheckpoint)
         val differentInput = FloatArray(4800) { if (it % 2 == 0) -.15f else .25f }
         val missActual = writer.prepare(differentInput, 0, differentInput.size)!!
         assertTrue(missActual.checkpoint !== missSeed.postCheckpoint)
-        assertTrue(missActual.postCheckpoint !== missSeed.postCheckpoint)
-        assertTrue(missActual.checkpoint !== missActual.postCheckpoint)
+        assertNull(missActual.postCheckpoint)
         writer.finish(missActual, missActual.count)
+        assertNull(missActual.postCheckpoint)
 
         // ByteBuffer/ByteArray/ShortArray reuse when frame size matches, and bounds-safe limit() check.
         val bbWriter = AudioRescueWrite(processor(), 2)
@@ -234,6 +238,31 @@ class AudioRescueWriteTest {
         assertEquals(8, (ba2.data as ByteArray).size)
     }
 
+    fun `full error and unaligned writes skip postCheckpoint while larger input scratch is reused across smaller writes`() {
+        val writer = AudioRescueWrite(processor(), 4)
+        val large = FloatArray(4800) { if (it % 2 == 0) .2f else -.1f }
+        val largePending = writer.prepare(large, 0, large.size)!!
+        assertNull(largePending.postCheckpoint)
+        writer.finish(largePending, largePending.count)
+        assertNull(largePending.postCheckpoint)
+
+        val small = FloatArray(3200) { .05f }
+        val smallPending = writer.prepare(small, 0, small.size)!!
+        assertSame(largePending.input, smallPending.input)
+        assertEquals(3200, smallPending.sampleCount)
+        assertEquals(3200, (smallPending.data as FloatArray).size)
+        assertNull(smallPending.postCheckpoint)
+        writer.finish(smallPending, -1)
+        assertNull(smallPending.postCheckpoint)
+
+        // Unaligned byte write (2 bytes = 0.5 frames in stereo PCM16): cannot form exact continuation slice, so no postCheckpoint.
+        val pcmWriter = AudioRescueWrite(processor(), 2)
+        val raw = bytes(100, -100, 200, -200, 300, -300, 400, -400)
+        val unaligned = pcmWriter.prepare(raw, 0, raw.size)!!
+        pcmWriter.finish(unaligned, 2)
+        assertNull(unaligned.postCheckpoint)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (AudioRescueWriteTest) -> Unit) {
@@ -253,5 +282,6 @@ class AudioRescueWriteTest {
         runIsolated { s -> s.`float buffer writes use byte units and sanitize nonfinite input`() }
         runIsolated { s -> s.`invalid ranges unknown encodings surround misalignment and huge writes stay with Android`() }
         runIsolated { s -> s.`reuses buffers on matching frame sizes and avoids duplicate speech inference on non-blocking retries`() }
+        runIsolated { s -> s.`full error and unaligned writes skip postCheckpoint while larger input scratch is reused across smaller writes`() }
     }
 }

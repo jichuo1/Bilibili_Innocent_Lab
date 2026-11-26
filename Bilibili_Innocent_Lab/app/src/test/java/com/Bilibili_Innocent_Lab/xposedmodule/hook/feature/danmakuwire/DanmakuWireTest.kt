@@ -201,6 +201,85 @@ class DanmakuWireTest {
         assertNull(DanmakuWire.scan(overrunReply, fields))
         assertNull(DanmakuWire.rewrite(overrunReply, fields, booleanArrayOf(true), booleanArrayOf(true), BooleanArray(0)))
     }
+
+    @Test
+    fun flatScanMatchesScanAndValidatesOverflowAndMaskBounds() {
+        val reply = concat(
+            unknownTop(),
+            elem(7, null, "甲"),
+            elem(null, 60001, null),
+            src(60001),
+            src(null),
+        )
+        val scan = DanmakuWire.scan(reply, fields)!!
+        val flatScan = DanmakuWire.scanFlat(reply, fields)!!
+        assertEquals(scan.elemCount, flatScan.elemCount)
+        assertEquals(scan.srcCount, flatScan.srcCount)
+        assertTrue(flatScan.hasWeight(0))
+        assertEquals(7, flatScan.weight(0))
+        assertFalse(flatScan.hasColorful(0))
+        assertTrue(flatScan.hasContent(0))
+        assertEquals("甲", String(reply, flatScan.contentStart(0), flatScan.contentLen(0), Charsets.UTF_8))
+        assertFalse(flatScan.hasWeight(1))
+        assertTrue(flatScan.hasColorful(1))
+        assertEquals(60001, flatScan.colorful(1))
+        assertFalse(flatScan.hasContent(1))
+        assertTrue(flatScan.hasSrcKind(0))
+        assertEquals(60001, flatScan.srcKind(0))
+        assertFalse(flatScan.hasSrcKind(1))
+
+        val fromFlat = DanmakuWire.flatScanFrom(DanmakuWire.flatten(scan))!!
+        val roundtripScan = fromFlat.toScan()
+        assertEquals(scan.elems, roundtripScan.elems)
+        assertEquals(scan.srcKinds, roundtripScan.srcKinds)
+
+        // Header / count / overflow validation.
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf()))
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(0)))
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(-1, 0)))
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(0, -1)))
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(DanmakuWire.MAX_ELEMS + 1, 0)))
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(0, DanmakuWire.MAX_SRCS + 1)))
+        // 32-bit Int overflow guard: 2 + 858_993_460 * 5 wraps to 6 in 32-bit arithmetic.
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(858_993_460, 0, 0, 0, 0, 0)))
+        assertNull(DanmakuWire.FlatScan.from(intArrayOf(1, 0, 0, 0, 0, 0)))
+
+        // Bounds checks on FlatScan accessors.
+        var elemOob = false
+        try {
+            flatScan.weight(flatScan.elemCount)
+        } catch (_: IndexOutOfBoundsException) {
+            elemOob = true
+        }
+        assertTrue(elemOob)
+        var srcOob = false
+        try {
+            flatScan.srcKind(flatScan.srcCount)
+        } catch (_: IndexOutOfBoundsException) {
+            srcOob = true
+        }
+        assertTrue(srcOob)
+
+        // Rewrite rejects oversized masks even on empty replies.
+        assertNull(
+            DanmakuWire.rewrite(
+                ByteArray(0),
+                fields,
+                BooleanArray(DanmakuWire.MAX_ELEMS + 1),
+                BooleanArray(DanmakuWire.MAX_ELEMS + 1),
+                BooleanArray(0),
+            )
+        )
+        assertNull(
+            DanmakuWire.rewrite(
+                ByteArray(0),
+                fields,
+                BooleanArray(0),
+                BooleanArray(0),
+                BooleanArray(DanmakuWire.MAX_SRCS + 1),
+            )
+        )
+    }
 }
 
 /** 探针 + 端到端自检：在带真实 wire 编解码的 fixture 上过全链路（含宿主 parseFrom 核条数）。 */

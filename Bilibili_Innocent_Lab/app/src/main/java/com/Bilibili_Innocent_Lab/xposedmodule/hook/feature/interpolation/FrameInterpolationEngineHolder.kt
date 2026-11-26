@@ -118,7 +118,7 @@ internal class FrameInterpolationEngineHolder(
             runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
             task.run()
         }, "innocent-frame-infer").apply { isDaemon = true }
-    }.apply { allowCoreThreadTimeOut(false) }
+    }.apply { allowCoreThreadTimeOut(true) }
     private val preparationRetry = FramePreparationRetry(maxAttempts = CAPABILITY_RETRIES, capabilityDelayNs = CAPABILITY_RETRY_NS)
     private val recoveryExecutor = java.util.concurrent.ScheduledThreadPoolExecutor(1) { task ->
         Thread(task, "innocent-frame-recover").apply { isDaemon = true }

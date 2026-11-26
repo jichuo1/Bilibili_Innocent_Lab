@@ -114,7 +114,7 @@ internal class AudioSpeechEnhancer(
                 ear.upsample[upAt] = ear.output[hopAt]
                 if (!preserveTreble) ear.dryUpsample[upAt] = ear.dryOutput[hopAt]
             }
-            upAt = (upAt + 1) % 16
+            upAt = (upAt + 1) and 15
             if (++hopAt == 256) {
                 enhanceHop()
                 hopAt = 0
@@ -127,7 +127,7 @@ internal class AudioSpeechEnhancer(
             if (preserveTreble && fraction >= 1e-9) for (tap in dryWeights.indices)
                 value += ear.dry[(dryAt - dryLag + 1 - tap + drySize) % drySize] * dryWeights[tap]
             for (tap in 0 until 16) {
-                val at = (upAt - 1 - tap + 32) % 16
+                val at = (upAt - 1 - tap + 32) and 15
                 value += (ear.upsample[at] + if (preserveTreble) 0.0 else ear.dryUpsample[at]) * coefficients[tap]
             }
             return value
@@ -144,10 +144,12 @@ internal class AudioSpeechEnhancer(
         val spectrum = this.spectrum
         for (i in 0..256) {
             val first = ears[0]; val second = if (ears.size == 2) ears[1] else first
-            var real = (first.real[i] + second.real[i]) * .5
-            var imaginary = (first.imaginary[i] + second.imaginary[i]) * .5
-            val leftPower = first.real[i].pow(2) + first.imaginary[i].pow(2)
-            val rightPower = second.real[i].pow(2) + second.imaginary[i].pow(2)
+            val leftReal = first.real[i]; val leftImag = first.imaginary[i]
+            val rightReal = second.real[i]; val rightImag = second.imaginary[i]
+            var real = (leftReal + rightReal) * .5
+            var imaginary = (leftImag + rightImag) * .5
+            val leftPower = leftReal * leftReal + leftImag * leftImag
+            val rightPower = rightReal * rightReal + rightImag * rightImag
             // Averaging inverted channels can erase the voice. Use an actual ear in bins
             // with cancellation, while ordinary centred speech benefits from stereo averaging.
             if (real * real + imaginary * imaginary < max(leftPower, rightPower) * .25) {

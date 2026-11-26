@@ -86,6 +86,18 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
     /** 只读诊断。 */
     fun nativeAvailability(): String = nativeState.name
 
+    internal enum class ScanStrategy {
+        TIER1_THEN_OPTIONAL_TIER2,
+        DIRECT_TIER2_SNAPSHOT,
+    }
+
+    internal fun scanStrategy(queries: Set<DexAssistQuery>): ScanStrategy =
+        if (DexMeguvizGraphPlans.requiresArchiveSnapshot(queries)) {
+            ScanStrategy.DIRECT_TIER2_SNAPSHOT
+        } else {
+            ScanStrategy.TIER1_THEN_OPTIONAL_TIER2
+        }
+
     override fun resolve(request: DexAssistRequest): DexAssistResult =
         resolveAll(setOf(request.query), request.codePaths, request.classLoader).getValue(request.query)
 
@@ -107,29 +119,39 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         val splitNames = DexSourceFingerprint.splitNamesFor(paths)
         val generation = Any()
         try {
-            val tier1 = runTier1Streaming(paths, splitNames, rules, outcomes, classLoader, generation)
-            val tier2Rules = if (tier1.completed) {
-                rules.filter { it.query in tier1.crossDexFallbackQueries && outcomes.getValue(it.query).failure == null }
-            } else {
-                rules
-            }
-            if (tier1.completed) {
-                for (q in tier1.crossDexFallbackQueries) {
-                    outcomes.getValue(q).resetPartial()
+            if (scanStrategy(queries) == ScanStrategy.DIRECT_TIER2_SNAPSHOT) {
+                if (rules.isNotEmpty() || graphPlans.isNotEmpty()) {
+                    withArchiveSnapshot(paths, splitNames) { snapshot ->
+                        val archive = Archive(snapshot, classLoader, generation)
+                        if (rules.isNotEmpty()) archive.collect(rules, outcomes)
+                        if (graphPlans.isNotEmpty()) archive.collectGraphPlans(graphPlans, outcomes)
+                    }
                 }
-            }
-            val tier2GraphPlans = graphPlans.filter { (query, plans) ->
-                val outcome = outcomes.getValue(query)
-                if (outcome.failure != null) return@filter false
-                val hasCandidates = outcome.methods.isNotEmpty() || outcome.classes.isNotEmpty()
-                plans.any { !it.fallbackOnly || !hasCandidates } ||
-                    (query in tier1.crossDexFallbackQueries && plans.isNotEmpty())
-            }
-            if (tier2Rules.isNotEmpty() || tier2GraphPlans.isNotEmpty()) {
-                withArchiveSnapshot(paths, splitNames) { snapshot ->
-                    val archive = Archive(snapshot, classLoader, generation)
-                    if (tier2Rules.isNotEmpty()) archive.collect(tier2Rules, outcomes)
-                    if (tier2GraphPlans.isNotEmpty()) archive.collectGraphPlans(tier2GraphPlans, outcomes)
+            } else {
+                val tier1 = runTier1Streaming(paths, splitNames, rules, outcomes, classLoader, generation)
+                val tier2Rules = if (tier1.completed) {
+                    rules.filter { it.query in tier1.crossDexFallbackQueries && outcomes.getValue(it.query).failure == null }
+                } else {
+                    rules
+                }
+                if (tier1.completed) {
+                    for (q in tier1.crossDexFallbackQueries) {
+                        outcomes.getValue(q).resetPartial()
+                    }
+                }
+                val tier2GraphPlans = graphPlans.filter { (query, plans) ->
+                    val outcome = outcomes.getValue(query)
+                    if (outcome.failure != null) return@filter false
+                    val hasCandidates = outcome.methods.isNotEmpty() || outcome.classes.isNotEmpty()
+                    plans.any { !it.fallbackOnly || !hasCandidates } ||
+                        (query in tier1.crossDexFallbackQueries && plans.isNotEmpty())
+                }
+                if (tier2Rules.isNotEmpty() || tier2GraphPlans.isNotEmpty()) {
+                    withArchiveSnapshot(paths, splitNames) { snapshot ->
+                        val archive = Archive(snapshot, classLoader, generation)
+                        if (tier2Rules.isNotEmpty()) archive.collect(tier2Rules, outcomes)
+                        if (tier2GraphPlans.isNotEmpty()) archive.collectGraphPlans(tier2GraphPlans, outcomes)
+                    }
                 }
             }
         } catch (_: Exception) {

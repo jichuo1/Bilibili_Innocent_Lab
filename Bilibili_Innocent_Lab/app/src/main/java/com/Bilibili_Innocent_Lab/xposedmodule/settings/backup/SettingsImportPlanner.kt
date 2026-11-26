@@ -160,6 +160,12 @@ internal class SettingsMigrationRegistry(
 
 /** 已发布 catalog 版本之间的显式迁移链；纯新增设置也登记恒等迁移，避免虚假缺失警告。 */
 internal object SettingsCatalogMigrations {
+    private fun identityMigration(fromVersion: Int): CatalogMigration = object : CatalogMigration {
+        override val fromVersion = fromVersion
+        override val toVersion = fromVersion + 1
+        override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
     val current = SettingsMigrationRegistry(
         migrations = listOf(
             CatalogV1ToV2,
@@ -171,11 +177,9 @@ internal object SettingsCatalogMigrations {
             CatalogV7ToV8,
             CatalogV8ToV9,
             CatalogV9ToV10
-        ) + (10 until 54).map { version -> object : CatalogMigration {
-            override val fromVersion = version
-            override val toVersion = version + 1
-            override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
-        } } + CatalogV54ToV55
+        ) + (10 until 54).map(::identityMigration) +
+            CatalogV54ToV55 +
+            (55 until SettingsCatalog.CATALOG_VERSION).map(::identityMigration)
     )
 
     private object CatalogV1ToV2 : CatalogMigration {
@@ -292,9 +296,10 @@ internal class SettingsImportPlanner(
 
         val entries = mutableListOf<ImportPlanEntry>()
         val consumed = hashSetOf<BackupSetting>()
+        val recordsById = migrationRun.records.groupBy(BackupSetting::id)
         catalog.forEach { spec ->
             val currentValue = requireNotNull(current[spec.id])
-            val candidates = migrationRun.records.filter { it.id == spec.id }
+            val candidates = recordsById[spec.id].orEmpty()
             if (candidates.size > 1) {
                 consumed += candidates
                 entries += ImportPlanEntry(

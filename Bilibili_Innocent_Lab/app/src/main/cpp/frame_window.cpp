@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <new>
 
 namespace {
@@ -29,11 +30,27 @@ constexpr uint32_t kQcomPackedLumaWidth = kQcomMotionWidth / 4;
 template <typename T>
 class ScopedArray {
 public:
-    explicit ScopedArray(uint32_t count)
+    explicit ScopedArray(uint32_t count = 0)
         : data_(count > 0 ? new (std::nothrow) T[count]() : nullptr), count_(data_ ? count : 0) {}
     ~ScopedArray() { delete[] data_; }
     ScopedArray(const ScopedArray&) = delete;
     ScopedArray& operator=(const ScopedArray&) = delete;
+
+    void reset() {
+        delete[] data_;
+        data_ = nullptr;
+        count_ = 0;
+    }
+
+    bool resize(size_t count) {
+        reset();
+        if (count == 0) return true;
+        if (count > std::numeric_limits<uint32_t>::max()) return false;
+        data_ = new (std::nothrow) T[count]();
+        if (!data_) return false;
+        count_ = static_cast<uint32_t>(count);
+        return true;
+    }
 
     T* data() { return data_; }
     const T* data() const { return data_; }
@@ -141,6 +158,7 @@ jlong packCapabilities(jlong flags, uint32_t subgroupSize, uint32_t vendorId) {
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWindowGeometry_extent(
         JNIEnv* env, jobject, jobject surface) {
+    if (!surface) return 0;
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
     if (!window) return 0;
     const int width = ANativeWindow_getWidth(window);
@@ -256,15 +274,39 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
                     flags |= kFlagVulkanCompute;
 
                     uint32_t extCount = 0;
-                    if (enumerateDeviceExt(physical, nullptr, &extCount, nullptr) != VK_SUCCESS) {
-                        extCount = 0;
-                    }
-                    extCount = std::min(extCount, 1024u);
-                    ScopedArray<VkExtensionProperties> extensions(extCount);
-                    if (extCount > 0 &&
-                        (extensions.empty() ||
-                         enumerateDeviceExt(physical, nullptr, &extCount, extensions.data()) != VK_SUCCESS)) {
-                        extCount = 0;
+                    ScopedArray<VkExtensionProperties> extensions;
+                    if (enumerateDeviceExt(physical, nullptr, &extCount, nullptr) == VK_SUCCESS &&
+                        extCount > 0) {
+                        uint32_t capacity = std::min(extCount, 1024u);
+                        bool enumerated = false;
+                        for (int attempt = 0; attempt < 4; ++attempt) {
+                            if (!extensions.resize(capacity)) break;
+                            uint32_t written = capacity;
+                            const VkResult res =
+                                enumerateDeviceExt(physical, nullptr, &written, extensions.data());
+                            if (res == VK_SUCCESS) {
+                                const uint32_t validCount = std::min(written, extensions.size());
+                                for (uint32_t i = validCount; i < extensions.size(); ++i) {
+                                    extensions.data()[i] = VkExtensionProperties{};
+                                }
+                                enumerated = validCount > 0;
+                                break;
+                            }
+                            if (res != VK_INCOMPLETE) break;
+                            uint32_t freshCount = 0;
+                            if (enumerateDeviceExt(physical, nullptr, &freshCount, nullptr) != VK_SUCCESS ||
+                                freshCount == 0) {
+                                break;
+                            }
+                            const uint32_t doubled = capacity <= 2048u ? capacity * 2u : 4096u;
+                            const uint32_t nextCapacity =
+                                std::min(std::max(freshCount, doubled), 4096u);
+                            if (nextCapacity <= capacity) break;
+                            capacity = nextCapacity;
+                        }
+                        if (!enumerated) {
+                            extensions.reset();
+                        }
                     }
 
                     const bool syncFdOk = supportsSyncFdImport(extensions, getSemaphoreProps, physical);

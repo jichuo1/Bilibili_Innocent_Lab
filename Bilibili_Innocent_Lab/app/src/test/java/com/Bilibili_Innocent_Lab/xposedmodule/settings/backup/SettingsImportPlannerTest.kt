@@ -541,6 +541,139 @@ class SettingsImportPlannerTest {
         )
     }
 
+    fun `every catalog version from v1 through current minus one migrates to current without missing warnings`() {
+        val v1Spec = SettingsCatalog.byId.getValue("ads.pause.hidden")
+        val fullCurrent = snapshot(
+            *SettingsCatalog.specs.map { spec ->
+                val value = if (spec.id == v1Spec.id) SettingValue.Bool(false) else spec.defaultValue
+                spec to StoredSetting(explicit = true, value = value)
+            }.toTypedArray()
+        )
+        val planner = SettingsImportPlanner()
+        val v1Record = record(v1Spec, explicit = true, SettingValue.Bool(true))
+        for (version in 1 until SettingsCatalog.CATALOG_VERSION) {
+            val migrationRun = SettingsCatalogMigrations.current.migrate(
+                sourceVersion = version,
+                targetVersion = SettingsCatalog.CATALOG_VERSION,
+                sourceRecords = listOf(v1Record)
+            ) as MigrationRun.Success
+            assertEquals("Unexpected warnings for migration v$version -> v${SettingsCatalog.CATALOG_VERSION}", emptyList<String>(), migrationRun.warnings)
+
+            val plan = planner.plan(document(version, listOf(v1Record)), fullCurrent)
+            assertTrue("Unexpected blockers for v$version", plan.blockers.isEmpty())
+            assertEquals("Unexpected migration warnings for v$version", emptyList<String>(), plan.migrationWarnings)
+            assertEquals(ImportStatus.EXACT, plan.entries.first { it.id == v1Spec.id }.status)
+            assertEquals(SettingValue.Bool(true), plan.writes.single().value)
+            val expectedNewCount = SettingsCatalog.specs.count { it.introducedCatalogVersion > version }
+            assertEquals(expectedNewCount, plan.count(ImportStatus.NEW_IN_CURRENT))
+        }
+    }
+
+    fun `duplicate ids and out of order records preserve planning semantics`() {
+        val intSpec = SettingSpec(
+            id = "feature.count",
+            storageKey = "feature_count",
+            labelRes = 0,
+            type = SettingValueType.INTEGER,
+            defaultValue = SettingValue.IntValue(1),
+            integerRange = 1..10
+        )
+        val textSpec = SettingSpec(
+            id = "feature.label",
+            storageKey = "feature_label",
+            labelRes = 0,
+            type = SettingValueType.STRING,
+            defaultValue = SettingValue.Text("default")
+        )
+        val catalog = listOf(enabledSpec, manualSpec, intSpec, textSpec)
+        val current = snapshot(
+            enabledSpec to StoredSetting(explicit = true, SettingValue.Bool(false)),
+            manualSpec to StoredSetting(explicit = true, SettingValue.Bool(false)),
+            intSpec to StoredSetting(explicit = true, SettingValue.IntValue(1)),
+            textSpec to StoredSetting(explicit = true, SettingValue.Text("default"))
+        )
+        val planner = SettingsImportPlanner(catalog = catalog, currentCatalogVersion = 10)
+        val rEnabled = record(enabledSpec, true, SettingValue.Bool(true))
+        val rManual = record(manualSpec, true, SettingValue.Bool(true))
+        val rInt = record(intSpec, true, SettingValue.IntValue(7))
+        val rText = record(textSpec, true, SettingValue.Text("custom"))
+        val unknown1 = BackupSetting("unknown.first", 1, true, SettingValue.Bool(true))
+        val unknown2 = BackupSetting("unknown.second", 1, true, SettingValue.Text("x"))
+
+        val canonical = planner.plan(
+            document(10, listOf(rEnabled, rManual, rInt, rText, unknown1, unknown2)),
+            current
+        )
+        val reordered = planner.plan(
+            document(10, listOf(unknown2, rText, rInt, unknown1, rManual, rEnabled)),
+            current
+        )
+        assertEquals(catalog.map(SettingSpec::id), reordered.entries.take(catalog.size).map(ImportPlanEntry::id))
+        assertEquals(canonical.entries.take(catalog.size), reordered.entries.take(catalog.size))
+        assertEquals(listOf("unknown.second", "unknown.first"), reordered.entries.drop(catalog.size).map(ImportPlanEntry::id))
+        assertEquals(listOf(ImportStatus.REMOVED, ImportStatus.REMOVED), reordered.entries.drop(catalog.size).map(ImportPlanEntry::status))
+        assertEquals(canonical.writes, reordered.writes)
+        assertEquals(canonical.effects, reordered.effects)
+        assertEquals(canonical.canApply, reordered.canApply)
+        assertEquals(canonical.currentFingerprint, reordered.currentFingerprint)
+
+        // Duplicate known IDs (both differing and identical) must yield CONFLICT; duplicate unknown IDs remain REMOVED.
+        val dupIdenticalKnown = record(intSpec, true, SettingValue.IntValue(7))
+        val dupUnknown = BackupSetting("unknown.dup", 1, true, SettingValue.Bool(false))
+        val duplicatePlan = planner.plan(
+            document(
+                10,
+                listOf(
+                    rEnabled,
+                    rEnabled.copy(value = SettingValue.Bool(false)),
+                    rInt,
+                    dupIdenticalKnown,
+                    dupUnknown,
+                    dupUnknown,
+                    rText
+                )
+            ),
+            current
+        )
+        val dupBoolEntry = duplicatePlan.entries.first { it.id == enabledSpec.id }
+        assertEquals(ImportStatus.CONFLICT, dupBoolEntry.status)
+        assertEquals(ImportReason.MULTIPLE_SOURCE_RECORDS, dupBoolEntry.reason)
+        assertFalse(dupBoolEntry.willWrite)
+
+        val dupIntEntry = duplicatePlan.entries.first { it.id == intSpec.id }
+        assertEquals(ImportStatus.CONFLICT, dupIntEntry.status)
+        assertEquals(ImportReason.MULTIPLE_SOURCE_RECORDS, dupIntEntry.reason)
+        assertFalse(dupIntEntry.willWrite)
+
+        assertEquals(ImportStatus.MISSING_FROM_SOURCE, duplicatePlan.entries.first { it.id == manualSpec.id }.status)
+        assertEquals(ImportStatus.EXACT, duplicatePlan.entries.first { it.id == textSpec.id }.status)
+        assertEquals(
+            listOf("unknown.dup", "unknown.dup"),
+            duplicatePlan.entries.drop(catalog.size).map(ImportPlanEntry::id)
+        )
+        assertEquals(listOf(textSpec.id), duplicatePlan.writes.map { it.spec.id })
+
+        // Duplicate legacy v54 records migrate to v86 and still conflict cleanly without missing migration warnings.
+        val materialSpec = SettingsCatalog.byId.getValue("host.cards.material")
+        val legacyPlan = SettingsImportPlanner(
+            catalog = listOf(materialSpec),
+            currentCatalogVersion = SettingsCatalog.CATALOG_VERSION
+        ).plan(
+            document(
+                54,
+                listOf(
+                    BackupSetting("host.cards.acrylic.enabled", 1, true, SettingValue.Bool(true)),
+                    BackupSetting("host.cards.acrylic.enabled", 1, true, SettingValue.Bool(false))
+                )
+            ),
+            snapshot(materialSpec to StoredSetting(true, SettingValue.Text("mica")))
+        )
+        assertEquals(emptyList<String>(), legacyPlan.migrationWarnings)
+        assertEquals(ImportStatus.CONFLICT, legacyPlan.entries.single().status)
+        assertEquals(ImportReason.MULTIPLE_SOURCE_RECORDS, legacyPlan.entries.single().reason)
+        assertTrue(legacyPlan.writes.isEmpty())
+    }
+
     private fun boolSpec(
         id: String,
         default: Boolean = false,
@@ -616,5 +749,7 @@ class SettingsImportPlannerTest {
         runIsolated { s -> s.`explicit catalog migration can rename a setting`() }
         runIsolated { s -> s.`missing migration still restores a self describing safe subset`() }
         runIsolated { s -> s.`current fingerprint distinguishes malformed legacy utf16 code units`() }
+        runIsolated { s -> s.`every catalog version from v1 through current minus one migrates to current without missing warnings`() }
+        runIsolated { s -> s.`duplicate ids and out of order records preserve planning semantics`() }
     }
 }

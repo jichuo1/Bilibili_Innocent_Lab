@@ -503,11 +503,19 @@ internal class DanmakuPurifyFeatureInstaller(
         return runCatching {
             val fields: DanmakuWireFields = plan.fields
             val scan = engineScan(bytes, fields) ?: return@runCatching null
-            val elems = scan.elems
-            val srcKinds = scan.srcKinds
+            val elemCount = scan.elemCount
+            val srcCount = scan.srcCount
 
             // ---- 权重（含"整段无可用权重即放行"熔断，与 purifyElems 同语义）----
-            val usableWeight = threshold == null || elems.any { (it.weight ?: 0) > 0 }
+            var usableWeight = threshold == null
+            if (!usableWeight) {
+                for (i in 0 until elemCount) {
+                    if (scan.hasWeight(i) && scan.weight(i) > 0) {
+                        usableWeight = true
+                        break
+                    }
+                }
+            }
             if (threshold != null && !usableWeight && weightUnavailableLogged.compareAndSet(false, true)) {
                 environment.logInfo(
                     "danmaku_purify_weight_unavailable",
@@ -515,19 +523,19 @@ internal class DanmakuPurifyFeatureInstaller(
                 )
             }
             val weightKeep = if (threshold == null || !usableWeight) {
-                BooleanArray(elems.size) { true }
+                BooleanArray(elemCount) { true }
             } else {
-                BooleanArray(elems.size) { i -> (elems[i].weight ?: threshold) >= threshold }
+                BooleanArray(elemCount) { i -> !scan.hasWeight(i) || scan.weight(i) >= threshold }
             }
 
             // ---- 语义（与 semanticFilter 同语义：去重按权重保留后的顺序，最多 SEMANTIC_MAX_UNIQUE）----
             val judge = semanticJudge
             val vipValue = members.colorful?.vipGradualColorValue ?: DanmakuPurifyPolicy.VIP_GRADUAL_COLOR_VALUE
             val semanticActive = judge != null && members.content != null
-            val texts = if (semanticActive) Array(elems.size) { i -> wireText(bytes, elems[i]) } else emptyArray()
+            val texts = if (semanticActive) Array(elemCount) { i -> wireText(bytes, scan, i) } else emptyArray()
             val blocked: Set<String> = if (semanticActive) {
                 val unique = LinkedHashSet<String>()
-                for (i in elems.indices) {
+                for (i in 0 until elemCount) {
                     if (unique.size >= SEMANTIC_MAX_UNIQUE) break
                     if (weightKeep[i] && texts[i].isNotEmpty()) unique += texts[i]
                 }
@@ -570,34 +578,40 @@ internal class DanmakuPurifyFeatureInstaller(
             }
 
             // ---- 位图：权重 × 语义 × 彩字改色（改色只作用于保留下来的条目，与反射路径组合一致）----
-            val keep = BooleanArray(elems.size)
-            val recolor = BooleanArray(elems.size)
+            val keep = BooleanArray(elemCount)
+            val recolor = BooleanArray(elemCount)
             var changed = false
-            for (i in elems.indices) {
-                keep[i] = weightKeep[i] && (!semanticActive || texts[i] !in blocked)
-                recolor[i] = liveColorful && keep[i] && elems[i].colorful != null &&
-                    elems[i].colorful == vipValue
-                if (!keep[i] || recolor[i]) changed = true
+            var keptCount = 0
+            for (i in 0 until elemCount) {
+                val keepEntry = weightKeep[i] && (!semanticActive || texts[i] !in blocked)
+                keep[i] = keepEntry
+                val recolorEntry = liveColorful && keepEntry && scan.hasColorful(i) &&
+                    scan.colorful(i) == vipValue
+                recolor[i] = recolorEntry
+                if (keepEntry) keptCount++
+                if (!keepEntry || recolorEntry) changed = true
             }
-            val keepSrc = BooleanArray(srcKinds.size) { j ->
-                !liveColorful || srcKinds[j] == null || srcKinds[j] != vipValue
+            val keepSrc = BooleanArray(srcCount)
+            var keptSrcCount = 0
+            for (j in 0 until srcCount) {
+                val keepSource = !liveColorful || !scan.hasSrcKind(j) || scan.srcKind(j) != vipValue
+                keepSrc[j] = keepSource
+                if (keepSource) keptSrcCount++ else changed = true
             }
-            for (j in srcKinds.indices) {
-                if (!keepSrc[j]) changed = true
-            }
-            if (!changed) return@runCatching WirePurifyResult(bytes, elems.size)
+            if (!changed) return@runCatching WirePurifyResult(bytes, elemCount)
 
             val rewritten = engineRewrite(bytes, fields, keep, recolor, keepSrc) ?: return@runCatching null
             // wire 级复检：条数与改色值必须符合位图意图（红线：实际核改写结果的第一道核）。
             val rescan = engineScan(rewritten, fields) ?: return@runCatching null
-            val keptCount = keep.count { it }
-            if (rescan.elems.size != keptCount || rescan.srcKinds.size != keepSrc.count { it }) {
+            if (rescan.elemCount != keptCount || rescan.srcCount != keptSrcCount) {
                 return@runCatching null
             }
             var keptIndex = 0
-            for (i in elems.indices) {
+            for (i in 0 until elemCount) {
                 if (!keep[i]) continue
-                if (recolor[i] && rescan.elems[keptIndex].colorful != 0) return@runCatching null
+                if (recolor[i] && (!rescan.hasColorful(keptIndex) || rescan.colorful(keptIndex) != 0)) {
+                    return@runCatching null
+                }
                 keptIndex++
             }
             WirePurifyResult(rewritten, keptCount)
@@ -605,11 +619,11 @@ internal class DanmakuPurifyFeatureInstaller(
     }
 
     /** native 可用即用（差分自检已在安装期把关），否则 JVM 基准；native 拒绝不重试 JVM。 */
-    private fun engineScan(bytes: ByteArray, fields: DanmakuWireFields): DanmakuWire.Scan? =
+    private fun engineScan(bytes: ByteArray, fields: DanmakuWireFields): DanmakuWire.FlatScan? =
         if (DanmakuWireNative.isAvailable) {
-            DanmakuWireNative.scan(bytes, fields)?.let(DanmakuWire::fromFlattened)
+            DanmakuWireNative.scan(bytes, fields)?.let(DanmakuWire::flatScanFrom)
         } else {
-            DanmakuWire.scan(bytes, fields)
+            DanmakuWire.scanFlat(bytes, fields)
         }
 
     private fun engineRewrite(
@@ -626,9 +640,11 @@ internal class DanmakuPurifyFeatureInstaller(
         }
 
     /** 与反射路径同口径：无正文字段按空串处理，归一化交给 [TextNormalizer.forSemantic]。 */
-    private fun wireText(bytes: ByteArray, elem: DanmakuWire.ElemSignal): String =
-        if (elem.hasContent) {
-            TextNormalizer.forSemantic(String(bytes, elem.contentStart, elem.contentLen, Charsets.UTF_8))
+    private fun wireText(bytes: ByteArray, scan: DanmakuWire.FlatScan, index: Int): String =
+        if (scan.hasContent(index)) {
+            TextNormalizer.forSemantic(
+                String(bytes, scan.contentStart(index), scan.contentLen(index), Charsets.UTF_8)
+            )
         } else {
             ""
         }

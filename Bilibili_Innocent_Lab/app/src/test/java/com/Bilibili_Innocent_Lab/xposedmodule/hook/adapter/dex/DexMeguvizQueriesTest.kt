@@ -461,6 +461,34 @@ class DexMeguvizQueriesTest {
         assertTrue(longPressGraphs.contains("()Ljava/lang/Float;"))
     }
 
+    fun `archive snapshot skip policy avoids duplicate tier1 scan when planned requires tier2`() {
+        for (query in DexAssistQuery.entries) {
+            val expectedDirect = query == DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE ||
+                DexMeguvizQueries.graphPlans(query).any { !it.fallbackOnly }
+            assertEquals("$query requiresArchiveSnapshot mismatch", expectedDirect, DexMeguvizGraphPlans.requiresArchiveSnapshot(query))
+        }
+        assertFalse(DexMeguvizGraphPlans.requiresArchiveSnapshot(emptySet()))
+        assertEquals(
+            DexMeguvizAssistEngine.ScanStrategy.TIER1_THEN_OPTIONAL_TIER2,
+            DexMeguvizAssistEngine.scanStrategy(emptySet())
+        )
+        assertEquals(
+            DexMeguvizAssistEngine.ScanStrategy.TIER1_THEN_OPTIONAL_TIER2,
+            DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.PEGASUS_DIVIDER, DexAssistQuery.COMMENT_COMPOSE_MORE_MENU))
+        )
+        assertEquals(
+            DexMeguvizAssistEngine.ScanStrategy.DIRECT_TIER2_SNAPSHOT,
+            DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE))
+        )
+        val nonFallbackQuery = DexAssistQuery.entries.first { q ->
+            DexMeguvizQueries.graphPlans(q).any { !it.fallbackOnly }
+        }
+        assertEquals(
+            DexMeguvizAssistEngine.ScanStrategy.DIRECT_TIER2_SNAPSHOT,
+            DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.PEGASUS_DIVIDER, nonFallbackQuery))
+        )
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DexMeguvizQueriesTest) -> Unit) {
@@ -475,5 +503,6 @@ class DexMeguvizQueriesTest {
         runIsolated { s -> s.`home recommend early load listener query covers PegasusFragment scroll+attach fanout and 3-arg continuation lambda`() }
         runIsolated { s -> s.`graph plans serialize bounded valid QueryIR JSON without fragile package or arity locks`() }
         runIsolated { s -> s.`batch 3 graph plans serialize bounded QueryIR JSON with structural anchors`() }
+        runIsolated { s -> s.`archive snapshot skip policy avoids duplicate tier1 scan when planned requires tier2`() }
     }
 }

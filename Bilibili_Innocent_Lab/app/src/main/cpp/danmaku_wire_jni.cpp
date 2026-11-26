@@ -28,8 +28,10 @@ void dw_free_u8(uint8_t* ptr, size_t len, size_t cap);
 }
 
 namespace {
-// 与 Rust 侧 MAX_REPLY_BYTES 对齐的前置上限：先挡掉超大数组，避免无谓的元素拷贝。
+// 与 Rust 侧 MAX_REPLY_BYTES / MAX_ELEMS / MAX_SRCS 对齐的前置上限：先挡掉超大或失配数组。
 constexpr jsize kMaxReplyBytes = 16 * 1024 * 1024;
+constexpr jsize kMaxElems = 65536;
+constexpr jsize kMaxSrcs = 65536;
 
 // protobuf 字段号合法区间（1..2^29-1）；越界直接拒绝，不进 Rust。
 bool validField(jint field) {
@@ -94,6 +96,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     dw_free_i32(scanOut, scanLen, scanCap);
     if (env->ExceptionCheck()) {
         clearPending(env);
+        env->DeleteLocalRef(result);
         return nullptr;
     }
     return result;
@@ -112,7 +115,9 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     const jsize keepLen = env->GetArrayLength(keepElem);
     const jsize recolorLen = env->GetArrayLength(recolorElem);
     const jsize srcLen = env->GetArrayLength(keepSrc);
-    if (replyLen < 0 || replyLen > kMaxReplyBytes || keepLen < 0 || recolorLen < 0 || srcLen < 0) {
+    if (replyLen < 0 || replyLen > kMaxReplyBytes ||
+        keepLen < 0 || keepLen > kMaxElems || recolorLen != keepLen ||
+        srcLen < 0 || srcLen > kMaxSrcs) {
         return nullptr;
     }
     jbyte* bytes = env->GetByteArrayElements(reply, nullptr);
@@ -172,6 +177,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
                                     reinterpret_cast<const jbyte*>(rewriteOut));
             if (env->ExceptionCheck()) {
                 clearPending(env);
+                env->DeleteLocalRef(result);
                 result = nullptr;
             }
         }

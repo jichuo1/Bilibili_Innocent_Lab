@@ -542,11 +542,18 @@ for (library in listOf(libs.lumen.engine.get(), libs.lumen.motion.get())) {
     }
 }
 
+val testLayer = providers.gradleProperty("innocentLab.testLayer").orNull?.trim()?.takeIf { it.isNotEmpty() }
+if (testLayer != null && testLayer != "unit" && testLayer != "contract") {
+    throw GradleException("innocentLab.testLayer must be 'unit' or 'contract', got '$testLayer'")
+}
+
 // 源码护栏读取真实文件，必须把文本也计入 Test 缓存键；仅有测试 classpath 不足以
 // 识别注释、工作流或未改变字节码的源码修改。只允许公开生产输入，不包含构建输出、
 // local.properties、签名文件、环境文件或整个 .gradle 缓存。
 val sourceContractInputs = files(
-    fileTree("src/main"),
+    fileTree("src/main") {
+        exclude("rust/**/target/**", "**/.mimosa/**")
+    },
     fileTree(rootDir) {
         include(
             "build.gradle.kts", "settings.gradle.kts", "gradle.properties",
@@ -564,18 +571,22 @@ val sourceContractInputs = files(
         exclude(".github/release-templates/test_*.py")
     }
 )
-tasks.withType<Test>().configureEach {
-    jvmArgumentProviders.add(objects.newInstance(LumenContractJvmArguments::class.java).apply {
-        sources.from(lumenContractSources)
-    })
-    inputs.files(sourceContractInputs, lumenContractSources)
-        .withPropertyName("sourceContractInputs")
-        .withPathSensitivity(PathSensitivity.RELATIVE)
+if (testLayer != "unit") {
+    val objectFactory = objects
     // This optional generated projection is read by a JVM test in private checkouts. No secrets.
     val projection = rootDir.parentFile.resolve("server/src/analytics/capability-catalog.json")
-    inputs.files(providers.provider { if (projection.isFile) listOf(projection) else emptyList<File>() })
-        .withPropertyName("privateCapabilityProjection")
-        .withPathSensitivity(PathSensitivity.RELATIVE)
+    val projectionFiles = providers.provider { if (projection.isFile) listOf(projection) else emptyList<File>() }
+    tasks.withType<Test>().configureEach {
+        jvmArgumentProviders.add(objectFactory.newInstance(LumenContractJvmArguments::class.java).apply {
+            sources.from(lumenContractSources)
+        })
+        inputs.files(sourceContractInputs, lumenContractSources)
+            .withPropertyName("sourceContractInputs")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.files(projectionFiles)
+            .withPropertyName("privateCapabilityProjection")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    }
 }
 
 // 测试 Lint 模型由现有独立测试门禁覆盖。
@@ -604,11 +615,7 @@ fun contractTestClassNames(): List<String> = contractTestRoot.walkTopDown()
     }
     .toList()
 
-val testLayer = providers.gradleProperty("innocentLab.testLayer").orNull?.trim()?.takeIf { it.isNotEmpty() }
 if (testLayer != null) {
-    if (testLayer != "unit" && testLayer != "contract") {
-        throw GradleException("innocentLab.testLayer must be 'unit' or 'contract', got '$testLayer'")
-    }
     val contractClasses = contractTestClassNames()
     if (contractClasses.isEmpty()) throw GradleException("No contract test classes found under $contractTestRoot")
     tasks.withType<Test>().configureEach {

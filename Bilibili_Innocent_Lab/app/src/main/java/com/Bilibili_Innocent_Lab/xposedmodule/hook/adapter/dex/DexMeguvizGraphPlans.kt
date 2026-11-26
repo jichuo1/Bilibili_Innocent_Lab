@@ -254,6 +254,12 @@ internal object DexMeguvizGraphPlans {
     internal fun isSystemDescriptor(descriptor: String): Boolean =
         SYSTEM_DESCRIPTOR_PREFIXES.any { descriptor.startsWith(it) }
 
+    internal fun requiresArchiveSnapshot(query: DexAssistQuery): Boolean =
+        query == DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE || plans(query).any { !it.fallbackOnly }
+
+    internal fun requiresArchiveSnapshot(queries: Set<DexAssistQuery>): Boolean =
+        queries.any(::requiresArchiveSnapshot)
+
     fun plans(query: DexAssistQuery): List<DexGraphPlan> = when (query) {
         DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER -> listOf(homeEarlyLoadPlan())
         DexAssistQuery.COMMENT_REPLY_MAPPER -> listOf(commentReplyMapperPlan())

@@ -87,6 +87,40 @@ class AudioSpeechEnhancerTest {
         assertTrue("high band residue=$energy", energy < 1e-6)
     }
 
+    fun `power selection and upsample ring wrap across many hops stay deterministic and isolated per enhancer`() {
+        val rate = 48000
+        val frames = 24000
+        val input = FloatArray(frames * 2) { i ->
+            val frame = i / 2
+            val phase = sin(2 * PI * 750 * frame / rate) * .15
+            // Alternate regions between in-phase, opposite-phase, and right-dominant cancellation.
+            when {
+                frame < 8000 -> phase.toFloat()
+                frame < 16000 -> (if (i % 2 == 0) phase else -phase).toFloat()
+                else -> (if (i % 2 == 0) phase * .2 else -phase).toFloat()
+            }
+        }
+        val firstOut = input.copyOf()
+        val secondOut = input.copyOf()
+        val thirdOut = FloatArray(frames * 2) { .05f }
+
+        val model = AudioSpeechModel { spectrum, caches ->
+            caches[0][0] += 1e-5f
+            spectrum.map { it * .85f }.toFloatArray()
+        }
+        val e1 = processor(rate, model)
+        val e2 = processor(rate, model)
+        val e3 = processor(rate, model)
+
+        e1.process(firstOut)
+        e3.process(thirdOut)
+        e2.process(secondOut)
+
+        assertTrue(firstOut.all { it.isFinite() })
+        assertArrayEquals(firstOut, secondOut, 0f)
+        assertArrayEquals(e1.checkpoint(), e2.checkpoint(), 0.0)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (AudioSpeechEnhancerTest) -> Unit) {
@@ -99,5 +133,6 @@ class AudioSpeechEnhancerTest {
         runIsolated { s -> s.`identity model preserves full band treble at the fixed production delay`() }
         runIsolated { s -> s.`speech suppression retains original high band instead of low passing the dry mix`() }
         runIsolated { s -> s.`dedicated denoising still removes high band hiss`() }
+        runIsolated { s -> s.`power selection and upsample ring wrap across many hops stay deterministic and isolated per enhancer`() }
     }
 }
