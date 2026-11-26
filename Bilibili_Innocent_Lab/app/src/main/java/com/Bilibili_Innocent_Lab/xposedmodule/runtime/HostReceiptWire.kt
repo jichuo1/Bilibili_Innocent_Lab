@@ -18,9 +18,9 @@ internal object HostReceiptWire {
     const val MAX_PARCEL_BYTES = 768 * 1024
 
     fun executor(name: String) = ThreadPoolExecutor(
-        1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(8),
+        1, 1, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(8),
         { runnable -> Thread(runnable, name).apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy()
-    )
+    ).apply { allowCoreThreadTimeOut(true) }
 }
 

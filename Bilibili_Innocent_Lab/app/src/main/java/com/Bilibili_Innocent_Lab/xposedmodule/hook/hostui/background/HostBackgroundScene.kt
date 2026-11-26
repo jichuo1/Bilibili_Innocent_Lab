@@ -11,9 +11,13 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.LruCache
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiExecutors
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -29,7 +33,11 @@ import java.util.concurrent.atomic.AtomicLong
  * 多个 Scene 对同一个 [Key] 同时冷 miss 时只生成一次（[TileFlightTable]）；某个 Scene 的视口移走后，
  * 它放弃的、尚未开始且无人订阅的任务被移出待办，已开始的任务仍会进共享缓存但不再发布给它。
  */
-internal class HostBackgroundScene(private val config: HostBackgroundConfig, private val invalidate: () -> Unit) {
+internal class HostBackgroundScene(
+    private val config: HostBackgroundConfig,
+    private val isOnscreen: () -> Boolean = { false },
+    private val invalidate: () -> Unit
+) {
     internal data class Key(val config: HostBackgroundConfig, val night: Boolean, val width: Int, val band: Long)
     private val lock = Any()
     private var wanted = emptyList<Key>()
@@ -47,6 +55,10 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
     /** 共享任务表里的订阅句柄；只持有 Scene 的弱引用，在途任务不会延长 Scene 的寿命。 */
     private val subscription = Subscription(WeakReference(this))
     private val version = AtomicLong()
+
+    init {
+        synchronized(scenesLock) { scenes[this] = Unit }
+    }
     internal val isReady get() = synchronized(lock) {
         wanted.isNotEmpty() && wanted.all { it.band !in first..last || ready.containsKey(it) }
     }
@@ -139,6 +151,33 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
         if (rejected) main.postDelayed(HostThreadGuard.runnable("host.background.scene.retry") { invalidate() }, REJECT_RETRY_MS)
     }
 
+    /** 内存压力下回收离屏场景的全部就绪块，或裁剪在屏场景的可视区外预取块。 */
+    internal fun trimForMemoryPressure() {
+        val onscreen = isOnscreen()
+        val trimmed = synchronized(lock) {
+            if (ready.isEmpty() && wanted.isEmpty()) return@synchronized false
+            if (!onscreen) {
+                ready.clear()
+                wanted = emptyList()
+                true
+            } else {
+                val iterator = ready.entries.iterator()
+                var removed = false
+                while (iterator.hasNext()) {
+                    if (iterator.next().key.band !in first..last) {
+                        iterator.remove()
+                        removed = true
+                    }
+                }
+                if (removed && wanted.isNotEmpty()) {
+                    wanted = wanted.filter { it.band in first..last }
+                }
+                removed
+            }
+        }
+        if (trimmed) version.incrementAndGet()
+    }
+
     /** 主线程：一个 tile 生成完成。只发布给仍匹配当前视口的订阅者。 */
     private fun onTile(key: Key, bitmap: Bitmap?) {
         if (bitmap == null) {
@@ -155,12 +194,24 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
         private const val FAILURE_BACKOFF_MS = 1_000L
         private const val REJECT_RETRY_MS = 100L
         private val cacheLock = Any()
-        private val rasters = object : LruCache<Key, Bitmap>(24 * 1024 * 1024) {
-            override fun sizeOf(key: Key, value: Bitmap) = value.allocationByteCount
+        private val scenesLock = Any()
+        private val scenes = WeakHashMap<HostBackgroundScene, Unit>()
+        @Volatile
+        private var rastersInitialized = false
+        private val rasters by lazy {
+            rastersInitialized = true
+            object : LruCache<Key, Bitmap>(24 * 1024 * 1024) {
+                override fun sizeOf(key: Key, value: Bitmap) = value.allocationByteCount
+            }
         }
         private val flights = TileFlightTable<Key, Subscription>()
-        private val worker = Executors.newFixedThreadPool(2) { Thread(it, "host-background-world").apply { isDaemon = true } }
-        private val main = Handler(Looper.getMainLooper())
+        internal val worker = (Executors.newFixedThreadPool(2) {
+            Thread(it, "host-background-world").apply { isDaemon = true }
+        } as ThreadPoolExecutor).apply {
+            setKeepAliveTime(HostUiExecutors.DEFAULT_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS)
+            allowCoreThreadTimeOut(true)
+        }
+        private val main by lazy { Handler(Looper.getMainLooper()) }
         private fun cached(key: Key): Bitmap? = synchronized(cacheLock) { rasters.get(key) }
         private fun cache(key: Key, bitmap: Bitmap) = synchronized(cacheLock) { rasters.put(key, bitmap) }
 
@@ -175,10 +226,16 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
         /** 测试：渲染前调用，参数为 tile key 与正在渲染的线程。 */
         @Volatile internal var renderObserver: ((Key, Thread) -> Unit)? = null
         /** 测试：清空共享位图缓存，制造冷 miss。 */
-        internal fun clearSharedCache() = synchronized(cacheLock) { rasters.evictAll() }
+        internal fun clearSharedCache() = synchronized(cacheLock) {
+            if (rastersInitialized) rasters.evictAll()
+        }
 
-        /** 内存压力下释放跨页面共享的非活跃底图缓存。 */
-        internal fun clearForMemoryPressure() = clearSharedCache()
+        /** 内存压力下释放跨页面共享缓存及各活跃/离屏场景保留的离屏底图。 */
+        internal fun clearForMemoryPressure() {
+            clearSharedCache()
+            val snapshot = synchronized(scenesLock) { scenes.keys.toList() }
+            snapshot.forEach { it.trimForMemoryPressure() }
+        }
 
         /** 工作线程：取一个最旧的未开始任务生成，完成后只通知仍订阅它的 Scene。 */
         private fun drain() {

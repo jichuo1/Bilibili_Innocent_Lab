@@ -10,6 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.matchesComposeName
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
@@ -119,8 +120,7 @@ internal object HostOgvCardHooks {
         var node: View? = view
         while (node != null) {
             val current = node
-            val name = if (current.id == View.NO_ID) "" else
-                runCatching { current.resources.getResourceEntryName(current.id) }.getOrDefault("")
+            val name = HostViewResourceNames.name(current)
             if (name in playerNames ||
                 current.javaClass.name == "tv.danmaku.biliplayerimpl.controlcontainer.ControlContainer") return false
             node = current.parent as? View

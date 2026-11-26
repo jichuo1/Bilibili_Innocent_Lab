@@ -16,11 +16,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Provider 主动发布与反向 Binder 查询；所有 IPC 都在独立有界线程，不占用扫描/持久化线程。 */
 internal object HostReceiptHost {
-    private data class Publication(val payload: String, val source: HostRuntimeDiagnosticsSource)
+    private const val RESUME_COOLDOWN_MS = 30_000L
+
+    private data class EnvelopePayload(val payload: String, val source: HostRuntimeDiagnosticsSource)
+
+    private class Publication(
+        val payload: String,
+        val source: HostRuntimeDiagnosticsSource,
+        val packet: SharedReceiptPacket<Bundle>
+    )
+
+    private class RefreshPass(
+        val register: Publication,
+        val snapshots: Map<String, Publication>
+    )
+
     private val started = SystemClock.elapsedRealtime().coerceAtLeast(1L)
     private val receiptSequence = ReceiptEnvelopeSequencer()
     private val initialized = AtomicBoolean(false)
-    private val refreshing = AtomicBoolean(false)
+    private val refreshThrottle = RefreshThrottle()
     private val diagnosticsScheduled = AtomicBoolean(false)
     private val latest = ConcurrentHashMap<String, Publication>()
     private val worker = HostReceiptWire.executor("bil-receipt-publish")
@@ -79,7 +93,7 @@ internal object HostReceiptHost {
         val app = context as? Application
         if (app != null && initialized.compareAndSet(false, true)) {
             app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
-                override fun onActivityResumed(activity: Activity) { refresh() }
+                override fun onActivityResumed(activity: Activity) { refresh(force = false) }
                 override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
                 override fun onActivityStarted(activity: Activity) = Unit
                 override fun onActivityPaused(activity: Activity) = Unit
@@ -88,53 +102,103 @@ internal object HostReceiptHost {
                 override fun onActivityDestroyed(activity: Activity) = Unit
             })
         }
-        refresh()
+        refresh(force = true)
     }
 
     fun publish(channel: String, payload: String, processSource: HostRuntimeDiagnosticsSource) {
         if (channel != HostReceiptWire.DIAGNOSTICS && channel !in MineComponentSnapshotCodec.ALLOWED_SURFACES) return
-        val value = Publication(payload, processSource)
+        val value = createPublication(channel, payload, processSource)
         latest[channel] = value
         scheduleBound(channel, value)
-        if (!publications.submit(channel, value)) ReceiptQueryLog.failure("publish_queue", ReceiptQueryFailure.SEND_FAILED)
+        if (!publications.submit(channel, value)) {
+            refreshThrottle.markDirty()
+            ReceiptQueryLog.failure("publish_queue", ReceiptQueryFailure.SEND_FAILED)
+        }
     }
 
     /** 安装链完成时立即发首份诊断，不等待磁盘的 30 秒合并窗口。 */
     fun diagnosticsReady() {
-        source?.let { scheduleBound(HostReceiptWire.DIAGNOSTICS, Publication("", it)) }
+        val currentSource = source ?: return
+        val value = createPublication(HostReceiptWire.DIAGNOSTICS, "", currentSource)
+        scheduleBound(HostReceiptWire.DIAGNOSTICS, value)
         if (!diagnosticsScheduled.compareAndSet(false, true)) return
         runCatching { worker.execute {
             try {
                 HostThreadGuard.run("receipt.ready") {
-                    val currentSource = source ?: return@run
-                    val value = Publication("", currentSource)
                     if (!send(HostReceiptWire.DIAGNOSTICS, value)) send(HostReceiptWire.DIAGNOSTICS, value)
                 }
             } finally { diagnosticsScheduled.set(false) }
         } }.onFailure { diagnosticsScheduled.set(false) }
     }
 
-    /** 模块进程被回收后，在宿主下次前台事件重建会话；无轮询、无常驻服务。 */
-    private fun refresh() {
-        source?.let {
-            latest[HostReceiptWire.DIAGNOSTICS] = Publication("", it)
-            scheduleBound(HostReceiptWire.REGISTER, Publication("", it))
-            latest.forEach(::scheduleBound)
-        }
-        if (!refreshing.compareAndSet(false, true)) return
+    /** 模块进程被回收后，在宿主下次前台事件重建会话；带脏标记与最小冷却节流，无轮询、无常驻服务。 */
+    private fun refresh(force: Boolean = false) {
+        val initialSource = source ?: return
+        if (!refreshThrottle.tryAcquire(force)) return
+        val initialPass = prepareRefreshPass(source ?: initialSource)
         runCatching { worker.execute {
-            try {
-                HostThreadGuard.run("receipt.refresh") {
-                    val currentSource = source ?: return@run
-                    latest[HostReceiptWire.DIAGNOSTICS] = Publication("", currentSource)
-                    if (!send(HostReceiptWire.REGISTER, Publication("", currentSource))) return@run
-                    latest.forEach { (channel, snapshot) -> send(channel, snapshot) }
+            var pendingPass: RefreshPass? = initialPass
+            while (pendingPass != null) {
+                val pass = pendingPass
+                var succeeded = false
+                try {
+                    HostThreadGuard.run("receipt.refresh") {
+                        succeeded = executeRefreshPass(pass)
+                    }
+                } finally {
+                    pendingPass = if (refreshThrottle.complete(succeeded)) {
+                        val activeSource = source
+                        if (activeSource != null) {
+                            prepareRefreshPass(activeSource)
+                        } else {
+                            refreshThrottle.cancelLaunch()
+                            null
+                        }
+                    } else {
+                        null
+                    }
                 }
-            } finally { refreshing.set(false) }
-        } }.onFailure { refreshing.set(false) }
+            }
+        } }.onFailure { refreshThrottle.cancelLaunch() }
     }
 
-    private fun envelope(channel: String, value: Publication): Bundle? = runCatching {
+    private fun prepareRefreshPass(currentSource: HostRuntimeDiagnosticsSource): RefreshPass {
+        val registerPub = createPublication(HostReceiptWire.REGISTER, "", currentSource)
+        val diagPub = createPublication(HostReceiptWire.DIAGNOSTICS, "", currentSource)
+        latest[HostReceiptWire.DIAGNOSTICS] = diagPub
+        val snapshots = linkedMapOf<String, Publication>().apply {
+            putAll(latest)
+            this[HostReceiptWire.DIAGNOSTICS] = diagPub
+        }
+        scheduleBound(HostReceiptWire.REGISTER, registerPub)
+        snapshots.forEach(::scheduleBound)
+        return RefreshPass(registerPub, snapshots)
+    }
+
+    private fun executeRefreshPass(pass: RefreshPass): Boolean {
+        if (!send(HostReceiptWire.REGISTER, pass.register)) return false
+        var allAccepted = true
+        pass.snapshots.forEach { (channel, snapshot) ->
+            val current = latest[channel] ?: snapshot
+            if (!send(channel, current)) allAccepted = false
+        }
+        return allAccepted
+    }
+
+    private fun createPublication(
+        channel: String,
+        payload: String,
+        processSource: HostRuntimeDiagnosticsSource
+    ): Publication = Publication(
+        payload = payload,
+        source = processSource,
+        packet = SharedReceiptPacket(
+            builder = { envelope(channel, EnvelopePayload(payload, processSource)) },
+            copier = ::Bundle
+        )
+    )
+
+    private fun envelope(channel: String, value: EnvelopePayload): Bundle? = runCatching {
         val app = context ?: return@runCatching null
         // PackageManager 可能发生 IPC，必须位于本地排序点之外；受 HMA/包可见性限制失败时只保留 moduleUid = -1。
         if (moduleUid < 0) {
@@ -145,9 +209,12 @@ internal object HostReceiptHost {
         }
         val stamped = receiptSequence.capture {
             // 快照与编号一同固定，旧载荷不能在另一通道发送新值后领取较大的编号。
-            if (channel == HostReceiptWire.DIAGNOSTICS)
-                value.copy(payload = HostRuntimeDiagnosticsCodec.encode(HostRuntimeDiagnosticsBridge.snapshot()))
-            else latest[channel] ?: value
+            when (channel) {
+                HostReceiptWire.DIAGNOSTICS ->
+                    value.copy(payload = HostRuntimeDiagnosticsCodec.encode(HostRuntimeDiagnosticsBridge.snapshot()))
+                HostReceiptWire.REGISTER -> value
+                else -> latest[channel]?.let { EnvelopePayload(it.payload, it.source) } ?: value
+            }
         }
         val outgoing = stamped.value
         Bundle().apply {
@@ -179,8 +246,9 @@ internal object HostReceiptHost {
                 while (true) {
                     val entry = boundDirty.entries.firstOrNull() ?: break
                     if (!boundDirty.remove(entry.key, entry.value)) continue
+                    if (entry.value.packet.isPrimaryDelivered()) continue
                     val app = context ?: continue
-                    envelope(entry.key, entry.value)?.let { CompatibilityReceiptPublisher.publish(app, it) }
+                    entry.value.packet.getOrBuild()?.let { CompatibilityReceiptPublisher.publish(app, it) }
                 }
             } finally {
                 boundPreparing.set(false)
@@ -192,13 +260,122 @@ internal object HostReceiptHost {
     @Suppress("DEPRECATION")
     private fun send(channel: String, value: Publication): Boolean = runCatching {
         val app = context ?: return@runCatching false
-        val extras = envelope(channel, value) ?: return@runCatching false
+        val extras = value.packet.getOrBuild() ?: return@runCatching false
         val accepted = runCatching {
             app.contentResolver.acquireUnstableContentProviderClient("${BuildConfig.APPLICATION_ID}.roaming")?.use {
                 it.call(HostReceiptWire.METHOD, null, extras)?.getBoolean("accepted") == true
             } == true
         }.getOrDefault(false)
-        if (accepted) CompatibilityReceiptPublisher.acknowledge(channel, extras.getLong("sequence"))
+        if (accepted) {
+            value.packet.markPrimaryDelivered()
+            CompatibilityReceiptPublisher.acknowledge(channel, extras.getLong("sequence"))
+        }
         accepted
-    }.getOrDefault(false).also { if (!it) ReceiptQueryLog.failure("provider", ReceiptQueryFailure.SEND_FAILED) }
+    }.getOrDefault(false).also {
+        if (!it) {
+            refreshThrottle.markDirty()
+            ReceiptQueryLog.failure("provider", ReceiptQueryFailure.SEND_FAILED)
+        }
+    }
+}
+
+/** 宿主前台切屏刷新节流：带脏标记、并发在途合并与最小冷却窗口，避免频繁转场重复建包/IPC。 */
+internal class RefreshThrottle(
+    private val cooldownMs: Long = 30_000L,
+    private val clock: () -> Long = SystemClock::elapsedRealtime
+) {
+    private var hasAttempted = false
+    private var lastAttemptAtMs = 0L
+    private var dirty = false
+    private var pendingForce = false
+    private var inFlight = false
+
+    @Synchronized
+    fun markDirty() {
+        dirty = true
+    }
+
+    @Synchronized
+    fun tryAcquire(force: Boolean): Boolean {
+        dirty = true
+        if (force) pendingForce = true
+        if (inFlight) return false
+        val now = clock()
+        if (!pendingForce && hasAttempted && (now - lastAttemptAtMs) < cooldownMs) {
+            return false
+        }
+        dirty = false
+        pendingForce = false
+        inFlight = true
+        hasAttempted = true
+        lastAttemptAtMs = now
+        return true
+    }
+
+    @Synchronized
+    fun flushPendingIfReady(): Boolean {
+        if (inFlight || (!dirty && !pendingForce)) return false
+        val now = clock()
+        if (!pendingForce && hasAttempted && (now - lastAttemptAtMs) < cooldownMs) {
+            return false
+        }
+        dirty = false
+        pendingForce = false
+        inFlight = true
+        hasAttempted = true
+        lastAttemptAtMs = now
+        return true
+    }
+
+    @Synchronized
+    fun complete(succeeded: Boolean = true): Boolean {
+        inFlight = false
+        if (!succeeded) dirty = true
+        if (!dirty && !pendingForce) return false
+        val now = clock()
+        if (!pendingForce && hasAttempted && (now - lastAttemptAtMs) < cooldownMs) {
+            return false
+        }
+        dirty = false
+        pendingForce = false
+        inFlight = true
+        hasAttempted = true
+        lastAttemptAtMs = now
+        return true
+    }
+
+    @Synchronized
+    fun cancelLaunch() {
+        inFlight = false
+        dirty = true
+    }
+
+    @Synchronized
+    fun isDirty(): Boolean = dirty
+}
+
+/** 双通道同次发送共享单次序列化与编号结果，并为独立消费者提供隔离副本。 */
+internal class SharedReceiptPacket<T : Any>(
+    private val builder: () -> T?,
+    private val copier: (T) -> T = { it }
+) {
+    private val lock = Any()
+    @Volatile private var cached: T? = null
+    @Volatile private var completedOnPrimary = false
+
+    fun getOrBuild(): T? {
+        cached?.let { return copier(it) }
+        synchronized(lock) {
+            cached?.let { return copier(it) }
+            val built = builder() ?: return null
+            cached = built
+            return copier(built)
+        }
+    }
+
+    fun markPrimaryDelivered() {
+        completedOnPrimary = true
+    }
+
+    fun isPrimaryDelivered(): Boolean = completedOnPrimary
 }

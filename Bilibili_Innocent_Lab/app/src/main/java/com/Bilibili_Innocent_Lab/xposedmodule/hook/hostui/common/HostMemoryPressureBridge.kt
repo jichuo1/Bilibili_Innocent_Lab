@@ -14,6 +14,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BrandSplashImageCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundRasterCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundScene
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostPageChrome
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardMaterialScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
@@ -24,7 +25,95 @@ import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import io.github.jichuo1.meguviz.android.runtime.platform.MemoryBudgetObserver
 import io.github.jichuo1.meguviz.memory.android.MemoryPressureAdapter
 import java.lang.ref.WeakReference
+import java.util.LinkedHashSet
 import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * 宿主侧可回收资源统一裁剪强度分级。
+ */
+internal enum class HostTrimSeverity {
+    HIDDEN,
+    MODERATE,
+    CRITICAL
+}
+
+/**
+ * 宿主进程侧可回收资源与缓存租约注册表。
+ *
+ * 登记后返回幂等 [AutoCloseable] 租约句柄；当宿主触发 UI 隐藏、中度内存压力或紧急内存压力时，
+ * 统一通过 [HostMemoryPressureBridge] 按分级裁剪全部活跃登记项。
+ */
+internal object HostResourceRegistry {
+    private class LeaseEntry(
+        val tag: String,
+        val onTrim: (HostTrimSeverity) -> Unit
+    ) {
+        val closed = AtomicBoolean(false)
+    }
+
+    private val lock = Any()
+    private val entries = LinkedHashSet<LeaseEntry>()
+
+    /**
+     * 登记分级 trim 回调并返回自动注销的 [AutoCloseable] 租约句柄。
+     */
+    fun register(
+        tag: String = "host_resource",
+        onTrim: (HostTrimSeverity) -> Unit
+    ): AutoCloseable {
+        val entry = LeaseEntry(tag, onTrim)
+        synchronized(lock) {
+            entries.add(entry)
+        }
+        return AutoCloseable {
+            if (!entry.closed.compareAndSet(false, true)) return@AutoCloseable
+            synchronized(lock) {
+                entries.remove(entry)
+            }
+        }
+    }
+
+    /**
+     * 按严重级别分别登记裁剪回调；未单独指定 [onCritical] 时回退至 [onModerate]。
+     */
+    fun register(
+        tag: String = "host_resource",
+        onHidden: (() -> Unit)? = null,
+        onModerate: (() -> Unit)? = null,
+        onCritical: (() -> Unit)? = null
+    ): AutoCloseable = register(tag) { severity ->
+        when (severity) {
+            HostTrimSeverity.HIDDEN -> onHidden?.invoke()
+            HostTrimSeverity.MODERATE -> onModerate?.invoke()
+            HostTrimSeverity.CRITICAL -> (onCritical ?: onModerate)?.invoke()
+        }
+    }
+
+    internal fun dispatch(severity: HostTrimSeverity): Int {
+        val snapshot = synchronized(lock) {
+            entries.filterNot { it.closed.get() }
+        }
+        var invoked = 0
+        for (entry in snapshot) {
+            if (entry.closed.get()) continue
+            runCatching { entry.onTrim(severity) }
+            invoked++
+        }
+        return invoked
+    }
+
+    internal fun activeCount(): Int = synchronized(lock) {
+        entries.count { !it.closed.get() }
+    }
+
+    internal fun clearForTests() {
+        val snapshot = synchronized(lock) {
+            entries.toList().also { entries.clear() }
+        }
+        snapshot.forEach { it.closed.set(true) }
+    }
+}
 
 /**
  * 宿主进程内的内存压力、API 37.2 预算超限与 API 29+ 热节流桥接器。
@@ -39,6 +128,7 @@ internal object HostMemoryPressureBridge {
     private const val THERMAL_MODERATE = 2
     private const val THERMAL_SEVERE = 3
     private const val THERMAL_CRITICAL = 4
+    private const val API_37_2 = 3_700_002
 
     private val installLock = Any()
     private val callbackLock = Any()
@@ -109,8 +199,17 @@ internal object HostMemoryPressureBridge {
         }
     }
 
+    /**
+     * 通过 [HostResourceRegistry] 登记可回收资源回调，并返回自动注销的 [AutoCloseable] 租约句柄。
+     */
+    fun registerResource(
+        tag: String = "host_resource",
+        onTrim: (HostTrimSeverity) -> Unit
+    ): AutoCloseable = HostResourceRegistry.register(tag, onTrim)
+
     fun dispatchModerate() {
         dispatchModerateCore()
+        HostResourceRegistry.dispatch(HostTrimSeverity.MODERATE)
         trimHostUiMainCaches()
     }
 
@@ -120,6 +219,7 @@ internal object HostMemoryPressureBridge {
         for (callback in extra) {
             runCatching { callback() }
         }
+        HostResourceRegistry.dispatch(HostTrimSeverity.CRITICAL)
         runOnMain {
             trimHostUiMainCachesOnMain()
             runCatching { LumenEngine.releaseGraphics() }
@@ -127,10 +227,15 @@ internal object HostMemoryPressureBridge {
         }
     }
 
+    internal fun dispatchHidden() {
+        HostResourceRegistry.dispatch(HostTrimSeverity.HIDDEN)
+    }
+
     /**
      * 按与 `MemoryPressureAdapter.classify` 一致的语义归类系统 `onTrimMemory(level)`：
      * - `TRIM_MEMORY_BACKGROUND(40)` -> [LEVEL_MODERATE]
-     * - `TRIM_MEMORY_UI_HIDDEN(20)` -> [LEVEL_NONE]（仅切后台，不丢表面）
+     * - `TRIM_MEMORY_UI_HIDDEN(20)` -> [LEVEL_NONE]（保留历史契约：仅切后台不触发旧 moderate/critical，
+     *   但由 [handleTrimMemory] 向 [HostResourceRegistry] 派发 [HostTrimSeverity.HIDDEN]）
      * - `TRIM_MEMORY_RUNNING_CRITICAL(15)` 与 `>= TRIM_MEMORY_COMPLETE(80)` -> [LEVEL_CRITICAL]
      */
     internal fun classifyTrimLevel(level: Int): Int = when {
@@ -153,6 +258,9 @@ internal object HostMemoryPressureBridge {
         when (classifyTrimLevel(level)) {
             LEVEL_MODERATE -> dispatchModerate()
             LEVEL_CRITICAL -> dispatchCritical()
+            else -> if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+                dispatchHidden()
+            }
         }
     }
 
@@ -174,12 +282,15 @@ internal object HostMemoryPressureBridge {
             criticalCallbacks.clear()
         }
         synchronized(bindingsLock) { bindings.clear() }
+        HostResourceRegistry.clearForTests()
         currentThermalPressure = 0f
     }
 
     private fun preloadNativeLibraries() {
-        runCatching { ModuleNativeLoader.load("mgmem") }
-        runCatching { ModuleNativeLoader.load("mgmem_pressure_jni") }
+        runCatching {
+            ModuleNativeLoader.load("mgmem")
+            ModuleNativeLoader.load("mgmem_pressure_jni")
+        }
     }
 
     private fun attachTrimCallbacksLocked(application: Application) {
@@ -231,9 +342,9 @@ internal object HostMemoryPressureBridge {
     }
 
     private fun attachBudgetObserver(application: Application): AutoCloseable? {
-        if (Build.VERSION.SDK_INT < 36) return null
+        if (Build.VERSION.SDK_INT < 37) return null
         val mainLooper = runCatching { Looper.getMainLooper() }.getOrNull() ?: return null
-        return MemoryBudgetApi36.observe(application, mainLooper) {
+        return MemoryBudgetApi37.observe(application, mainLooper) {
             dispatchCritical()
         }
     }
@@ -257,6 +368,8 @@ internal object HostMemoryPressureBridge {
     private fun trimHostUiMainCachesOnMain() {
         runCatching { HostVideoCardStyle.trimAllCaches() }
         runCatching { HostBackgroundController.trimAllCaches() }
+        runCatching { HostCardMaterialScope.trimAllCaches() }
+        runCatching { HostPageChrome.trimAllCaches() }
     }
 
     private fun applyThermalPressureToBindings(pressure: Float) {
@@ -305,15 +418,17 @@ internal object HostMemoryPressureBridge {
         installedApp = null
     }
 
-    @RequiresApi(36)
-    private object MemoryBudgetApi36 {
+    @RequiresApi(37)
+    private object MemoryBudgetApi37 {
         @DoNotInline
-        fun observe(application: Application, looper: Looper, onOverBudget: () -> Unit): AutoCloseable? =
-            runCatching {
+        fun observe(application: Application, looper: Looper, onOverBudget: () -> Unit): AutoCloseable? {
+            if (Build.VERSION.SDK_INT_FULL < API_37_2) return null
+            return runCatching {
                 MemoryBudgetObserver.observeProcess(application, looper) {
                     HostThreadGuard.run("host.memory_pressure") { onOverBudget() }
                 }
             }.getOrNull()
+        }
     }
 
     @RequiresApi(29)

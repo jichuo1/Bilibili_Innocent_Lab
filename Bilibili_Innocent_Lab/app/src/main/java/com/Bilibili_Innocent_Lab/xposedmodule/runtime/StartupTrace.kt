@@ -9,10 +9,20 @@ import java.util.UUID
 /** DEBUG opt-in only. Fixed logical IDs; no host members, preferences or grant material. */
 internal object StartupTrace {
     val enabled = BuildConfig.DEBUG && BuildConfig.STARTUP_TRACE
-    private val recorder by lazy { StartupTraceRecorder(roots = setOf("entry", "authorization", "application.ready")) }
+    internal val recorder by lazy { StartupTraceRecorder(roots = setOf("entry", "authorization", "application.ready")) }
     fun attempt() { if (enabled) recorder.attempt() }
-    fun <T> measure(id: String, action: () -> T): T =
-        if (enabled) recorder.measure(id, action) else action()
+    internal inline fun <T> measure(id: String, action: () -> T): T {
+        val span = if (enabled) recorder.beginSpan(id) else null
+        var failed = false
+        try {
+            return action()
+        } catch (failure: Throwable) {
+            if (span != null) failed = true
+            throw failure
+        } finally {
+            if (span != null) recorder.endSpan(span, failed)
+        }
+    }
     fun json(): String = if (enabled) recorder.json() else ""
 }
 
@@ -25,7 +35,7 @@ internal class StartupTraceRecorder(
     private data class Key(val attempt: Int, val id: String, val main: Boolean)
     private data class Totals(var calls: Int = 0, var failures: Int = 0, var ns: Long = 0, var own: Long = 0,
         val parents: MutableSet<String> = linkedSetOf())
-    private class Frame(val id: String, val start: Long, var children: Long = 0)
+    private class Frame(val id: String, val start: Long, val key: Key, val parent: String, var children: Long = 0)
     private val frames = ThreadLocal.withInitial { ArrayDeque<Frame>() }
     private val totals = linkedMapOf<Key, Totals>()
     private val session = UUID.randomUUID().toString()
@@ -34,34 +44,49 @@ internal class StartupTraceRecorder(
 
     @Synchronized fun attempt() { attempt = (attempt + 1).coerceAtMost(2) }
 
-    fun <T> measure(id: String, action: () -> T): T {
+    internal inline fun <T> measure(id: String, action: () -> T): T {
+        val span = beginSpan(id)
+        var failed = false
+        try {
+            return action()
+        } catch (failure: Throwable) {
+            if (span != null) failed = true
+            throw failure
+        } finally {
+            if (span != null) endSpan(span, failed)
+        }
+    }
+
+    internal fun beginSpan(id: String): Any? {
         // IDs are code-owned. A malformed diagnostic must never prevent the original action.
-        if (!validId(id)) return action()
+        if (!validId(id)) return null
         val stack = checkNotNull(frames.get()) // withInitial always supplies a non-null deque.
         // Shared lookup helpers also run in business callbacks. Only explicit startup roots collect.
-        if (stack.isEmpty() && roots != null && id !in roots) return action()
+        if (stack.isEmpty() && roots != null && id !in roots) return null
         val key = synchronized(this) { Key(attempt, id, mainThread()) }
         val parent = stack.lastOrNull()?.id ?: "root"
-        val frame = Frame(id, clock())
+        val frame = Frame(id, clock(), key, parent)
         stack.addLast(frame)
-        var failed = false
-        try { return action() } catch (failure: Throwable) { failed = true; throw failure }
-        finally {
-            val ns = (clock() - frame.start).coerceIn(0, MAX_NS)
-            stack.removeLast()
-            stack.lastOrNull()?.let { it.children = (it.children + ns).coerceAtMost(MAX_NS) }
-            synchronized(this) {
-                val aggregate = totals[key] ?: if (totals.keys.count { it.attempt == key.attempt } < MAX_ROWS) {
-                    Totals().also { totals[key] = it }
-                } else null
-                if (aggregate == null) dropped = (dropped + 1).coerceAtMost(MAX_COUNT)
-                else {
-                    aggregate.calls = (aggregate.calls + 1).coerceAtMost(MAX_COUNT)
-                    if (failed) aggregate.failures = (aggregate.failures + 1).coerceAtMost(MAX_COUNT)
-                    aggregate.ns = (aggregate.ns + ns).coerceAtMost(MAX_NS)
-                    aggregate.own = (aggregate.own + (ns - frame.children).coerceAtLeast(0)).coerceAtMost(MAX_NS)
-                    if (aggregate.parents.size < MAX_ROWS) aggregate.parents += parent
-                }
+        return frame
+    }
+
+    internal fun endSpan(span: Any, failed: Boolean) {
+        val frame = span as? Frame ?: return
+        val ns = (clock() - frame.start).coerceIn(0, MAX_NS)
+        val stack = checkNotNull(frames.get())
+        stack.removeLast()
+        stack.lastOrNull()?.let { it.children = (it.children + ns).coerceAtMost(MAX_NS) }
+        synchronized(this) {
+            val aggregate = totals[frame.key] ?: if (totals.keys.count { it.attempt == frame.key.attempt } < MAX_ROWS) {
+                Totals().also { totals[frame.key] = it }
+            } else null
+            if (aggregate == null) dropped = (dropped + 1).coerceAtMost(MAX_COUNT)
+            else {
+                aggregate.calls = (aggregate.calls + 1).coerceAtMost(MAX_COUNT)
+                if (failed) aggregate.failures = (aggregate.failures + 1).coerceAtMost(MAX_COUNT)
+                aggregate.ns = (aggregate.ns + ns).coerceAtMost(MAX_NS)
+                aggregate.own = (aggregate.own + (ns - frame.children).coerceAtLeast(0)).coerceAtMost(MAX_NS)
+                if (aggregate.parents.size < MAX_ROWS) aggregate.parents += frame.parent
             }
         }
     }

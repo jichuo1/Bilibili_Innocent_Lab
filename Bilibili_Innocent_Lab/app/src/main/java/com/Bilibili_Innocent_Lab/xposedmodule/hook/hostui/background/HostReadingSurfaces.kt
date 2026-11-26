@@ -3,6 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import io.github.jichuo1.meguviz.android.extensions.setMargins
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
@@ -56,6 +58,7 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
     }
     private val root = WeakReference(root)
     private val targets = WeakHashMap<View, Target>()
+    private val recyclerTypes = HostRecyclerTypes(excludeViewPager2 = true, maxDepth = 24)
     private var session: LumenSurfaceSession? = null
     private var dark: Boolean? = null
 
@@ -96,9 +99,7 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
                 }
             }
             // 只进入页面容器及 ViewPager2；其他列表内已有视频、动态、评论等专用材质。
-            if (!view.javaClass.name.startsWith("androidx.viewpager2.") &&
-                generateSequence(view.javaClass as Class<*>?) { it.superclass }
-                    .any { it.name == "androidx.recyclerview.widget.RecyclerView" }) return
+            if (recyclerTypes.matches(view.javaClass)) return
             for (i in 0 until view.childCount) visit(view.getChildAt(i), depth + 1)
         }
         visit(root, 0)

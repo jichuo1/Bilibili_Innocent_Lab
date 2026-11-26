@@ -4,12 +4,12 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiExecutors
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import io.github.jichuo1.meguviz.drawable.android.BitmapWeigher
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executor
-import java.util.concurrent.Executors
 
 /** 按实际像素尺寸合成，缓存有界；尺寸动画期间继续用原始绘制，不拉伸旧缓存。 */
 internal object HostBackgroundRasterCache {
@@ -52,8 +52,8 @@ internal object HostBackgroundRasterCache {
             return result
         }
     }
-    private val worker = Executors.newSingleThreadExecutor { Thread(it, "host-background-raster").apply { isDaemon = true } }
-    private val main = Handler(Looper.getMainLooper())
+    internal val worker = HostUiExecutors.newSingleThreadPool("host-background-raster")
+    private val main by lazy { Handler(Looper.getMainLooper()) }
     internal class Queue(private val worker: Executor, private val main: FlightCache.OwnerPoster, render: (Key) -> Bitmap) {
         private class Raster(val bitmap: Bitmap, val bytes: Long)
         private val cacheLock = Any()

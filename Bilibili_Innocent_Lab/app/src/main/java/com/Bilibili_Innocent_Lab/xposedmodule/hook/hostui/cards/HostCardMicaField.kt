@@ -10,6 +10,7 @@ import android.os.Looper
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostLatestWorkQueue
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiExecutors
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.host.LumenMicaBackdrop
 import com.lumen.coacervation.engine.host.LumenMicaImage
@@ -17,7 +18,6 @@ import com.lumen.coacervation.engine.host.LumenMicaLayer
 import com.lumen.coacervation.engine.host.LumenMicaOptions
 import com.lumen.coacervation.engine.model.LumenPalette
 import java.lang.ref.WeakReference
-import java.util.concurrent.Executors
 
 /** 一个视口共用基础层和卡片层。只读取模块静态壁纸配方，不截取页面或读取系统壁纸。 */
 internal class HostCardMicaField(private val owner: View, private val field: View, palette: LumenPalette,
@@ -94,7 +94,7 @@ internal class HostCardMicaField(private val owner: View, private val field: Vie
     }
 
     companion object {
-        private val main = Handler(Looper.getMainLooper())
-        private val worker = Executors.newSingleThreadExecutor { Thread(it, "host-card-mica").apply { isDaemon = true } }
+        private val main by lazy { Handler(Looper.getMainLooper()) }
+        internal val worker = HostUiExecutors.newSingleThreadPool("host-card-mica")
     }
 }

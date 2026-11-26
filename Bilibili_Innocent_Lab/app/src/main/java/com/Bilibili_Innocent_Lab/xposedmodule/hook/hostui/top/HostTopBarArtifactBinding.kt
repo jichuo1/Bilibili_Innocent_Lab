@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import android.widget.TextView
 import android.widget.ImageView
 import android.graphics.ColorFilter
@@ -33,7 +34,7 @@ internal class HostTopBarArtifactBinding(private val dock: ViewGroup) {
     private fun collect(view: View, action: Boolean = false) {
         if (view is HostDockLayer || view is HostGlowView ||
             HostTopBarFxController.isUnderlineIndicator(view)) return
-        val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        val name = HostViewResourceNames.name(view)
         val actionIcon = action || name == "category_click_area" || name == "search_click_area"
         nodes += Node(view, view.parent, (view as? ViewGroup)?.childCount ?: 0,
             HostChromeArtwork.isBackdrop(name), name == "tab_title", actionIcon)

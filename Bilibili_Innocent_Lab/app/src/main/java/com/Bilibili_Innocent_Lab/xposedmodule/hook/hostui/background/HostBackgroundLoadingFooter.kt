@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.TextView
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 
 /** 仅识别已应用壁纸列表的宿主加载尾项，保留进度动画、提示和点击行为。 */
 internal class HostBackgroundLoadingFooter {
@@ -30,7 +31,7 @@ internal class HostBackgroundLoadingFooter {
         if (view.id == View.NO_ID) return 0
         val cached = kinds.get(view.id, -1)
         if (cached >= 0) return cached
-        val kind = when (runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")) {
+        val kind = when (HostViewResourceNames.name(view)) {
             "loading" -> LOADING
             "tv_left" -> LEFT
             "tv_right" -> RIGHT

@@ -299,6 +299,82 @@ class KavaMemberLookupTest {
     }
 
 
+    private class DynamicTargetFixture {
+        fun ping(): String = "pong"
+    }
+
+    private class TestDynamicPluginClassLoader(parent: ClassLoader) : ClassLoader(parent) {
+        fun defineFixture(name: String, bytes: ByteArray): Class<*> = defineClass(name, bytes, 0, bytes.size)
+    }
+
+    private fun exerciseDynamicLoaderAndCreateRef(): java.lang.ref.WeakReference<ClassLoader> {
+        val parent = requireNotNull(DynamicTargetFixture::class.java.classLoader)
+        val resource = DynamicTargetFixture::class.java.name.replace('.', '/') + ".class"
+        val bytes = requireNotNull(parent.getResourceAsStream(resource)).use { it.readBytes() }
+        val dynamicLoader = TestDynamicPluginClassLoader(parent)
+        val definedClass = dynamicLoader.defineFixture(DynamicTargetFixture::class.java.name, bytes)
+        assertSame(dynamicLoader, definedClass.classLoader)
+        assertFalse(KavaMemberLookup.isCacheableLoader(dynamicLoader))
+        assertSame(definedClass, KavaMemberLookup.classOrNull(dynamicLoader, DynamicTargetFixture::class.java.name))
+        assertEquals("ping", KavaMemberLookup.methodOrNull(definedClass, "ping")?.name)
+        assertTrue(KavaMemberLookup.declaredMethods(definedClass).any { it.name == "ping" })
+        return java.lang.ref.WeakReference(dynamicLoader)
+    }
+
+    fun `registered host loader uses volatile fast path and keeps third party child loaders out of cache`() {
+        val baseLoader = requireNotNull(HiddenMethods::class.java.classLoader)
+        val hostLoader = object : ClassLoader(baseLoader) {}
+        val thirdPartyChild = object : ClassLoader(hostLoader) {}
+
+        KavaMemberLookup.registerHostClassLoader(hostLoader)
+        assertTrue(KavaMemberLookup.isCacheableLoader(hostLoader))
+        assertFalse(KavaMemberLookup.isCacheableLoader(thirdPartyChild))
+
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(hostLoader, HiddenMethods::class.java.name))
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(hostLoader, HiddenMethods::class.java.name))
+        val hitsAfterHost = KavaMemberLookup.diagnostics().cacheHits
+        val cachedAfterHost = KavaMemberLookup.diagnostics().cachedClasses
+        assertTrue(hitsAfterHost >= 1L)
+        assertEquals(1, cachedAfterHost)
+
+        // 第三方子 ClassLoader 不进入全局缓存，也不驱逐宿主快路径命中收益。
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(thirdPartyChild, HiddenMethods::class.java.name))
+        assertEquals(cachedAfterHost, KavaMemberLookup.diagnostics().cachedClasses)
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(hostLoader, HiddenMethods::class.java.name))
+        assertEquals(hitsAfterHost + 1L, KavaMemberLookup.diagnostics().cacheHits)
+    }
+
+    fun `isolated and url class loaders bypass persistent loaderCaches and remain collectable`() {
+        val urlLoader = java.net.URLClassLoader(emptyArray(), javaClass.classLoader)
+        try {
+            assertFalse(KavaMemberLookup.isCacheableLoader(urlLoader))
+            assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(urlLoader, HiddenMethods::class.java.name))
+            assertEquals(0, KavaMemberLookup.diagnostics().cachedClasses)
+        } finally {
+            urlLoader.close()
+        }
+
+        val dynamicRef = exerciseDynamicLoaderAndCreateRef()
+        val diagnostics = KavaMemberLookup.diagnostics()
+        assertEquals(0, diagnostics.cachedClasses)
+        assertEquals(0, diagnostics.cachedMethods)
+        assertEquals(0, diagnostics.cachedMemberCollections)
+
+        var collected = false
+        for (i in 0 until 20) {
+            if (dynamicRef.get() == null) {
+                collected = true
+                break
+            }
+            System.gc()
+            System.runFinalization()
+            Thread.sleep(20)
+        }
+        assertTrue("dynamic ClassLoader should not be pinned by Value -> Key cycle in loaderCaches", collected)
+    }
+
+    private fun assertFalse(condition: Boolean) = org.junit.Assert.assertFalse(condition)
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (KavaMemberLookupTest) -> Unit) {
@@ -322,5 +398,7 @@ class KavaMemberLookupTest {
         runIsolated { s -> s.`cancelled member lookup does not poison the stable cache`() }
         runIsolated { s -> s.`transient loader exception does not permanently poison positive lookup cache`() }
         runIsolated { s -> s.`superclass collections reuse cached declared class collections and batch boot scope`() }
+        runIsolated { s -> s.`registered host loader uses volatile fast path and keeps third party child loaders out of cache`() }
+        runIsolated { s -> s.`isolated and url class loaders bypass persistent loaderCaches and remain collectable`() }
     }
 }

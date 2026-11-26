@@ -2,12 +2,17 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
 
 import android.content.Context
 import android.content.res.Configuration
+import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.lumen.coacervation.engine.model.LumenPalette
 import kotlin.math.pow
 
 /** 宿主换肤独立于系统 uiMode；栏的材质与前景必须消费同一份宿主主题。 */
-internal class HostChromeTheme(private val context: Context) {
+internal class HostChromeTheme(
+    private val context: Context,
+    private val cacheTtlMs: Long = THEME_CACHE_TTL_MS,
+    private val clock: () -> Long = DEFAULT_CLOCK
+) {
     private val nightTheme = KavaMemberLookup.classOrNull(context.classLoader, "com.bilibili.lib.ui.util.NightTheme")
         ?.let { KavaMemberLookup.inheritedMethodOrNull(it, "isNightTheme", Context::class.java) }
     private val hostColor = KavaMemberLookup.classOrNull(context.classLoader, "com.bilibili.magicasakura.utils.ThemeUtils")
@@ -15,12 +20,43 @@ internal class HostChromeTheme(private val context: Context) {
     private val accentId = context.resources.getIdentifier("theme_color_secondary", "color", context.packageName)
     private val pageId = context.resources.getIdentifier("Ga1", "color", context.packageName)
     private var previous: HostChromeColors? = null
+    private var cachedAt = 0L
+    private var cachedUiMode = 0
+    private var hasCachedColors = false
+    private var pageBaseValue: Int? = null
+    private var pageBaseDark = false
+    private var pageBaseUiMode = 0
+    private var pageBaseCachedAt = 0L
+    private var hasPageBaseCache = false
 
-    /** 逐帧只读换肤值；反射方法和资源 id 在绑定时解析一次，不跑壁纸取色/HCT。 */
+    fun invalidate() {
+        hasCachedColors = false
+        hasPageBaseCache = false
+    }
+
+    /** 逐帧只读换肤值；反射方法和资源 id 在绑定时解析一次，不跑壁纸取色/HCT，并在 TTL 内复用同配置读数。 */
     fun read(): HostChromeColors {
+        val now = clock()
+        val uiMode = context.resources.configuration?.uiMode ?: 0
+        val cacheActive = isCacheActive(now)
+        if (cacheActive && hasCachedColors && uiMode == cachedUiMode && now >= cachedAt && now - cachedAt < cacheTtlMs) {
+            return previous ?: readUncached(uiMode)
+        }
+        val prev = previous
+        val resolved = readUncached(uiMode)
+        if (uiMode != cachedUiMode || resolved != prev) {
+            // 主题或系统夜间配置变化时同步失效页底色缓存，避免跨明暗短暂沿用旧 Ga1。
+            hasPageBaseCache = false
+        }
+        cachedUiMode = uiMode
+        cachedAt = now
+        hasCachedColors = cacheActive
+        return resolved
+    }
+
+    private fun readUncached(uiMode: Int): HostChromeColors {
         val hostDark = runCatching { nightTheme?.invoke(null, context) as? Boolean }.getOrNull()
-        val systemDark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-            Configuration.UI_MODE_NIGHT_YES
+        val systemDark = uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         val accent = if (accentId == 0) null else {
             runCatching { hostColor?.invoke(null, context, accentId) as? Int }.getOrNull()
                 ?: runCatching { context.getColor(accentId) }.getOrNull()
@@ -32,9 +68,30 @@ internal class HostChromeTheme(private val context: Context) {
     /** 宿主页面底色 `Ga1`（khome 信息流背景）；读不到或与当前明暗不符时返回 null。 */
     fun pageBase(dark: Boolean): Int? {
         if (pageId == 0) return null
+        val now = clock()
+        val uiMode = context.resources.configuration?.uiMode ?: 0
+        val cacheActive = isCacheActive(now)
+        if (cacheActive && hasPageBaseCache && pageBaseDark == dark && pageBaseUiMode == uiMode &&
+            now >= pageBaseCachedAt && now - pageBaseCachedAt < cacheTtlMs) {
+            return pageBaseValue
+        }
         val color = runCatching { hostColor?.invoke(null, context, pageId) as? Int }.getOrNull()
-            ?: runCatching { context.getColor(pageId) }.getOrNull() ?: return null
-        return HostChromeColors.pageBase(color, dark)
+            ?: runCatching { context.getColor(pageId) }.getOrNull()
+        val resolved = color?.let { HostChromeColors.pageBase(it, dark) }
+        pageBaseValue = resolved
+        pageBaseDark = dark
+        pageBaseUiMode = uiMode
+        pageBaseCachedAt = now
+        hasPageBaseCache = cacheActive
+        return resolved
+    }
+
+    // JVM 纯单测下未打桩的 SystemClock.uptimeMillis() 恒返回 0；默认时钟 <= 0 时旁路缓存以保持测试实时性。
+    private fun isCacheActive(now: Long): Boolean = cacheTtlMs > 0L && (clock !== DEFAULT_CLOCK || now > 0L)
+
+    companion object {
+        internal const val THEME_CACHE_TTL_MS = 250L
+        private val DEFAULT_CLOCK: () -> Long = { runCatching { SystemClock.uptimeMillis() }.getOrDefault(0L) }
     }
 }
 

@@ -294,11 +294,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
 
     internal inner class CardPaint(view: View, radiusPx: Float, private val native: Boolean) : Drawable(), AutoCloseable {
         private val host = WeakReference(view)
-        private val target = if (native) view else View(view.context)
+        // Only cache the scalar density; keeping `target` on CardPaint would pin a View/Context across GC.
+        private val density = view.resources.displayMetrics.density
         private var radiusPx = radiusPx
-        private val control = LumenFluentControl(target, palette,
-            frameOptions(radiusPx / target.resources.displayMetrics.density, native))
-        private val border = requireNotNull(target.background)
+        private val control: LumenFluentControl
+        private val border: Drawable
         private val clip = Path()
         private val inner = RectF()
         private val matrix = Matrix()
@@ -309,6 +309,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         private var windowY = 0f
         internal var lastX = Int.MIN_VALUE
         internal var lastY = Int.MIN_VALUE
+        init {
+            val target = if (native) view else View(view.context)
+            control = LumenFluentControl(target, palette, frameOptions(radiusPx / density, native))
+            border = requireNotNull(target.background)
+        }
         fun position(x: Float, y: Float) { windowX = x; windowY = y }
         fun radius(value: Float) {
             if (radiusPx == value) return
@@ -316,13 +321,13 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         }
         fun updatePalette() {
             control.updatePalette(palette)
-            control.update(frameOptions(radiusPx / target.resources.displayMetrics.density, native))
+            control.update(frameOptions(radiusPx / density, native))
             invalidateSelf()
         }
         override fun onBoundsChange(bounds: Rect) {
             border.bounds = bounds
             // 与引擎描边共用宽度，避免细描边内侧仍残留一圈较宽的不透明底板。
-            val inset = target.resources.displayMetrics.density * frameStrokeDp
+            val inset = density * frameStrokeDp
             inner.set(bounds); inner.inset(inset, inset)
             clip.reset(); clip.addRoundRect(inner, (radiusPx - inset).coerceAtLeast(0f),
                 (radiusPx - inset).coerceAtLeast(0f), Path.Direction.CW)
@@ -376,6 +381,22 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         }
     }
 
+    /** 释放非可见卡片作用域的离屏录制节点并清理已失效/关闭的弱引用槽位。 */
+    fun trimCaches() {
+        if (closed) return
+        releaseOffscreenRenderNodes()
+        val cardIterator = cards.entries.iterator()
+        while (cardIterator.hasNext()) {
+            val paint = cardIterator.next().value.get()
+            if (paint == null || paint.isClosed) cardIterator.remove()
+        }
+        val paintIterator = paints.entries.iterator()
+        while (paintIterator.hasNext()) {
+            val entry = paintIterator.next()
+            if (entry.key.isClosed || entry.value.get() == null) paintIterator.remove()
+        }
+    }
+
     override fun close() {
         if (closed) return
         closed = true
@@ -398,6 +419,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         fun releaseAllOffscreenRenderNodes() {
             val snapshot = synchronized(instancesLock) { instances.keys.toList() }
             snapshot.forEach { it.releaseOffscreenRenderNodes() }
+        }
+
+        fun trimAllCaches() {
+            val snapshot = synchronized(instancesLock) { instances.keys.toList() }
+            snapshot.forEach { it.trimCaches() }
         }
     }
 }

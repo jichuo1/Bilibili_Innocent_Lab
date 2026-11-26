@@ -6,9 +6,10 @@ import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
 import android.view.View
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiExecutors
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.util.WeakHashMap
-import java.util.concurrent.Executors
 
 /** 挂在已识别的内容列表或页面根容器，不插入叠层、不修改 Fragment 可见性。 */
 internal class HostBackgroundController(private val config: HostBackgroundConfig, private val onError: (Throwable) -> Unit,
@@ -112,23 +113,14 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
     }
 
     private val recyclerLock = Any()
-    private val recyclerTypes = HashMap<Class<*>, Boolean>()
+    private val recyclerTypes = HostRecyclerTypes(
+        excludeViewPager2 = true,
+        maxEntries = MAX_RECYCLER_TYPES,
+        maxDepth = 24,
+        clearOnOverflow = true
+    )
     private fun isRecycler(type: Class<*>): Boolean = synchronized(recyclerLock) {
-        recyclerTypes[type]?.let { return@synchronized it }
-        if (recyclerTypes.size >= MAX_RECYCLER_TYPES) recyclerTypes.clear()
-        var resolved = false
-        var current: Class<*>? = type
-        while (current != null) {
-            // ViewPager2 的 RecyclerView 只是分页容器，不能把壁纸提升到标签栏背后。
-            if (current.name.startsWith("androidx.viewpager2.")) break
-            if (current.name == "androidx.recyclerview.widget.RecyclerView") {
-                resolved = true
-                break
-            }
-            current = current.superclass
-        }
-        recyclerTypes[type] = resolved
-        resolved
+        recyclerTypes.matches(type)
     }
 
     fun trimCaches() {
@@ -140,7 +132,7 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         private val controllerLock = Any()
         private val liveControllers = WeakHashMap<HostBackgroundController, Unit>()
         private val main by lazy { Handler(Looper.getMainLooper()) }
-        private val worker by lazy { Executors.newSingleThreadExecutor { Thread(it, "host-background").apply { isDaemon = true } } }
+        internal val worker by lazy { HostUiExecutors.newSingleThreadPool("host-background") }
 
         fun trimAllCaches() {
             val snapshot = synchronized(controllerLock) { liveControllers.keys.toList() }

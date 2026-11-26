@@ -8,9 +8,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBinding
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 
@@ -53,7 +55,6 @@ internal object HostTopBarFxController {
 
     private val attachments = HostChromeAttachments()
     private val attachedRoots = Collections.newSetFromMap(WeakHashMap<ViewGroup, Boolean>())
-    private val resourceNames = HashMap<Int, String>()
 
     internal data class TopBarHierarchy(
         val topBarDock: ViewGroup,
@@ -614,8 +615,7 @@ internal object HostTopBarFxController {
         spinnerTravelBase: Int = topPadding
     ) {
         // 宿主 RecyclerView 属于另一份 ClassLoader，连同其子类统一按继承链识别。
-        if (generateSequence(view.javaClass as Class<*>) { it.superclass }
-                .any { it.name == "androidx.recyclerview.widget.RecyclerView" }) {
+        if (HostRecyclerTypes.inherits(view.javaClass, HostRecyclerTypes.RECYCLER_VIEW, maxDepth = 24)) {
             // 胶囊只占用纵向内容流的顶部；直播分区、轮播和横向海报不能被推到自身高度之外。
             val vertical = runCatching {
                 val manager = KavaMemberLookup.inheritedMethodOrNull(view.javaClass, "getLayoutManager")?.invoke(view)
@@ -860,15 +860,6 @@ internal object HostTopBarFxController {
         return null
     }
 
-    private fun resourceName(view: View, id: Int): String {
-        if (id == 0 || id == View.NO_ID) return ""
-        resourceNames[id]?.let { return it }
-        val name = try {
-            view.resources?.getResourceEntryName(id).orEmpty()
-        } catch (_: Throwable) {
-            ""
-        }
-        resourceNames[id] = name
-        return name
-    }
+    private fun resourceName(view: View, id: Int): String =
+        HostViewResourceNames.name(view, id)
 }

@@ -339,6 +339,62 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         listOf("", "plain", "a b", "<init>", "中文", "a/b:c.d-e_f").forEach { ModernHookIds.of(it, method) }
     }
 
+    @Test
+    fun `hook ids hex table lookup matches sha256 percent-02x byte for byte`() {
+        fun referenceHashId(id: String, executable: Executable): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            fun feed(text: String) {
+                digest.update(text.toByteArray(Charsets.UTF_8))
+                digest.update(0)
+            }
+            feed(id)
+            feed(executable.declaringClass.name)
+            feed(executable.name)
+            for (type in executable.parameterTypes) feed(type.name)
+            val suffix = digest.digest().take(10).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            val safe = buildString {
+                for (c in id) {
+                    if (length == 64) break
+                    val ok = c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' ||
+                        c == '.' || c == '_' || c == '-' || c == ':' || c == '/'
+                    append(if (ok) c else '_')
+                }
+            }
+            return "bil:$safe:$suffix"
+        }
+
+        val executables = listOf<Executable>(
+            method,
+            pair,
+            Fixture::class.java.getDeclaredConstructor(),
+            ReturnFixture::class.java.getDeclaredMethod("voidValue")
+        )
+        val ids = mutableListOf(
+            "",
+            "plain",
+            "free-copy:comment-high:${method.toGenericString()}",
+            "中文/emoji:🎉#tag",
+            "x".repeat(80)
+        )
+        for (i in 0 until 40) ids += "probe-$i"
+
+        val seenHexChars = hashSetOf<Char>()
+        for (exe in executables) {
+            for (rawId in ids) {
+                val expected = referenceHashId(rawId, exe)
+                val actual = ModernHookIds.of(rawId, exe).value()
+                assertEquals(expected, actual)
+                val hexPart = actual.substringAfterLast(':')
+                assertEquals(20, hexPart.length)
+                hexPart.forEach { ch ->
+                    assertTrue("hex char must be lowercase 0-9a-f: $ch", ch in '0'..'9' || ch in 'a'..'f')
+                    seenHexChars += ch
+                }
+            }
+        }
+        assertEquals("all 16 lowercase hex digits should be exercised", 16, seenHexChars.size)
+    }
+
     /**
      * `PROTECTIVE` 的框架契约是“捕获 hooker 异常并按没装 Hook 继续”，所以想让宿主方法以
      * 指定异常结束的 Hook 必须显式选 `PASSTHROUGH`；默认值不许漂移。

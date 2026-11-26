@@ -100,6 +100,8 @@ internal class HostComposeChromePainter(
     private var headerId = 0
     private val float = if (bottom == null) HostKhomeTopFloat() else null
     private var staleFrames = 0
+    private var wallpaperBehindCached = false
+    private var wallpaperBehindArmed = false
     private val header = HostChromeHeaderBackdrop(object : HostChromeHeaderBackdrop.Ops<View, ViewGroup> {
         override fun alpha(header: View) = header.alpha
         override fun setAlpha(header: View, alpha: Float) { header.alpha = alpha }
@@ -166,6 +168,7 @@ internal class HostComposeChromePainter(
         HostThreadGuard.call("host.chrome.predraw", true) {
             var proceed = true
             try {
+                wallpaperBehindArmed = false
                 val currentOwner = this.owner.get() ?: return@call true
                 // The first composition can run before insets reach the window; correct it on a later
                 // frame, then leave changes to the layout listener instead of re-measuring every frame.
@@ -216,7 +219,10 @@ internal class HostComposeChromePainter(
         }
     }
     private val attach = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) = guarded("host.chrome.attach") { wake() }
+        override fun onViewAttachedToWindow(v: View) = guarded("host.chrome.attach") {
+            theme.invalidate()
+            wake()
+        }
         override fun onViewDetachedFromWindow(v: View) = guarded("host.chrome.detach") {
             backdropRecovery.clear(); activeTouch = false
             release(dispose = true)?.let { throw it }
@@ -495,7 +501,7 @@ internal class HostComposeChromePainter(
      */
     private fun paintBase(owner: View, destination: Canvas, w: Float, h: Float) {
         // A floating capsule shows the feed through the glass; only an empty row needs the base.
-        if (bottom != null || float?.floating == true || moduleWallpaperBehind(owner)) return
+        if (bottom != null || float?.floating == true || consumeWallpaperBehind(owner)) return
         underlay.color = pageBase()
         destination.drawRect(0f, 0f, w, h, underlay)
     }
@@ -518,10 +524,22 @@ internal class HostComposeChromePainter(
         if (headerId == 0) headerId = owner.resources.getIdentifier("main_top_layout", "id", owner.context.packageName)
         // owner is the row's AndroidComposeView, one level inside its ComposeView.
         val frame = if (active) HostKhomeTopFloat.locate(owner, headerId) else null
-        val wallpaper = frame != null && moduleWallpaperBehind(owner)
+        val wallpaper = frame != null && moduleWallpaperBehind(owner).also {
+            wallpaperBehindCached = it
+            wallpaperBehindArmed = true
+        }
+        val baseColor = if (frame != null && !wallpaper) pageBase() else null
         val target = frame?.header?.takeIf { frame.appBar.visibility == View.VISIBLE && colors.garbAccent == null }
-        if (target == null) header.restore() else header.apply(target, frame.root, if (wallpaper) null else pageBase())
-        return float.sync(frame, active, if (wallpaper) null else pageBase())
+        if (target == null) header.restore() else header.apply(target, frame.root, baseColor)
+        return float.sync(frame, active, baseColor)
+    }
+
+    private fun consumeWallpaperBehind(owner: View): Boolean {
+        if (wallpaperBehindArmed) {
+            wallpaperBehindArmed = false
+            return wallpaperBehindCached
+        }
+        return moduleWallpaperBehind(owner)
     }
 
     private fun moduleWallpaperBehind(owner: View): Boolean {
@@ -551,7 +569,7 @@ internal class HostComposeChromePainter(
             if (appearance.material == HostGlassMaterial.PRISM) {
                 prism = LumenPrismGlass(target, colors.palette(), prismOptions(owner), active, viewport?.coordinateView)
             } else {
-                binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport)?.also {
+                binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport).also {
                     HostMemoryPressureBridge.registerBinding(it)
                 }
             }
@@ -648,7 +666,9 @@ internal class HostComposeChromePainter(
         val oldViewport = viewport; viewport = null
         if (replacementReady && compositionObserved) compositionDirty = true
         source = null; version = null; paused = false; replacementReady = false; capsule = null
+        wallpaperBehindArmed = false; wallpaperBehindCached = false
         gpuCheckedAt = 0L; gpuBacked = false
+        if (dispose) theme.invalidate()
         oldTarget?.wake = null
         var failure: Throwable? = null
         fun close(action: () -> Unit) {

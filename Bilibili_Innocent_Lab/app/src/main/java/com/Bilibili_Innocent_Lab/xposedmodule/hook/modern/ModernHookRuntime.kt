@@ -284,6 +284,8 @@ internal class ModernHookRuntime(
 internal object ModernHookIds {
     private const val PREFIX = "bil:"
     private const val READABLE_MAX = 64
+    private const val HASH_BYTES = 10
+    private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
     fun of(id: String, executable: Executable): HookId {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -295,8 +297,17 @@ internal object ModernHookIds {
         add(executable.declaringClass.name)
         add(executable.name)
         for (type in executable.parameterTypes) add(type.name)
-        val hash = digest.digest().take(10).joinToString("") { "%02x".format(it.toInt() and 0xff) }
-        return HookId.of(PREFIX + readable(id) + ":" + hash)
+        val digestBytes = digest.digest()
+        val readablePart = readable(id)
+        val sb = StringBuilder(PREFIX.length + readablePart.length + 1 + HASH_BYTES * 2)
+        sb.append(PREFIX).append(readablePart).append(':')
+        val count = minOf(HASH_BYTES, digestBytes.size)
+        for (i in 0 until count) {
+            val byte = digestBytes[i].toInt() and 0xff
+            sb.append(HEX_DIGITS[byte ushr 4])
+            sb.append(HEX_DIGITS[byte and 0x0f])
+        }
+        return HookId.of(sb.toString())
     }
 
     private fun readable(id: String): String {

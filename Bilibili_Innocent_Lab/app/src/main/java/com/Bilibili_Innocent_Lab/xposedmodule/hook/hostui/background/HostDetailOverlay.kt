@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.view.View
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.lumen.coacervation.engine.host.LumenContentSource
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions
@@ -29,9 +30,13 @@ internal class HostDetailOverlay(view: View, session: LumenSurfaceSession, optio
         override val isShown: Boolean get() = this@HostDetailOverlay.view.get()?.isShown == true
         override val alpha: Float get() = this@HostDetailOverlay.view.get()?.alpha ?: 0f
         override val layoutDirection: Int get() = this@HostDetailOverlay.view.get()?.layoutDirection ?: View.LAYOUT_DIRECTION_LTR
-        override fun localToScreen(out: FloatArray): Boolean =
+        override fun localToScreen(out: FloatArray): Boolean = HostThreadGuard.call("host.detail.overlay.matrix", false) {
             this@HostDetailOverlay.view.get()?.let { matrices.localToScreen(it, out) } == true
-        override fun invalidate() { invalidateSelf(); this@HostDetailOverlay.view.get()?.invalidate() }
+        }
+        override fun invalidate() = HostThreadGuard.run("host.detail.overlay.invalidate") {
+            invalidateSelf()
+            this@HostDetailOverlay.view.get()?.invalidate()
+        }
     }
     val binding = session.bindTarget(target, options, source)
 
@@ -43,7 +48,7 @@ internal class HostDetailOverlay(view: View, session: LumenSurfaceSession, optio
         invalidateSelf()
     }
 
-    override fun draw(canvas: Canvas) {
+    override fun draw(canvas: Canvas) = HostThreadGuard.run("host.detail.overlay.draw") {
         val save = if (opacity < 255) canvas.saveLayerAlpha(bounds.left.toFloat(), bounds.top.toFloat(),
             bounds.right.toFloat(), bounds.bottom.toFloat(), opacity) else canvas.save()
         try {

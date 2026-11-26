@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBinding
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeValueLedger
@@ -209,14 +210,6 @@ internal object HostBottomBarFxController {
         tabHost.elevation = 0f
     }
 
-    /**
-     * id → 资源名缓存。
-     *
-     * `getResourceEntryName` 走 AssetManager 的资源表（加锁、每次返回新建 String），而同一 id 在进程内
-     * 的名字恒定。宿主底栏的逐帧路径曾经每个节点查一次，是快速切页掉帧的来源之一；清理与对齐现在都
-     * 按需触发，这里再做一层缓存，让偶发的整树扫描也不产生这批查询。
-     */
-    private val resourceNames = HashMap<Int, String>()
     private data class IconSize(var width: Int, var height: Int, var appliedWidth: Int = -1, var appliedHeight: Int = -1)
     private val iconSizes = WeakHashMap<View, IconSize>()
 
@@ -252,17 +245,8 @@ internal object HostBottomBarFxController {
         }
     }
 
-    private fun resourceName(view: View, id: Int): String {
-        if (id == 0 || id == View.NO_ID) return ""
-        resourceNames[id]?.let { return it }
-        val name = try {
-            view.resources.getResourceEntryName(id)
-        } catch (_: Exception) {
-            ""
-        }
-        resourceNames[id] = name
-        return name
-    }
+    private fun resourceName(view: View, id: Int): String =
+        view.resources?.let { HostViewResourceNames.name(it, id) }.orEmpty()
 
     /**
      * 垂直居中对齐底栏内容 (图标或图文组合居中于当前高度的底栏内)。

@@ -6,6 +6,8 @@ import android.graphics.drawable.Drawable
 import android.util.SparseIntArray
 import android.util.TypedValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import android.view.View
@@ -96,7 +98,7 @@ internal class HostVideoCardStyle(
     private val excluded = WeakHashMap<View, Int>()
     private val listWatchers = WeakHashMap<ViewGroup, WeakReference<ListWatcher>>()
     private val resourceKinds = SparseIntArray()
-    private val recyclerTypes = HashMap<Class<*>, Boolean>()
+    private val recyclerTypes = HostRecyclerTypes(maxEntries = MAX_RECYCLER_TYPES, maxDepth = 24, clearOnOverflow = true)
 
     init {
         synchronized(instancesLock) { instances[this] = Unit }
@@ -457,7 +459,7 @@ internal class HostVideoCardStyle(
         if (id == View.NO_ID) return OTHER
         val cached = resourceKinds.get(id, -1)
         if (cached >= 0) return cached
-        val name = runCatching { view.resources.getResourceEntryName(id) }.getOrDefault("")
+        val name = HostViewResourceNames.name(view)
         val kind = when {
             // 结束页卡片在 bind 时可能尚未挂到播放器；其进度占位 ViewStub 可提前识别。
             name == "endpage_progess_root" || name == "endpage_progress_root" ||
@@ -475,8 +477,7 @@ internal class HostVideoCardStyle(
         return kind
     }
 
-    private fun resourceName(view: View): String = if (view.id == View.NO_ID) "" else
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+    private fun resourceName(view: View): String = HostViewResourceNames.name(view)
 
     private fun isInLiveHome(view: View): Boolean {
         var node: View? = view
@@ -512,20 +513,7 @@ internal class HostVideoCardStyle(
         return false
     }
 
-    private fun isRecycler(type: Class<*>): Boolean = recyclerTypes[type] ?: run {
-        if (recyclerTypes.size >= MAX_RECYCLER_TYPES) recyclerTypes.clear()
-        var resolved = false
-        var current: Class<*>? = type
-        while (current != null) {
-            if (current.name == "androidx.recyclerview.widget.RecyclerView") {
-                resolved = true
-                break
-            }
-            current = current.superclass
-        }
-        recyclerTypes[type] = resolved
-        resolved
-    }
+    private fun isRecycler(type: Class<*>): Boolean = recyclerTypes.matches(type)
 
     fun trimCaches() {
         resourceKinds.clear()

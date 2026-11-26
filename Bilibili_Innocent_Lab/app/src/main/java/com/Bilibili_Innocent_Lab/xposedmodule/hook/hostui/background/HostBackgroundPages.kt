@@ -18,6 +18,8 @@ import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
@@ -32,7 +34,7 @@ internal class HostBackgroundPages(
 ) {
     private val pages = WeakHashMap<ViewGroup, Page>()
     private val detailBackgrounds = WeakHashMap<View, Drawable>()
-    private val types = HashMap<Class<*>, Boolean>()
+    private val recyclerTypes = HostRecyclerTypes(excludeViewPager2 = true, maxDepth = 24)
     private val materialFills = HashMap<Class<*>, Pair<java.lang.reflect.Method, java.lang.reflect.Method>?>()
     private val visiblePageBounds = Rect()
     val requiresNight: Boolean get() = background.requiresNight
@@ -107,15 +109,7 @@ internal class HostBackgroundPages(
         else if (opus) background.pageOffset(panel, baseOffset)
     }
 
-    private fun recycler(view: View): Boolean = types.getOrPut(view.javaClass) {
-        var type: Class<*>? = view.javaClass
-        while (type != null) {
-            if (type.name.startsWith("androidx.viewpager2.")) return@getOrPut false
-            if (type.name == "androidx.recyclerview.widget.RecyclerView") return@getOrPut true
-            type = type.superclass
-        }
-        false
-    }
+    private fun recycler(view: View): Boolean = recyclerTypes.matches(view.javaClass)
 
     private fun name(view: View) = HostViewResourceNames.name(view)
 
@@ -375,9 +369,12 @@ internal class HostBackgroundPages(
         if (detailBackgrounds[view] === drawable) return
         if (nativeContainers && tabActionSurface(view)) {
             if (neutralTabActionBackground(drawable)) {
-                val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
+                val left = view.paddingLeft
+                val top = view.paddingTop
+                val right = view.paddingRight
+                val bottom = view.paddingBottom
                 view.background = null
-                view.setPadding(padding[0], padding[1], padding[2], padding[3])
+                view.setPadding(left, top, right, bottom)
             }
             return
         }
@@ -422,7 +419,7 @@ internal class HostBackgroundPages(
             else -> {
                 if (!nativeContainers || view.isClickable || view.width < page.width * .9f || drawable == null) return
                 val access = materialFills.getOrPut(drawable.javaClass) {
-                    if (generateSequence(drawable.javaClass as Class<*>?) { it.superclass }.none { it.name == "com.google.android.material.shape.MaterialShapeDrawable" }) return@getOrPut null
+                    if (!HostRecyclerTypes.inherits(drawable.javaClass, MATERIAL_SHAPE_DRAWABLE, maxDepth = 24)) return@getOrPut null
                     val read = KavaMemberLookup.inheritedMethodOrNull(drawable.javaClass, "getFillColor") ?: return@getOrPut null
                     val write = KavaMemberLookup.inheritedMethodOrNull(drawable.javaClass, "setFillColor", ColorStateList::class.java) ?: return@getOrPut null
                     read to write
@@ -562,13 +559,22 @@ internal class HostBackgroundPages(
             val parent = view.parent as? View ?: return false
             // 收藏二级标签的渐变、按钮容器和图标各自持有 Bg1，需一起接到壁纸。
             val favoriteStrip = when {
-                name(view) in setOf("right_button_start_bg", "right_button") -> parent
-                view is ImageView && name(view) in setOf("icon_1", "icon_2", "icon_3") && name(parent) == "right_button" -> parent.parent as? View
+                name(view) in favoriteButtonNames -> parent
+                view is ImageView && name(view) in favoriteIconNames && name(parent) == "right_button" -> parent.parent as? View
                 else -> null
             } as? ViewGroup
-            if (favoriteStrip != null && name(favoriteStrip) == "top_container")
-                return (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "tab_layout" } &&
-                    (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "right_button" }
+            if (favoriteStrip != null && name(favoriteStrip) == "top_container") {
+                var hasTabLayout = false
+                var hasRightButton = false
+                for (i in 0 until favoriteStrip.childCount) {
+                    when (name(favoriteStrip.getChildAt(i))) {
+                        "tab_layout" -> hasTabLayout = true
+                        "right_button" -> hasRightButton = true
+                    }
+                    if (hasTabLayout && hasRightButton) return true
+                }
+                return false
+            }
             if (view is ImageView) return name(view) == "filter_icon" && name(parent) == "filter_icon_container" &&
                 (parent.parent as? View)?.let(::name) == "container_strip"
             return view is ViewGroup && view.childCount == 1 && view.getChildAt(0) is ImageView &&
@@ -579,36 +585,65 @@ internal class HostBackgroundPages(
             val name = name(view)
             if (name != "head_layout" && name != "top_layout") return false
             val parent = view.parent as? ViewGroup ?: return false
-            return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
+            return hasChildNamed(parent, "select_list")
         }
         private fun searchSuggestions(view: View): Boolean {
             if (view !is android.widget.ListView || name(view) != "suggest_list") return false
             val parent = view.parent as? ViewGroup ?: return false
             // ChannelSearchActivity 只显示/隐藏建议列表，底下的搜索结果仍可见；整层底板不能清空。
-            return name(parent) == "content_frame" &&
-                (0 until parent.childCount).any { name(parent.getChildAt(it)) == "recycler" }
+            return name(parent) == "content_frame" && hasChildNamed(parent, "recycler")
         }
         private fun commentMask(view: View): Boolean {
             val parent = view.parent as? ViewGroup ?: return false
             if (name(parent) != "root_container" || view !is ViewGroup || view.childCount != 1) return false
             val body = view.getChildAt(0) as? ViewGroup ?: return false
-            if (!body.isClickable || !body.isFocusable ||
-                (0 until body.childCount).none { name(body.getChildAt(it)) == "close" } ||
-                (0 until body.childCount).none { body.getChildAt(it) is ImageView }) return false
-            if (generateSequence(view.javaClass as Class<*>?) { it.superclass }
-                    .none { it.name == "androidx.core.widget.NestedScrollView" }) return false
+            if (!body.isClickable || !body.isFocusable) return false
+            var hasClose = false
+            var hasImage = false
+            for (i in 0 until body.childCount) {
+                val child = body.getChildAt(i)
+                if (!hasClose && name(child) == "close") hasClose = true
+                if (!hasImage && child is ImageView) hasImage = true
+                if (hasClose && hasImage) break
+            }
+            if (!hasClose || !hasImage) return false
+            if (!HostRecyclerTypes.inherits(view.javaClass, NESTED_SCROLL_VIEW, maxDepth = 24)) return false
             // 旧评论的课堂/青少年遮罩无根 id，动态盖在 root_container 上；正文仍在下层。
-            val content = (0 until parent.childCount).map { parent.getChildAt(it) }
-                .firstOrNull { name(it) == "content" } as? ViewGroup ?: return false
-            return (0 until content.childCount).any { name(content.getChildAt(it)) == "footer_container" }
+            var content: ViewGroup? = null
+            for (i in 0 until parent.childCount) {
+                val sibling = parent.getChildAt(i)
+                if (name(sibling) == "content") {
+                    content = sibling as? ViewGroup
+                    break
+                }
+            }
+            return content != null && hasChildNamed(content, "footer_container")
         }
         private fun videoPanel(view: View): Boolean {
             if (view !is ViewGroup || name(view) != "content_container") return false
             if ((view.parent as? View)?.let(::name) == "round_container") return true
             // 稍后再看播放页直接把前景面板放在 Theseus 根下，没有普通详情页的 round_container。
-            return (0 until view.childCount).any { name(view.getChildAt(it)) == "tabs_back_board" } &&
-                (0 until view.childCount).any { name(view.getChildAt(it)) == "pager" }
+            var hasTabs = false
+            var hasPager = false
+            for (i in 0 until view.childCount) {
+                when (name(view.getChildAt(i))) {
+                    "tabs_back_board" -> hasTabs = true
+                    "pager" -> hasPager = true
+                }
+                if (hasTabs && hasPager) return true
+            }
+            return false
         }
+        private fun hasChildNamed(parent: ViewGroup, targetName: String): Boolean {
+            for (i in 0 until parent.childCount) {
+                if (name(parent.getChildAt(i)) == targetName) return true
+            }
+            return false
+        }
+        private const val MATERIAL_SHAPE_DRAWABLE = "com.google.android.material.shape.MaterialShapeDrawable"
+        private const val NESTED_SCROLL_VIEW = "androidx.core.widget.NestedScrollView"
+        private val favoriteButtonNames = setOf("right_button_start_bg", "right_button")
+        private val favoriteIconNames = setOf("icon_1", "icon_2", "icon_3")
         private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list", "opus_dy_list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")

@@ -15,6 +15,7 @@ import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSceneBackground
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.ref.WeakReference
 
 /** 内置预设使用连续世界坐标；自定义图片保持原有缩放与遮罩缓存。 */
@@ -30,7 +31,11 @@ internal class HostBackgroundDrawable(
     private var accent: Shader? = null
     private val scene = if (config.preset != HostBackgroundPreset.CUSTOM && config.preset != HostBackgroundPreset.OFF) {
         val owner = WeakReference(this)
-        HostBackgroundScene(config) { owner.get()?.invalidateSelf() }
+        HostBackgroundScene(
+            config = config,
+            invalidate = { HostThreadGuard.run("host.background.drawable.invalidate") { owner.get()?.invalidateSelf() } },
+            isOnscreen = { owner.get()?.let { it.isVisible && it.callback != null } == true }
+        )
     } else null
     internal var scrollOffset = 0L
         set(value) { if (field != value) { field = value; invalidateSelf() } }
@@ -69,7 +74,8 @@ internal class HostBackgroundDrawable(
         }
     private var requestScheduled = false
     private var requestedKey: HostBackgroundRasterCache.Key? = null
-    private val cacheRequest: Runnable = Runnable { requestRaster() }
+    // scheduleSelf 投递到宿主 View 调度器，必须保持同一 guarded 实例才能由 unscheduleSelf 撤销。
+    private val cacheRequest: Runnable = HostThreadGuard.runnable("host.background.drawable.cache") { requestRaster() }
     private fun requestRaster() {
         requestScheduled = false
         val current = key ?: return
@@ -91,7 +97,7 @@ internal class HostBackgroundDrawable(
         }
     }
 
-    override fun onBoundsChange(bounds: Rect) { rebuild() }
+    override fun onBoundsChange(bounds: Rect) = HostThreadGuard.run("host.background.drawable.bounds") { rebuild() }
 
     private fun rebuild() {
         if (scene != null) { shaderNight = night; return }
@@ -137,49 +143,51 @@ internal class HostBackgroundDrawable(
     }
 
     override fun draw(canvas: Canvas) {
-        scene?.let {
-            // 只有离屏精确生成（cacheEnabled = false，运行在工作线程）才就地同步生成；软件 Canvas 的交互绘制
-            // （例如主线程上的 Picture 采样录制）不再阻塞：缺失的 tile 画降级底色，就绪后推进版本并刷新。
-            it.draw(canvas, bounds, scrollOffset, night, drawableAlpha, paint.colorFilter,
-                synchronous = !cacheEnabled)
-            return
-        }
-        if (shaderNight != night) rebuild()
-        if (drawableAlpha == 0) return
-        paint.alpha = drawableAlpha
-        if (canvas.isHardwareAccelerated && drawableAlpha == 255 && paint.colorFilter == null) {
-            raster?.let {
+        HostThreadGuard.run("host.background.drawable.draw") {
+            scene?.let {
+                // 只有离屏精确生成（cacheEnabled = false，运行在工作线程）才就地同步生成；软件 Canvas 的交互绘制
+                // （例如主线程上的 Picture 采样录制）不再阻塞：缺失的 tile 画降级底色，就绪后推进版本并刷新。
+                it.draw(canvas, bounds, scrollOffset, night, drawableAlpha, paint.colorFilter,
+                    synchronous = !cacheEnabled)
+                return@run
+            }
+            if (shaderNight != night) rebuild()
+            if (drawableAlpha == 0) return@run
+            paint.alpha = drawableAlpha
+            if (canvas.isHardwareAccelerated && drawableAlpha == 255 && paint.colorFilter == null) {
+                raster?.let {
+                    paint.shader = null
+                    if (config.preset == HostBackgroundPreset.CUSTOM && image != null) canvas.drawBitmap(it, null, destination, paint)
+                    else canvas.drawBitmap(it, bounds.left.toFloat(), bounds.top.toFloat(), paint)
+                    return@run
+                }
+                if (key != null && requestedKey != key && !requestScheduled && callback != null) {
+                    requestScheduled = true
+                    scheduleSelf(cacheRequest, SystemClock.uptimeMillis() + 150)
+                }
+            }
+            // 只有完全不透明且没有淡出/滤镜时，图片才确定覆盖底色。
+            if (config.preset != HostBackgroundPreset.CUSTOM || image == null || image.hasAlpha() ||
+                drawableAlpha != 255 || paint.colorFilter != null) {
+                paint.shader = base
+                canvas.drawRect(bounds, paint)
+            }
+            if (config.preset == HostBackgroundPreset.CUSTOM && image != null) {
                 paint.shader = null
-                if (config.preset == HostBackgroundPreset.CUSTOM && image != null) canvas.drawBitmap(it, null, destination, paint)
-                else canvas.drawBitmap(it, bounds.left.toFloat(), bounds.top.toFloat(), paint)
-                return
+                canvas.drawBitmap(image, null, destination, paint)
+            } else {
+                paint.shader = glow
+                canvas.drawRect(bounds, paint)
+                paint.shader = accent
+                canvas.drawRect(bounds, paint)
             }
-            if (key != null && requestedKey != key && !requestScheduled && callback != null) {
-                requestScheduled = true
-                scheduleSelf(cacheRequest, SystemClock.uptimeMillis() + 150)
-            }
-        }
-        // 只有完全不透明且没有淡出/滤镜时，图片才确定覆盖底色。
-        if (config.preset != HostBackgroundPreset.CUSTOM || image == null || image.hasAlpha() ||
-            drawableAlpha != 255 || paint.colorFilter != null) {
-            paint.shader = base
-            canvas.drawRect(bounds, paint)
-        }
-        if (config.preset == HostBackgroundPreset.CUSTOM && image != null) {
             paint.shader = null
-            canvas.drawBitmap(image, null, destination, paint)
-        } else {
-            paint.shader = glow
-            canvas.drawRect(bounds, paint)
-            paint.shader = accent
+            if (config.veil == 0) return@run
+            val veilColor = if (config.preset.isCelestial) Color.BLACK else if (night) 0xff10121b.toInt() else Color.WHITE
+            paint.color = ColorUtils.setAlphaComponent(veilColor,
+                (config.veil * drawableAlpha / 100).coerceIn(0, 255))
             canvas.drawRect(bounds, paint)
         }
-        paint.shader = null
-        if (config.veil == 0) return
-        val veilColor = if (config.preset.isCelestial) Color.BLACK else if (night) 0xff10121b.toInt() else Color.WHITE
-        paint.color = ColorUtils.setAlphaComponent(veilColor,
-            (config.veil * drawableAlpha / 100).coerceIn(0, 255))
-        canvas.drawRect(bounds, paint)
     }
 
     override fun setAlpha(alpha: Int) { drawableAlpha = alpha.coerceIn(0, 255); invalidateSelf() }

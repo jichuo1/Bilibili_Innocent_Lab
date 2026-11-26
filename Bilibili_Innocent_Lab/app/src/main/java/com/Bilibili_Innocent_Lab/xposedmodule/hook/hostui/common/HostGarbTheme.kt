@@ -3,10 +3,10 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
 
 /** 读取宿主已装备的装扮；只融合颜色，角色图标仍由宿主加载和播放。 */
 internal object HostGarbTheme {
@@ -23,7 +23,9 @@ internal object HostGarbTheme {
         private val artwork = method("getHeadBgPath")
         @Volatile private var requestedPath: String? = null
         @Volatile private var sampled: Pair<String, Int?>? = null
-        private val samples = HostLatestWorkQueue(worker::execute)
+        private val samples = HostLatestWorkQueue { task ->
+            worker.execute(HostThreadGuard.runnable("host.garb.worker") { task.run() })
+        }
 
         fun read(context: Context): Int? = runCatching {
             // 夜间/夜空背景下 getCurGarb 是纯黑皮肤，实际装备仍由带 Context 的入口提供。
@@ -51,7 +53,7 @@ internal object HostGarbTheme {
     }
 
     private val readers = ConcurrentHashMap<ClassLoader, Access>()
-    private val worker = Executors.newSingleThreadExecutor { Thread(it, "host-garb-color").apply { isDaemon = true } }
+    internal val worker = HostUiExecutors.newSingleThreadPool("host-garb-color")
 
     fun accent(context: Context): Int? = readers.getOrPut(context.classLoader) { Access(context.classLoader) }.read(context)
 

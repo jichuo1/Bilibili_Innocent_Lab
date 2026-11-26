@@ -7,6 +7,9 @@ import android.view.ViewGroup
 import android.view.Gravity
 import android.widget.FrameLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopStatusFusionView
 import io.github.jichuo1.meguviz.android.extensions.rootStatusBarInsetTopOrNull
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
@@ -46,6 +49,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
 
     private val root = WeakReference(root)
     private val targets = WeakHashMap<View, Target>()
+    private val recyclerTypes = HostRecyclerTypes(excludeViewPager2 = true, maxDepth = 24)
     private var session: LumenSurfaceSession? = null
     private var source: HostChromeContentSource? = null
     private var dark: Boolean? = null
@@ -54,6 +58,10 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     private var statusBinding: LumenSurfaceBinding? = null
     private val location = IntArray(2)
     private val visibleBounds = Rect()
+
+    init {
+        synchronized(instancesLock) { instances[this] = Unit }
+    }
 
     fun discover() {
         val root = root.get() ?: return
@@ -78,14 +86,14 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
             if (role != null) { found[view] = role; return }
             // ViewPager2 内部的 RecyclerView 承载页面，收藏筛选栏位于其中；
             // 普通内容列表仍不进入，避免遍历卡片或给卡片子组件套顶栏材质。
-            if (view !is ViewGroup || !view.javaClass.name.startsWith("androidx.viewpager2.") &&
-                generateSequence(view.javaClass as Class<*>?) { it.superclass }
-                    .any { it.name == "androidx.recyclerview.widget.RecyclerView" }) return
+            if (view !is ViewGroup || recyclerTypes.matches(view.javaClass)) return
             for (i in 0 until view.childCount) visit(view.getChildAt(i), depth + 1)
         }
         visit(root, 0)
         for (view in targets.keys.toList()) if (view !in found) {
-            targets.remove(view)?.binding?.close()
+            targets.remove(view)?.binding?.let {
+                it.close()
+            }
             owned.remove(view)
         }
         for ((view, role) in found) targets.getOrPut(view) { Target(role) }
@@ -119,6 +127,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
             val binding = active.ensureSource(view, options, source)
             if (binding !== target.binding) {
                 target.binding = binding
+                HostMemoryPressureBridge.registerBinding(binding)
                 view.background?.let { owned[view] = it }
             }
         }
@@ -158,7 +167,11 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
         band.visibility = View.VISIBLE
         // 与相邻栏共用源、模糊半径和色罩，保留壁纸的窗口坐标，系统图标由系统照常绘制。
-        statusBinding = active.ensureSource(band, options, source)
+        val nextBinding = active.ensureSource(band, options, source)
+        if (nextBinding !== statusBinding) {
+            statusBinding = nextBinding
+            HostMemoryPressureBridge.registerBinding(nextBinding)
+        }
     }
 
     private fun visibleChrome(view: View, root: ViewGroup): Boolean {
@@ -186,22 +199,49 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
     }
 
+    /** 清理已离树目标绑定与类型缓存；若根容器自身已离树则完整回收会话资源。 */
+    fun trimCaches() {
+        recyclerTypes.clear()
+        val host = root.get()
+        if (host == null || !host.isAttachedToWindow) {
+            close()
+            return
+        }
+        for (view in targets.keys.toList()) {
+            if (!view.isAttachedToWindow) {
+                targets.remove(view)?.binding?.close()
+                owned.remove(view)
+            }
+        }
+        if (targets.isEmpty()) hideStatusBar()
+    }
+
     override fun close() {
         hideStatusBar()
         statusBand?.let { (it.parent as? ViewGroup)?.removeView(it) }
         statusBand = null
+        for ((view, target) in targets) {
+            target.binding?.close()
+            target.binding = null
+            owned.remove(view)
+        }
+        targets.clear()
+        recyclerTypes.clear()
         session?.close(); session = null
         source = null; dark = null; version = null
-        for ((view, target) in targets) {
-            owned.remove(view)
-            target.binding = null
-        }
     }
 
     private fun name(view: View) = HostViewResourceNames.name(view)
 
-    private companion object {
-        val lightStyle = Style(night = false)
-        val darkStyle = Style(night = true)
+    companion object {
+        private val lightStyle = Style(night = false)
+        private val darkStyle = Style(night = true)
+        private val instancesLock = Any()
+        private val instances = WeakHashMap<HostPageChrome, Unit>()
+
+        fun trimAllCaches() {
+            val snapshot = synchronized(instancesLock) { instances.keys.toList() }
+            snapshot.forEach { it.trimCaches() }
+        }
     }
 }

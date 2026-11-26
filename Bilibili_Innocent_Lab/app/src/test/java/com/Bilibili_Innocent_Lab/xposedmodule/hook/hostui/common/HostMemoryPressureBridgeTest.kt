@@ -4,9 +4,18 @@ import android.app.Application
 import android.content.ComponentCallbacks
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.graphics.Bitmap
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.CommentEmojiAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundRasterCache
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundScene
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardMicaField
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -124,6 +133,64 @@ class HostMemoryPressureBridgeTest {
         HostMemoryPressureBridge.dispatchModerate()
     }
 
+    fun `background executors allow core thread timeout with positive keepAliveTime`() {
+        val executors = listOf(
+            HostBackgroundScene.worker,
+            HostBackgroundController.worker,
+            HostBackgroundRasterCache.worker,
+            HostCardMicaField.worker,
+            HostGarbTheme.worker
+        )
+        for (executor in executors) {
+            assertTrue("Executor should allow core thread timeout", executor.allowsCoreThreadTimeOut())
+            assertTrue("Executor keepAliveTime must be > 0", executor.getKeepAliveTime(TimeUnit.MILLISECONDS) > 0L)
+        }
+    }
+
+    fun `background scene pressure trim drops offscreen ready tiles and clears hidden scenes`() {
+        val unsafe = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
+        val scene = unsafe.allocateInstance(HostBackgroundScene::class.java) as HostBackgroundScene
+        var onscreen = true
+        val config = HostBackgroundConfig(preset = HostBackgroundPreset.AURORA)
+        fun setSceneField(name: String, value: Any?) {
+            HostBackgroundScene::class.java.getDeclaredField(name).apply { isAccessible = true }.set(scene, value)
+        }
+        val lock = Any()
+        val version = AtomicLong()
+        val wanted = (0L..3L).map { HostBackgroundScene.Key(config, false, 100, it) }
+        val ready = HashMap<HostBackgroundScene.Key, Bitmap>().apply {
+            for (key in wanted) put(key, unsafe.allocateInstance(Bitmap::class.java) as Bitmap)
+        }
+        setSceneField("config", config)
+        setSceneField("lock", lock)
+        setSceneField("first", 1L)
+        setSceneField("last", 2L)
+        setSceneField("wanted", wanted)
+        setSceneField("ready", ready)
+        setSceneField("version", version)
+        setSceneField("isOnscreen", { onscreen })
+
+        val scenesLock = HostBackgroundScene::class.java.getDeclaredField("scenesLock").apply { isAccessible = true }.get(null)
+        @Suppress("UNCHECKED_CAST")
+        val scenes = HostBackgroundScene::class.java.getDeclaredField("scenes").apply { isAccessible = true }.get(null)
+            as MutableMap<HostBackgroundScene, Unit>
+        synchronized(scenesLock) { scenes[scene] = Unit }
+        try {
+            assertEquals(4, scene.retainedTileCount)
+            HostMemoryPressureBridge.dispatchModerate()
+            assertEquals(2, scene.retainedTileCount)
+            assertTrue(ready.keys.all { it.band in 1L..2L })
+            assertEquals(1L, version.get())
+
+            onscreen = false
+            HostMemoryPressureBridge.dispatchCritical()
+            assertEquals(0, scene.retainedTileCount)
+            assertEquals(2L, version.get())
+        } finally {
+            synchronized(scenesLock) { scenes.remove(scene) }
+        }
+    }
+
     @Test
     fun verifyAllCases() {
         fun runIsolated(block: (HostMemoryPressureBridgeTest) -> Unit) {
@@ -139,6 +206,8 @@ class HostMemoryPressureBridgeTest {
         runIsolated { s -> s.`install is idempotent per application and forwards trim levels cleanly`() }
         runIsolated { s -> s.`soft floating surface disables refraction and allows render target backdrop only with view content source`() }
         runIsolated { s -> s.`emoji adapter caches can be cleared safely under memory pressure`() }
+        runIsolated { s -> s.`background executors allow core thread timeout with positive keepAliveTime`() }
+        runIsolated { s -> s.`background scene pressure trim drops offscreen ready tiles and clears hidden scenes`() }
     }
 
     private companion object {

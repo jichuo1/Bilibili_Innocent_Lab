@@ -10,10 +10,12 @@ import io.github.jichuo1.meguviz.ref.api.query.QuerySpec
 import io.github.jichuo1.meguviz.ref.api.query.Selection
 import io.github.jichuo1.meguviz.ref.api.result.ResolutionStatus
 import io.github.jichuo1.meguviz.ref.scope.CodeScope
+import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Member
 import java.lang.reflect.Method
+import java.net.URLClassLoader
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -94,12 +96,96 @@ internal object KavaMemberLookup {
     private val EMPTY_CLASS_ARRAY: Array<Class<*>> = emptyArray()
     private val bootCache = LoaderCache()
     private val loaderCaches = WeakHashMap<ClassLoader, LoaderCache>()
+    private class LoaderSlot(val loaderRef: WeakReference<ClassLoader>, val cache: LoaderCache)
+    @Volatile private var hostLoaderRef: WeakReference<ClassLoader>? = null
+    @Volatile private var lastLoaderSlot: LoaderSlot? = null
+    private val moduleLoader: ClassLoader? = KavaMemberLookup::class.java.classLoader
+    private val platformLoader: ClassLoader? by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        runCatching {
+            ClassLoader::class.java.getMethod("getPlatformClassLoader").invoke(null) as? ClassLoader
+        }.getOrNull()
+    }
+
+    internal fun registerHostClassLoader(loader: ClassLoader?) {
+        hostLoaderRef = loader?.let(::WeakReference)
+    }
+
+    internal fun isCacheableLoader(loader: ClassLoader): Boolean {
+        val host = hostLoaderRef?.get()
+        val system = runCatching { ClassLoader.getSystemClassLoader() }.getOrNull()
+        val platform = platformLoader
+        if (loader === moduleLoader || loader === system || (platform != null && loader === platform)) {
+            return true
+        }
+        if (host != null) {
+            return loader === host || isAncestorLoader(loader, host)
+        }
+        if (isAncestorLoader(loader, moduleLoader)) {
+            return true
+        }
+        return !isIsolatedOrDynamicLoader(loader, system, platform)
+    }
+
+    private fun isAncestorLoader(candidate: ClassLoader, descendant: ClassLoader?): Boolean {
+        var cur = descendant
+        var hops = 0
+        while (cur != null && hops < 16) {
+            if (cur === candidate) return true
+            cur = cur.parent
+            hops++
+        }
+        return false
+    }
+
+    private fun isIsolatedOrDynamicLoader(
+        loader: ClassLoader,
+        system: ClassLoader?,
+        platform: ClassLoader?
+    ): Boolean {
+        if (loader is URLClassLoader) return true
+        if (loader.parent == null && loader !== system && loader !== platform) return true
+        var cls: Class<*>? = loader::class.java
+        while (cls != null && cls != ClassLoader::class.java && cls != Any::class.java) {
+            val name = cls.name
+            if (name == "dalvik.system.DexClassLoader" ||
+                name == "dalvik.system.InMemoryDexClassLoader" ||
+                name == "dalvik.system.DelegateLastClassLoader"
+            ) {
+                return true
+            }
+            val simple = cls.simpleName
+            if (simple.contains("Plugin", ignoreCase = true) ||
+                simple.contains("Dynamic", ignoreCase = true) ||
+                simple.contains("Isolated", ignoreCase = true) ||
+                simple.contains("Hotfix", ignoreCase = true) ||
+                simple.contains("Tinker", ignoreCase = true) ||
+                simple.contains("Patch", ignoreCase = true)
+            ) {
+                return true
+            }
+            cls = cls.superclass
+        }
+        return false
+    }
 
     private fun loaderCache(loader: ClassLoader?): LoaderCache {
         if (loader == null) return bootCache
-        synchronized(loaderCaches) {
-            return loaderCaches[loader] ?: LoaderCache().also { loaderCaches[loader] = it }
+        val slot = lastLoaderSlot
+        if (slot != null && slot.loaderRef.get() === loader) {
+            return slot.cache
         }
+        if (!isCacheableLoader(loader)) {
+            // 第三方/动态/隔离 ClassLoader 不写入全局弱引用表与单槽快路径，防止 Value -> Class -> ClassLoader 强引用环阻碍回收。
+            return LoaderCache()
+        }
+        val resolved = synchronized(loaderCaches) {
+            loaderCaches[loader] ?: LoaderCache().also { loaderCaches[loader] = it }
+        }
+        val host = hostLoaderRef?.get()
+        if (host == null || loader === host) {
+            lastLoaderSlot = LoaderSlot(WeakReference(loader), resolved)
+        }
+        return resolved
     }
 
     /** One resolver schema index per synchronous adaptation pass; warm BIL cache hits never open it. */
@@ -553,6 +639,8 @@ internal object KavaMemberLookup {
 
     /** 仅供单元测试隔离状态；生产进程不清空稳定的 Class/Member 缓存。 */
     internal fun resetForTests() {
+        lastLoaderSlot = null
+        hostLoaderRef = null
         bootCache.clear()
         synchronized(loaderCaches) {
             loaderCaches.values.forEach(LoaderCache::clear)

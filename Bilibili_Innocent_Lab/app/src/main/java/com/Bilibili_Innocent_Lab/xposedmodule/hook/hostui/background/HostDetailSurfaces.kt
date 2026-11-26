@@ -7,6 +7,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.lumen.coacervation.engine.host.LumenSourceAvailability
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
@@ -31,6 +33,7 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
     }
     private val panel = WeakReference(panel)
     private val targets = WeakHashMap<View, Target>()
+    private val recyclerTypes = HostRecyclerTypes(maxDepth = 24)
     private var session: LumenSurfaceSession? = null
     private var dark: Boolean? = null
     private var wallpaper: HostBackgroundDrawable? = null
@@ -44,11 +47,19 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
     fun discover() {
         val panel = panel.get() ?: return
         val found = HashMap<View, Role>()
+        // 仅在根入口判定祖先受保护与外层归属，避免对整棵子树每个节点重复向上遍历父链。
+        val protectedAbove = (panel.parent as? View)?.let(HostBackgroundPages::protectedAncestor) == true
+        val externalOwner = HostBackgroundPages.owner(panel)?.let { it !== panel } == true
+        fun hasChildNamed(parent: ViewGroup, targetName: String): Boolean {
+            for (i in 0 until parent.childCount) {
+                if (name(parent.getChildAt(i)) == targetName) return true
+            }
+            return false
+        }
         fun visit(view: View, depth: Int) {
             if (depth > 24 || view is ImageView) return
-            if (view !== panel && HostBackgroundPages.owner(view)?.let { it !== panel } == true) return
+            if (view !== panel && (externalOwner || HostBackgroundPages.pageRoot(view))) return
             if (HostDetailFloatLayers.tabSlot(view) && view is ViewGroup) {
-                if ((view.parent as? View)?.let(HostBackgroundPages::protectedAncestor) == true) return
                 // 服务会把分P、笔记、弹幕回复、选集等挂到同一槽位，不依赖每种业务面板的资源 id。
                 for (i in 0 until view.childCount) {
                     val child = view.getChildAt(i)
@@ -56,7 +67,7 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
                 }
                 return
             }
-            if (HostBackgroundPages.protectedAncestor(view)) return
+            if (HostBackgroundPages.protected(view)) return
             val name = name(view)
             val role = when {
                 view.parent === panel && name == "tabs_back_board" -> Role.HEADER
@@ -64,16 +75,14 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
                 view.parent === panel && name == "pager" -> Role.BODY
                 view.parent === panel && name == "shadow_dig" -> Role.DIVIDER
                 name == "fake_input_layout" -> Role.INPUT
-                name == "playlist_container" && view is ViewGroup &&
-                    (0 until view.childCount).any { name(view.getChildAt(it)) == "layout_playlist" } -> Role.OVERLAY
+                name == "playlist_container" && view is ViewGroup && hasChildNamed(view, "layout_playlist") -> Role.OVERLAY
                 else -> null
             }
             if (role != null) found[view] = role
-            if (view !is ViewGroup || generateSequence(view.javaClass as Class<*>?) { it.superclass }
-                    .any { it.name == "androidx.recyclerview.widget.RecyclerView" }) return
+            if (view !is ViewGroup || recyclerTypes.matches(view.javaClass)) return
             for (i in 0 until view.childCount) visit(view.getChildAt(i), depth + 1)
         }
-        visit(panel, 0)
+        if (!protectedAbove) visit(panel, 0)
         for (view in targets.keys.toList()) if (view !in found) {
             targets.remove(view)?.close()
             owned.remove(view)
