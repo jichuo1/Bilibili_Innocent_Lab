@@ -9,6 +9,7 @@ import java.lang.reflect.Modifier
 
 /** 通过真实 Modern DSL 调用测试链，覆盖参数复制、原方法异常和 before/after 顺序。 */
 internal class PlayerPortTestRegistrar(var failId: String? = null) : HookRegistrar by TestHookRegistrar {
+    override val rootRegistrar: HookRegistrar get() = this
     data class Entry(val member: Executable, val callback: ModernMemberHookCreator)
     val hooks = linkedMapOf<String, Entry>()
     // Map 会覆盖相同 id；另存实际尝试次数，避免重复注册被测试记录掩盖。

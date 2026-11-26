@@ -23,6 +23,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.reflect.KClass
 
@@ -489,5 +490,128 @@ class KmpGrpcWireChannelTest {
         // Step1 parses once (1); Step2 reuses step1's updated mirror (0 parseFrom)!
         assertEquals(1, CountingCodecJavaMessage.parses)
         assertEquals(2, CountingCodecJavaMessage.serializes)
+    }
+
+    @Test
+    fun `rootRegistrar unwraps FeatureScopedRegistrar shares dispatcher and stamps wire faultOwner`() {
+        val registrar = PlayerPortTestRegistrar()
+        val scopedPurify = FeatureScopedRegistrar(registrar, "comment_purify")
+        val wrappedPurify = object : HookRegistrar by scopedPurify {}
+        val scopedFilter = FeatureScopedRegistrar(registrar, "comment_filter")
+        val wireActivePurify = AtomicBoolean(false)
+        val wireActiveFilter = AtomicBoolean(false)
+
+        assertFalse(
+            KmpGrpcWireChannel.installOrDefer(
+                environment = env(registrar = wrappedPurify),
+                surface = null,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = WireJavaMessage::class.java,
+                what = "purify",
+                logKey = "k_purify",
+                wireActive = wireActivePurify
+            ) { it }
+        )
+
+        val surface = KmpGrpcWireAdapter.inspectEntry(
+            GrpcEngine::class.java.declaredMethods.single { it.name == "a" }
+        )!!
+        assertTrue(
+            KmpGrpcWireChannel.install(
+                environment = env(registrar = scopedFilter),
+                surface = surface,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = WireJavaMessage::class.java,
+                what = "filter",
+                logKey = "k_filter",
+                wireActive = wireActiveFilter
+            ) { it }
+        )
+        assertEquals(1, KmpGrpcWireChannel.bindDeferred(env(registrar = wrappedPurify), surface))
+        assertTrue(wireActivePurify.get())
+        assertTrue(wireActiveFilter.get())
+        assertEquals(1, registrar.hooks.size)
+        assertEquals(
+            KmpGrpcWireChannel.FAULT_OWNER,
+            registrar.hooks.getValue("kmp.grpc.wire.channel").callback.faultOwner
+        )
+
+        // Separate PlayerPortTestRegistrar instance stays isolated by identity via rootRegistrar.
+        val otherRegistrar = PlayerPortTestRegistrar()
+        val otherWireActive = AtomicBoolean(false)
+        assertTrue(
+            KmpGrpcWireChannel.install(
+                environment = env(registrar = otherRegistrar),
+                surface = surface,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = WireJavaMessage::class.java,
+                what = "other",
+                logKey = "k_other",
+                wireActive = otherWireActive
+            ) { it }
+        )
+        assertTrue(otherWireActive.get())
+        assertEquals(1, otherRegistrar.hooks.size)
+        assertEquals(
+            KmpGrpcWireChannel.FAULT_OWNER,
+            otherRegistrar.hooks.getValue("kmp.grpc.wire.channel").callback.faultOwner
+        )
+    }
+
+    private fun registerAndDropForGc(
+        surface: KmpGrpcWireAdapter.WireSurface
+    ): List<WeakReference<*>> {
+        val pendingRegistrar = PlayerPortTestRegistrar()
+        val pendingScoped = FeatureScopedRegistrar(pendingRegistrar, "comment_purify")
+        val pendingLoader = loaderWithout(emptySet())
+        KmpGrpcWireChannel.installOrDefer(
+            environment = env(loader = pendingLoader, registrar = pendingScoped),
+            surface = null,
+            javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+            rpc = "mainList",
+            javaReplyClass = WireJavaMessage::class.java,
+            what = "pending-gc",
+            logKey = "k_pending_gc"
+        ) { it }
+
+        val activeRegistrar = PlayerPortTestRegistrar()
+        val activeScoped = FeatureScopedRegistrar(activeRegistrar, "comment_filter")
+        val activeLoader = loaderWithout(emptySet())
+        KmpGrpcWireChannel.install(
+            environment = env(loader = activeLoader, registrar = activeScoped),
+            surface = surface,
+            javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+            rpc = "mainList",
+            javaReplyClass = WireJavaMessage::class.java,
+            what = "active-gc",
+            logKey = "k_active_gc"
+        ) { it }
+
+        return listOf(
+            WeakReference(pendingRegistrar),
+            WeakReference(pendingScoped),
+            WeakReference(pendingLoader),
+            WeakReference(activeRegistrar),
+            WeakReference(activeScoped),
+            WeakReference(activeLoader)
+        )
+    }
+
+    @Test
+    fun `weak channel maps do not retain registrar or classLoader via registrations`() {
+        val surface = KmpGrpcWireAdapter.inspectEntry(
+            GrpcEngine::class.java.declaredMethods.single { it.name == "a" }
+        )!!
+        val refs = registerAndDropForGc(surface)
+        for (attempt in 0 until 20) {
+            System.gc()
+            System.runFinalization()
+            if (refs.all { it.get() == null }) break
+            Thread.sleep(15)
+        }
+        assertTrue("Expected WeakHashMap entries to release registrars and loaders", refs.all { it.get() == null })
     }
 }

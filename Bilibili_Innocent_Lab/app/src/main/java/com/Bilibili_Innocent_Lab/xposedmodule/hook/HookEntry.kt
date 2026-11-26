@@ -3,30 +3,19 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
-import android.view.Gravity
 import android.view.View
-import android.widget.LinearLayout
-import android.widget.TextView
 import io.github.jichuo1.meguviz.android.extensions.child
-import io.github.jichuo1.meguviz.android.extensions.childOrNull
 import io.github.jichuo1.meguviz.android.extensions.parentOrNull
-import io.github.jichuo1.meguviz.android.extensions.textColor
-import io.github.jichuo1.meguviz.android.extensions.textToString
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.libxposed.api.XposedModule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AdaptRetryableInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AdaptValueSlot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CloudKeyFreezeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostPredictiveBackFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemEnvironmentFeatureInstaller
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindBudget
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindProbe
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentBindQueue
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FreeCopyGestureDetector
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FreeCopyPressPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.asAdaptRetryable
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.freecopy.FreeCopyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
@@ -46,26 +35,16 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessDiagno
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomainCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateTimings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMethodHook
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockUpdateFeatureInstaller
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentNativeBindingCatalog
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFamilyCoverage
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeCopyBridge
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentNativeSupplementBridge
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentLegacyCopyBridge
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentRawTextReader
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFullTextReader
-import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyClipboardWrite
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BlockComponentLibraryFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ComponentLibraryPoolMatcher
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BottomBarFeatureInstaller
@@ -167,12 +146,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorCachin
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentRepository
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.sponsor.SponsorSegmentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TitleFreeCopyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigDecodeResult
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigSnapshot
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.overlays.HostCopyBubble
 
 /**
  * Bilibili 广告 / 推广内容 Hook 入口。
@@ -226,10 +203,6 @@ class HookEntry : XposedModule() {
         @Volatile
         private var moduleInstance: HookEntry? = null
 
-        /** 仅持有当前宿主加载器定义的类，不持有 RecyclerView 实例。 */
-        @Volatile
-        private var hostRecyclerViewClass: Class<*>? = null
-
         /** 强力模式 · 获取 access_key（推荐预检）的实际生效值：必须同时有通用授权。 */
         private fun aiDeclaredPrecheckEffective(prefs: HookConfigSource): Boolean =
             com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AiDeclaredVideoPolicy.effectivePrecheck(
@@ -241,42 +214,6 @@ class HookEntry : XposedModule() {
             if (throwable == null) ModernHookLog.info(message)
             else ModernHookLog.error(message, throwable)
         }
-
-        // 自由复制（高版本 9.x：评论正文渲染 handler，持有 CommentItem + 评论正文 TextView）
-        const val CLASS_COMMENT_HANDLER_V2 = CommentNativeBindingCatalog.EXP3
-        const val METHOD_COMMENT_BIND_V2 = "b"
-
-        /** nextholder 管线（非 exp3）的正文 handler：`b(Zk.Q)/c(Zk.Q)` 绑定，
-         * 字段 h 存 CommentItem、binding.a 是正文容器根。 */
-        const val CLASS_COMMENT_HANDLER_NEXT =
-            CommentNativeBindingCatalog.NEXT
-
-        /** 8.63.0 及同类早期版本：非混淆 handler（holder.J 管线）。 */
-        const val CLASS_COMMENT_HANDLER_LEGACY =
-            CommentNativeBindingCatalog.LEGACY
-
-        /**
-         * 9.x 评论正文三级管线并存（9.13.0 `comment3.ui.adapter.a.onCreateViewHolder`
-         * 实解确认）：DeviceDecision `comment.next_appearance_experiment_3` 命中 →
-         * kl.*(exp3)，`comment.next_appearance` 命中 → il.*(nextholder)，
-         * 否则 → holder.J(legacy)。
-         * 实际生效族由宿主实验下发决定、同版本不同用户不同路，只挂单类会漏挂其余
-         * 管线（9.13.0 实测命中 nextholder，官方长按监听无人接管弹官方面板）。
-         * 因此所有存在的 handler 类全挂共享 bindHook：afterHook 幂等，未启用族的
-         * hook 常驻不触发，实验组回切/共存时无需重启即可接管。
-         */
-        private val COMMENT_HIGH_HANDLER_CLASSES = listOf(
-            CLASS_COMMENT_HANDLER_V2,
-            CLASS_COMMENT_HANDLER_NEXT,
-            CLASS_COMMENT_HANDLER_LEGACY
-        )
-
-        /** ModernHookParam 内保存本次同步绑定快照的私有 key。 */
-        private const val COMMENT_BIND_SNAPSHOT_KEY =
-            "Bilibili_Innocent_Lab.free_copy.comment_binding_snapshot"
-
-        /** 视频详情页 Activity（8.90.2/9.0.0/9.8.0 同类名，跨版本稳定——气泡自动跟随的主题缓存时机） */
-        const val DETAIL_ACTIVITY_CLASS = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
 
         /** 模块 UI 写入的配置 key */
         const val PREF_ENABLED = "adskip_enabled"
@@ -312,93 +249,6 @@ class HookEntry : XposedModule() {
         /** 日志详细度：true=完整，false=精简（仅显著错误） */
         @Volatile
         private var logVerbose = true
-
-        /** 自由复制气泡亮色模式开关（false=暗色[默认]，true=白底黑字；同时控制评论与简介气泡） */
-        @Volatile
-        private var freeCopyLightMode = false
-
-        /** 气泡亮暗色自动跟随开关（实验性功能；true=跟随 B 站主题，手动开关被覆盖） */
-        @Volatile
-        private var freeCopyAutoLight = false
-
-        /**
-         * 运行期自由复制开关。Hook 可能先按 LSPosed 早期快照注册，再由 Application.attach
-         * 后的 Provider 权威值校正；回调只增加一次 volatile 读取，不改变已启用时的算法。
-         */
-        @Volatile
-        private var runtimeCommentFreeCopyEnabled = true
-
-        @Volatile
-        private var runtimeDescriptionFreeCopyEnabled = true
-
-        /**
-         * 标题长按自由复制：默认关闭，只在启动时读取一次（设置项声明为重启宿主生效，不参与 NPatch
-         * 热应用）。与简介共用同一套触摸会话和气泡，所以下面凡是“简介或标题”的判断都走
-         * [descLikeFreeCopyEnabled]。
-         */
-        @Volatile
-        private var runtimeTitleFreeCopyEnabled = false
-
-        private val descLikeFreeCopyEnabled: Boolean
-            get() = runtimeDescriptionFreeCopyEnabled || runtimeTitleFreeCopyEnabled
-
-        /** 标题 View id（按资源名 "title" 解析）与同布局里的 "arrow" id；解析失败 3 次后放弃。 */
-        @Volatile
-        private var titleViewId = View.NO_ID
-
-        @Volatile
-        private var titleArrowId = View.NO_ID
-
-        @Volatile
-        private var titleIdResolveAttempts = 0
-
-        /**
-         * 已确认的标题 View 弱集合。`id/title` 在宿主里极常见，触摸/长按监听这类全局热路径
-         * 只在 id 命中后才查这个集合；登记发生在 ExpandableTextView.setText 之后，由
-         * [TitleFreeCopyPolicy.isTitleWidget] 判定（类 + id + arrow 兄弟三者缺一不可）。
-         * 弱 key 不持有 View，页面销毁后自然消失。
-         */
-        private val titleViews = java.util.Collections.synchronizedMap(java.util.WeakHashMap<View, Boolean>())
-
-        /**
-         * B 站当前是否为亮色主题的缓存（仅自动跟随开启时使用）。
-         * 时机：进入视频详情页时判定一次（详情页会话内 B 站主题不可变——改主题需退出/
-         * 重进详情页），弹泡时直接读缓存——零反射开销。null=未确定（回退手动开关）。
-         */
-        @Volatile
-        private var freeCopyLightCache: Boolean? = null
-
-        /**
-         * 视频详情页简介 TextView 的 view id（运行时按名解析）。
-         * B 站各版本详情页简介都是普通 TextView 且 id 名固定为 "desc"，但 R8 已把
-         * R$id 类整体内联删除、id 数值随版本漂移，只能用 resources.getIdentifier
-         * 按名解析（9.0.0 与 8.90.2 通用，版本无关）。
-         */
-        @Volatile
-        private var descViewId = View.NO_ID
-
-        /** 简介 id 解析失败次数上限（Application 未就绪的调用不计次，避免早期误耗重试） */
-        @Volatile
-        private var descIdResolveAttempts = 0
-
-        /** 简介长按监听夺回重入保护：applyFreeCopyListener 内部再调 setOnLongClickListener
-         *  会再次触发我们的 hook，必须防止无限递归（实测会导致 B 站 ANR 卡死）。 */
-        @Volatile
-        private var descStealInProgress = false
-
-        /**
-         * 标题/简介/评论三表面共用的长按手势判定后端（相位机 + 设备 slop + 历史采样 + 指针身份 +
-         * 单次调度）。长按以事件时钟（ev.eventTime - ev.downTime）为权威：短按 UP 无论主线程多拥塞
-         * 都交还宿主点击。同一时刻只有一个手势，三表面共用此实例与单一到期 Runnable。
-         * 惰性创建：避免 Zygote specialize 阶段类初始化时引用尚未就绪的主线程 Runnable。
-         */
-        private val freeCopyGesture: FreeCopyGestureDetector by lazy {
-            FreeCopyGestureDetector(freeCopyLongPressRunnable)
-        }
-
-        /** 长按是否已被 OnLongClickListener 路径处理（防双重弹窗） */
-        @Volatile
-        private var descLongPressHandled = false
 
         /**
          * 主线程调度器必须惰性创建：Yuki/LSPosed 会在 Zygote specialize 阶段触发
@@ -512,1047 +362,6 @@ class HookEntry : XposedModule() {
             else -> "unknown"
         }
 
-        @Volatile
-        private var descTouchedViewRef: java.lang.ref.WeakReference<View>? = null
-
-        /** 触摸状态只持有弱引用，页面销毁且遗漏 UP/CANCEL 时也不会保活整棵 View 树。 */
-        private var descTouchedView: View?
-            get() = descTouchedViewRef?.get()
-            set(value) {
-                descTouchedViewRef = value?.let { java.lang.ref.WeakReference(it) }
-            }
-
-        /**
-         * 清理简介/标题触摸会话。**不能**在这里调 View.cancelLongPress()：它会连带 removeTapCallback()，
-         * 清掉 View 的 PFLAG_PREPRESSED（AOSP View.java removeTapCallback / onTouchEvent ACTION_UP）。
-         * 滚动容器里的控件按下后先处于 PREPRESSED，约 100ms（ViewConfiguration.getTapTimeout）后才变 PRESSED；
-         * UP 的 before 钩子在这段时间内调它，UP 时 prepressed=false 且未 PRESSED，宿主的点击/展开
-         * 就被静默丢弃——快点按（<100ms）失灵、慢点按正常，正是“标题展开时灵时不灵”。
-         * 终止事件（UP/CANCEL）宿主与框架自己会收尾所有计时器，模块只需撤销自家 Runnable。
-         */
-        private fun clearDescTouchSession(resetHandled: Boolean = true) {
-            freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-            descTouchedView = null
-            if (resetHandled) {
-                descLongPressHandled = false
-                freeCopyGesture.reset()
-            }
-        }
-
-        /**
-         * 让出给滑动时取消模块长按，并让简介的宿主自实现长按（DescTagSpan 的 Runnable，由宿主基类
-         * 重写的 cancelLongPress 撤销）一并停止；保留本次取消身份到终止事件。
-         * 标题没有宿主长按可停，也不能碰 View 的 PREPRESSED（见 [clearDescTouchSession]），所以不调用。
-         */
-        private fun cancelDescLongPressCandidate() {
-            freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-            descTouchedView?.let { view ->
-                if (!isTitleView(view)) runCatching { view.cancelLongPress() }
-            }
-            descTouchedView = null
-        }
-
-        /** 观察当前自由复制手势（三表面共用）；非目标节点收到同一流的移动/多指/CANCEL 时也能及时取消。
-         * 移动取消统一用设备 slop + 历史采样 + 指针身份（取代评论旧的 60f 硬阈值）。 */
-        private fun observeFreeCopyTouch(ev: android.view.MotionEvent) {
-            if (!freeCopyGesture.matches(ev.downTime) || !freeCopyGesture.isPending) return
-            val action = ev.actionMasked
-            if (action == android.view.MotionEvent.ACTION_CANCEL ||
-                action == android.view.MotionEvent.ACTION_POINTER_DOWN ||
-                action == android.view.MotionEvent.ACTION_POINTER_UP
-            ) {
-                if (freeCopyGesture.cancel(ev.downTime)) cancelFreeCopyCandidate()
-                return
-            }
-            if (action != android.view.MotionEvent.ACTION_MOVE &&
-                action != android.view.MotionEvent.ACTION_UP
-            ) return
-            val index = ev.findPointerIndex(freeCopyGesture.pointerId)
-            if (index < 0 || ev.pointerCount != 1) {
-                if (freeCopyGesture.cancel(ev.downTime)) cancelFreeCopyCandidate()
-                return
-            }
-            // rawX/Y 在 minSdk 27 仅提供首指坐标；单指流用偏移换算历史点，避免引入 API 29 调用。
-            val offsetX = ev.rawX - ev.x
-            val offsetY = ev.rawY - ev.y
-            for (history in 0 until ev.historySize) {
-                if (freeCopyGesture.sample(ev.downTime, ev.getPointerId(index), ev.pointerCount,
-                        ev.getHistoricalX(index, history) + offsetX,
-                        ev.getHistoricalY(index, history) + offsetY)
-                ) {
-                    cancelFreeCopyCandidate()
-                    return
-                }
-            }
-            if (freeCopyGesture.sample(ev.downTime, ev.getPointerId(index), ev.pointerCount,
-                    ev.getX(index) + offsetX, ev.getY(index) + offsetY)
-            ) cancelFreeCopyCandidate()
-        }
-
-        /** 让出给滑动时取消当前表面的模块/系统/宿主自实现长按，保留取消身份到终止事件。 */
-        private fun cancelFreeCopyCandidate() {
-            if (descTouchedView != null) cancelDescLongPressCandidate()
-            else clearCommentTouchSession(resetHandled = true)
-        }
-
-        /**
-         * 三表面共用的到期 Runnable（按住不动的即时反馈）。事件时钟权威：必须通过 [FreeCopyGestureDetector.claim]
-         * 的真实按住时长复核才弹泡；主线程拥塞时短按 UP 先派发即取消会话，迟到的本 Runnable 不再误弹。
-         */
-        private val freeCopyLongPressRunnable: Runnable =
-            HostThreadGuard.runnable("free_copy.long_press") {
-                freeCopyGesture.onFired()
-                val sessionId = freeCopyGesture.sessionId
-                if (sessionId == 0L || !freeCopyGesture.isPending) return@runnable
-                // 简介/标题：目标弱引用仍在且可见才弹；评论：走评论会话目标校验。
-                val descTarget = descTouchedView
-                if (descTarget != null) {
-                    if (!descTarget.isAttachedToWindow || !descTarget.isShown ||
-                        descTarget.windowVisibility != View.VISIBLE
-                    ) {
-                        clearDescTouchSession(resetHandled = true)
-                        return@runnable
-                    }
-                    if (freeCopyGesture.claim(freeCopyGesture.downTime, android.os.SystemClock.uptimeMillis())) {
-                        sharedFreeCopyListener.onLongClick(descTarget)
-                    }
-                    return@runnable
-                }
-                if (!tryHandleActiveCommentLongPress(sessionId)) {
-                    clearCommentTouchSession(resetHandled = true)
-                }
-            }
-
-        private fun freeCopyPoster(handler: android.os.Handler) = object : FreeCopyGestureDetector.Poster {
-            override fun remove(runnable: Runnable) = handler.removeCallbacks(runnable)
-            override fun post(runnable: Runnable, delayMillis: Long): Boolean = handler.postDelayed(runnable, delayMillis)
-        }
-
-        /** 长按阈值取宿主系统长按线（与宿主 CheckForLongPress 同步）；三表面相同，见 [FreeCopyPressPolicy]。 */
-        private fun freeCopyLongPressThreshold(): Long = FreeCopyPressPolicy.thresholdMs(
-            runCatching { android.view.ViewConfiguration.getLongPressTimeout().toLong() }.getOrDefault(0L)
-        )
-
-        /** 按住期间的漂移容忍：设备触摸坡度略放宽，见 [FreeCopyPressPolicy.LONG_PRESS_SLOP_FACTOR]。 */
-        private fun freeCopyHoldSlop(v: View): Float =
-            FreeCopyPressPolicy.holdSlop(android.view.ViewConfiguration.get(v.context).scaledTouchSlop.toFloat())
-
-        /** 当前会话的到期 Runnable 还要等多久：输入延迟小时按事件时间起算，拥塞时按观测时间。 */
-        private fun freeCopyDueDelayMs(): Long = FreeCopyPressPolicy.dueDelayMs(
-            freeCopyGesture.downTime, freeCopyGesture.observedAtMs,
-            android.os.SystemClock.uptimeMillis(), freeCopyGesture.thresholdMs
-        )
-
-        /**
-         * 短按安全网：到期 Runnable 用墙钟（uptime）claim，主线程拥塞时可能先于短按 UP 派发而误弹泡。
-         * UP 的事件时钟（ev.eventTime - ev.downTime）才是权威——真实按住不足阈值即短按，必须撤销
-         * 已误弹的气泡并交还宿主点击（标题展开/收起、评论三点）。这是「普通点击被误判成长按」的收口。
-         */
-        private fun revokePrematurePopupIfShortTap(ev: android.view.MotionEvent) {
-            if (ev.eventTime - ev.downTime >= freeCopyGesture.thresholdMs) return
-            if (!isOurBubbleShowing()) return
-            runCatching { ourBubbleDialogRef?.get()?.dismiss() }
-            // 同步收尾抑制状态，不等异步 onClosed：短按交还宿主后不得残留官方行为抑制窗。
-            suppressOfficialUntilMs = 0L
-            activeBubbleSessionId = 0L
-            ourBubbleDialogRef = null
-            descLongPressHandled = false
-            commentLongPressHandled = false
-            freeCopyGesture.finishHandled()
-        }
-
-        /**
-         * 简介/标题手势的终止事件（UP/CANCEL）统一裁决，目标分支与祖先分支共用。
-         * [hitView] 是收到事件的标题/简介 View；终止事件落在祖先/容器上时传 null（不做目标比对）。
-         * 返回 true 表示这次 UP 属于已认领的长按，调用方必须消费它（阻止官方复制与宿主点击展开）。
-         *
-         * 交还宿主的条件（返回 false，什么都不消费）：UP 的事件时长不足长按线；会话已被取消
-         * （滑动超坡度、多指、父容器 CANCEL、换页）；CANCEL；会话与本触摸流不匹配。
-         */
-        private fun finishDescLikeTouch(ev: android.view.MotionEvent, hitView: View?): Boolean {
-            val isUp = ev.actionMasked == android.view.MotionEvent.ACTION_UP
-            freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-            // 短按安全网：拥塞时到期 Runnable 可能已先于本 UP 误弹泡；
-            // 事件时长不足阈值即撤销气泡、复位 handled，交还宿主点击。
-            if (isUp) revokePrematurePopupIfShortTap(ev)
-            var handled = descLongPressHandled
-            val target = descTouchedView
-            // MOVE 超坡度/页面切换已清掉会话时，后续 UP 必须直接放行；否则会把任意松手误判为超长按。
-            if (!handled &&
-                (!freeCopyGesture.matches(ev.downTime) || (hitView != null && target !== hitView))
-            ) {
-                clearDescTouchSession(resetHandled = true)
-                return false
-            }
-            if (freeCopyGesture.resolveTerminal(ev.downTime, ev.eventTime, isUp, handled) ==
-                FreeCopyGestureDetector.Terminal.CLAIM_AND_CONSUME && target != null
-            ) {
-                handled = sharedFreeCopyListener.onLongClick(target)
-            }
-            clearDescTouchSession(resetHandled = !handled)
-            return handled && isUp
-        }
-
-        /**
-         * 官方弹窗/复制抑制窗口（uptime ms）：我们的气泡弹出后的一段时间内，官方
-         * 长按检测（已武装的 Runnable/监听器）可能延迟触发官方菜单/复制——此时触摸
-         * 标志已被弹泡流程清空（必须清，否则拦截 hook 会误拦我们自己的气泡）， PopupWindow/
-         * Dialog 拦截与官方简介复制拦截按此时间窗兜底。
-         *
-         * 注意：时间戳只是上限，实际抑制还必须属于当前正在显示的气泡会话；气泡关闭
-         * 后立即失效，不能继续误拦用户随后点击图片触发的预览 Dialog/PopupWindow。
-         */
-        @Volatile
-        private var suppressOfficialUntilMs = 0L
-
-        /** 气泡会话序号：旧 Dialog 的延迟 onDismiss 不能清掉后来新气泡的抑制状态。 */
-        @Volatile
-        private var bubbleSessionSerial = 0L
-
-        @Volatile
-        private var activeBubbleSessionId = 0L
-
-        /**
-         * 最近一次气泡弹出时刻（uptime ms）：方案 A——批量绑定在「长按手势进行中」
-         * 与「气泡入场动画期间」（进场 200ms + 描边淡入 120ms，取 500ms 余量）暂停，
-         * 避免全树绑定撞长按判定/弹泡动画帧（滑停后立即长按概率卡顿的来源）。
-         * 时间窗自动失效，无引用/GC 依赖。
-         */
-        @Volatile
-        private var bubbleShownAtMs = 0L
-
-        /**
-         * 我们自己的气泡 Dialog 引用：Dialog.show 拦截 hook 按「官方抑制窗口」拦
-         * 一切弹窗时放行它（在 show() 前赋值，show 后由下次弹泡覆盖/弱引用自动失效）。
-         * 否则抑制窗口会误拦自己的气泡（实测：有震动无气泡/评论完全无响应）。
-         */
-        @Volatile
-        private var ourBubbleDialogRef: java.lang.ref.WeakReference<android.app.Dialog>? = null
-
-        /**
-         * 仅标记当前线程由自由复制气泡主动发起的同步剪贴板写入。使用 ThreadLocal 而非
-         * 时间窗/全局布尔值，避免误放行宿主线程或气泡关闭后的官方复制；写入后 finally remove。
-         */
-        private val popupClipboardWriteInProgress = ThreadLocal<Boolean>()
-
-        private fun isOurBubbleShowing(): Boolean =
-            activeBubbleSessionId != 0L && ourBubbleDialogRef?.get()?.isShowing == true
-
-        /** 当前气泡会话是否仍处于官方行为抑制期。 */
-        private fun isOfficialSuppressionActive(): Boolean {
-            if (activeBubbleSessionId == 0L ||
-                android.os.SystemClock.uptimeMillis() >= suppressOfficialUntilMs
-            ) return false
-            return ourBubbleDialogRef?.get()?.isShowing == true
-        }
-
-        /**
-         * 触摸进行中只有跨过 300ms 才按“长按候选”拦宿主弹窗。评论操作栏的官方
-         * ComponentDialog 会由一次正常短点触发，过去仅凭 touchedView 非空就拦截，
-         * 会把 DOWN/performClick 期间的合法面板误杀；而宿主长按检测约 400ms 才触发，
-         * 300ms 提前武装仍给防双弹窗保留约 100ms 余量。
-         */
-        private fun isOfficialLongPressGestureActive(): Boolean =
-            (commentTouchedView != null || descTouchedView != null) &&
-                freeCopyGesture.isArmed(android.os.SystemClock.uptimeMillis())
-
-        /** 弹窗拦截统一判据：真实长按候选，或我们的气泡仍在显示的延迟回调窗口。 */
-        private fun shouldSuppressOfficialOverlay(): Boolean =
-            isOfficialLongPressGestureActive() || isOfficialSuppressionActive()
-
-        /** 在 show 前建立会话；自己的 Dialog 依靠身份比较在全局 Dialog hook 中放行。 */
-        private fun beginBubbleSession(dialog: android.app.Dialog): Long {
-            val sessionId = bubbleSessionSerial + 1L
-            bubbleSessionSerial = sessionId
-            activeBubbleSessionId = sessionId
-            ourBubbleDialogRef = java.lang.ref.WeakReference(dialog)
-            suppressOfficialUntilMs = android.os.SystemClock.uptimeMillis() + 1500L
-            return sessionId
-        }
-
-        /**
-         * 只结束仍然匹配的会话，避免旧气泡的动画取消/延迟 dismiss 破坏新气泡状态。
-         * 同时复位 handled，防止气泡关闭后继续误拦宿主的震动或复制行为。
-         */
-        private fun finishBubbleSession(dialog: android.app.Dialog, sessionId: Long) {
-            if (activeBubbleSessionId != sessionId || ourBubbleDialogRef?.get() !== dialog) return
-            suppressOfficialUntilMs = 0L
-            activeBubbleSessionId = 0L
-            ourBubbleDialogRef = null
-            commentLongPressHandled = false
-            descLongPressHandled = false
-            freeCopyGesture.finishHandled()
-        }
-
-        /**
-         * 全树共享的长按监听器单例（评论/简介通用）：
-         * - 点击时刻从 view 自身解析（评论沿祖先链查 refs；简介按 id）——不再按树
-         *   捕获闭包，滚动中「单 view 立即夺回」也能安全复用同一实例（零分配）；
-         * - 防双重弹窗（触摸层 runnable/UP/监听器三源互斥）与消费语义与原实现一致。
-         */
-        private val sharedFreeCopyListener = View.OnLongClickListener { view ->
-            val isDescOnly = descViewId != View.NO_ID && view.id == descViewId
-            // 标题与简介共用同一套触摸会话（同一时刻只有一个手势），所以下面的会话判断统一用 isDesc。
-            val isTitle = !isDescOnly && isTitleView(view)
-            val isDesc = isDescOnly || isTitle
-            if (isDescOnly && !runtimeDescriptionFreeCopyEnabled) return@OnLongClickListener false
-            if (isTitle && !runtimeTitleFreeCopyEnabled) return@OnLongClickListener false
-            if (!isDesc && !runtimeCommentFreeCopyEnabled) return@OnLongClickListener false
-            if (isDesc && (!view.isAttachedToWindow || !view.isShown ||
-                    view.windowVisibility != View.VISIBLE)
-            ) return@OnLongClickListener false
-            // ViewHolder 从评论复用为“热门评论/最新评论”头部后，旧共享监听器可能暂时
-            // 仍挂在 View 上。先验证评论身份，避免短点头部文本触发自由复制或吞掉点击。
-            if (!isDesc && !isRegisteredCommentTreeMember(view)) {
-                return@OnLongClickListener false
-            }
-            if (isDesc && descLongPressHandled) return@OnLongClickListener true
-            if (!isDesc && commentLongPressHandled) return@OnLongClickListener true
-            // 到期 Runnable / UP 兜底会先以事件时钟 claim（置 HANDLED）再进本监听器；
-            // 已认领的同一目标会话必须放行，不能被 PENDING-only 守卫二次拒绝（否则按住不动主路径不弹泡）。
-            if (isDesc && freeCopyGesture.isTracking &&
-                (descTouchedView !== view || (!freeCopyGesture.isPending && !freeCopyGesture.isHandled))
-            ) return@OnLongClickListener false
-            val resolved = if (isTitle) {
-                FreeCopyContent(extractTitleText(view))
-            } else if (isDesc) {
-                FreeCopyContent(extractDescText(view))
-            } else {
-                resolveCommentTextAtInteraction(view)
-            } ?: return@OnLongClickListener false
-            if (!isValidFreeCopyText(resolved.displayText)) return@OnLongClickListener false
-            // 已被外部 claim（HANDLED）则跳过二次认领；仍 PENDING 的监听器路径在此做事件时钟复核。
-            if (isDesc && freeCopyGesture.isTracking && !freeCopyGesture.isHandled &&
-                !freeCopyGesture.claim(freeCopyGesture.downTime, android.os.SystemClock.uptimeMillis())
-            ) return@OnLongClickListener false
-            HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.OBSERVED)
-            HostRuntimeDiagnosticsBridge.record(
-                if (isTitle) "free_copy_title_enabled"
-                else if (isDesc) "free_copy_description_enabled" else "free_copy_comment_enabled",
-                FeatureRuntimeStage.OBSERVED
-            )
-            // 文本与身份均已确认后才武装 handled；无效复用节点不能污染下一次手势。
-            if (isDesc) descLongPressHandled = true else commentLongPressHandled = true
-            runCatching {
-                showFreeCopyPopup(view, resolved)
-                hapticFeedback(view)
-            }
-            true // 消费：官方菜单不弹
-        }
-
-        /**
-         * 触觉反馈（震动）：不用 performHapticFeedback——长按窗口内官方震动由
-         * performHapticFeedback hook 拦截（handled/touch 标志判定），若我们也走
-         * 同一 API 会互相干扰（自身震动被拦或与官方叠加成两次震动）。
-         * 改用 Vibrator 直接震动（20ms 短震，与官方长按震动观感一致）。
-         */
-        private fun hapticFeedback(v: View) {
-            runCatching {
-                if (androidx.core.content.ContextCompat.checkSelfPermission(
-                        v.context,
-                        android.Manifest.permission.VIBRATE
-                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) return
-                val vib = v.context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-                if (vib != null && vib.hasVibrator()) {
-                    vib.vibrate(android.os.VibrationEffect.createOneShot(20, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-                }
-            }
-        }
-
-        // ===== 评论长按检测状态（9.8.0 官方评论长按不走 OnLongClickListener，
-        // 在触摸层自实现——dispatchTouchEvent 全局检测兜底）。手势判定（相位/阈值/会话身份/
-        // 单次调度）统一走 freeCopyGesture；这里只保留评论特有的目标/根弱引用对与抑制标志。=====
-        @Volatile
-        private var commentLongPressHandled = false
-
-        @Volatile
-        private var commentTouchTargetRef: java.lang.ref.WeakReference<View>? = null
-
-        @Volatile
-        private var commentTouchRootRef: java.lang.ref.WeakReference<View>? = null
-
-        /**
-         * 评论右下角官方“更多”按钮 id（运行时按资源名解析，跨 B 站版本不依赖数值）。
-         * 该按钮会在自己的触摸回调里直接打开 ComponentDialog；若让它进入评论长按
-         * 会话，Dialog.show 防双弹窗 hook 会把这次正常短点误认为官方长按面板并拦截。
-         */
-        @Volatile
-        private var commentMoreButtonId = View.NO_ID
-
-        /** 评论日期/回复/赞踩/更多所在操作栏；整支交还宿主，不参与自由复制监听绑定。 */
-        @Volatile
-        private var commentActionsContainerId = View.NO_ID
-
-        /** 评论正文/回复预览文本 id：作为版本无关的最后防线，绑定回调尚未登记根节点时，
-         * 宿主一设置官方长按监听就按资源身份立即夺回，不再等待 IdleHandler。 */
-        @Volatile
-        private var commentPrimaryMessageId = View.NO_ID
-
-        @Volatile
-        private var commentSecondaryMessageId = View.NO_ID
-
-        /** nextholder / 旧 holder / phoenix 评论正文 id（exp3 用 primary/secondary_message，
-         * 其余管线用 comment_message，9.13.0 布局实解确认）。 */
-        @Volatile
-        private var commentNextMessageId = View.NO_ID
-
-        /**
-         * 一个 DOWN 会依次经过评论根、按钮容器和最深子 View。命中 more_button 后用
-         * downTime 标记整次手势为宿主直通，避免其子 View 又重新建立评论长按会话。
-         * 这里只保存 primitive，不持有 View/Context。
-         */
-        @Volatile
-        private var commentMoreButtonPassthroughDownTime = 0L
-
-        private fun isCommentMoreButton(view: View): Boolean {
-            var id = commentMoreButtonId
-            if (id == View.NO_ID) {
-                id = runCatching {
-                    view.resources.getIdentifier("more_button", "id", TARGET_PACKAGE)
-                }.getOrDefault(0)
-                // 0 也缓存：旧版本资源不存在时不能在每次 DOWN 的每层 View 上重复反射查询。
-                commentMoreButtonId = id
-            }
-            return id > 0 && view.id == id
-        }
-
-        private fun isCommentActionsContainer(view: View): Boolean {
-            var id = commentActionsContainerId
-            if (id == View.NO_ID) {
-                id = runCatching {
-                    view.resources.getIdentifier("item_include_actions", "id", TARGET_PACKAGE)
-                }.getOrDefault(0)
-                // 0 也缓存：资源缺失版本不能在每棵评论树的每个节点重复查询。
-                commentActionsContainerId = id
-            }
-            return id > 0 && view.id == id
-        }
-
-        private fun isCommentBodyTextView(view: View): Boolean {
-            if (view !is android.widget.TextView) return false
-            var primaryId = commentPrimaryMessageId
-            if (primaryId == View.NO_ID) {
-                primaryId = runCatching {
-                    view.resources.getIdentifier("primary_message", "id", TARGET_PACKAGE)
-                }.getOrDefault(0)
-                commentPrimaryMessageId = primaryId
-            }
-            var secondaryId = commentSecondaryMessageId
-            if (secondaryId == View.NO_ID) {
-                secondaryId = runCatching {
-                    view.resources.getIdentifier("secondary_message", "id", TARGET_PACKAGE)
-                }.getOrDefault(0)
-                commentSecondaryMessageId = secondaryId
-            }
-            var nextId = commentNextMessageId
-            if (nextId == View.NO_ID) {
-                nextId = runCatching {
-                    view.resources.getIdentifier("comment_message", "id", TARGET_PACKAGE)
-                }.getOrDefault(0)
-                commentNextMessageId = nextId
-            }
-            return (primaryId > 0 && view.id == primaryId) ||
-                (secondaryId > 0 && view.id == secondaryId) ||
-                (nextId > 0 && view.id == nextId)
-        }
-
-        private fun clearCommentTouchSession(resetHandled: Boolean = true) {
-            freeCopyGesture.cancelSchedule(mainHandlerRef?.let { freeCopyPoster(it) })
-            commentTouchTargetRef = null
-            commentTouchRootRef = null
-            commentTouchedView = null
-            if (resetHandled) {
-                commentLongPressHandled = false
-                freeCopyGesture.reset()
-            }
-        }
-
-        /** DOWN 在 dispatch 链上会依次经过祖先与子 View：同一 downTime 只更新目标，不创建并行延迟任务。
-         * 手势判定（相位/阈值/调度）统一走 freeCopyGesture；这里只维护评论特有的目标/根弱引用对。 */
-        private fun beginOrRetargetCommentTouch(v: View, root: View, ev: android.view.MotionEvent) {
-            if (!freeCopyGesture.matches(ev.downTime)) {
-                clearCommentTouchSession(resetHandled = true)
-                // raw 坐标不随 dispatch 到不同层级 View 而改变；用局部 x/y 会在祖先 MOVE
-                // 回调中与最深子 View 的 DOWN 坐标错位，产生假的“移动超阈值”。
-                freeCopyGesture.begin(ev.downTime, android.os.SystemClock.uptimeMillis(),
-                    ev.getPointerId(0), ev.rawX, ev.rawY,
-                    freeCopyHoldSlop(v), freeCopyLongPressThreshold())
-                commentLongPressHandled = false
-            }
-            commentTouchTargetRef = java.lang.ref.WeakReference(v)
-            commentTouchRootRef = java.lang.ref.WeakReference(root)
-            // 该变量仅表示“官方行为拦截窗口仍在触摸中”；弹泡前会清空，但独立的
-            // session/root/target 会保留到真正的 UP/CANCEL，以便可靠消费终止事件。
-            commentTouchedView = v
-            val handler = mainHandlerOrNull() ?: return
-            // Handler 延时：输入延迟很小时按 DOWN 事件时间起算（气泡在手指真实落下后 T 毫秒出现）；
-            // 主线程拥塞（延迟 > MAX_INPUT_LAG_CREDIT_MS）时退回模块真正看到 DOWN 的时刻，输入积压的
-            // 短点 UP 会先得到处理并撤销任务，不会被 delay=0 的旧事件时间误弹气泡。
-            // 同一会话只投递一次：到期时刻由会话起点固定，后续分发层只更新上面的目标与根引用。
-            freeCopyGesture.schedule(freeCopyGesture.sessionId, freeCopyDueDelayMs(), freeCopyPoster(handler))
-        }
-
-        private fun activeCommentTouchTarget(sessionId: Long): View? {
-            if (sessionId == 0L || sessionId != freeCopyGesture.sessionId) return null
-            val target = commentTouchTargetRef?.get() ?: return null
-            val root = commentTouchRootRef?.get() ?: return null
-            if (!target.isAttachedToWindow || !root.isAttachedToWindow ||
-                !target.isShown || !root.isShown ||
-                target.windowVisibility != View.VISIBLE || root.windowVisibility != View.VISIBLE
-            ) return null
-            var cur: View? = target
-            var belongsToRoot = false
-            while (cur != null) {
-                if (cur === root) {
-                    belongsToRoot = true
-                    break
-                }
-                cur = cur.parent as? View
-            }
-            if (!belongsToRoot) return null
-            val rootStillRegistered = synchronized(commentRootLock) {
-                commentRootRefs.containsKey(root)
-            }
-            if (!rootStillRegistered) return null
-            // ViewPager 保留的旧页面仍可能 attached；全局可见矩形可排除已经滑出/被裁剪的页。
-            val visibleRect = android.graphics.Rect()
-            if (!target.getGlobalVisibleRect(visibleRect) || visibleRect.isEmpty) return null
-            return target
-        }
-
-        private fun tryHandleActiveCommentLongPress(sessionId: Long): Boolean {
-            if (sessionId == 0L || sessionId != freeCopyGesture.sessionId) return false
-            if (commentLongPressHandled) return true
-            val v = activeCommentTouchTarget(sessionId) ?: return false
-            val text = resolveCommentTextAtInteraction(v) ?: return false
-            if (!isValidFreeCopyText(text.displayText)) return false
-            commentLongPressHandled = true
-            runCatching {
-                // 先弹泡（清 touch 标志）再触觉反馈（官方震动被 hook 拦，只保留这一次）
-                showFreeCopyPopup(v, text)
-                hapticFeedback(v)
-            }
-            return true
-        }
-
-        /** 当前气泡的显示文本，以及每个绘制 Span 已确认的剪贴板语义文本。 */
-        private data class EmojiCopyValue(
-            val span: android.text.style.ReplacementSpan,
-            val copyText: String
-        )
-
-        private data class FreeCopyContent(
-            val displayText: CharSequence,
-            val emojiCopyValues: List<EmojiCopyValue> = emptyList()
-        )
-
-        /**
-         * 长按发生时重新以当前 View 树的可见正文校验绑定期 rawText。RecyclerView/Handler
-         * 都会复用：异步的旧绑定回调可能在新条目已显示后才把旧 CommentItem 写进 root refs；
-         * 若无校验，气泡锚点正确但文本会串到另一条评论。这里是低频长按路径，允许遍历一次
-         * 当前评论子树；raw 与可见正文属于同一条时仍返回 raw（保留完整正文/表情标记），
-         * 不一致时以眼前实际渲染的正文为准。
-         */
-        private fun resolveCommentTextAtInteraction(v: View): FreeCopyContent? {
-            var registeredRoot: View? = null
-            var semanticState: CommentRootState? = null
-            var fallbackState: CommentRootState? = null
-            synchronized(commentRootLock) {
-                var cur: View? = v
-                while (cur != null) {
-                    val state = commentRootRefs[cur]?.get()
-                    if (state != null) {
-                        // 正文 TextView 的最后防线可能先登记一个 raw=null 的子级弱根；它只
-                        // 负责手势可用性，不能遮蔽父 itemView 本次绑定保存的完整 RichText。
-                        if (registeredRoot == null) registeredRoot = cur
-                        if (!state.rawText.isNullOrBlank()) {
-                            if (fallbackState == null) fallbackState = state
-                            if (state.rawTrusted) {
-                                semanticState = state
-                                break
-                            }
-                        }
-                    }
-                    cur = cur.parent as? View
-                }
-            }
-            val image = additionalNativeCopy?.imageContent(v)
-            val state = image?.let { CommentRootState(it.first, false, true, it.second, 0L) }
-                ?: semanticState ?: fallbackState
-            val raw = state?.rawText?.trim()?.takeIf { it.length in 1..3000 && it.isNotBlank() }
-            val fullBody = if (raw != null && state.rawTrusted) {
-                commentFullTextReader.read(v)?.let { full ->
-                    val clickable = (full as? android.text.Spanned)?.let { text ->
-                        text.getSpans(0, text.length, classOf<Any>())
-                            .filter { it is android.text.style.ClickableSpan || commentFullTextReader.isNicknameSpan(it) }
-                            .map { text.getSpanStart(it) until text.getSpanEnd(it) }
-                    }.orEmpty()
-                    val start = CommentTextIdentity.replyBodyStart(raw, full,
-                        visibleSpanRanges(full, replacementSpans(full)), clickable)
-                    logInfo("free_copy_reply_projection", "[BIL] 自由复制回复投影: " +
-                        "full=${full.length} raw=${raw.length} clickable=${clickable.size} accepted=${start != null}")
-                    start?.let { full.subSequence(it, full.length) }
-                }
-            } else null
-            val renderedText = fullBody ?: extractCommentText(registeredRoot ?: v)
-            val visibleText = renderedText
-                ?.let(::snapshotCommentText)
-                ?.takeIf(::isValidFreeCopyText)
-            if (visibleText == null) return raw?.let(::FreeCopyContent)
-            if (raw == null) {
-                logInfo("free_copy_raw_missing", "[BIL] 自由复制原文缺失: bound=${state != null}")
-                return FreeCopyContent(visibleText)
-            }
-            // 可展开评论在折叠态会把完整富文本截成前缀，再追加带独立点击/着色 Span 的
-            // `... 展开` 控制尾部。该尾部不是评论正文，只参与宿主 UI；若拿它与 raw 做
-            // 身份校验会误判为另一条评论，随后退回 U+200B 快照并令表情复制为空。
-            // 投影只用于本次长按的身份与 Emoji 映射，不修改宿主 TextView，也不把点击 Span
-            // 带进气泡。识别失败时仍使用原可见快照，保持防串评论的保守回退。
-            val identityText = renderedText
-                .let(::projectFoldedCommentBody)
-                .let(::snapshotCommentText)
-                .takeIf(::isValidFreeCopyText)
-                ?: visibleText
-            val visibleSpans = replacementSpans(identityText)
-            val emojiResolution = CommentEmojiAdapter.resolve(
-                state.commentItem,
-                raw,
-                visibleSpans.map { it as Any }
-            )
-            return if (isSameRenderedComment(
-                    raw,
-                    identityText,
-                    state.rawTrusted,
-                    emojiResolution,
-                    visibleSpans
-                )
-            ) {
-                mergeVisibleEmojiSpans(
-                    raw = raw,
-                    visible = identityText,
-                    spans = visibleSpans,
-                    emojiResolution = emojiResolution
-                )
-            } else {
-                logInfo("free_copy_identity_rejected", "[BIL] 自由复制原文身份未通过: " +
-                    "rawLength=${raw.length} visibleLength=${identityText.length} trusted=${state.rawTrusted}")
-                FreeCopyContent(visibleText)
-            }
-        }
-
-        private fun isSameRenderedComment(
-            raw: String,
-            visible: CharSequence,
-            rawTrusted: Boolean = false,
-            emojiResolution: CommentEmojiAdapter.Resolution? = null,
-            visibleSpans: List<android.text.style.ReplacementSpan> = replacementSpans(visible)
-        ): Boolean {
-            if (raw == visible.toString()) return true
-            val rawKey = renderedCommentMatchKey(raw)
-            val visibleKey = renderedCommentMatchKey(visible)
-            // 纯 emoji 评论没有普通文字可交叉校验。只有 raw 来自本次绑定方法的 CommentItem
-            // 实参时才接受槽位完全相等；Handler 可变字段/可见 TextView 回退仍禁止猜测，
-            // 保持 9.8.0 RecyclerView 复用下的防串评论边界。
-            if (rawKey == visibleKey &&
-                (rawTrusted || rawKey.any { it != CommentTextIdentity.EMOJI_SLOT })
-            ) return true
-            // 折叠长评的可见正文是 raw 的前缀/子串；至少 4 字符才接受包含关系，避免
-            // “哈哈”等短公共片段把两条不同评论误判成同一条。
-            val rawLiteralKey = rawKey.filter { it != CommentTextIdentity.EMOJI_SLOT }
-            val visibleLiteralKey = visibleKey.filter { it != CommentTextIdentity.EMOJI_SLOT }
-            if (minOf(rawLiteralKey.length, visibleLiteralKey.length) >= 4 &&
-                (rawKey.contains(visibleKey) || visibleKey.contains(rawKey) ||
-                    rawLiteralKey.contains(visibleLiteralKey) || visibleLiteralKey.contains(rawLiteralKey))
-            ) return true
-
-            // 评论可能同时包含表情 ImageSpan 与卡片/图标 ReplacementSpan。旧身份键会把
-            // 所有 ReplacementSpan 都当作 Emoji 槽位，导致结构不等并退回 U+200B 快照。
-            // 只有本次同步绑定可信，且当前 Span URL 与同一 CommentItem 的 Emote 模型确切
-            // 命中时，才用“去掉绘制单元后的普通文字”做第二层校验；不放宽串评论边界。
-            if (rawTrusted && emojiResolution != null && emojiResolution.urlMatchedCount > 0) {
-                val rawModelKey = CommentTextIdentity.matchKey(
-                    raw,
-                    emojiResolution.emotes.map { it.rawStart until it.rawEnd }
-                ).filter { it != CommentTextIdentity.EMOJI_SLOT }
-                val visibleModelKey = CommentTextIdentity.matchKey(
-                    visible,
-                    visibleSpanRanges(visible, visibleSpans)
-                ).filter { it != CommentTextIdentity.EMOJI_SLOT }
-                val ordinaryTextMatches = visibleModelKey.isEmpty() ||
-                    (visibleModelKey.length >= 4 && rawModelKey.contains(visibleModelKey))
-                if (ordinaryTextMatches) return true
-            }
-            return false
-        }
-
-        private fun replacementSpans(text: CharSequence): List<android.text.style.ReplacementSpan> {
-            val spanned = text as? android.text.Spanned ?: return emptyList()
-            return spanned.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
-                .filter { CommentTextIdentity.isEmojiReplacement(text,
-                    spanned.getSpanStart(it), spanned.getSpanEnd(it)) }
-                .sortedBy { spanned.getSpanStart(it) }
-        }
-
-        /**
-         * 从原始 Spanned 中识别并剔除宿主折叠控制尾部。不能在 snapshotCommentText 之后做：
-         * 安全快照会主动丢弃 ClickableSpan/CharacterStyle，届时只剩本地化文案，既无法可靠
-         * 判断来源，也不能简单按“展开”字符串删除（用户正文可能合法包含该词）。
-         */
-        private fun projectFoldedCommentBody(text: CharSequence): CharSequence {
-            val spanned = text as? android.text.Spanned ?: return text
-            val decoratedRanges = spanned
-                .getSpans(0, text.length, classOf<Any>())
-                .asSequence()
-                .filterNot { it is android.text.style.ReplacementSpan }
-                .mapNotNull { span ->
-                    val start = spanned.getSpanStart(span)
-                    val end = spanned.getSpanEnd(span)
-                    if (start >= 0 && end > start) start until end else null
-                }
-                .toList()
-            val controlStart = CommentTextIdentity.foldControlStart(text, decoratedRanges)
-                ?: return text
-            logInfo(
-                "free_copy_fold_projection",
-                "[BIL] 自由复制折叠投影: visible=${text.length} body=$controlStart"
-            )
-            return text.subSequence(0, controlStart)
-        }
-
-        private fun visibleSpanRanges(
-            text: CharSequence,
-            spans: List<android.text.style.ReplacementSpan>
-        ): List<IntRange> {
-            val spanned = text as? android.text.Spanned ?: return emptyList()
-            return spans.map { span -> spanned.getSpanStart(span) until spanned.getSpanEnd(span) }
-        }
-
-        /**
-         * 将 raw 中的 [表情]、U+FFFC/Unicode emoji，以及可见 Spanned 中确认的 Emoji
-         * 绘制单元统一为槽位；文字链接的底层文字及 emoji 的数量/位置仍保留。相比直接删除 emoji，既能
-         * 兼容宿主的多种富文本编码，也不会把“同文字但 emoji 数量不同”的评论误判为同条。
-         */
-        private fun renderedCommentMatchKey(text: CharSequence): String {
-            return CommentTextIdentity.matchKey(text, visibleSpanRanges(text, replacementSpans(text)))
-        }
-
-        /**
-         * 只快照绘制 emoji 所需的 ReplacementSpan；宿主 ClickableSpan/点击行为不带入弹窗。
-         * 快照不保存 View，也不进入静态集合，Dialog 关闭后即可与其 span 一同释放。
-         */
-        private fun snapshotCommentText(text: CharSequence): CharSequence {
-            val spanned = text as? android.text.Spanned
-            val replacementSpans = spanned
-                ?.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
-                .orEmpty()
-            fun isUnspannedZeroWidth(index: Int): Boolean =
-                text[index] == '\u200B' && (spanned == null ||
-                    replacementSpans.none { span ->
-                        spanned.getSpanStart(span) <= index && spanned.getSpanEnd(span) > index
-                    })
-
-            var start = 0
-            var end = text.length
-            while (start < end && (text[start].isWhitespace() || isUnspannedZeroWidth(start))) start++
-            while (end > start && (text[end - 1].isWhitespace() || isUnspannedZeroWidth(end - 1))) end--
-            val plain = text.subSequence(start, end).toString()
-            if (spanned == null) return plain
-            val out = android.text.SpannableString(plain)
-            var copied = false
-            spanned.getSpans(start, end, classOf<android.text.style.ReplacementSpan>()).forEach { span ->
-                val spanStart = spanned.getSpanStart(span).coerceAtLeast(start)
-                val spanEnd = spanned.getSpanEnd(span).coerceAtMost(end)
-                if (spanEnd > spanStart) {
-                    out.setSpan(
-                        span,
-                        spanStart - start,
-                        spanEnd - start,
-                        spanned.getSpanFlags(span)
-                    )
-                    copied = true
-                }
-            }
-            return if (copied) android.text.SpannedString(out) else plain
-        }
-
-        private fun isValidFreeCopyText(text: CharSequence?): Boolean {
-            if (text == null || text.length !in 1..3000) return false
-            if (text.any { !it.isWhitespace() && it != '\uFFFC' && it != '\u200B' }) return true
-            val spanned = text as? android.text.Spanned ?: return false
-            return spanned.getSpans(0, text.length, classOf<android.text.style.ReplacementSpan>())
-                .any { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
-        }
-
-        /**
-         * raw 相同/同源时仍保留完整评论，并把当前 View 中的 emoji 绘制 Span 映射回 raw；
-         * 映射不可靠时回退眼前 View 的快照，宁可显示当前折叠文本也不重新引入串评论。
-         */
-        private fun mergeVisibleEmojiSpans(
-            raw: String,
-            visible: CharSequence,
-            spans: List<android.text.style.ReplacementSpan>,
-            emojiResolution: CommentEmojiAdapter.Resolution
-        ): FreeCopyContent {
-            val spanned = visible as? android.text.Spanned ?: return FreeCopyContent(raw)
-            if (spans.isEmpty()) return FreeCopyContent(raw)
-            val displayRanges = visibleSpanRanges(visible, spans)
-            val aligned = FreeCopySelectionMapper.alignCustomEmojiTokens(
-                rawText = raw,
-                displayText = visible,
-                displayReplacementRanges = displayRanges,
-                expectedTokens = emojiResolution.emotes.map { it.token }
-            ).orEmpty()
-            val structuralByDisplayRange = aligned.associateBy { it.displayStart to it.displayEnd }
-            val modelBySpan = java.util.IdentityHashMap<Any, CommentEmojiAdapter.EmoteDescriptor>()
-            emojiResolution.spanMatches.forEach { modelBySpan[it.span] = it.emote }
-
-            val out = android.text.SpannableString(raw)
-            val copyValues = ArrayList<EmojiCopyValue>(spans.size)
-            val occupiedRawRanges = ArrayList<IntRange>()
-            var structuralApplied = 0
-            var urlApplied = 0
-            spans.forEach { span ->
-                val displayStart = spanned.getSpanStart(span)
-                val displayEnd = spanned.getSpanEnd(span)
-                val structural = structuralByDisplayRange[displayStart to displayEnd]
-                val model = modelBySpan[span]
-                val mapping = when {
-                    model != null && structural != null && structural.copyText == model.token ->
-                        Triple(structural.rawStart, structural.rawEnd, structural.copyText)
-                    model != null -> Triple(model.rawStart, model.rawEnd, model.token)
-                    // 只要本条评论已有 URL 精确命中，就不让未分类的卡片/图标 Span 通过
-                    // 结构猜测占用某个 Emote raw 区间；未知单元直接显示 raw 文本更安全。
-                    structural != null && emojiResolution.urlMatchedCount == 0 ->
-                        Triple(structural.rawStart, structural.rawEnd, structural.copyText)
-                    else -> null
-                } ?: return@forEach
-                val rawStart = mapping.first
-                val rawEnd = mapping.second
-                val copyText = mapping.third
-                if (rawStart !in 0 until rawEnd || rawEnd > raw.length ||
-                    raw.substring(rawStart, rawEnd) != copyText
-                ) return@forEach
-                if (occupiedRawRanges.any { it.first < rawEnd && it.last + 1 > rawStart }) return@forEach
-                occupiedRawRanges += rawStart until rawEnd
-                out.setSpan(span, rawStart, rawEnd, spanned.getSpanFlags(span))
-                copyValues += EmojiCopyValue(span, copyText)
-                if (structural != null) structuralApplied++ else urlApplied++
-            }
-            val fallbackTextCount = (emojiResolution.emotes.size - copyValues.size).coerceAtLeast(0)
-            logInfo(
-                "emoji_map",
-                "[BIL] 自由复制 Emoji 映射: model=${emojiResolution.emotes.size} " +
-                    "spans=${spans.size} url=${emojiResolution.urlMatchedCount} " +
-                    "structural=$structuralApplied urlFallback=$urlApplied applied=${copyValues.size} " +
-                    "textFallback=$fallbackTextCount"
-            )
-            // raw 已通过当前 View/绑定代次身份校验。未确认 Span 不再把整条评论降级为
-            // U+200B 快照，而是在 raw 中保留 `[表情名]`，保证最差也能复制出文本。
-            return FreeCopyContent(android.text.SpannedString(out), copyValues)
-        }
-
-        @Volatile
-        private var commentTouchedViewRef: java.lang.ref.WeakReference<View>? = null
-
-        private var commentTouchedView: View?
-            get() = commentTouchedViewRef?.get()
-            set(value) {
-                commentTouchedViewRef = value?.let { java.lang.ref.WeakReference(it) }
-            }
-
-        /** desc view 常驻弱引用（setText 命中时更新；剪贴板兜底拦截用，不依赖触摸状态，
-         *  弱引用避免泄漏，view 销毁后自动失效） */
-        @Volatile
-        private var descCachedViewRef: java.lang.ref.WeakReference<View>? = null
-
-        // ===== 评论绑定性能优化状态 =====
-        /** 当前仍在滚动的 RecyclerView 弱集合。多个嵌套列表并存时，不能让任一列表的
-         * IDLE 覆盖另一列表的滚动状态；弱 key + detach 清理避免页面销毁后永久卡在滚动中。 */
-        private val scrollingRecyclerViews = java.util.WeakHashMap<View, Boolean>()
-        private val scrollingRecyclerViewsLock = Any()
-
-        /** 全局派生快照：滚动中暂缓评论绑定，滑停后统一批量绑定可见评论。 */
-        @Volatile
-        private var rvScrolling = false
-
-        private fun updateRecyclerViewScrolling(view: View, scrolling: Boolean): Boolean {
-            synchronized(scrollingRecyclerViewsLock) {
-                val wasScrolling = rvScrolling
-                if (scrolling) scrollingRecyclerViews[view] = true
-                else scrollingRecyclerViews.remove(view)
-                rvScrolling = scrollingRecyclerViews.isNotEmpty()
-                return wasScrolling && !rvScrolling
-            }
-        }
-
-        /** drain 时主动剔除已 detach 的列表；即使某版本未回调 IDLE/onDetached，
-         * pending itemView 强持有旧 RecyclerView 也不会形成“滚动=true → 永不 drain”的环。 */
-        private fun isAnyRecyclerViewScrolling(): Boolean {
-            synchronized(scrollingRecyclerViewsLock) {
-                val iterator = scrollingRecyclerViews.keys.iterator()
-                while (iterator.hasNext()) {
-                    if (!iterator.next().isAttachedToWindow) iterator.remove()
-                }
-                rvScrolling = scrollingRecyclerViews.isNotEmpty()
-                return rvScrolling
-            }
-        }
-
-        /** 最近一次滚动进入 IDLE 的时刻（0=尚未滚动过）：滑停后的「超出回弹动画
-         *  静默期」判定——回弹通常持续 300~500ms，期间不执行批量绑定（全树遍历
-         *  会砸在回弹动画帧上，实测滑到底回弹卡顿）。 */
-        @Volatile
-        private var rvIdleSinceMs = 0L
-
-        private data class CommentRootState(
-            val rawText: String?,
-            val checkReply: Boolean,
-            /** true 表示数据与宿主本次同步绑定调用属于同一快照，可用于纯 emoji 身份校验。 */
-            val rawTrusted: Boolean,
-            /** 与 raw 同次捕获的 CommentItem；弱 key View 回收后状态整体释放。 */
-            val commentItem: Any?,
-            val generation: Long
-        )
-
-        private data class PendingCommentBind(
-            val view: View,
-            val rawText: String?,
-            val checkReply: Boolean,
-            val rawTrusted: Boolean,
-            val commentItem: Any?
-        )
-
-        private val commentBindClock = CommentBindProbe.Clock { System.nanoTime() }
-
-        /** 评论绑定批处理的有界诊断，默认关闭；安装评论 Hook 时按 Log.isLoggable 决定是否打开。 */
-        private val commentBindProbe = CommentBindProbe(commentBindClock)
-        private val commentBindBudgetPolicy = CommentBindBudget.Policy(
-            budgetNs = 2_000_000L,
-            starvationLimitNs = 500_000_000L
-        )
-
-        private val commentBindingGenerationSerial = java.util.concurrent.atomic.AtomicLong(0L)
-
-        /** itemView → 最近绑定代次；弱 key，不延长 RecyclerView/ViewHolder 生命周期。 */
-        private val latestCommentBindingGeneration = java.util.WeakHashMap<View, Long>()
-
-        /** 待绑定评论队列，主线程 drain。 */
-        private val pendingCommentBinds = CommentBindQueue<PendingCommentBind>()
-        private val pendingBindLock = Any()
-
-        /** drain 是否已调度（避免重复 post） */
-        @Volatile
-        private var bindDrainScheduled = false
-
-        /** 所有延迟重试都投递到单例 Handler，不再让任意 itemView 的 RunQueue 保活页面。 */
-        private val commentBindRetryRunnable =
-            HostThreadGuard.runnable("free_copy.bind_drain_retry") { drainCommentBinds() }
-
-        private fun scheduleCommentBindRetry(delayMs: Long) {
-            val hasPending = synchronized(pendingBindLock) { pendingCommentBinds.size > 0 }
-            if (!hasPending) {
-                bindDrainScheduled = false
-                mainHandlerRef?.removeCallbacks(commentBindRetryRunnable)
-                return
-            }
-            val handler = mainHandlerOrNull()
-            if (handler == null) {
-                bindDrainScheduled = false
-                return
-            }
-            bindDrainScheduled = true
-            handler.removeCallbacks(commentBindRetryRunnable)
-            // 绑定重试与固定 Runnable 的撤销状态共享，不能改成独立协程 Job。
-            handler.postDelayed(commentBindRetryRunnable, delayMs.coerceAtLeast(0L))
-        }
-
-        private fun scheduleCommentBindIdle() {
-            val handler = mainHandlerOrNull()
-            if (handler == null) {
-                bindDrainScheduled = false
-                return
-            }
-            bindDrainScheduled = true
-            handler.looper.queue.addIdleHandler(
-                object : android.os.MessageQueue.IdleHandler {
-                    // IdleHandler 直接跑在宿主主 Looper 上，框架的 PROTECTIVE 不覆盖这里。
-                    override fun queueIdle(): Boolean {
-                        HostThreadGuard.run("free_copy.bind_drain_idle") { drainCommentBinds() }
-                        return false
-                    }
-                }
-            )
-        }
-
-        /** 评论 itemView 根 → 绑定状态引用（弱引用，回收自动清理）：
-         *  供 setOnLongClickListener 全局 hook 在「官方设置监听」时识别评论树并立即
-         *  夺回重绑——覆盖「滑停→绑定完成」延迟窗口内长按落到官方行为的场景 */
-        private val commentRootRefs = java.util.WeakHashMap<View, java.util.concurrent.atomic.AtomicReference<CommentRootState>>()
-        private val commentRootLock = Any()
-
-        /** 只在低频长按回调执行；确认共享监听器所属 View 仍处于已登记评论树内。 */
-        private fun isRegisteredCommentTreeMember(view: View): Boolean =
-            synchronized(commentRootLock) {
-                var current: View? = view
-                while (current != null) {
-                    if (commentRootRefs.containsKey(current)) return@synchronized true
-                    current = current.parent as? View
-                }
-                false
-            }
-
-        private fun registerCommentRoot(
-            view: View,
-            rawText: String?,
-            checkReply: Boolean,
-            rawTrusted: Boolean = false,
-            commentItem: Any? = null,
-            generation: Long = 0L
-        ) {
-            val state = CommentRootState(rawText, checkReply, rawTrusted, commentItem, generation)
-            synchronized(commentRootLock) {
-                if (generation > 0L) {
-                    val latest = latestCommentBindingGeneration[view]
-                    if (latest != null && latest != generation) return
-                    latestCommentBindingGeneration[view] = generation
-                } else if ((commentRootRefs[view]?.get()?.generation ?: 0L) > 0L) {
-                    // setOnLongClickListener 的正文兜底晚于绑定回调发生时，不能用一个
-                    // 无语义 generation=0 状态覆盖同一 View 已登记的同步绑定快照。
-                    return
-                }
-                commentRootRefs[view]?.set(state) ?: run {
-                    commentRootRefs[view] = java.util.concurrent.atomic.AtomicReference(state)
-                }
-            }
-        }
-
-        /** ViewHolder 被复用成头部/卡片时立即撤销评论身份；若它恰是当前触摸根，同时
-         * 取消尚未触发的会话。handled=true 表示气泡已接管，保留 handled 到 dismiss。 */
-        private fun unregisterCommentRoot(
-            view: View,
-            expectedGeneration: Long? = null,
-            preserveGeneration: Boolean = false
-        ) {
-            var removed = false
-            synchronized(commentRootLock) {
-                if (expectedGeneration != null &&
-                    latestCommentBindingGeneration[view] != expectedGeneration
-                ) return@synchronized
-                commentRootRefs.remove(view)
-                if (!preserveGeneration) latestCommentBindingGeneration.remove(view)
-                removed = true
-            }
-            if (!removed) return
-            if (commentTouchRootRef?.get() === view) {
-                clearCommentTouchSession(resetHandled = !commentLongPressHandled)
-            }
-        }
-
-        /** 评论夺回防重入（防止回退路径触发 hook 后再次夺回的死循环） */
-        @Volatile
-        private var commentStealInProgress = false
-
         /** 版本适配检测幂等标记（每进程一次） */
         @Volatile
         private var versionAdaptCheckedThisProcess = false
@@ -1576,254 +385,6 @@ class HookEntry : XposedModule() {
         private fun logInfo(key: String, msg: String) {
             if (logEnabled && logVerbose && onceLogged.add(key)) frameworkLog(msg)
         }
-
-        /**
-         * 从 View 自身或其子树中提取最长文本（评论正文特征）。
-         * 忽略不可见 View（GONE/INVISIBLE 的「登录后查看更多评论」等隐藏文案），
-         * 深度限制放宽到 12 层（评论 item 结构可能较深）。
-         */
-        private fun extractLongText(v: View, depth: Int = 0): String? {
-            if (depth > 12) return null
-            if (v.visibility != View.VISIBLE) return null
-            var best: String? = null
-            (v as? android.widget.TextView)?.textToString()?.takeIf { it.length >= 2 }?.let { best = it }
-            (v as? android.view.ViewGroup)?.let { vg ->
-                for (i in 0 until vg.childCount) {
-                    val child = vg.childOrNull(i) ?: continue
-                    val t = extractLongText(child, depth + 1) ?: continue
-                    if (best == null || t.length > best.length) best = t
-                }
-            }
-            return best
-        }
-
-        /**
-         * 精确提取评论正文：优先按类名匹配评论正文 TextView（B 站新路径
-         * NextExperiment3ExpandableTextView / 旧路径 RichTextView），命中即返回其文本；
-         * 类名匹配不到时兜底用「最长文本」。
-         * 这样短评论（正文短于昵称/IP/时间）也能正确取到正文，不会偏移到 id/IP/日期。
-         */
-        private fun extractCommentText(root: View): CharSequence? {
-            findCommentBody(root)?.let { return it }
-            return extractLongText(root)
-        }
-
-        /**
-         * 运行时解析简介 TextView 的 view id（按资源名 "desc" 查找，版本无关）。
-         * 在 setText/setOnLongClickListener 回调里惰性调用：首次任意文本设置即完成解析
-         * （一次 getIdentifier，微秒级），此后所有回调只做 id 比对。连续 3 次解析失败
-         * 则永久放弃（当前版本无该资源，避免热路径反复查询）。
-         * 注意：用触发回调的 view 的 context 解析（AndroidAppHelper.currentApplication()
-         * 在 YukiHookAPI hook 回调里实测恒为 null，导致按应用解析永不成功）。
-         */
-        private fun resolveDescViewId(viewContext: Context?) {
-            if (descIdResolveAttempts >= 3) return
-            val ctx = viewContext ?: return
-            descIdResolveAttempts++
-            val id = runCatching {
-                ctx.resources.getIdentifier("desc", "id", TARGET_PACKAGE)
-            }.getOrDefault(0)
-            if (id != 0) {
-                descViewId = id
-                logInfo("free_copy_desc_id", "[BIL] 已解析简介 view id: 0x${Integer.toHexString(id)}")
-            } else if (descIdResolveAttempts >= 3) {
-                logError("free_copy_desc_id_err", "[BIL] 简介 view id 解析失败（当前版本无 id/desc 资源，功能不可用）")
-            }
-        }
-
-        /**
-         * 详情页文本控件 setText 之后的统一入口：先让标题登记（只在标题开启时），再走原有的简介绑定。
-         * 简介部分与原实现逐行等价；标题分支被 runCatching 隔离，不可能影响简介的绑定。
-         */
-        private fun onDetailTextSet(v: View) {
-            if (runtimeTitleFreeCopyEnabled) runCatching { onTitleCandidateTextSet(v) }
-            if (!runtimeDescriptionFreeCopyEnabled) return
-            if (descViewId == View.NO_ID) {
-                resolveDescViewId(v.context)
-                if (descViewId == View.NO_ID) return
-            }
-            if (v.id != descViewId) return
-            descCachedViewRef = java.lang.ref.WeakReference(v)
-            v.post {
-                HostThreadGuard.run("free_copy.desc_apply") {
-                    applyFreeCopyListener(v, null, false)
-                }
-            }
-        }
-
-        /**
-         * 解析标题与 arrow 的 view id（按资源名，版本无关）。必须两个都解析到才启用：标题的识别
-         * 依赖「同父容器里有 arrow 兄弟」，缺一就宁可不启用也不去猜。用触发回调的 View 的 context
-         * 解析（同简介：YukiHook 回调里 currentApplication() 恒为 null）。
-         */
-        private fun resolveTitleViewIds(viewContext: Context?) {
-            if (titleViewId != View.NO_ID || titleIdResolveAttempts >= 3) return
-            val ctx = viewContext ?: return
-            titleIdResolveAttempts++
-            val resources = ctx.resources
-            val title = runCatching {
-                resources.getIdentifier(TitleFreeCopyPolicy.VIEW_ID_NAME, "id", TARGET_PACKAGE)
-            }.getOrDefault(0)
-            val arrow = runCatching {
-                resources.getIdentifier(TitleFreeCopyPolicy.ARROW_ID_NAME, "id", TARGET_PACKAGE)
-            }.getOrDefault(0)
-            if (title != 0 && arrow != 0) {
-                titleArrowId = arrow // 先写 arrow：读到 titleViewId 的线程必然也读得到它
-                titleViewId = title
-                logInfo("free_copy_title_id", "[BIL] 已解析标题 view id: 0x${Integer.toHexString(title)}")
-            } else if (titleIdResolveAttempts >= 3) {
-                logError("free_copy_title_id_err", "[BIL] 标题 view id 解析失败（当前版本无 id/title 或 id/arrow，标题复制不可用）")
-            }
-        }
-
-        /** 触摸/长按这类全局热路径用：id 不匹配就立刻返回，只有 id 命中才查弱集合。 */
-        private fun isTitleView(v: View): Boolean {
-            val id = titleViewId
-            return id != View.NO_ID && v.id == id && titleViews.containsKey(v)
-        }
-
-        /**
-         * 在 ExpandableTextView.setText 之后调用：id 命中且满足 [TitleFreeCopyPolicy.isTitleWidget]
-         * 才登记并装上共享长按监听器。已登记的 View 直接返回，不重复投递（setText 在测量时会反复调用）。
-         */
-        private fun onTitleCandidateTextSet(v: View) {
-            if (!runtimeTitleFreeCopyEnabled) return
-            if (titleViewId == View.NO_ID) {
-                resolveTitleViewIds(v.context)
-                if (titleViewId == View.NO_ID) return
-            }
-            if (v.id != titleViewId) return
-            if (titleViews.containsKey(v)) return
-            val classChain = ArrayList<String>(4)
-            var cls: Class<*>? = v.javaClass
-            while (cls != null && cls != Any::class.java && classChain.size < 8) {
-                classChain.add(cls.name)
-                cls = cls.superclass
-            }
-            val hasArrowSibling = (v.parent as? android.view.ViewGroup)
-                ?.findViewById<View>(titleArrowId) != null
-            if (!TitleFreeCopyPolicy.isTitleWidget(true, classChain, hasArrowSibling)) return
-            // 只登记，不挂长按监听：给原本不可点击的标题装 OnLongClickListener 会让 setLongClickListenerNoHook
-            // 把它变成可长按控件（isLongClickable=true），View.onTouchEvent 因此消费整个触摸流，宿主
-            // “点标题所在容器展开/收起”的点击（9.19：容器 setOnClickListener，标题 setEnableTouchToggle(false)）
-            // 收不到手势。长按识别完全由 dispatchTouchEvent 钩子 + 到期 Runnable 承担，不需要监听器。
-            titleViews[v] = true
-        }
-
-        /**
-         * 仅用于宿主自己给已登记标题设置了长按监听的版本（官方 setOnLongClickListener 钩子里夺回）：
-         * 此时标题本来就可长按，换成共享监听器不改变触摸消费语义。未被宿主设置时绝不主动挂。
-         */
-        private fun applyTitleFreeCopyListener(v: View) {
-            if (!runtimeTitleFreeCopyEnabled || !isTitleView(v)) return
-            setLongClickListenerNoHook(v, sharedFreeCopyListener)
-        }
-
-        /** ExpandableTextView 里保存标题原文的 CharSequence 字段（按类缓存；null 代表该类没有可用字段）。 */
-        private val titleOriginFieldByClass =
-            java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Field>>()
-
-        private fun titleOriginField(viewClass: Class<*>): java.lang.reflect.Field? =
-            titleOriginFieldByClass.getOrPut(viewClass) {
-                var found: java.lang.reflect.Field? = null
-                var cls: Class<*>? = viewClass
-                while (found == null && cls != null && cls != classOf<android.widget.TextView>() &&
-                    cls != Any::class.java
-                ) {
-                    val charSequenceFields = cls.declaredFields.filter {
-                        !java.lang.reflect.Modifier.isStatic(it.modifiers) &&
-                            it.type == classOf<CharSequence>()
-                    }
-                    val index = TitleFreeCopyPolicy.originFieldIndex(charSequenceFields.map { it.name })
-                    if (index != null) {
-                        found = charSequenceFields[index].also { it.isAccessible = true }
-                    }
-                    cls = cls.superclass
-                }
-                java.util.Optional.ofNullable(found)
-            }.orElse(null)
-
-        /**
-         * 标题文本提取。ExpandableTextView 收起时 TextView.getText() 是「截断 + 展开提示」的派生文本，
-         * 长标题会被切掉，所以优先取保存原文的字段；字段缺失、读取失败或为空时才回退 getText()。
-         * 与简介一样先剔除 ReplacementSpan 占位字符（宿主在标题前放了角标图片占位），再整理空白。
-         */
-        private fun extractTitleText(v: View): String {
-            val visible = (v as? android.widget.TextView)?.text
-                ?.let { TitleFreeCopyPolicy.normalize(stripSpanPlaceholderChars(it)) }.orEmpty()
-            val origin = runCatching {
-                (titleOriginField(v.javaClass)?.get(v) as? CharSequence)
-                    ?.let { TitleFreeCopyPolicy.normalize(stripSpanPlaceholderChars(it)) }
-            }.getOrNull().orEmpty()
-            return TitleFreeCopyPolicy.choose(origin, visible)
-        }
-
-        /** 按类名递归匹配评论正文 TextView（ExpandableTextView/RichTextView/CommentTextView） */
-        private fun findCommentBody(v: View, depth: Int = 0): CharSequence? {
-            if (depth > 12) return null
-            if (v.visibility != View.VISIBLE) return null
-            if (v is android.widget.TextView) {
-                val cls = v.javaClass.name
-                if (cls.contains("ExpandableTextView") || cls.contains("RichTextView") || cls.contains("CommentTextView")) {
-                    val t = v.text ?: ""
-                    if (t.isNotEmpty()) return t
-                }
-            }
-            if (v is android.view.ViewGroup) {
-                for (i in 0 until v.childCount) {
-                    findCommentBody(v.childOrNull(i) ?: continue, depth + 1)?.let { return it }
-                }
-            }
-            return null
-        }
-
-        /**
-         * 从评论数据对象 CommentItem 提取 RichText.raw 原始文本（含表情文字标记如 [dog]，
-         * 且始终完整不受「展开」折叠影响）。反射链：commentItem.z() → n（RichText）→ n.e() → raw String。
-         * z() / e() 均为 jadx 反编译确认的真实方法名（非 deobf 重命名）。非评论 holder 的
-         * args[0] 不是 CommentItem，反射失败返回 null，交由调用方兜底。
-         */
-        private fun extractRawCommentText(commentItem: Any?): String? {
-            return commentRawTextReader.read(commentItem, modern = false)
-        }
-
-        /**
-         * 高版本（9.x）评论文本提取：反射链 commentItem.f() → k（RichText）→ k.a → raw String。
-         * f() 返回 k（新版 RichText 类），k.a 是 raw 字段（含表情标记 [dog]），
-         * 均为 jadx 反编译确认的真实方法/字段名（无 renamed from 注释）。
-         */
-        private fun extractRawCommentTextV2(commentItem: Any?): String? {
-            return commentRawTextReader.read(commentItem)
-        }
-
-        /** 反射缓存：进程内目标类不卸载，可安全缓存 Method/Field，避免评论滚动时重复反射查找 */
-        private val commentRawTextReader = CommentRawTextReader()
-        private val commentFullTextReader = CommentFullTextReader()
-        private val cHandlerViewFieldByClass =
-            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
-        @Volatile private var additionalNativeCopy: CommentNativeSupplementBridge? = null
-        /** 优先从当前绑定方法实参取得 CommentItem；不同方法下标独立，杜绝读取 Handler
-         * 可变字段时被 RecyclerView 的下一条绑定覆盖。无 CommentItem 实参（9.8.0 d/e）
-         * 才回退 Handler 字段。 */
-        private val cCommentItemArgIndexByMethod =
-            java.util.concurrent.ConcurrentHashMap<java.lang.reflect.Member, Int>()
-        private val cHandlerCommentItemFieldByClass =
-            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
-        /** 同一 Handler 内 A0(binding) 与 G0(CommentItem,binding,...) 的 Binding 下标不同；
-         * 必须按具体 Method 缓存，不能由第一次回调污染整个类。条目数由已 hook 方法数
-         * 严格限制，且只持有进程生命周期内本就常驻的 Method/Class。 */
-        private val cViewBindingArgIndexByMethod =
-            java.util.concurrent.ConcurrentHashMap<java.lang.reflect.Member, Int>()
-
-        /**
-         * 判断目标类是否存在于指定 ClassLoader。
-         * 关键：YukiHook 的 findClass(name).hook {} 在类不存在时【不抛异常】，
-         * 只打印 "[YukiHookAPI][E] HookClass [...] not found" 并静默跳过，
-         * 导致 try-catch「低版本失败则 try 高版本」的判断完全失效（freeCopyOk 恒为 true）。
-         * 必须用显式 ClassLoader 探测判断类是否存在。
-         */
-        private fun classExists(name: String, loader: ClassLoader?): Boolean =
-            if (loader == null) false else KavaMemberLookup.hasClass(loader, name)
 
         /**
          * 收起首页 V8Banner。只在 Adapter 已确认的 V8Banner 实例低频生命周期回调中执行，
@@ -1867,684 +428,6 @@ class HookEntry : XposedModule() {
             }
         }
 
-        /**
-         * 简介文本提取（desc 专用）：在 Spanned 上先剔除 ReplacementSpan 占位字符
-         * （图标/标签占位如 'r'，官方渲染被 span 覆盖不可见），再归一化换行控制字符。
-         * 必须在 toString() 之前处理——转 String 后 span 信息即丢失。
-         */
-        private fun extractDescText(v: View): String {
-            val cs = (v as? android.widget.TextView)?.text ?: return ""
-            var s = stripSpanPlaceholderChars(cs).replace("\r\n", "\n").replace("\r", "\n")
-            // 剔除 B 站下发的转载声明（非简介正文，如「未经作者授权禁止转载」）
-            s = s.replace(Regex("未经(作者)?授权[，,、]?禁止转载"), "")
-            // 清理空白：每行去尾空白、过滤纯空白行、压缩连续空行、首尾 trim——
-            // 简介数据尾部常带大量空行/空格，原样进气泡会在下方撑出大面积留白
-            s = s.lines().map { it.trimEnd() }.filter { it.isNotBlank() }.joinToString("\n").trim()
-            return s
-        }
-
-        /**
-         * 剔除被 ReplacementSpan 覆盖的占位字符。B 站简介文本中的图标、标签等
-         * 特殊渲染用「占位字符 + ReplacementSpan」实现（如简介"资源参考"前的图标占位
-         * 字符 'r'）——官方渲染时 span 覆盖占位符画成图标，屏幕上不可见；而气泡的
-         * text.toString() 丢失 span 后占位字符显形（用户看到多余的 "r"）。此处把所有
-         * ReplacementSpan 覆盖区间的字符删除，只保留真实文字语义。
-         */
-        private fun stripSpanPlaceholderChars(cs: CharSequence): String {
-            val spanned = cs as? android.text.Spanned ?: return cs.toString()
-            val spans = spanned.getSpans(0, spanned.length, classOf<android.text.style.ReplacementSpan>())
-            if (spans.isEmpty()) return spanned.toString()
-            val sb = StringBuilder(spanned)
-            // 从后往前删，避免删除时索引位移
-            spans.sortedByDescending { spanned.getSpanStart(it) }.forEach { s ->
-                val st = spanned.getSpanStart(s)
-                val en = spanned.getSpanEnd(s)
-                if (st in 0..en && en <= sb.length) sb.delete(st, en)
-            }
-            return sb.toString()
-        }
-
-        /**
-         * 弹窗文本快照：仅保留 ReplacementSpan，并在 SpannableStringBuilder 内归一化 CRLF，
-         * 让索引变化由 Android span 实现自动跟随。这里不持有原 TextView，也不复制可点击 span。
-         */
-        private fun normalizePopupText(rawContent: FreeCopyContent): FreeCopyContent {
-            val safeText = snapshotCommentText(rawContent.displayText)
-            if (!safeText.contains('\r')) return rawContent.copy(displayText = safeText)
-            val builder = android.text.SpannableStringBuilder(safeText)
-            var i = 0
-            while (i < builder.length) {
-                if (builder[i] != '\r') {
-                    i++
-                    continue
-                }
-                if (i + 1 < builder.length && builder[i + 1] == '\n') {
-                    builder.delete(i, i + 1)
-                } else {
-                    builder.replace(i, i + 1, "\n")
-                    i++
-                }
-            }
-            val hasReplacementSpans = builder
-                .getSpans(0, builder.length, classOf<android.text.style.ReplacementSpan>())
-                .isNotEmpty()
-            val normalized = if (hasReplacementSpans) android.text.SpannedString(builder) else builder.toString()
-            return rawContent.copy(displayText = normalized)
-        }
-
-        /**
-         * 只接管当前气泡 TextView 选择菜单中的「复制」。显示仍使用原 ReplacementSpan；
-         * 写剪贴板时才按选区把绘制 Span 转回 `[表情名]` 等语义文本。其它菜单项继续由
-         * Android Editor 处理，不改变拖选手感或“全选”等系统行为。
-         */
-        private fun installSemanticCopyAction(
-            content: TextView,
-            popupContent: FreeCopyContent
-        ) {
-            val spanned = content.text as? android.text.Spanned ?: return
-            val spans = spanned
-                .getSpans(0, spanned.length, classOf<android.text.style.ReplacementSpan>())
-                .filter { spanned.getSpanStart(it) >= 0 && spanned.getSpanEnd(it) > spanned.getSpanStart(it) }
-                .sortedBy { spanned.getSpanStart(it) }
-            if (spans.isEmpty()) return
-
-            val replacements = spans.mapNotNull { span ->
-                val start = spanned.getSpanStart(span)
-                val end = spanned.getSpanEnd(span)
-                val explicit = popupContent.emojiCopyValues
-                    .firstOrNull { it.span === span }
-                    ?.copyText
-                val backing = spanned.subSequence(start, end).toString()
-                // 显式映射来自已通过评论身份校验的 raw；没有显式映射时，仅接受底层本身
-                // 就是完整 emoji token 的情况，绝不从 U+FFFC/宿主占位符猜名称。
-                val inferred = backing.takeIf {
-                    val tokenEnd = CommentTextIdentity.emojiTokenEnd(it, 0)
-                    tokenEnd > 0 && tokenEnd == it.length && it.any { ch -> ch != '\uFFFC' }
-                }
-                val copyText = explicit ?: inferred ?: return@mapNotNull null
-                FreeCopySelectionMapper.Replacement(start, end, copyText)
-            }
-            if (replacements.isEmpty()) return
-
-            content.customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
-                override fun onCreateActionMode(
-                    mode: android.view.ActionMode,
-                    menu: android.view.Menu
-                ): Boolean = true
-
-                override fun onPrepareActionMode(
-                    mode: android.view.ActionMode,
-                    menu: android.view.Menu
-                ): Boolean = false
-
-                override fun onActionItemClicked(
-                    mode: android.view.ActionMode,
-                    item: android.view.MenuItem
-                ): Boolean {
-                    if (item.itemId != android.R.id.copy || !isOurBubbleShowing()) return false
-                    val selected = FreeCopySelectionMapper.mapSelection(
-                        content.text,
-                        content.selectionStart,
-                        content.selectionEnd,
-                        replacements
-                    ) ?: return false
-                    return runCatching {
-                        val clipboard = content.context.getSystemService(Context.CLIPBOARD_SERVICE)
-                            as? android.content.ClipboardManager ?: return@runCatching false
-                        popupClipboardWriteInProgress.set(true)
-                        try {
-                            // 显式保留 ThreadLocal 豁免区间内的原生剪贴板写入边界。
-                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText(null, selected))
-                        } finally {
-                            popupClipboardWriteInProgress.remove()
-                        }
-                        mode.finish()
-                        true
-                    }.getOrDefault(false)
-                }
-
-                override fun onDestroyActionMode(mode: android.view.ActionMode) = Unit
-            }
-        }
-
-        /**
-         * 弹出「自由复制」气泡（Dialog + window 精确定位到长按评论下方，微信聊天气泡样式）。
-         * 用 Dialog 而非 PopupWindow：PopupWindow 是独立 window，其内 TextView 的系统
-         * 选择菜单（ActionMode）无法正常显示（导致无法自由复制）；Dialog 属于 Activity
-         * 的 window 体系，文本选择正常。
-         * 进出动画由 windowAnimations（@style/FreeCopyBubble）处理：柔和回弹进入 + 反向退出。
-         */
-        private fun showFreeCopyPopup(anchor: View, rawText: CharSequence) =
-            showFreeCopyPopup(anchor, FreeCopyContent(rawText))
-
-        /**
-         * 脉络悬浮窗的全文查看气泡：复用自由复制气泡的完整 UI、入场动画、防越界定位与
-         * 生命周期防泄漏链路。输入是脉络节点的完整纯文本（列表仅显示截断，数据无截断，
-         * 无 Span/Emoji 映射需求），不经过评论身份校验等上游准备层。
-         */
-        internal fun showReplyTraceBubble(anchor: View, rawText: CharSequence) =
-            showFreeCopyPopup(anchor, FreeCopyContent(rawText))
-
-        /** 仅由已核对的评论模型桥调用；不把整个 Compose 窗口登记成评论触摸根。 */
-        internal fun showCommentModelBubble(anchor: View, rawText: String): Boolean {
-            if (!runtimeCommentFreeCopyEnabled || rawText.isBlank() ||
-                !anchor.isAttachedToWindow || !anchor.isShown || !anchor.hasWindowFocus()
-            ) return false
-            val previous = ourBubbleDialogRef?.get()
-            showFreeCopyPopup(anchor, FreeCopyContent(rawText))
-            val current = ourBubbleDialogRef?.get()
-            return current !== previous && current?.isShowing == true
-        }
-
-        /** 脉络面板关闭或跨页迁移时收尾由脉络弹出的气泡，防孤儿弹窗；幂等。 */
-        internal fun dismissReplyTraceBubbleIfShowing() {
-            if (!isOurBubbleShowing()) return
-            runCatching { ourBubbleDialogRef?.get()?.dismiss() }
-        }
-
-        private fun showFreeCopyPopup(anchor: View, rawContent: FreeCopyContent) {
-            val copyCapability = when {
-                runtimeDescriptionFreeCopyEnabled && descViewId != View.NO_ID && anchor.id == descViewId ->
-                    "free_copy_description_enabled"
-                runtimeTitleFreeCopyEnabled && isTitleView(anchor) -> "free_copy_title_enabled"
-                runtimeCommentFreeCopyEnabled && isRegisteredCommentTreeMember(anchor) ->
-                    "free_copy_comment_enabled"
-                else -> null
-            }
-            // 清理控制字符：B 站简介数据源换行为 \r\n（或含孤立 \r），官方渲染时 CR
-            // 不可见，但气泡 TextView 会把 \r 显示成可见的 "r" 字形（实测每个视频简介
-            // 都多出一个 "r"）。统一归一为 \n。
-            // 简介在 extractDescText() 中已清理不可见图标占位；评论则必须保留
-            // ReplacementSpan 才能绘制 B 站自定义 emoji。这里只归一化换行，不再统一删 span。
-            val popupContent = normalizePopupText(rawContent)
-            val text = popupContent.displayText
-            // anchor.context 可能是 ContextThemeWrapper/ContextWrapper，向上找 Activity
-            var act: android.app.Activity? = null
-            var c: Context? = anchor.context
-            while (c != null) {
-                if (c is android.app.Activity) { act = c; break }
-                c = if (c is android.content.ContextWrapper) c.baseContext else null
-            }
-            if (act == null) {
-                logError("free_copy_no_act", "[BIL] 未找到 Activity context，无法弹窗")
-                return
-            }
-            runCatching {
-                val useLight = if (freeCopyAutoLight && freeCopyLightCache != null) freeCopyLightCache!! else freeCopyLightMode
-                val content = TextView(act).apply {
-                    setText(text, TextView.BufferType.SPANNABLE)
-                    textSize = 15f
-                    setLineSpacing((3f * resources.displayMetrics.density).toInt().toFloat(), 1f)
-                    maxLines = 12
-                    maxWidth = (resources.displayMetrics.widthPixels * .72f).toInt()
-                }
-                installSemanticCopyAction(content, popupContent)
-                val bubble = HostCopyBubble(act, anchor, content, useLight, outlined = freeCopyLightMode)
-                bubbleShownAtMs = android.os.SystemClock.uptimeMillis()
-                clearDescTouchSession(resetHandled = false)
-                commentTouchedView = null
-                val dialog = bubble.dialog
-                val sessionId = beginBubbleSession(dialog)
-                bubble.onClosed = {
-                    finishBubbleSession(dialog, sessionId)
-                }
-                bubble.show()
-                HostRuntimeDiagnosticsBridge.record("free_copy", FeatureRuntimeStage.APPLIED)
-                copyCapability?.let { HostRuntimeDiagnosticsBridge.record(it, FeatureRuntimeStage.APPLIED) }
-                logInfo("free_copy_hit", "[BIL] 已弹出凝光自由复制气泡 (len=${text.length})")
-            }.onFailure { error ->
-                logError("free_copy_dialog_err", "[BIL] 气泡弹窗失败: $error")
-            }
-        }
-        /** 评论日期文本特征（如「8月2日 吉林」「12月3日 海外」）：评论 holder 判据之一 */
-        private val COMMENT_DATE_PATTERN = java.util.regex.Pattern.compile("[0-9]{1,2}月[0-9]{1,2}日")
-
-        /**
-         * 清理复用 View 上由模块遗留的共享长按监听器。只按监听器身份清理，不会覆盖
-         * 宿主后来重新设置的监听器；用于 ViewHolder 从普通文本节点复用为图片/按钮节点时
-         * 还原短按触摸语义。
-         */
-        private fun clearModuleLongClickListener(v: View) {
-            runCatching {
-                val listenerInfoField = mListenerInfoField
-                    ?: KavaMemberLookup.fieldOrNull(classOf<View>(), "mListenerInfo")
-                        ?.also { mListenerInfoField = it }
-                    ?: return
-                val listenerInfo = listenerInfoField.get(v) ?: return
-                val listenerField = mOnLongClickListenerField
-                    ?: KavaMemberLookup.fieldOrNull(listenerInfo.javaClass, "mOnLongClickListener")
-                        ?.also { mOnLongClickListenerField = it }
-                    ?: return
-                val current = listenerField.get(listenerInfo)
-                if (current === sharedFreeCopyListener) {
-                    listenerField.set(listenerInfo, null)
-                    v.isLongClickable = false
-                }
-            }
-        }
-
-        /**
-         * 递归遍历 itemView 子树，给非交互文本分支的 View（含必要容器，因 B 站长按监听器
-         * 可能挂在评论正文容器 F1() 上而非 TextView）覆盖长按监听器。
-         *
-         * 图片、按钮及其他已有点击语义的 ViewGroup 连同其子树必须保留宿主行为：仅跳过
-         * ImageView 本身不够，带图评论的预览点击通常挂在图片外层容器上；把该容器强制
-         * longClickable 会改变触摸目标并导致图片无法打开。评论根 refs 与全局触摸兜底仍
-         * 覆盖这些区域之外的正文长按，不影响自由复制主链路。
-         *
-         * 文本优先用 rawText（评论数据对象的原始文本，含表情文字标记 [dog]、始终完整，
-         * 不受「展开」折叠影响）；rawText 为空时兜底实时从 itemView 提取。
-         */
-        private fun applyFreeCopyListener(root: View, rawText: String?, checkReply: Boolean = true): Boolean {
-            val isDescription = descViewId != View.NO_ID && root.id == descViewId
-            if (isDescription && !runtimeDescriptionFreeCopyEnabled) return false
-            if (!isDescription && !runtimeCommentFreeCopyEnabled) return false
-            // 性能优化：一次遍历同时完成「收集子树 view + 判断是否评论 item（含回复按钮）」，
-            // 避免原方案 hasReplyButton 独立全树遍历 + applyFreeCopyListener 再全树遍历的
-            // 双遍开销；且整棵树共享同一个 lambda 实例（原先每 view 各建一个闭包，快速滑动
-            // 加载多条评论/展开回复列表时分配压力大）。
-            // checkReply 仅低版本 holder 路径需要（t0 基类包含视频信息等非评论 holder，
-            // 用「回复」按钮过滤）；高版本 handler / 简介 / 夺回路径本身已限定评论，
-            // 传 false——9.0.0 评论区若无「回复」文字按钮（图标型），true 会导致全灭。
-            val views = java.util.ArrayList<View>(32)
-            var hasReply = false
-            var hasDate = false
-            val probing = commentBindProbe.enabled
-            fun collect(v: View): Boolean {
-                if (probing) commentBindProbe.countNode()
-                val subtreeStart = views.size
-                val isRecyclerView = hostRecyclerViewClass?.isInstance(v) == true
-                if (v is android.widget.TextView) {
-                    val t = v.textToString()
-                    // 「回复」文字按钮（旧判据）
-                    if (!hasReply && t == "回复") hasReply = true
-                    // 评论日期文本（如「8月2日 吉林」）——所有真评论必带，视频推荐卡没有。
-                    // 单一「回复」判据会漏掉无回复按钮的评论 → 整树不绑定 → 长按无反应
-                    // （实测「只在首条评论生效」的根因：首条有回复通过过滤，其余全灭）
-                    if (!hasDate && COMMENT_DATE_PATTERN.matcher(t).find()) hasDate = true
-                }
-                var containsImage = v is android.widget.ImageView
-                if (v is android.view.ViewGroup) {
-                    for (i in 0 until v.childCount) {
-                        // RecyclerView 自身不绑定，但必须继续遍历其回复 item。
-                        if (collect(v.childOrNull(i) ?: continue)) containsImage = true
-                    }
-                }
-                // 仅把「含图片且自身承担点击」的容器判为媒体交互分支；不能把所有可点击
-                // ViewGroup 都整支排除，否则评论正文容器可点击的版本会失去监听器路径。
-                val protectsMediaBranch = v !== root &&
-                    v is android.view.ViewGroup &&
-                    !isRecyclerView &&
-                    containsImage &&
-                    (v.isClickable || v.hasOnClickListeners())
-                val protectsCommentActions = v !== root && isCommentActionsContainer(v)
-                if (protectsMediaBranch || protectsCommentActions) {
-                    // 子节点是后序遍历前已经收集的候选：从当前分支起点移除并清掉可能
-                    // 因 ViewHolder 复用残留的模块监听器；媒体分支和整条评论操作栏都
-                    // 交还宿主，三点/回复/赞踩等点击控件不属于自由复制范围。
-                    for (i in subtreeStart until views.size) clearModuleLongClickListener(views[i])
-                    if (subtreeStart < views.size) views.subList(subtreeStart, views.size).clear()
-                    clearModuleLongClickListener(v)
-                } else {
-                    val bindable = v !is android.widget.ImageView &&
-                        !isRecyclerView &&
-                        !v.isClickable &&
-                        !v.hasOnClickListeners()
-                    if (bindable) {
-                        views.add(v)
-                    } else {
-                        // RecyclerView 复用时，节点可能保留上一次文本布局中的模块监听器；
-                        // 仅当当前监听器仍是模块单例时清理，宿主监听器一律不动。
-                        clearModuleLongClickListener(v)
-                    }
-                }
-                return containsImage
-            }
-            collect(root)
-            if (probing) commentBindProbe.noteBindable(views.size)
-            // 评论判定：有「回复」按钮或有日期文本任一即可；两者皆无 → 视为视频卡片
-            // 等非评论 holder，跳过（t0 基类混排的过滤初衷保持不变）
-            if (checkReply && !hasReply && !hasDate) {
-                // t0 是混排基类，会同时命中「热门评论/最新评论」头部、推荐卡等非评论
-                // Holder。验证失败时不仅要跳过绑定，还必须清理 ViewHolder 复用遗留的
-                // 模块监听器；评论根映射由调用方同步撤销。
-                for (v in views) clearModuleLongClickListener(v)
-                return false
-            }
-            // 全树共享单实例监听器（点击时刻从 view 解析文本）
-            for (v in views) {
-                setLongClickListenerNoHook(v, sharedFreeCopyListener)
-            }
-            return true
-        }
-
-        /** 缓存 RecyclerView.ViewHolder.itemView 字段（所有 holder 均继承自同一基类，可安全缓存） */
-        @Volatile private var cHolderItemViewField: java.lang.reflect.Field? = null
-
-        private fun holderItemView(holder: Any): View? {
-            val f = cHolderItemViewField
-                ?: KavaMemberLookup.fieldOrNull(
-                    holder.javaClass,
-                    "itemView",
-                    includeSuperclasses = true
-                )?.also { cHolderItemViewField = it }
-                ?: return null
-            return f.get(holder) as? View
-        }
-
-        /**
-         * 从 ViewBinding 实例提取根 View：优先字段 a（Pj.J/al.J 惯例，首次命中缓存字段），
-         * 字段名漂移（jv.u 用 b 等）时遍历全部字段找第一个 View 实例。
-         * @param binding ViewBinding 实例（参数扫描命中「声明 View 类型字段」的类）
-         */
-        private val cBindingGetRootMethodByClass =
-            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Method>()
-        private val cBindingRootFieldByClass =
-            java.util.concurrent.ConcurrentHashMap<Class<*>, java.lang.reflect.Field>()
-
-        private fun extractBindingRoot(binding: Any): View? {
-            if (binding is View) return binding
-            val bindingClass = binding.javaClass
-            cBindingGetRootMethodByClass[bindingClass]?.let { cached ->
-                runCatching { cached.invoke(binding) as? View }.getOrNull()?.let { return it }
-            }
-            // ViewBinding/DataBinding 生成类都有公开 getRoot()；它比猜字段名更稳定。
-            KavaMemberLookup.inheritedMethodOrNull(bindingClass, "getRoot")
-                ?.takeIf { it.returnType isSubclassOf classOf<View>() }
-                ?.let { method ->
-                cBindingGetRootMethodByClass[bindingClass] = method
-                runCatching { method.invoke(binding) as? View }.getOrNull()?.let { return it }
-            }
-            cBindingRootFieldByClass[bindingClass]?.let { cached ->
-                runCatching { cached.get(binding) as? View }.getOrNull()?.let { return it }
-            }
-            // 尝试惯例字段 a
-            runCatching {
-                val f = KavaMemberLookup.fieldOrNull(
-                    bindingClass,
-                    "a",
-                    includeSuperclasses = true
-                ) ?: return@runCatching
-                val v = f.get(binding) as? View
-                if (v != null) { cBindingRootFieldByClass[bindingClass] = f; return v }
-            }.getOrNull()
-            // 字段名漂移：遍历找 View
-            for (fld in KavaMemberLookup.declaredFields(bindingClass, makeAccessible = true)) {
-                val x = runCatching { fld.get(binding) }.getOrNull()
-                if (x is View) {
-                    cBindingRootFieldByClass[bindingClass] = fld
-                    return x
-                }
-            }
-            return null
-        }
-
-        /**
-         * 从某一次绑定方法的实参中定位 ViewBinding 根节点。绑定参数下标按 Method 独立缓存：
-         * 同一个 Handler 同时存在 A0(binding) 和 G0(CommentItem, binding, ...) 时不会互相
-         * 污染。缓存失效（复用/签名漂移）会立即撤销并重新扫描，不把一次失败固化到进程结束。
-         */
-        private fun extractBindingRootFromArgs(param: ModernHookParam): View? {
-            val method = param.method
-            cViewBindingArgIndexByMethod[method]?.let { cachedIndex ->
-                val cachedRoot = param.argOrNull(cachedIndex)?.let { binding ->
-                    runCatching { extractBindingRoot(binding) }.getOrNull()
-                }
-                if (cachedRoot != null) return cachedRoot
-                cViewBindingArgIndexByMethod.remove(method, cachedIndex)
-            }
-
-            val parameterTypes = (method as? java.lang.reflect.Method)?.parameterTypes
-            val paramCount = method.parameterCount
-            for (i in 0 until paramCount) {
-                val binding = param.argOrNull(i) ?: continue
-                val type = parameterTypes?.getOrNull(i) ?: binding.javaClass
-                if (type.isPrimitive || type.isArray) continue
-                val looksLikeBinding =
-                    KavaMemberLookup.methods(type, includeSuperclasses = true) {
-                        it.name == "getRoot" && it.parameterCount == 0 &&
-                            it.returnType isSubclassOf classOf<View>()
-                    }.isNotEmpty() || KavaMemberLookup.declaredFields(type) {
-                        it.type isSubclassOf classOf<View>()
-                    }.isNotEmpty()
-                if (!looksLikeBinding) continue
-                val root = runCatching { extractBindingRoot(binding) }.getOrNull() ?: continue
-                cViewBindingArgIndexByMethod[method] = i
-                return root
-            }
-            return null
-        }
-
-        private data class BoundCommentItem(val value: Any, val fromCurrentArguments: Boolean)
-
-        private data class CapturedCommentBinding(
-            val commentItem: Any,
-            val rawText: String?
-        )
-
-        private fun extractCommentItemForBinding(
-            param: ModernHookParam,
-            handler: Any
-        ): BoundCommentItem? {
-            val method = param.method
-            cCommentItemArgIndexByMethod[method]?.let { cachedIndex ->
-                val cached = param.argOrNull(cachedIndex)
-                if (cached != null && cached.javaClass.name.endsWith(".CommentItem")) {
-                    return BoundCommentItem(cached, true)
-                }
-                cCommentItemArgIndexByMethod.remove(method, cachedIndex)
-            }
-            val paramCount = method.parameterCount
-            for (i in 0 until paramCount) {
-                val candidate = param.argOrNull(i) ?: continue
-                if (candidate.javaClass.name.endsWith(".CommentItem")) {
-                    cCommentItemArgIndexByMethod[method] = i
-                    return BoundCommentItem(candidate, true)
-                }
-            }
-
-            val handlerClass = handler.javaClass
-            cHandlerCommentItemFieldByClass[handlerClass]?.let { cachedField ->
-                runCatching { cachedField.get(handler) }.getOrNull()?.let {
-                    return BoundCommentItem(it, false)
-                }
-            }
-            for (field in KavaMemberLookup.declaredFields(
-                handlerClass,
-                makeAccessible = true
-            ) { it.type.name.endsWith(".CommentItem") }) {
-                val value = runCatching {
-                    field.get(handler)
-                }.getOrNull() ?: continue
-                cHandlerCommentItemFieldByClass[handlerClass] = field
-                return BoundCommentItem(value, false)
-            }
-            return null
-        }
-
-        /**
-         * 评论路径直设长按监听器：通过 MeguvizRef 一次解析并缓存
-         * View.ListenerInfo.mOnLongClickListener，绕开我们全局 setOnLongClickListener hook
-         * 的 bridge 开销——快速加载/展开回复时每条评论数十个 view，逐一走 hook 是主要卡顿
-         * 来源之一。mListenerInfo 为空（首次）或反射失败时回退正常 setOnLongClickListener
-         * （行为一致，仅性能回落）。desc 的夺回仍走 hook 路径不受影响。
-         */
-        private fun setLongClickListenerNoHook(v: View, l: View.OnLongClickListener?) {
-            runCatching {
-                // 直接读 View.mListenerInfo 字段（Field.get 远快于 getListenerInfo() 的
-                // Method.invoke），再写 ListenerInfo.mOnLongClickListener——均经
-                // MeguvizRef 只在缓存未命中时解析；热路径仍直接 Field.get/set。
-                val mliField = mListenerInfoField
-                    ?: KavaMemberLookup.fieldOrNull(classOf<View>(), "mListenerInfo")
-                        ?.also { mListenerInfoField = it }
-                    ?: error("View.mListenerInfo unavailable")
-                var li = mliField.get(v)
-                if (li == null) {
-                    // mListenerInfo 尚未创建：直接调用已缓存的 getListenerInfo() 创建。
-                    // 绝不能回退 setOnLongClickListener——会触发我们
-                    // 自己的全局 hook 造成「夺回→重绑→再触发」无限递归（实测 ANR）
-                    val method = getListenerInfoMethod
-                        ?: KavaMemberLookup.methodOrNull(classOf<View>(), "getListenerInfo")
-                            ?.also { getListenerInfoMethod = it }
-                        ?: error("View.getListenerInfo unavailable")
-                    li = method.invoke(v)
-                }
-                val field = mOnLongClickListenerField
-                    ?: KavaMemberLookup.fieldOrNull(li.javaClass, "mOnLongClickListener")
-                        ?.also { mOnLongClickListenerField = it }
-                    ?: error("ListenerInfo.mOnLongClickListener unavailable")
-                field.set(li, l)
-                if (l != null && !v.isLongClickable) v.isLongClickable = true
-            }.onFailure {
-                // 极端失败回退：正常路径触发 hook，由 commentStealInProgress 防重入兜底
-                v.setOnLongClickListener(l)
-            }
-        }
-
-        /** 评论绑定入队并调度批量 drain：用 IdleHandler 在主线程消息队列**空闲**时执行
-         *  （动画/滚动/切页期间的帧任务忙，绑定被自然推迟到空闲间隙，不占动画帧预算） */
-        private fun scheduleCommentBind(
-            view: View,
-            rawText: String?,
-            checkReply: Boolean,
-            rawTrusted: Boolean = false,
-            commentItem: Any? = null
-        ) {
-            if (!runtimeCommentFreeCopyEnabled) return
-            val generation = commentBindingGenerationSerial.incrementAndGet()
-            synchronized(commentRootLock) {
-                latestCommentBindingGeneration[view] = generation
-            }
-            // 真实 CommentItem 能直接提取出正文时立即登记，保留“滑停后立刻长按”能力；
-            // raw 为空的 t0 混排节点不能提前获得评论身份，等 drain 的回复/日期结构验证。
-            // 这正是「热门评论/最新评论」误登记的根因收口点。
-            // high handler 本身只绑定 CommentItem（checkReply=false），即使某版本正文反射
-            // 暂时失败也可确认它是评论：立即登记 raw=null，长按时从已渲染 TextView 实时
-            // 提取。功能可用性不再依赖滚动停止后的 IdleHandler 完整树绑定。
-            val modelConfirmed = !checkReply || rawText?.let { it.length in 2..3000 } == true
-            if (modelConfirmed) {
-                registerCommentRoot(
-                    view, rawText, checkReply, rawTrusted, commentItem, generation
-                )
-            } else {
-                unregisterCommentRoot(
-                    view,
-                    expectedGeneration = generation,
-                    preserveGeneration = true
-                )
-            }
-            val enqueuedAtNanos = commentBindClock.nanoTime()
-            var replacedBinds = 0
-            var overflowBinds = 0
-            var queuedAfter = 0
-            synchronized(pendingBindLock) {
-                // RecyclerView 会复用同一个 itemView；同一 View 只保留最新任务，队列容量固定为 96。
-                val queued = pendingCommentBinds.enqueue(
-                    CommentBindQueue.Entry(
-                        key = view,
-                        generation = generation,
-                        enqueuedAtNanos = enqueuedAtNanos,
-                        payload = PendingCommentBind(view, rawText, checkReply, rawTrusted, commentItem)
-                    )
-                )
-                replacedBinds = queued.replaced
-                overflowBinds = queued.overflowDropped
-                queuedAfter = pendingCommentBinds.size
-            }
-            commentBindProbe.onEnqueue(replacedBinds, overflowBinds, queuedAfter)
-            if (!bindDrainScheduled) {
-                scheduleCommentBindIdle()
-            }
-        }
-
-        /** 主线程分帧批量绑定：滚动中延迟 120ms 重试；每批最多处理 6 条（其余由 IdleHandler
-         *  下一空闲间隙继续），避免展开回复列表时 N 条全树绑定集中在同一帧压爆动画帧预算
-         *  （实测展开动画丢帧的来源）。LIFO 取尾部（最近入队的优先）：滑停后先绑定用户
-         *  当前视口的评论，缩短「滑停→绑定完成」窗口——否则视口内评论长按会落到官方行为。 */
-        private fun drainCommentBinds() {
-            if (isAnyRecyclerViewScrolling()) {
-                commentBindProbe.onDeferred(CommentBindProbe.DEFER_SCROLL)
-                scheduleCommentBindRetry(120L)
-                return
-            }
-            // 方案 A：长按手势进行中 / 气泡入场动画期间，本周期不执行批量绑定——
-            // 批量绑定（全树遍历+反射设监听）落在长按保持期（滑停后立即长按，drain
-            // 的延迟若恰好插在按下与 400ms 弹泡判定之间）或弹泡动画帧上会掉帧。
-            // 触摸层长按检测不依赖绑定完成（refs 在入队时即注册，文本可直取），监听器
-            // 路径稍后补齐无功能影响；条件解除后 80ms 重试。
-            // 按住不动期间主线程近乎空闲，IdleHandler 会频繁触发本函数——判定必须
-            // 放在函数内（与回弹静默期同理）。
-            if (commentTouchedView != null || descTouchedView != null ||
-                (bubbleShownAtMs > 0L && android.os.SystemClock.uptimeMillis() - bubbleShownAtMs < 500L)
-            ) {
-                commentBindProbe.onDeferred(CommentBindProbe.DEFER_TOUCH)
-                scheduleCommentBindRetry(80L)
-                return
-            }
-            // 滑停后的短静默期：给回弹动画留出最初 120ms，随后优先补齐整树监听器。
-            // 用户选择功能即时性优先，允许这部分低频绑定占用少量帧预算；IdleHandler
-            // 在动画帧间隙也可能触发本函数，故判定放在函数内而非仅调度处。
-            // 长按不受影响：触摸层长按检测不依赖绑定完成（refs 在入队时即注册）
-            if (rvIdleSinceMs > 0L) {
-                val quiet = android.os.SystemClock.uptimeMillis() - rvIdleSinceMs
-                if (quiet < 120L) {
-                    commentBindProbe.onDeferred(CommentBindProbe.DEFER_QUIET)
-                    scheduleCommentBindRetry(120L - quiet + 20L)
-                    return
-                }
-            }
-            bindDrainScheduled = false
-            val drainStartedNs = commentBindClock.nanoTime()
-            val drainToken = commentBindProbe.beginDrain()
-            var queueBefore = 0
-            val batch = synchronized(pendingBindLock) {
-                queueBefore = pendingCommentBinds.size
-                pendingCommentBinds.takeBatch(drainStartedNs, commentBindBudgetPolicy.starvationLimitNs)
-            }
-            val outcome = CommentBindBudget.run(
-                batch, drainStartedNs, commentBindBudgetPolicy, commentBindClock
-            ) { entry ->
-                val generation = entry.generation
-                val enqueuedAtNanos = entry.enqueuedAtNanos
-                val (v, raw, checkReply, rawTrusted, commentItem) = entry.payload
-                val stillLatest = synchronized(commentRootLock) {
-                    latestCommentBindingGeneration[v] == generation
-                }
-                if (!stillLatest) {
-                    commentBindProbe.noteStale()
-                    return@run
-                }
-                // 仅绑定仍挂载的 view（已滚出回收/销毁的跳过）
-                if (v.isAttachedToWindow) {
-                    val itemToken = commentBindProbe.beginItem()
-                    val validComment = applyFreeCopyListener(v, raw, checkReply)
-                    if (validComment) {
-                        registerCommentRoot(
-                            v, raw, checkReply, rawTrusted, commentItem, generation
-                        )
-                    } else {
-                        unregisterCommentRoot(v, expectedGeneration = generation)
-                    }
-                    commentBindProbe.endItem(itemToken, enqueuedAtNanos, validComment)
-                } else {
-                    commentBindProbe.noteDetached()
-                    unregisterCommentRoot(v, expectedGeneration = generation)
-                }
-            }
-            // 提前结束的项按代次归还，不覆盖处理期间入队的更新任务；剩余项在下一空闲间隙继续。
-            var queueAfter = 0
-            val hasMore = synchronized(pendingBindLock) {
-                pendingCommentBinds.giveBack(outcome.unprocessed)
-                queueAfter = pendingCommentBinds.size
-                pendingCommentBinds.size > 0
-            }
-            commentBindProbe.endDrain(drainToken, queueBefore, batch.size, queueAfter)
-            if (hasMore) {
-                scheduleCommentBindIdle()
-            }
-            // 汇总日志放在计时区间之外；限频，且逐 item 不打日志。
-            commentBindProbe.takeReportIfDue(queueEmpty = !hasMore)?.let { frameworkLog(it) }
-        }
     }
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
@@ -2600,10 +483,7 @@ class HookEntry : XposedModule() {
     private fun installTargetHooks(biliClassLoader: ClassLoader, processName: String) {
             // Hook 环境把进程与宿主类加载器当作身份固定下来，必须早于任何一次安装登记。
             modernRuntime.attachHost(processName, biliClassLoader)
-            // AndroidX 随模块与宿主各自加载，不能用模块 APK 中的同名 Class 识别或 Hook 宿主。
-            hostRecyclerViewClass = KavaMemberLookup.classOrNull(
-                biliClassLoader, "androidx.recyclerview.widget.RecyclerView"
-            )
+            KavaMemberLookup.registerHostClassLoader(biliClassLoader)
             // 目标 app（B 站）的 ClassLoader，用于加载其私有类构造空 section。
             // 注意：不能用 replaceAny 回调里的 instance（static 工厂方法的 instance 为 null，会 NPE）。
             val hookPointRegistry = HookPointRegistry(biliClassLoader)
@@ -2654,17 +534,6 @@ class HookEntry : XposedModule() {
              * MeguvizRef → API 102 interceptor 的统一边界。成员定位失败直接抛出，让各功能原有的
              * runCatching/try-catch 正确记录未命中；Hook 回调本身不经过额外包装。
              */
-            fun hookFirstMethod(
-                className: String,
-                methodName: String,
-                block: ModernMemberHookCreator.() -> Unit
-            ) {
-                val id = "legacy:$className#$methodName:first"
-                val method = hookPointRegistry.resolveFirst(id, className, methodName)
-                    ?: throw NoSuchMethodException("$className#$methodName")
-                installResolvedHook(id, method, block = block)
-            }
-
             fun hookExactMethod(
                 owner: Class<*>,
                 methodName: String,
@@ -2752,6 +621,8 @@ class HookEntry : XposedModule() {
                 com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel.STANDARD)
             val frameInterpolationInstallerRef =
                 java.util.concurrent.atomic.AtomicReference<FrameInterpolationFeatureInstaller?>(null)
+            val freeCopyInstallerRef =
+                java.util.concurrent.atomic.AtomicReference<FreeCopyFeatureInstaller?>(null)
             val memoryPressureInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
             lateinit var scheduleAuthorizationRetry: (Context, android.app.Application?) -> Unit
 
@@ -2854,23 +725,37 @@ class HookEntry : XposedModule() {
                 }
             }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
-                // 仅 debug 构建记录同步定位段耗时（逐家族），给设备上的 A/B 对照用；release 不计时。
-                val locateTimings = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null
                 val excluded = StartupAdapterPlan.excludedForProcess(hookConfig, processName, nPatchStartup.get())
                 val hostVersionCode = startupCache.identity.versionCode
-                val runtime = StartupTrace.measure("adapter.quick") {
-                    if (excluded.isEmpty()) VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings, hostVersionCode)
-                    else VersionAdapter.quickLocateForStartup(
-                        biliClassLoader, excluded, adaptPlan, locateTimings,
-                        allowPruneRequested = processName != TARGET_PACKAGE,
-                        hostVersionCode = hostVersionCode
-                    )
+                val warmCache = if (excluded.isEmpty()) {
+                    startupCache.usableCache(highCandidateExists = true, plan = adaptPlan)?.takeIf {
+                        AdaptDomainCatalog.staleDomains(it.domainRuleVersions).isEmpty()
+                    }
+                } else {
+                    null
                 }
-                locateTimings?.let { logInfo("adapt_locate_timing", "[BIL] 同步定位 plan=$adaptPlan ${it.summary()}") }
-                StartupTrace.measure("adapter.merge") { VersionAdapter.mergeRuntimeWithCached(
-                    runtime = runtime,
-                    cached = startupCache.cached
-                ) }
+                if (warmCache != null) {
+                    // 热缓存命中且完整覆盖当前计划、无过期规则域时，跳过主线程同步 quickLocate 与结构指纹枚举。
+                    StartupTrace.measure("adapter.merge") {
+                        VersionAdapter.mergeRuntimeWithCached(runtime = null, cached = warmCache)
+                    }
+                } else {
+                    // 仅 debug 构建记录同步定位段耗时（逐家族），给设备上的 A/B 对照用；release 不计时。
+                    val locateTimings = if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG) LocateTimings() else null
+                    val runtime = StartupTrace.measure("adapter.quick") {
+                        if (excluded.isEmpty()) VersionAdapter.quickLocate(biliClassLoader, adaptPlan, locateTimings, hostVersionCode)
+                        else VersionAdapter.quickLocateForStartup(
+                            biliClassLoader, excluded, adaptPlan, locateTimings,
+                            allowPruneRequested = processName != TARGET_PACKAGE,
+                            hostVersionCode = hostVersionCode
+                        )
+                    }
+                    locateTimings?.let { logInfo("adapt_locate_timing", "[BIL] 同步定位 plan=$adaptPlan ${it.summary()}") }
+                    StartupTrace.measure("adapter.merge") { VersionAdapter.mergeRuntimeWithCached(
+                        runtime = runtime,
+                        cached = startupCache.cached
+                    ) }
+                }
             }
 
             // 读取日志开关 + 详细度档位（默认：开启 + 完整）
@@ -2882,36 +767,14 @@ class HookEntry : XposedModule() {
                 RoamingCompatHook.patchMineEntry(biliClassLoader, includeRoaming = false)
             }
 
-            // 读取自由复制亮色模式开关（默认：暗色）
-            freeCopyLightMode = hookConfig.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
-            freeCopyAutoLight = hookConfig.getBoolean(PREF_FREE_COPY_AUTO_LIGHT, false)
+            // 读取自由复制亮色模式与各表面启动开关（标题只在启动时读取一次，不参与 NPatch 热应用）。
+            val initialLightMode = hookConfig.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
+            val initialAutoLight = hookConfig.getBoolean(PREF_FREE_COPY_AUTO_LIGHT, false)
             val initialCommentFreeCopyEnabled = hookConfig.getBoolean(PREF_FREE_COPY_ENABLED, true)
             val initialDescriptionFreeCopyEnabled =
                 hookConfig.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
-            runtimeCommentFreeCopyEnabled = initialCommentFreeCopyEnabled
-            runtimeDescriptionFreeCopyEnabled = initialDescriptionFreeCopyEnabled
-            // 标题开关只在启动时读取一次（重启宿主生效），不参与上面的权威镜像同步和 NPatch 热应用。
-            runtimeTitleFreeCopyEnabled = hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)
-
-            // 自由复制配置同步必须先于可选功能注册建立：即使后续某个广告/状态上报
-            // 初始化异常，也不能让评论与简介自由复制永远失去 attach 后的权威配置同步。
-            // 安装器通过原子引用稍后注入；极端情况下同步先完成，安装器注入时会根据
-            // runtime flag 立即补注册，两个时序均保持幂等。
-            val commentFreeCopyInstallerRef =
-                java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
-            val descriptionFreeCopyInstallerRef =
-                java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
-            val freeCopyHookRetryOnAdapt =
-                java.util.concurrent.atomic.AtomicReference<(() -> Unit)?>(null)
-
-            fun retryFreeCopyHooksAfterAdapt() {
-                val retry = freeCopyHookRetryOnAdapt.getAndSet(null) ?: return
-                // 适配完成回调来自后台适配线程，重注册本身也可能落在宿主主线程上；
-                // 两条路径都不在框架 PROTECTIVE 覆盖内，统一过防波堤。
-                val guarded = HostThreadGuard.runnable("free_copy.retry_after_adapt", retry)
-                val handler = mainHandlerOrNull()
-                if (handler != null) handler.post(guarded) else guarded.run()
-            }
+            val initialTitleFreeCopyEnabled =
+                hookConfig.getBoolean(FeaturePreferences.FREE_COPY_TITLE_ENABLED, false)
 
             // Modern API 不再提供旧 DataChannel。状态只写模块日志；它不参与功能判定，
             // 因而不会因为诊断通道不可用而截断核心 Hook 注册链。
@@ -2992,46 +855,74 @@ class HookEntry : XposedModule() {
                 }
             )
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
-            val sponsorClassesRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.sponsorPlayer)
-            val classicPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.commentClassicStyle)
-            val pagePointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.pageBoundaries)
-            val pausedKmpWireRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.kmpGrpcWireEngine)
-            val cloudKeyFreezeContractRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.cloudKeyFreezeContract)
-            val homeTabsPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.homeTabs)
-            val commentPurifyPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.commentPurify)
+            val sponsorClassesSlot = AdaptValueSlot(hostAdaptResult?.sponsorPlayer)
+            val classicPointsSlot = AdaptValueSlot(hostAdaptResult?.commentClassicStyle)
+            val pagePointsSlot = AdaptValueSlot(hostAdaptResult?.pageBoundaries)
+            val pausedKmpWireSlot = AdaptValueSlot(hostAdaptResult?.kmpGrpcWireEngine)
+            featureInstallCoordinator.registerRetryable(object : AdaptRetryableInstaller {
+                override val id = "kmp_grpc_wire_deferred"
+                private var pendingEngine: VersionAdapter.HookPoint? = null
+                override val isAdaptationRetryPending: Boolean get() = pendingEngine != null
+                override fun prepareAdaptedRetry(adapted: VersionAdapter.AdaptResult?): Boolean {
+                    val engine = adapted?.kmpGrpcWireEngine ?: return false
+                    pausedKmpWireSlot.value = engine
+                    pendingEngine = engine
+                    return true
+                }
+                override fun retryAdapted(
+                    environment: HookEnvironment,
+                    coordinator: FeatureInstallCoordinator
+                ) {
+                    val engine = pendingEngine ?: return
+                    pendingEngine = null
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(
+                        biliClassLoader,
+                        engine
+                    )?.let { surface ->
+                        com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpGrpcWireChannel.bindDeferred(
+                            environment,
+                            surface
+                        )
+                    }
+                }
+                override fun install(environment: HookEnvironment) = FeatureInstallResult.Skipped("retry-only")
+            })
+            val cloudKeyFreezeContractSlot = AdaptValueSlot(hostAdaptResult?.cloudKeyFreezeContract)
+            val homeTabsPointsSlot = AdaptValueSlot(hostAdaptResult?.homeTabs)
+            val commentPurifyPointsSlot = AdaptValueSlot(hostAdaptResult?.commentPurify)
             val searchHomeInstaller = SearchHomeRecommendFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, false),
-                cachedPoints = { pagePointsRef.get() })
+                cachedPoints = pagePointsSlot::read)
             val endPageInstaller = PlayerEndPageRecommendFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false),
-                cachedPoints = { pagePointsRef.get()?.endPageMerger },
+                cachedPoints = { pagePointsSlot.read()?.endPageMerger },
                 kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
-                kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() }
+                kmpGrpcWireEngineProvider = pausedKmpWireSlot::read
             )
-            val popupPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerPopupPromotion)
+            val popupPointsSlot = AdaptValueSlot(hostAdaptResult?.playerPopupPromotion)
             val popupInstaller = PlayerPopupPromotionFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
-                cachedPoints = { popupPointsRef.get() }
+                cachedPoints = popupPointsSlot::read
             )
             val classicInstaller = CommentClassicStyleFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
-                cachedPoints = { classicPointsRef.get() }
+                cachedPoints = classicPointsSlot::read
             )
-            val systemEnvPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.systemEnvironment)
-            val pausedPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.pause)
-            val blockUpdatePointRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.blockUpdate)
-            val playerSpeedMenuRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedMenu)
-            val playerSpeedSessionRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedSession)
-            val playerSpeedCalculatorRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedCalculator)
-            val playerSpeedTheseus2LongPressRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerSpeedTheseus2LongPress)
-            val homeEarlyLoadListenerRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.homeRecommendEarlyLoadListener)
-            val legacyStoryDanmakuBindRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.legacyStoryDanmakuBind)
-            val aiPlaylistDirectorRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.aiPlaylistDirector)
-            val detailRelateGameComponentRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.detailRelateGameComponent)
-            val followUpRecommendBodiesRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.followUpRecommendBodies.orEmpty())
+            val systemEnvPointsSlot = AdaptValueSlot(hostAdaptResult?.systemEnvironment)
+            val pausedPointsSlot = AdaptValueSlot(hostAdaptResult?.pause)
+            val blockUpdatePointSlot = AdaptValueSlot(hostAdaptResult?.blockUpdate)
+            val playerSpeedMenuSlot = AdaptValueSlot(hostAdaptResult?.playerSpeedMenu)
+            val playerSpeedSessionSlot = AdaptValueSlot(hostAdaptResult?.playerSpeedSession)
+            val playerSpeedCalculatorSlot = AdaptValueSlot(hostAdaptResult?.playerSpeedCalculator)
+            val playerSpeedTheseus2LongPressSlot = AdaptValueSlot(hostAdaptResult?.playerSpeedTheseus2LongPress)
+            val homeEarlyLoadListenerSlot = AdaptValueSlot(hostAdaptResult?.homeRecommendEarlyLoadListener)
+            val legacyStoryDanmakuBindSlot = AdaptValueSlot(hostAdaptResult?.legacyStoryDanmakuBind)
+            val aiPlaylistDirectorSlot = AdaptValueSlot(hostAdaptResult?.aiPlaylistDirector)
+            val detailRelateGameComponentSlot = AdaptValueSlot(hostAdaptResult?.detailRelateGameComponent)
+            val followUpRecommendBodiesSlot = AdaptValueSlot(hostAdaptResult?.followUpRecommendBodies.orEmpty())
             val systemEnvInstaller = SystemEnvironmentFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, false),
-                cachedPoints = { systemEnvPointsRef.get() }
+                cachedPoints = systemEnvPointsSlot::read
             )
             // 商单区间的本地缓存：宿主私有 files/bil_sponsor/，只存有区间的视频（文件名为单向摘要），联网失败时回退。
             // 这里只构造路径对象，磁盘读写都在仓库的抓取线程上；取不到目录就不缓存，行为与没有这层时一致。
@@ -3054,7 +945,7 @@ class HookEntry : XposedModule() {
             val sponsorInstaller = SponsorBlockFeatureInstaller(
                 enabled = sponsorEnabled,
                 automatic = sponsorAutomatic,
-                cachedClasses = { sponsorClassesRef.get() },
+                cachedClasses = sponsorClassesSlot::read,
                 repository = { sponsorRepository.value }
             )
             val sponsorStoryInstaller = SponsorBlockStoryFeatureInstaller(
@@ -3087,9 +978,24 @@ class HookEntry : XposedModule() {
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_OUTPUT_BUDGET),
                 timeoutMs = prefs.getInt(RemoteHookConfigContract.KEY_INSIGHT_TIMEOUT_MS,
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig.DEFAULT_TIMEOUT_MS),
-                cachedClasses = { sponsorClassesRef.get() },
+                cachedClasses = sponsorClassesSlot::read,
                 kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
-                kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() }
+                kmpGrpcWireEngineProvider = pausedKmpWireSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                sponsorInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> sponsorClassesSlot.value = adapted?.sponsorPlayer }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                insightInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        sponsorClassesSlot.value = adapted?.sponsorPlayer
+                        adapted?.kmpGrpcWireEngine?.let { pausedKmpWireSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(
                 com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.PrivacyFeatureRuntime(
@@ -3154,8 +1060,17 @@ class HookEntry : XposedModule() {
                 points = hostAdaptResult?.pause,
                 hostVersionCode = startupCache.identity.versionCode,
                 kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
-                kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() },
-                pointsProvider = { pausedPointsRef.get() }
+                kmpGrpcWireEngineProvider = pausedKmpWireSlot::read,
+                pointsProvider = pausedPointsSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                pausedAdInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.kmpGrpcWireEngine?.let { pausedKmpWireSlot.value = it }
+                        adapted?.pause?.let { pausedPointsSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(listOf(pausedAdInstaller))
 
@@ -3185,14 +1100,30 @@ class HookEntry : XposedModule() {
                     )
                 ),
                 cachedRelateGameComponent = hostAdaptResult?.detailRelateGameComponent,
-                cachedRelateGameComponentProvider = { detailRelateGameComponentRef.get() }
+                cachedRelateGameComponentProvider = detailRelateGameComponentSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                detailAppPromotionInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.detailRelateGameComponent?.let { detailRelateGameComponentSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(listOf(detailAppPromotionInstaller))
 
             val followUpRecommendInstaller = FollowUpRecommendFeatureInstaller(
                 enabled = prefs.getBoolean(FeaturePreferences.HIDE_FOLLOW_UP_RECOMMEND, false),
                 cachedBodies = hostAdaptResult?.followUpRecommendBodies.orEmpty(),
-                cachedBodiesProvider = { followUpRecommendBodiesRef.get() }
+                cachedBodiesProvider = followUpRecommendBodiesSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                followUpRecommendInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.followUpRecommendBodies?.let { followUpRecommendBodiesSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(listOf(followUpRecommendInstaller))
 
@@ -3330,7 +1261,15 @@ class HookEntry : XposedModule() {
             val blockUpdateInstaller = BlockUpdateFeatureInstaller(
                 enabled = prefs.getBoolean(FeaturePreferences.BLOCK_APP_UPDATE, false),
                 point = hostAdaptResult?.blockUpdate,
-                pointProvider = { blockUpdatePointRef.get() }
+                pointProvider = blockUpdatePointSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                blockUpdateInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.blockUpdate?.let { blockUpdatePointSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(listOf(blockUpdateInstaller))
 
@@ -3446,6 +1385,12 @@ class HookEntry : XposedModule() {
                         ).orEmpty(),
                         kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
                     )
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                searchHomeInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> pagePointsSlot.value = adapted?.pageBoundaries }
                 )
             )
 
@@ -3630,7 +1575,7 @@ class HookEntry : XposedModule() {
                         ).orEmpty(),
                         points = hostAdaptResult?.homeTabs,
                         centering = homeTopTabCentering,
-                        pointsProvider = { homeTabsPointsRef.get() }
+                        pointsProvider = homeTabsPointsSlot::read
                     ).also { homeTabFilterInstaller = it },
                     HomeComponentFilterFeatureInstaller(
                         rules = prefs.getString(
@@ -3659,6 +1604,54 @@ class HookEntry : XposedModule() {
                     followFeedInstaller
                 )
             )
+            featureInstallCoordinator.registerRetryable(
+                homeTabFilterInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> adapted?.homeTabs?.let { homeTabsPointsSlot.value = it } }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(object : AdaptRetryableInstaller {
+                override val id = "host_chrome_and_card_adapt"
+                private var pendingAdapt: VersionAdapter.AdaptResult? = null
+                override val isAdaptationRetryPending: Boolean get() = pendingAdapt != null
+                override fun prepareAdaptedRetry(adapted: VersionAdapter.AdaptResult?): Boolean {
+                    if (adapted == null) return false
+                    pendingAdapt = adapted
+                    return true
+                }
+                override fun retryAdapted(
+                    environment: HookEnvironment,
+                    coordinator: com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallCoordinator
+                ) {
+                    val adapted = pendingAdapt ?: return
+                    pendingAdapt = null
+                    val chrome = adapted.homeChrome.orEmpty()
+                    val cardSurfaces = adapted.pageBoundaries?.cardSurfaces.orEmpty()
+                    val followStyle = adapted.followFeedStyle
+                    val pending = buildList {
+                        if (homeChromeEnabled) {
+                            if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
+                            if (bottomBarFxInstaller.updateChromePoints(chrome, adapted.homeChromeSemantics)) {
+                                add(bottomBarFxInstaller)
+                            }
+                        }
+                        if (followFeedInstaller.updateAdaptedPoints(followStyle)) add(followFeedInstaller)
+                        addAll(
+                            HostVideoCardStyleFeatureInstaller.updateAdaptedPoints(
+                                videoCardStyleInstallers,
+                                cardSurfaces,
+                                followStyle
+                            )
+                        )
+                    }
+                    if (pending.isNotEmpty()) coordinator.installAll(pending)
+                    if (homeTopTabCentering.updateChromePoints(chrome)) {
+                        homeTopTabCentering.install(environment)
+                    }
+                }
+                override fun install(environment: HookEnvironment) =
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult.Skipped("retry-only")
+            })
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3723,9 +1716,17 @@ class HookEntry : XposedModule() {
                 legacyResolver = {
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess.resolve(
                         it,
-                        cachedBindMethod = legacyStoryDanmakuBindRef.get()
+                        cachedBindMethod = legacyStoryDanmakuBindSlot.read()
                     )
                 }
+            )
+            featureInstallCoordinator.registerRetryable(
+                storyActionIconsInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.legacyStoryDanmakuBind?.let { legacyStoryDanmakuBindSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(listOf(storyActionIconsInstaller))
 
@@ -3753,6 +1754,21 @@ class HookEntry : XposedModule() {
                     ),
                     endPageInstaller,
                     popupInstaller
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                endPageInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        pagePointsSlot.value = adapted?.pageBoundaries
+                        adapted?.kmpGrpcWireEngine?.let { pausedKmpWireSlot.value = it }
+                    }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                popupInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> popupPointsSlot.value = adapted?.playerPopupPromotion }
                 )
             )
 
@@ -3783,7 +1799,7 @@ class HookEntry : XposedModule() {
                     )
                 )
             )
-            val detailSpecialTagMapperRef = java.util.concurrent.atomic.AtomicReference(
+            val detailSpecialTagMapperSlot = AdaptValueSlot(
                 hostAdaptResult?.detailSpecialTagMapper
             )
             val detailPresentationInstaller = DetailUnitedPresentationPurifyFeatureInstaller(
@@ -3795,7 +1811,7 @@ class HookEntry : XposedModule() {
                     FeaturePreferences.REMOVE_DETAIL_TOPIC_TAGS,
                     false
                 ),
-                cachedSpecialTagMapperProvider = { detailSpecialTagMapperRef.get() }
+                cachedSpecialTagMapperProvider = detailSpecialTagMapperSlot::read
             )
             // 与上面的 United 模块净化挂同一对 ViewMoss 方法，但只改 ecode/ecode_config
             // 与相关推荐卡，两者互不依赖、各自降级；强力模式只在总开关开着时有意义。
@@ -3808,7 +1824,21 @@ class HookEntry : XposedModule() {
                 precheck = aiDeclaredPrecheckEffective(prefs),
                 kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
                 aiPlaylistDirector = hostAdaptResult?.aiPlaylistDirector,
-                aiPlaylistDirectorProvider = { aiPlaylistDirectorRef.get() }
+                aiPlaylistDirectorProvider = aiPlaylistDirectorSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                detailPresentationInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> detailSpecialTagMapperSlot.value = adapted?.detailSpecialTagMapper }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                aiDeclaredVideoInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.aiPlaylistDirector?.let { aiPlaylistDirectorSlot.value = it }
+                    }
+                )
             )
             featureInstallCoordinator.installAll(
                 listOf(
@@ -3920,11 +1950,17 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            val qualityPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerQuality)
+            val qualityPointsSlot = AdaptValueSlot(hostAdaptResult?.playerQuality)
             val qualityInstaller = PlayerQualityFeatureInstaller(
                 qualityQn = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0),
                 points = hostAdaptResult?.playerQuality,
-                pointsProvider = { qualityPointsRef.get() }
+                pointsProvider = qualityPointsSlot::read
+            )
+            featureInstallCoordinator.registerRetryable(
+                qualityInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> qualityPointsSlot.value = adapted?.playerQuality }
+                )
             )
             featureInstallCoordinator.installAll(listOf(qualityInstaller))
 
@@ -3986,7 +2022,7 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            val commentReplyOwnersRef = java.util.concurrent.atomic.AtomicReference(
+            val commentReplyOwnersSlot = AdaptValueSlot(
                 hostAdaptResult?.commentReplyButtonOwners.orEmpty()
             )
             lateinit var commentReplyButtonInstaller: CommentReplyButtonFeatureInstaller
@@ -4002,7 +2038,7 @@ class HookEntry : XposedModule() {
                     ),
                     CommentReplyButtonFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, false),
-                        cachedNativeOwnersProvider = { commentReplyOwnersRef.get() }
+                        cachedNativeOwnersProvider = commentReplyOwnersSlot::read
                     ).also { commentReplyButtonInstaller = it },
                     CommentPurifyFeatureInstaller(
                         removeSearchLinks = prefs.getBoolean(
@@ -4035,9 +2071,26 @@ class HookEntry : XposedModule() {
                         ),
                         points = hostAdaptResult?.commentPurify,
                         kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
-                        pointsProvider = { commentPurifyPointsRef.get() },
-                        kmpGrpcWireEngineProvider = { pausedKmpWireRef.get() }
+                        pointsProvider = commentPurifyPointsSlot::read,
+                        kmpGrpcWireEngineProvider = pausedKmpWireSlot::read
                     ).also { commentPurifyInstaller = it }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                commentReplyButtonInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        commentReplyOwnersSlot.value = adapted?.commentReplyButtonOwners.orEmpty()
+                    }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                commentPurifyInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.commentPurify?.let { commentPurifyPointsSlot.value = it }
+                        adapted?.kmpGrpcWireEngine?.let { pausedKmpWireSlot.value = it }
+                    }
                 )
             )
 
@@ -4158,18 +2211,18 @@ class HookEntry : XposedModule() {
                 cachedSessionClasses = hostAdaptResult?.playerSpeedSession,
                 cachedCalculatorPoint = hostAdaptResult?.playerSpeedCalculator,
                 hostVersionCode = startupCache.identity.versionCode,
-                cachedMenuPointsProvider = { playerSpeedMenuRef.get() },
-                cachedSessionClassesProvider = { playerSpeedSessionRef.get() },
-                cachedCalculatorPointProvider = { playerSpeedCalculatorRef.get() },
+                cachedMenuPointsProvider = playerSpeedMenuSlot::read,
+                cachedSessionClassesProvider = playerSpeedSessionSlot::read,
+                cachedCalculatorPointProvider = playerSpeedCalculatorSlot::read,
                 cachedTheseus2LongPress = hostAdaptResult?.playerSpeedTheseus2LongPress,
-                cachedTheseus2LongPressProvider = { playerSpeedTheseus2LongPressRef.get() }
+                cachedTheseus2LongPressProvider = playerSpeedTheseus2LongPressSlot::read
             )
             val homeRecommendEarlyLoadInstaller = HomeRecommendEarlyLoadFeatureInstaller(
                 enabled = prefs.getBoolean(
                     FeaturePreferences.HOME_RECOMMEND_EARLY_LOAD,
                     false
                 ),
-                cachedRelocatedListenerProvider = { homeEarlyLoadListenerRef.get() },
+                cachedRelocatedListenerProvider = homeEarlyLoadListenerSlot::read,
                 adaptationAttemptedInCache = startupCache.isDiagnosticAttempted(
                     com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter.DIAGNOSTIC
                 )
@@ -4244,7 +2297,7 @@ class HookEntry : XposedModule() {
                             ""
                         ).orEmpty(),
                         cachedFeatureFlagContract = hostAdaptResult?.cloudKeyFreezeContract,
-                        cachedFeatureFlagContractProvider = { cloudKeyFreezeContractRef.get() }
+                        cachedFeatureFlagContractProvider = cloudKeyFreezeContractSlot::read
                     ).also { cloudKeyFreezeInstaller = it },
                     systemEnvInstaller,
                     HostPredictiveBackFeatureInstaller(
@@ -4282,6 +2335,61 @@ class HookEntry : XposedModule() {
                     )
                 )
             )
+            featureInstallCoordinator.registerRetryable(
+                weChatShareInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> adapted?.weChatShare?.let(::updateAdaptedClasses) }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                playerSpeedInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.playerSpeedMenu?.let { playerSpeedMenuSlot.value = it }
+                        adapted?.playerSpeedSession?.let { playerSpeedSessionSlot.value = it }
+                        adapted?.playerSpeedCalculator?.let { playerSpeedCalculatorSlot.value = it }
+                        adapted?.playerSpeedTheseus2LongPress?.let { playerSpeedTheseus2LongPressSlot.value = it }
+                    }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                homeRecommendEarlyLoadInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.homeRecommendEarlyLoadListener?.let { homeEarlyLoadListenerSlot.value = it }
+                    },
+                    onFail = { finishAdaptationWait() }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                cloudKeyFreezeInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted ->
+                        adapted?.cloudKeyFreezeContract?.let { cloudKeyFreezeContractSlot.value = it }
+                    }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                systemEnvInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> systemEnvPointsSlot.value = adapted?.systemEnvironment }
+                )
+            )
+            featureInstallCoordinator.registerRetryable(
+                classicInstaller.asAdaptRetryable(
+                    requiresRetry = { requiresAdaptationRetry },
+                    onUpdate = { adapted -> classicPointsSlot.value = adapted?.commentClassicStyle },
+                    onRetry = { _, coordinator ->
+                        if (requiresAdaptationRetry) {
+                            coordinator.installAll(listOf(this))
+                            logInfo(
+                                "comment_classic_adapt_ready",
+                                "[BIL] 旧版评论后台适配完成；已打开页面的实验缓存不会被改写，需冷启动"
+                            )
+                        }
+                    }
+                )
+            )
 
             val commentTopologyEnabled = prefs.getBoolean(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, false)
             val commentTopologyInstaller = CommentTopologyFeatureInstaller(
@@ -4302,1063 +2410,22 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            // ====== 4. 评论区长按自由复制 ======
-            // 关键经验：R8 混淆后方法名被 jadx 重命名（e1/v 等非真实名），
-            // 只有 t0.o0（基类方法，已真机验证命中）是可靠 hook 点。
-            // 方案：hook 评论 ViewHolder 基类 t0.o0（@CallSuper 绑定必经），afterHook 里
-            // 递归遍历 itemView 子 View，给「评论文本 TextView」覆盖长按监听器，
-            // 长按 → 弹模块自由复制界面 + return true 消费（官方菜单不弹）。
-            // 三点按钮是 OnClickListener（非长按），头像/昵称等非 TextView 不受影响。
-            val commentFreeCopyHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
-            val commentFreeCopyBindingVerified = java.util.concurrent.atomic.AtomicBoolean(false)
-            val commentFamilies = CommentFamilyCoverage()
-            val composeCommentCopy = CommentComposeCopyBridge(
-                enabled = { runtimeCommentFreeCopyEnabled },
-                open = ::showCommentModelBubble,
-                observe = { runtimeCommentFreeCopyEnabled || commentTopologyEnabled },
-                onMore = commentTopologyInstaller::rememberComposeMenu,
-                resetMore = commentTopologyInstaller::clearComposeMenu
-            )
-            val nativeSupplement = CommentNativeSupplementBridge(
-                enabled = { runtimeCommentFreeCopyEnabled },
-                bind = { view, raw, source ->
-                    scheduleCommentBind(view, raw, false, rawTrusted = true, commentItem = source)
-                },
-                rawComment = { extractRawCommentTextV2(it) }
-            )
-            additionalNativeCopy = nativeSupplement
-            val legacyCommentCopy by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-                StartupTrace.measure("legacy.comment_prepare") { CommentLegacyCopyBridge(biliClassLoader) }
-            }
-            val installCommentFreeCopyHooks: () -> Unit = installCommentHooks@{
-                // 只开脉络时只观察 Compose 更多操作，不安装关闭状态的原生复制／滚动 Hook。
-                if (!runtimeCommentFreeCopyEnabled) {
-                    runCatching { composeCommentCopy.install(hookEnvironment) }.onFailure {
-                        logError("comment_topology_compose_observer", "[BIL] Compose 评论菜单观察桥安装失败")
-                    }
-                    return@installCommentHooks
-                }
-                if (!commentFreeCopyHooksInstalled.compareAndSet(false, true)) return@installCommentHooks
-                // 评论绑定诊断探针：默认关闭，只在安装时读一次系统日志标签开关，绑定路径不再查询。
-                commentBindProbe.enabled = runCatching {
-                    android.util.Log.isLoggable(CommentBindProbe.LOG_TAG, android.util.Log.DEBUG)
-                }.getOrDefault(false)
-                try {
-                // 读版本适配缓存（loadApp 阶段读 B 站 cache 文件，快路径零开销）；
-                // 缓存缺失（首次启动/版本变化后 attach 适配尚未写入）时即时快速定位
-                // （同步结构定位），避免「首次启动评论 hook 用失效签名」。
-                // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
-                // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
-                // 版本码必须带上：9.18+ 的媒体 owner 只有按构建查 VERIFIED_MEDIA_OWNERS 才能命中，
-                // 漏传会退化成候选表，丢掉已验真实现并让诊断把适配失败误记成「无此结构」。
-                val adaptResult = hostAdaptResult
-                    ?: VersionAdapter.quickLocate(biliClassLoader, adaptPlan, hostVersionCode = startupCache.identity.versionCode)
-                // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
-                // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
-                // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
-                runCatching {
-                    hookExactMethod(
-                        hostRecyclerViewClass ?: throw ClassNotFoundException("host RecyclerView"),
-                        "onScrollStateChanged",
-                        classOf<Int>()
-                    ) {
-                        after {
-                            if (!runtimeCommentFreeCopyEnabled) return@after
-                            val st = args.getOrNull(0) as? Int ?: return@after
-                            val recyclerView = instance as? View ?: return@after
-                            updateRecyclerViewScrolling(
-                                recyclerView,
-                                st != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE
-                            )
-                            if (!isAnyRecyclerViewScrolling()) {
-                                // 滑停后尽快补齐整棵评论树；短暂避开回弹动画开头，
-                                // 120ms 后由空闲间隙分帧绑定。高版本模型入口和正文 id
-                                // 已即时登记，用户无需等待本批处理才能长按正文。
-                                rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
-                                scheduleCommentBindRetry(120L)
-                            }
-                        }
-                    }
-                    hookExactMethod(
-                        hostRecyclerViewClass ?: throw ClassNotFoundException("host RecyclerView"),
-                        "onDetachedFromWindow"
-                    ) {
-                        after {
-                            if (!runtimeCommentFreeCopyEnabled) return@after
-                            val recyclerView = instance as? View ?: return@after
-                            if (updateRecyclerViewScrolling(recyclerView, false)) {
-                                rvIdleSinceMs = android.os.SystemClock.uptimeMillis()
-                                scheduleCommentBindRetry(120L)
-                            }
-                        }
-                    }
-                }
-                if (classExists("com.bilibili.app.comm.comment2.model.BiliComment", biliClassLoader) &&
-                    legacyCommentCopy.isApplicable()
-                ) {
-                    commentFamilies.record("comment2", legacyCommentCopy.isReady())
-                }
-                var freeCopyOk = false
-                // 低版本（8.x/9.8.0）：holder.t0 的绑定方法（8.90.2 为 o0、9.8.0 漂移为 q0；
-                // 适配缓存自动定位方法名，缓存缺失回退内置候选 o0）。
-                val lowHolderCls = adaptResult?.commentLow?.className ?: "com.bilibili.app.comment3.ui.holder.t0"
-                val lowHolderMethod = adaptResult?.commentLow?.methodName ?: "o0"
-                if (classExists(lowHolderCls, biliClassLoader)) {
-                    if (adaptResult?.commentLow != null) commentFamilies.record("low", false)
-                    runCatching {
-                        hookFirstMethod(lowHolderCls, lowHolderMethod) {
-                            after {
-                                if (!runtimeCommentFreeCopyEnabled) return@after
-                                val holder = instance ?: return@after
-                                val itemView = runCatching {
-                                    holderItemView(holder)
-                                }.getOrNull() ?: return@after
-                                // 从 o0 参数 args[0]（t0<CommentItem> 的 DATA 实参）拿评论数据对象，
-                                // 提取 RichText.raw 原始文本（含表情文字标记如 [dog]，且始终完整不受展开折叠影响）
-                                val commentItem = args.getOrNull(0)
-                                val rawText = extractRawCommentText(commentItem)
-                                 // 关键：super.o0 之后 j0.o0 还会 U1()/r() 填充评论正文并重新设置监听器
-                                 //（覆盖我们的）。用 post 延迟到绑定流程完全结束后，再提取文本 + 覆盖监听器，
-                                 // 此时评论文本已填充（避免误取布局静态文案「登录后查看更多评论」），且最后覆盖必胜。
-                                 // 性能：入队批量 drain（滚动中延迟，滑停统一绑定，见 scheduleCommentBind）
-                                 // checkReply=true：t0 基类含视频信息等非评论 holder，需「回复」按钮过滤
-                                 // o0 的 CommentItem 是本次调用实参，可安全用于纯 emoji 身份校验。
-                                 scheduleCommentBind(
-                                     itemView,
-                                     rawText,
-                                     true,
-                                     rawTrusted = true,
-                                     commentItem = commentItem
-                                 )
-                            }
-                        }
-                    }.onSuccess {
-                        freeCopyOk = true
-                        commentFreeCopyBindingVerified.set(true)
-                        commentFamilies.record("low", true)
-                    }.onFailure { t ->
-                        // 高版本常保留旧 t0 类但删除旧绑定方法；这是残留结构，不应阻断
-                        // 后续 CommentNextExperiment3 Handler 的独立注册。
-                        logInfo(
-                            "free_copy_low_skip",
-                            "[BIL] 低版本评论入口不可用，继续尝试高版本 Handler: $t"
-                        )
-                    }
-                }
-                // 高版本（9.x）：三级 handler 管线并存（见 COMMENT_HIGH_HANDLER_CLASSES
-                // 注释），全部由同一个 bindHook 接管。适配缓存（commentHigh）的精确
-                // 签名只对命中类走快路径；其余存在的类走「含 ViewBinding 参数」特征
-                // 扫描补挂（nextholder 的 b(Zk.Q)/c(Zk.Q)、legacy 的 G(...) 都满足）。
-                // 注意：9.0.0 更新后 exp3 的 b 增加 b(long,boolean) 重载（探测方法），
-                // 精确注册必须带参数签名，不能只按名称命中第一个重载。
-                // 双路径并行注册（t0 与高版 handler 都挂，不互斥）：9.x 的 t0 是残留旧类
-                // （o0 已不用于评论绑定）——运行期哪个方法实际触发就生效（afterHook
-                // 幂等），彻底避免「类存在但方法漂移/残留」的版本判定陷阱。
-                val highPoint = adaptResult?.commentHigh
-                val highClassNames = java.util.LinkedHashSet<String>()
-                highPoint?.className?.let(highClassNames::add)
-                COMMENT_HIGH_HANDLER_CLASSES.forEach(highClassNames::add)
-                val highHandlerExists = highClassNames.any { classExists(it, biliClassLoader) }
-                if (highHandlerExists) {
-                    for (highCls in highClassNames) {
-                    if (!classExists(highCls, biliClassLoader)) continue
-                    commentFamilies.record(highCls, false)
-                    // 类名/方法名/参数签名优先取版本适配缓存（自动定位漂移签名），
-                    // 仅适配命中的类走缓存签名；其余类跳过缓存直接特征扫描。
-                    val highMethod = highPoint?.methodName ?: METHOD_COMMENT_BIND_V2
-                    runCatching {
-                        val handlerClass = KavaMemberLookup.classOrNull(biliClassLoader, highCls)
-                            ?: throw ClassNotFoundException(highCls)
-                        // 共享绑定回调：从 handler 字段 i 取 CommentItem + 动态定位 itemView
-                        // （参数 ViewBinding → 字段 a / 遍历 View 字段；否则 handler 字段找
-                        // View 实例，首次缓存字段名）
-                        val bindHook = object : ModernMethodHook() {
-                            override fun beforeHookedMethod(param: ModernHookParam) {
-                                if (!runtimeCommentFreeCopyEnabled) return
-                                val handler = param.thisObject ?: return
-                                // 9.8.0 d/e 没有 CommentItem 实参，但宿主马上会从同一个 handler
-                                // 字段读取并渲染。必须在方法执行前同步快照；afterHook 再读字段
-                                // 可能已经被下一次复用覆盖，不能作为纯 Emoji 的可信来源。
-                                val boundItem = extractCommentItemForBinding(param, handler) ?: return
-                                param.setObjectExtra(
-                                    COMMENT_BIND_SNAPSHOT_KEY,
-                                    CapturedCommentBinding(
-                                        boundItem.value,
-                                        extractRawCommentTextV2(boundItem.value)
-                                    )
-                                )
-                            }
-
-                            override fun afterHookedMethod(param: ModernHookParam) {
-                                if (!runtimeCommentFreeCopyEnabled) return
-                                val handler = param.thisObject ?: return
-                                // 含 CommentItem 实参的方法（8.90.2 G0 等）必须取本次调用
-                                // 的实参；Handler.i 是可变字段，在 RecyclerView 快速复用时可能
-                                // 已被下一条评论覆盖。9.8.0 d/e 只有 Binding 参数，才回退字段。
-                                val captured = param.getObjectExtra(COMMENT_BIND_SNAPSHOT_KEY)
-                                    as? CapturedCommentBinding
-                                val boundItem = if (captured == null) {
-                                    extractCommentItemForBinding(param, handler) ?: return
-                                } else {
-                                    BoundCommentItem(captured.commentItem, true)
-                                }
-                                val rawText = captured?.rawText
-                                    ?: extractRawCommentTextV2(boundItem.value)
-                                // itemView 提取：扫描全部参数找 ViewBinding 实例
-                                //（8.63.0 的 G(CommentItem, jv.u, ...) 参数 1 才是 jv.u；
-                                //  9.x 的 b(Pj.J, boolean) 参数 0 为 Pj.J——索引不写死，
-                                //  首次命中缓存索引，热路径零反射）
-                                val itemView: View = run {
-                                    val fromArgs = extractBindingRootFromArgs(param)
-                                    fromArgs ?: run {
-                                        val handlerClassNow = handler.javaClass
-                                        val cachedField = cHandlerViewFieldByClass[handlerClassNow]
-                                        if (cachedField != null) {
-                                            runCatching {
-                                                cachedField.get(handler) as? View
-                                            }.getOrNull()
-                                        } else {
-                                            var found: View? = null
-                                            for (fld in KavaMemberLookup.declaredFields(
-                                                handlerClassNow,
-                                                makeAccessible = true
-                                            )) {
-                                                val v = runCatching { fld.get(handler) }.getOrNull()
-                                                if (v is View) {
-                                                    found = v
-                                                    cHandlerViewFieldByClass[handlerClassNow] = fld
-                                                    break
-                                                }
-                                            }
-                                            found
-                                        }
-                                    }
-                                } ?: return
-                                // 入队批量 drain（滚动中延迟，滑停统一绑定，见 scheduleCommentBind）
-                                scheduleCommentBind(
-                                    itemView,
-                                    rawText,
-                                    false,
-                                    rawTrusted = captured != null || boundItem.fromCurrentArguments,
-                                    commentItem = boundItem.value
-                                )
-                            }
-                        }
-                        // 注册列表：缓存方法签名优先（仅适配命中类）；再遍历补充所有
-                        // 「含 ViewBinding 参数」的实例候选方法。static h(al.J) 只是
-                        // 9.8.0 样式工具方法，必须排除；b/c/d/e/G 等真实绑定分支都挂，
-                        // 运行期哪个触发就生效（afterHook 幂等）。
-                        val registered = java.util.HashSet<String>()
-                        // 缓存签名只是"优先"路径：参数类型解析失败（旧代码只认 long/boolean，
-                        // 缓存里出现 int 就抛 ClassNotFoundException 并连带跳过下面的补充注册，
-                        // 2026-09-30 压测日志每次启动都有）只记一条日志，补充注册照常进行。
-                        val useCachedSignature =
-                            highCls == highPoint?.className ||
-                                (highPoint == null && highCls == CLASS_COMMENT_HANDLER_V2)
-                        if (useCachedSignature) runCatching {
-                            val cachedNames = highPoint?.paramClassNames ?: listOf("Pj.J", "boolean")
-                            val cacheParams = hookPointRegistry.resolveParameterClasses(cachedNames)
-                                ?: throw ClassNotFoundException(cachedNames.joinToString(","))
-                            val method = hookPointRegistry.resolveExact(
-                                "free-copy:comment-high:cached",
-                                handlerClass,
-                                highMethod,
-                                *cacheParams
-                            ) ?: throw NoSuchMethodException("${handlerClass.name}#$highMethod")
-                            modernRuntime.install("free-copy:comment-high:${method.toGenericString()}", method, bindHook)
-                            registered.add("$highMethod${cacheParams.joinToString(",") { it.name }}")
-                            commentFreeCopyBindingVerified.set(true)
-                        }.onFailure { t ->
-                            logError("free_copy_v2_err:$highCls", "[BIL] 9.x 评论 hook 注册失败(缓存签名): $t")
-                        }
-                        // 补充注册：遍历所有含 ViewBinding 参数的方法（与缓存方法去重）。
-                        // 参数上限 5（8.63.0 的 G 有 5 参）——含 ViewBinding 参数的方法
-                        // 注册后 afterHook 幂等（多个触发也只绑定一次）；静态工具方法
-                        // bindHook 中 thisObject 为空会早退，无副作用。
-                        for (m in KavaMemberLookup.declaredMethods(handlerClass)) {
-                            if (m.parameterCount < 1 || m.parameterCount > 5) continue
-                            if (m.isStatic) continue
-                            val sig = "${m.name}${m.parameterTypes.joinToString(",") { it.name }}"
-                            if (registered.contains(sig)) continue
-                            var isBinding = false
-                            for (pt in m.parameterTypes) {
-                                if (pt.isPrimitive || pt.isArray || pt.isInterface) continue
-                                val hasViewField = KavaMemberLookup.declaredFields(pt) {
-                                    it.type isSubclassOf classOf<android.view.View>()
-                                }.isNotEmpty()
-                                if (hasViewField) { isBinding = true; break }
-                            }
-                            if (!isBinding) continue
-                            runCatching {
-                                modernRuntime.install("free-copy:comment-high:${m.toGenericString()}", m, bindHook)
-                                registered.add(sig)
-                                commentFreeCopyBindingVerified.set(true)
-                            }
-                        }
-                        if (registered.isEmpty()) {
-                            // 类存在但一个绑定方法都没挂上：不能算成功，否则该管线
-                            // 静默失效（9.13.0 nextholder 漏挂的同类事故）。
-                            logError(
-                                "free_copy_v2_err:$highCls",
-                                "[BIL] 9.x 评论 handler 无可用绑定方法: $highCls"
-                            )
-                        } else {
-                            val required = CommentNativeBindingCatalog.bindingMethods(handlerClass).map {
-                                "${it.name}${it.parameterTypes.joinToString(",") { type -> type.name }}"
-                            }.toSet()
-                            commentFamilies.record(highCls, FeatureInstallResult.Installed(
-                                registered.size, complete = required.isNotEmpty() && registered.containsAll(required)
-                            ))
-                            logInfo(
-                                "free_copy_ok_v2:$highCls",
-                                "[BIL] 自由复制 hook 已注册（9.x $highCls ${registered.joinToString(", ") { it }}）"
-                            )
-                        }
-                    }.onFailure { t ->
-                        // 单个类缺失/解析失败不影响其余管线继续注册。
-                        if (classExists(highCls, biliClassLoader)) {
-                            logError("free_copy_v2_err:$highCls", "[BIL] 9.x 评论 hook 注册失败 $highCls: $t")
-                        }
-                    }
-                    }
-                    freeCopyOk = commentFamilies.installedCount() > 0
-                }
-                val compose = runCatching { composeCommentCopy.install(hookEnvironment) }.getOrElse {
-                    logError("free_copy_compose_registration", "[BIL] Compose 评论复制安装失败，原生管线继续工作")
-                    FeatureInstallResult.Skipped("registration-failed")
-                }
-                if (compose !is FeatureInstallResult.Skipped || compose.reason != "not-applicable-host") {
-                    commentFamilies.record("compose", compose)
-                }
-                if (compose is FeatureInstallResult.Installed) {
-                    freeCopyOk = true
-                    commentFreeCopyBindingVerified.set(true)
-                }
-                reportChannelStatus("free_copy_comment_layers", commentFamilies.describe())
-                runCatching { nativeSupplement.install(hookEnvironment) }.onSuccess { results ->
-                    results.forEach { (family, result) ->
-                        commentFamilies.record(family, result)
-                    }
-                }.onFailure {
-                    commentFamilies.record("native-supplement", false)
-                    logError("free_copy_native_supplement", "[BIL] 图片／推送评论复制安装失败，已有管线继续工作")
-                }
-                reportChannelStatus("free_copy_native_layers", commentFamilies.describe())
-                if (freeCopyOk) {
-                    logInfo("free_copy_ok", "[BIL] 自由复制 hook 已注册")
-                } else {
-                    commentFreeCopyHooksInstalled.set(false)
-                    logError("free_copy_hook_err", "[BIL] 自由复制 hook 失败：低版本 t0 和高版本 handler 类都不存在")
-                }
-                } catch (t: Throwable) {
-                    commentFreeCopyHooksInstalled.set(false)
-                    logError("free_copy_hook_err", "[BIL] 自由复制 hook 注册异常: $t")
-                }
-            }
-            commentFreeCopyInstallerRef.set(installCommentFreeCopyHooks)
-            if (runtimeCommentFreeCopyEnabled || commentTopologyEnabled) StartupTrace.measure("legacy.comment") { installCommentFreeCopyHooks() }
-
-            // ====== 4a. 气泡亮暗色自动跟随：详情页主题缓存 ======
-            // 自动跟随开启时，进入视频详情页判定一次 B 站主题并缓存（详情页会话内 B 站
-            // 主题不可变——改主题需退出/重进详情页，缓存天然准确）；弹泡时读缓存零反射。
-            // 判定工具：com.bilibili.lib.ui.util.NightTheme.isNightTheme(Context)（官方
-            // 控件同款，跨版本稳定——8.90.2/9.x 反编译确认）；反射失败 → 缓存置 null →
-            // 弹泡回退手动开关逻辑（logError 一次性告警，不静默失效）。
-            if (freeCopyAutoLight && classExists(DETAIL_ACTIVITY_CLASS, biliClassLoader)) {
-                runCatching {
-                    hookFirstMethod(DETAIL_ACTIVITY_CLASS, "onCreate") {
-                            before {
-                                val ctx = runCatching {
-                                    val act = instance
-                                    when (act) {
-                                        is android.content.Context -> act
-                                        else -> null
-                                    }
-                                }.getOrNull() ?: return@before
-                                val night = runCatching {
-                                    val c = KavaMemberLookup.classOrNull(
-                                        biliClassLoader,
-                                        "com.bilibili.lib.ui.util.NightTheme"
-                                    ) ?: return@runCatching null
-                                    ReflectAccess.callStaticMethod(c, "isNightTheme", ctx) as? Boolean
-                                }.getOrNull()
-                                if (night != null) {
-                                    freeCopyLightCache = !night // B 站亮色 → 气泡亮色
-                                } else {
-                                    freeCopyLightCache = null
-                                    logError("auto_light_theme_err", "[BIL] NightTheme 判定失败，气泡跟随回退手动开关")
-                                }
-                            }
-                    }
-                }.onFailure { t ->
-                    logError("auto_light_hook_err", "[BIL] 气泡亮暗色跟随详情页钩子注册失败: $t")
-                }
-            }
-
-            // ====== 4b. 视频详情页简介长按自由复制 ======
-            // 设计（双版本适配 9.0.0 / 8.90.2）：
-            // - 两代详情页的简介都是普通 TextView 且 id 名固定为 "desc"（9.0.0 实机
-            //   uiautomator 确认），但 R8 删除了 R$id 类、id 数值随版本漂移，故运行时
-            //   getIdentifier("desc","id") 按名解析，版本无关。
-            // - 绑定时机：hook AOSP TextView.setText(CharSequence, BufferType)——所有
-            //   文本设置（含一参/int 重载）内部都汇聚到该签名，回调里仅做 O(1) id 比对，
-            //   命中简介即覆盖长按监听。上下滑切换视频时 setText 重设文本自然触发重绑。
-            // - 文本在长按瞬间从 view 实时读取（折叠由 maxLines 渲染层实现，getText()
-            //   始终是完整原文），复用评论区同一 showFreeCopyPopup 气泡链路，样式与
-            //   「亮色模式气泡」开关天然统一。
-            val descriptionFreeCopyHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
-            val installDescriptionFreeCopyHooks: () -> Unit = installDescriptionHooks@{
-                if (!descriptionFreeCopyHooksInstalled.compareAndSet(false, true)) {
-                    return@installDescriptionHooks
-                }
-                var descHookOk = false
-                runCatching {
-                    // desc view 发现 hook：优先收窄到两个已知版本的 ExpandableTextView 类
-                    //（按声明 Method 精确注册，B 站 ExpandableTextView
-                    // 自声明 setText——收窄后评论区 rebind 的普通 TextView 全部不再过
-                    // 现代拦截器，这是拖动跟手性最后一块可削减的热路径开销）；两个类都
-                    // 不存在/未声明时回退全局 TextView.setText（未知版本兼容）。
-                    val descTextHook = object : (ModernMemberHookCreator) -> Unit {
-                        override fun invoke(creator: ModernMemberHookCreator) {
-                            creator.after {
-                                if (!descLikeFreeCopyEnabled) return@after
-                                val v = instance as? View ?: return@after
-                                onDetailTextSet(v)
-                            }
-                        }
-                    }
-                    var narrowed = false
-                    // 类名清单与标题判据共用 TitleFreeCopyPolicy.WIDGET_CLASS_NAMES（同样两个类）。
-                    for (cn in TitleFreeCopyPolicy.WIDGET_CLASS_NAMES) {
-                        runCatching {
-                            val owner = KavaMemberLookup.classOrNull(biliClassLoader, cn)
-                                ?: return@runCatching
-                            val method = hookPointRegistry.resolveExact(
-                                "free-copy:description:set-text:$cn",
-                                owner,
-                                "setText",
-                                classOf<CharSequence>(),
-                                classOf<TextView.BufferType>()
-                            ) ?: return@runCatching
-                            modernRuntime.install(
-                                "free-copy:description:set-text:${method.toGenericString()}",
-                                method,
-                                block = descTextHook
-                            )
-                            narrowed = true
-                        }
-                    }
-                    if (!narrowed) {
-                        hookExactMethod(
-                            classOf<TextView>(),
-                            "setText",
-                            classOf<CharSequence>(),
-                            classOf<TextView.BufferType>()
-                        ) {
-                            after {
-                                if (!descLikeFreeCopyEnabled) return@after
-                                val v = instance as? View ?: return@after
-                                onDetailTextSet(v)
-                            }
-                        }
-                    }
-                    // 强覆盖：B 站官方对 desc 设置长按监听（复制全文/官方自由复制窗口）时，
-                    // 在 afterHook 立即用我们的监听器夺回，保证我们必胜。
-                    // 注意：夺回会再次调用 setOnLongClickListener → 再次进入本 hook，
-                    // 必须用 descStealInProgress 防重入（否则无限递归 ANR 卡死）。
-                    hookExactMethod(
-                        classOf<View>(),
-                        "setOnLongClickListener",
-                        classOf<View.OnLongClickListener>()
-                    ) {
-                            after {
-                                if (!descLikeFreeCopyEnabled &&
-                                    !runtimeCommentFreeCopyEnabled
-                                ) return@after
-                                // 简介与评论两条夺回链路彼此独立：简介 id 解析失败不能让评论
-                                // 分支提前返回（旧逻辑会使部分版本整个评论兜底失效）。
-                                if (descStealInProgress) return@after
-                                val v = instance as? View ?: return@after
-                                // 标题夺回：宿主若给已登记的标题重设长按监听，立即换回共享监听器。
-                                // 只写 ListenerInfo 字段、不会再进入本 hook，没有递归风险。
-                                if (runtimeTitleFreeCopyEnabled && isTitleView(v)) {
-                                    applyTitleFreeCopyListener(v)
-                                    return@after
-                                }
-                                if (descViewId == View.NO_ID) resolveDescViewId(v.context)
-                                if (runtimeDescriptionFreeCopyEnabled &&
-                                    descViewId != View.NO_ID && v.id == descViewId
-                                ) {
-                                    descStealInProgress = true
-                                    try {
-                                        applyFreeCopyListener(v, null, false)
-                                    } finally {
-                                        descStealInProgress = false
-                                    }
-                                    return@after
-                                }
-                                if (!runtimeCommentFreeCopyEnabled) return@after
-                                // 评论树夺回：官方对「待绑定/已注册」的评论 itemView 设置长按监听时
-                                // （如滑停后 drain 尚未轮到该评论），沿祖先链找评论根并立即重绑，
-                                // 保证用户长按时刻我们的监听器已就位（覆盖「滑停→绑定完成」窗口）。
-                                if (commentStealInProgress) return@after
-                                // 最后防线：绑定回调尚未登记 itemView 时，宿主只要给评论正文/
-                                // 回复预览 TextView 设置官方长按监听，就立即把这个正文控件登记为
-                                // 独立弱引用根并夺回。只命中两个资源 id，不扫描整树、不影响三点
-                                // 操作栏；长按时从该 TextView 实时取文本。
-                                if (isCommentBodyTextView(v) || additionalNativeCopy?.isImageBody(v) == true) {
-                                    val legacy = if (
-                                        classExists("com.bilibili.app.comm.comment2.model.BiliComment", biliClassLoader) &&
-                                        legacyCommentCopy.isBody(v)
-                                    ) {
-                                        legacyCommentCopy.capture(argOrNull(0))
-                                    } else null
-                                    // 这里只负责在主绑定 hook 尚未登记时保证长按可用。TextView
-                                    // backing 对 9.8.0 Emoji 只是 U+200B，绝不能冒充 raw；解析
-                                    // 时会继续向祖先寻找本次绑定保存的完整 RichText 状态。
-                                    registerCommentRoot(v, legacy?.first, false,
-                                        rawTrusted = false, commentItem = legacy?.second)
-                                    commentStealInProgress = true
-                                    try {
-                                        setLongClickListenerNoHook(v, sharedFreeCopyListener)
-                                    } finally {
-                                        commentStealInProgress = false
-                                    }
-                                    return@after
-                                }
-                                // 快路径：尚无任何评论注册时直接返回——此 hook 对全 App 每次
-                                // 官方 setOnLongClickListener 都触发，评论区未进入前零开销
-                                if (commentRootRefs.isEmpty()) return@after
-                                var cur: View? = v
-                                var root: View? = null
-                                synchronized(commentRootLock) {
-                                    while (cur != null) {
-                                        if (commentRootRefs.containsKey(cur)) { root = cur; break }
-                                        cur = cur.parent as? View
-                                    }
-                                }
-                                if (root != null) {
-                                    val state = synchronized(commentRootLock) {
-                                        commentRootRefs[root]?.get()
-                                    } ?: CommentRootState(null, true, false, null, 0L)
-                                    commentStealInProgress = true
-                                    try {
-                                        if (!applyFreeCopyListener(root, state.rawText, state.checkReply)) {
-                                            unregisterCommentRoot(root)
-                                        }
-                                    } finally {
-                                        commentStealInProgress = false
-                                    }
-                                }
-                            }
-                    }
-                    // 简介触摸长按检测：desc 主体是 ExpandableTextView（9.0.0 与 8.90.2 均是，但父类
-                    // 混淆名不同：9.0.0 = Rg1.a，8.90.2 = com.mall.videodetail.vd.videopage.
-                    // common.widget.view.a——均为 TintTextView 子类、结构同构），且详情页
-                    // 可能有多种 desc 变体布局（继承链各异）。官方在父类 onTouchEvent 内自
-                    // 实现长按：DOWN 命中 DescTagSpan 时 postDelayed 长按超时检测，超时后
-                    // 执行官方复制全文（9.0.0：UgcHeadlineService$b.c；8.90.2：
-                    // UgcHeadlineService$c.w——均写剪贴板 + toast）。
-                    // 因此 hook View.dispatchTouchEvent（触摸统一入口，任何 override
-                    // onTouchEvent 的 desc 变体都必经，版本无关）做长按检测：DOWN 记录
-                    // 按下位置并 postDelayed 400ms 长按判定（长按状态中即弹气泡，不等
-                    // 松手）；MOVE 超系统 touch slop 则取消全部长按源；UP/CANCEL 取消剩余判定，若长按已弹
-                    // 气泡则消费事件（阻止官方复制）。短按/滑动放行（官方点击 span、展开
-                    // 收起等行为不受影响）。descLongPressHandled 防双重弹窗。
-                    // 评论树长按检测（9.8.0 官方评论长按不走 OnLongClickListener，触摸层
-                    // 自实现）：祖先链查 commentRootRefs 识别评论树并自实现长按（与 desc
-                    // 同构）。本 hook 常驻全版本——不做版本门控/自卸载（该方案曾导致
-                    // 自由复制功能异常，已回滚）。
-                    runCatching {
-                        hookExactMethod(
-                            classOf<View>(),
-                            "dispatchTouchEvent",
-                            classOf<android.view.MotionEvent>()
-                        ) {
-                                before {
-                                    if (!descLikeFreeCopyEnabled &&
-                                        !runtimeCommentFreeCopyEnabled
-                                    ) return@before
-                                    val v = instance as? View ?: return@before
-                                    val ev = argOrNull(0) as? android.view.MotionEvent ?: return@before
-                                    val action = ev.actionMasked
-                                    observeFreeCopyTouch(ev)
-                                    // more_button 属于宿主独立点击控件，不属于评论正文自由复制范围。
-                                    // 父 View 的 dispatch 会先建立评论会话；按钮本身到达 beforeHook
-                                    // 时撤销它，并让同一 downTime 的全部后续节点/UP 直接交还宿主。
-                                    if (action == android.view.MotionEvent.ACTION_DOWN &&
-                                        commentMoreButtonPassthroughDownTime != 0L &&
-                                        commentMoreButtonPassthroughDownTime != ev.downTime
-                                    ) {
-                                        commentMoreButtonPassthroughDownTime = 0L
-                                    }
-                                    if (commentMoreButtonPassthroughDownTime == ev.downTime) {
-                                        if (action == android.view.MotionEvent.ACTION_UP ||
-                                            action == android.view.MotionEvent.ACTION_CANCEL
-                                        ) {
-                                            commentMoreButtonPassthroughDownTime = 0L
-                                        }
-                                        return@before
-                                    }
-                                    // 简介和标题共用同一个触摸会话（同一时刻只有一个手势）：命中任一个已启用
-                                    // 的目标才进入下面的会话分支；其余 View 走评论/清理分支。
-                                    val isTitleTarget = runtimeTitleFreeCopyEnabled && isTitleView(v)
-                                    val isDescLikeTarget =
-                                        (runtimeDescriptionFreeCopyEnabled &&
-                                            descViewId != View.NO_ID && v.id == descViewId) ||
-                                            isTitleTarget
-                                    if (!isDescLikeTarget) {
-                                        if (action == android.view.MotionEvent.ACTION_DOWN) {
-                                            // 新手势落在非简介 View 时终止旧简介会话。desc 自身的
-                                            // dispatch 之前也会经过祖先 View，此清理不会影响随后
-                                            // desc 分支建立的新会话。
-                                            if (freeCopyGesture.isTracking &&
-                                                !freeCopyGesture.matches(ev.downTime)
-                                            ) {
-                                                clearDescTouchSession(resetHandled = true)
-                                            }
-                                            if (!runtimeCommentFreeCopyEnabled) return@before
-                                            // 任意新手势先终止旧会话。即使本次 DOWN 在页签/简介而
-                                            // 非评论树，也不能让上一页遗漏 UP/CANCEL 的 Runnable
-                                            // 继续存活并在页面切换后弹出。
-                                            if (freeCopyGesture.sessionId != 0L &&
-                                                !freeCopyGesture.matches(ev.downTime)
-                                            ) {
-                                                clearCommentTouchSession(resetHandled = true)
-                                            }
-                                            // 尚无任何评论根登记（评论区未进入前的全 App 触摸）：没有可命中的根，
-                                            // 不必为每个 DOWN 遍历祖先链；旧会话已在上面清理。
-                                            if (synchronized(commentRootLock) { commentRootRefs.isEmpty() }) return@before
-                                            // 祖先链查找仅在 DOWN 执行；MOVE 热路径不加锁、不遍历。
-                                            var root: View? = null
-                                            var cur: View? = v
-                                            synchronized(commentRootLock) {
-                                                while (cur != null) {
-                                                    if (commentRootRefs.containsKey(cur)) {
-                                                        root = cur
-                                                        break
-                                                    }
-                                                    cur = cur.parent as? View
-                                                }
-                                            }
-                                            if (root != null &&
-                                                (isCommentMoreButton(v) || isCommentActionsContainer(v))
-                                            ) {
-                                                clearCommentTouchSession(resetHandled = true)
-                                                commentMoreButtonPassthroughDownTime = ev.downTime
-                                        return@before
-                                            }
-                                            root?.let { beginOrRetargetCommentTouch(v, it, ev) }
-                                        return@before
-                                        }
-
-                                        // 三表面共用 detector 后，matches 对评论会话同样为真；必须按
-                                        // descTouchedView / descLongPressHandled 判会话归属，只有 desc/标题会话的
-                                        // 终止事件才走 desc 裁决。评论会话的终止事件交还下方评论分支，否则会被
-                                        // reset 截断、UP 兜底与消费不可达。
-                                        // 标题不再被模块改成可长按控件（见 onTitleCandidateTextSet），宿主若让
-                                        // 容器自己做点击目标，UP 会落在容器而不是标题：这里与目标分支同一套裁决，
-                                        // 气泡已弹时同样消费 UP，避免“弹泡的同时展开标题”。
-                                        if ((descTouchedView != null || descLongPressHandled) &&
-                                            freeCopyGesture.matches(ev.downTime) &&
-                                            (action == android.view.MotionEvent.ACTION_UP ||
-                                                action == android.view.MotionEvent.ACTION_CANCEL)
-                                        ) {
-                                            if (finishDescLikeTouch(ev, null)) this.result = true
-                                            return@before
-                                        }
-                                        if (!runtimeCommentFreeCopyEnabled) return@before
-                                        // 没有活动会话时 MOVE/UP/CANCEL 仍是纯 O(1) 早退；有会话时
-                                        // 也不再重复评论根祖先遍历。终止事件按 downTime 清理，
-                                        // 不要求它仍落在原评论树内（父容器拦截/切页的关键修复）。
-                                        if (freeCopyGesture.sessionId == 0L ||
-                                            !freeCopyGesture.matches(ev.downTime)
-                                        ) return@before
-                                        when (action) {
-                                            android.view.MotionEvent.ACTION_UP,
-                                            android.view.MotionEvent.ACTION_CANCEL -> {
-                                                val sessionId = freeCopyGesture.sessionId
-                                                // 短按安全网：拥塞时到期 Runnable 可能已先于本 UP 误弹泡；
-                                                // 事件时长不足阈值即撤销气泡、复位 handled，交还宿主点击。
-                                                if (action == android.view.MotionEvent.ACTION_UP) {
-                                                    revokePrematurePopupIfShortTap(ev)
-                                                }
-                                                var handled = commentLongPressHandled
-                                                // 事件时钟权威：主线程拥堵时到期 Runnable 可能排在 UP
-                                                // 后面；以 MotionEvent 真实按住时长判定，短按 UP 一律
-                                                // 交还宿主（三点/展开），不会被延误判成长按。
-                                                if (freeCopyGesture.resolveTerminal(
-                                                        ev.downTime, ev.eventTime,
-                                                        action == android.view.MotionEvent.ACTION_UP, handled
-                                                    ) == FreeCopyGestureDetector.Terminal.CLAIM_AND_CONSUME
-                                                ) {
-                                                    handled = tryHandleActiveCommentLongPress(sessionId)
-                                                }
-                                                // 已弹泡时保留 handled 到气泡 dismiss，供官方延迟
-                                                // 复制/震动抑制使用；手势身份和 Runnable 仍立即清除。
-                                                clearCommentTouchSession(resetHandled = !handled)
-                                                if (handled && action == android.view.MotionEvent.ACTION_UP) {
-                                                    this.result = true
-                                                }
-                                            }
-                                        }
-                                        return@before
-                                    }
-                                    when (action) {
-                                        android.view.MotionEvent.ACTION_DOWN -> {
-                                            if (freeCopyGesture.sessionId != 0L &&
-                                                !freeCopyGesture.matches(ev.downTime)
-                                            ) {
-                                                clearCommentTouchSession(resetHandled = true)
-                                            }
-                                            clearDescTouchSession(resetHandled = true)
-                                            // 标题/简介/评论共用同一条判定线（系统长按线），不给标题加额外延时：
-                                            // 点击误判的根因是模块改动了宿主触摸链，不是时间窗，见 FreeCopyPressPolicy。
-                                            freeCopyGesture.begin(ev.downTime, android.os.SystemClock.uptimeMillis(),
-                                                ev.getPointerId(0), ev.rawX, ev.rawY,
-                                                freeCopyHoldSlop(v), freeCopyLongPressThreshold())
-                                            descLongPressHandled = false
-                                            descTouchedView = v
-                                            // 按住不动的即时反馈：到期 Runnable 仍须通过事件时钟复核才弹泡。
-                                            val handler = mainHandlerOrNull()
-                                            if (handler != null) {
-                                                freeCopyGesture.schedule(
-                                                    freeCopyGesture.sessionId, freeCopyDueDelayMs(), freeCopyPoster(handler)
-                                                )
-                                            }
-                                        }
-                                        // MOVE/多指统一由 observeFreeCopyTouch 观察，宿主事件始终放行。
-                                        android.view.MotionEvent.ACTION_UP,
-                                        android.view.MotionEvent.ACTION_CANCEL -> {
-                                            // 事件时钟权威（finishDescLikeTouch）：真实按住时长达到阈值才弹泡并消费 UP
-                                            // （阻止官方 UP 分支的长按复制）；短按/移动取消/CANCEL 一律交还宿主
-                                            // （标题展开/收起、简介链接 span 点击），主线程拥塞也不会把短按误判成长按。
-                                            if (finishDescLikeTouch(ev, v)) {
-                                                this.result = true // 阻止官方复制全文与标题点击展开
-                                            }
-                                        }
-                                    }
-                                }
-                        }
-                    }
-                    // 拦截官方「复制简介全文」实现（UgcHeadlineService 内部类里仅有的剪贴板双参 void 方法：
-                    // (String, boolean) / (boolean, String)），结构化发现替代写死 $b#c / $c#w / $c#o。
-                    runCatching {
-                        val headlineService = KavaMemberLookup.classOrNull(
-                            biliClassLoader,
-                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService"
-                        )
-                        val innerOwners = (headlineService?.declaredClasses.orEmpty().map { it.name } + listOf(
-                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$b",
-                            "com.bilibili.ship.theseus.ugc.intro.ugcheadline.UgcHeadlineService\$c"
-                        )).distinct().mapNotNull { KavaMemberLookup.classOrNull(biliClassLoader, it) }
-                        val clipboardHooks = innerOwners.flatMap { owner ->
-                            KavaMemberLookup.declaredMethods(owner, makeAccessible = true) { method ->
-                                !java.lang.reflect.Modifier.isStatic(method.modifiers) &&
-                                    !method.isSynthetic && !method.isBridge &&
-                                    method.returnType == Void.TYPE && (
-                                    method.parameterTypes.contentEquals(arrayOf(classOf<String>(), classOf<Boolean>())) ||
-                                        method.parameterTypes.contentEquals(arrayOf(classOf<Boolean>(), classOf<String>()))
-                                    )
-                            }.takeIf { it.size in 1..2 }.orEmpty()
-                        }.distinctBy { it.toGenericString() }
-                        clipboardHooks.forEach { method ->
-                            hookExactMethod(method.declaringClass, method.name, *method.parameterTypes) {
-                                before {
-                                    if (runtimeDescriptionFreeCopyEnabled &&
-                                        (descTouchedView != null || isOfficialSuppressionActive())
-                                    ) {
-                                        this.result = null // 简介触摸中或当前气泡会话内，跳过官方复制全文
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    descHookOk = true
-                    // 兜底拦截官方复制：任何路径写剪贴板前，比对剪贴板文本与 desc 原文——
-                    // 相等即官方复制全文，一律拦截（无论官方 Runnable 何时触发，均 100%
-                    // 覆盖）。原文优先反射 ExpandableTextView.l 字段（收起状态也完整）；
-                    // 反射失败（非 ExpandableTextView 的低版本）回退 view.text。气泡内的
-                    // 自由选择复制是部分文本（≠全文），不受影响。
-                    runCatching {
-                        hookExactMethod(
-                            classOf<android.content.ClipboardManager>(),
-                            "setPrimaryClip",
-                            classOf<android.content.ClipData>()
-                        ) {
-                                before {
-                                    if (!runtimeCommentFreeCopyEnabled &&
-                                        !runtimeDescriptionFreeCopyEnabled
-                                    ) return@before
-                                    // 自由复制气泡已按当前 TextView 选区完成语义转换；仅同步放行
-                                    // 当前线程、当前仍显示气泡中的这一笔写入。ThreadLocal 在调用方
-                                    // finally remove，不扩大官方复制豁免范围。
-                                    if (popupClipboardWriteInProgress.get() == true && isOurBubbleShowing()) {
-                                        return@before
-                                    }
-                                    val clip = args.getOrNull(0) as? android.content.ClipData ?: return@before
-                                    if (ReplyTopologyClipboardWrite.owns(clip)) return@before
-                                    val clipText = runCatching {
-                                        clip.getItemAt(0).coerceToText(null)?.toString()
-                                    }.getOrNull() ?: return@before
-                                    if (clipText.isEmpty()) return@before
-                                    // 评论长按窗口内（我们已弹气泡）的官方复制拦截：9.8.0
-                                    // 官方长按检测可能触发官方复制/菜单操作，剪贴板写入兜底拦下。
-                                    // 两个修正（气泡内选中复制失效的修复）：
-                                    // 1. 来源豁免：系统文本选择（气泡内长按拖选 → 工具栏「复制」）的
-                                    //    写入栈全是框架类（android.widget.Editor/TextView 及 OEM 扩展
-                                    //    如 OPLUS SelectionHandleViewExtImpl 也在 android.widget 包下）——
-                                    //    一律放行；官方 B 站复制栈是其自身类，不含这些帧，照拦。
-                                    //    栈检查只在「即将拦截」时执行（剪贴板写入低频），无热路径开销。
-                                    // 2. 限时：commentLongPressHandled 在弹泡后长期为真（至下一次评论
-                                    //    DOWN 才复位），无限期拦截会误杀气泡内的选中复制与气泡消失后
-                                    //    B 站内其它官方复制——限定在官方抑制窗口（弹泡后 1.5s，武装的
-                                    //    官方 Runnable 触发期）内才拦。commentTouchedView 非空（手势
-                                    //    进行中）不受限时——按住期间不可能点工具栏，只可能是官方路径。
-                                    val gestureActive = runtimeCommentFreeCopyEnabled &&
-                                        commentTouchedView != null
-                                    val handledInSuppressWindow =
-                                        runtimeCommentFreeCopyEnabled && commentLongPressHandled &&
-                                            isOfficialSuppressionActive()
-                                    if (gestureActive || handledInSuppressWindow) {
-                                        val fromSystemSelection = runCatching {
-                                            Throwable().stackTrace.any { frame ->
-                                                val cn = frame.className
-                                                cn.startsWith("android.widget.") ||
-                                                    cn.contains("FloatingToolbar") ||
-                                                    cn.contains("SelectionToolbar")
-                                            }
-                                        }.getOrDefault(false)
-                                        if (!fromSystemSelection) {
-                                            this.result = null
-                                        return@before
-                                        }
-                                    }
-                                    if (!runtimeDescriptionFreeCopyEnabled) return@before
-                                    val desc = descCachedViewRef?.get() ?: return@before
-                                    // 优先取原文字段 l（ExpandableTextView 保存的完整原文，
-                                    // 9.0.0 与 8.90.2 字段名一致；收起状态下 view.text 是截断文本）
-                                    val descText = runCatching {
-                                        (titleOriginField(desc.javaClass)?.get(desc) as? CharSequence)
-                                            ?: KavaMemberLookup.fieldOrNull(
-                                                desc.javaClass,
-                                                "l",
-                                                includeSuperclasses = true
-                                            )?.get(desc) as? CharSequence
-                                    }.getOrNull()?.toString()
-                                        ?: runCatching { (desc as? android.widget.TextView)?.textToString() }.getOrNull()
-                                        ?: return@before
-                                    if (descText.isNotEmpty() && clipText == descText) {
-                                        this.result = null // 官方复制简介全文，拦截（由我们的气泡接管）
-                                    }
-                                }
-                        }
-                    }
-                    logInfo("free_copy_desc_ok", "[BIL] 简介自由复制 hook 已注册(Modern setText+steal+touch)")
-                    // 官方震动拦截（长按窗口内）：8.90.2 官方长按检测（mall.a RunnableC0238a）
-                    // 在 DOWN 后 ~400ms 触发官方 performHapticFeedback——与我们的震动叠加成
-                    // 连续两次马达震动。长按窗口内（touch 标志非空）拦官方震动，只保留
-                    // 我们的那一次（我们弹泡前置清 touch 标志，自身震动不被拦）。
-                    runCatching {
-                        val viewClass = classOf<View>()
-                        for (m in KavaMemberLookup.declaredMethods(viewClass)) {
-                            if (m.name != "performHapticFeedback") continue
-                            runCatching {
-                                modernRuntime.install(
-                                    "free-copy:haptic:${m.toGenericString()}",
-                                    m
-                                ) {
-                                    before {
-                                        // 长按窗口内拦官方震动：handled（弹泡后保持到
-                                        // 下次 DOWN）覆盖官方 Runnable 延迟触发场景；
-                                        // touch 标志覆盖长按进行中场景。我们的震动走
-                                        // Vibrator 直震（见 hapticFeedback），不受影响。
-                                        if ((runtimeCommentFreeCopyEnabled &&
-                                                (commentTouchedView != null ||
-                                                    (commentLongPressHandled && isOfficialSuppressionActive()))) ||
-                                            (descLikeFreeCopyEnabled &&
-                                                (descTouchedView != null ||
-                                                    (descLongPressHandled && isOfficialSuppressionActive())))
-                                        ) {
-                                            result = true // 拦官方震动（返回 true=已处理）
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // 官方菜单弹出拦截（评论长按窗口内）：9.8.0 官方长按检测（DOWN 后
-                    // postDelayed ~400ms）可能先于我们的气泡触发官方菜单/复制面板——
-                    // UP 消费无法阻止已 post 的 runnable。hook PopupWindow/Dialog 的 show
-                    // 系列：评论长按进行中（commentTouchedView 非空）一律拦截（低频 API，
-                    // 开销可忽略）。短按/滑动放行（commentTouchedView 已清）。
-                    runCatching {
-                        val pwClass = classOf<android.widget.PopupWindow>()
-                        for (mn in listOf("showAsDropDown", "showAtLocation")) {
-                            for (m in KavaMemberLookup.declaredMethods(pwClass)) {
-                                if (m.name != mn) continue
-                                runCatching {
-                                    modernRuntime.install(
-                                        "free-copy:popup:${m.toGenericString()}",
-                                        m,
-                                        object : ModernMethodHook() {
-                                            override fun beforeHookedMethod(param: ModernHookParam) {
-                                                if (!runtimeCommentFreeCopyEnabled &&
-                                                    !runtimeDescriptionFreeCopyEnabled
-                                                ) return
-                                                // 豁免：宿主在「我们自己的气泡 Dialog 窗口内」的弹窗一律放行——
-                                                // 气泡内长按拖选时系统选择句柄/浮动工具栏是 PopupWindow，宿主
-                                                // view 在我们的 dialog 里。若拦截，句柄 PopupWindow 的内部
-                                                // decor 永不创建，OPLUS 扩展 SelectionHandleViewExtImpl 在
-                                                // updatePosition 里 NPE（实测气泡内拖选文本必崩、B 站重启）。
-                                                // 官方 B 站弹窗宿主在 B 站自己的 window，不受此豁免影响。
-                                                // rootView 祖先链走到顶即其窗口 decor，O(depth) 且仅弹窗
-                                                // 展示时执行（低频），无性能影响。
-                                                val ourDecor = ourBubbleDialogRef?.get()?.window?.decorView
-                                                if (ourDecor != null) {
-                                                    when (val a0 = param.args.getOrNull(0)) {
-                                                        is View -> if (a0.rootView === ourDecor) return
-                                                        is android.os.IBinder -> if (a0 === ourDecor.windowToken) return
-                                                    }
-                                                }
-                                                // 框架文本选择句柄弹窗一律放行：抑制窗口是全 App 生效的，若用户
-                                                // 在窗口内长按 B 站自己的可选文本，其 HandleView 弹窗被拦会触发
-                                                // 同一个 OEM 扩展 NPE 崩溃（按内容类名识别，B 站自定义菜单不受影响）
-                                                val popupContent = runCatching {
-                                                    (param.thisObject as? android.widget.PopupWindow)?.contentView
-                                                }.getOrNull()
-                                                if (popupContent?.javaClass?.name?.contains("HandleView") == true) return
-                                                if (shouldSuppressOfficialOverlay()) {
-                                                    // 不可在 beforeHook 里直接 result=null：宿主已经把面板
-                                                    // 控制器标为“已打开”，跳过 show 会令 onDismiss 永远不来，
-                                                    // 此后每个评论的三点按钮都会因该脏状态而失效。允许窗口
-                                                    // 完成 show 生命周期，再在同一调用栈的 afterHook 立即
-                                                    // dismiss；尚未进入下一帧，不会与自由复制气泡同时可见，
-                                                    // 且宿主能正常收到 dismiss 并复位控制器。
-                                                    param.setObjectExtra("bil_suppress_popup_after_show", true)
-                                                }
-                                            }
-
-                                            override fun afterHookedMethod(param: ModernHookParam) {
-                                                if (param.getObjectExtra("bil_suppress_popup_after_show") == true) {
-                                                    runCatching {
-                                                        (param.thisObject as? android.widget.PopupWindow)
-                                                            ?.takeIf { it.isShowing }
-                                                            ?.dismiss()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    runCatching {
-                        val dlgClass = classOf<android.app.Dialog>()
-                        for (m in KavaMemberLookup.declaredMethods(dlgClass)) {
-                            if (m.name != "show") continue
-                            runCatching {
-                                modernRuntime.install(
-                                    "free-copy:dialog:${m.toGenericString()}",
-                                    m,
-                                    object : ModernMethodHook() {
-                                        override fun beforeHookedMethod(param: ModernHookParam) {
-                                            if (!runtimeCommentFreeCopyEnabled &&
-                                                !runtimeDescriptionFreeCopyEnabled
-                                            ) return
-                                            if (shouldSuppressOfficialOverlay()) {
-                                                if (param.thisObject != null &&
-                                                    param.thisObject === ourBubbleDialogRef?.get()
-                                                ) return // 我们自己的气泡，放行
-                                                // 与 PopupWindow 同理：不能截断宿主 Dialog.show，
-                                                // 否则官方控制器无法通过 onDismiss 清理“已显示”状态。
-                                                param.setObjectExtra("bil_suppress_dialog_after_show", true)
-                                            }
-                                        }
-
-                                        override fun afterHookedMethod(param: ModernHookParam) {
-                                            if (param.getObjectExtra("bil_suppress_dialog_after_show") == true) {
-                                                runCatching {
-                                                    (param.thisObject as? android.app.Dialog)
-                                                        ?.takeIf { it.isShowing }
-                                                        ?.dismiss()
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }.onFailure { t ->
-                    logError("free_copy_desc_reg_err", "[BIL] 简介自由复制 hook 注册失败: $t")
-                }
-                if (!descHookOk) {
-                    descriptionFreeCopyHooksInstalled.set(false)
-                    logError("free_copy_desc_reg_err", "[BIL] 简介自由复制 hook 注册失败")
-                }
-            }
-            // 评论触摸兜底、三点按钮豁免和官方面板抑制与简介共用这一组低频基础 hook；
-            // 任一自由复制功能开启时安装，具体行为仍由各自 runtime flag 独立控制。
-            descriptionFreeCopyInstallerRef.set(installDescriptionFreeCopyHooks)
-            fun publishFreeCopyCapabilities() {
-                if (processName != TARGET_PACKAGE) return
-                val common = descriptionFreeCopyHooksInstalled.get()
-                val comment = commentFreeCopyBindingVerified.get()
-                if (runtimeCommentFreeCopyEnabled) {
-                    val paths = (if (comment) 1 else 0) + (if (common) 1 else 0)
-                    HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
-                        "free_copy_comment_enabled",
-                        if (paths > 0) FeatureInstallResult.Installed(paths,
-                            complete = paths == 2 && commentFamilies.isComplete())
-                        else FeatureInstallResult.Skipped("registration-failed"), null
-                    ))
-                }
-                if (runtimeDescriptionFreeCopyEnabled) {
-                    HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
-                        "free_copy_description_enabled",
-                        if (common) FeatureInstallResult.Installed(1)
-                        else FeatureInstallResult.Skipped("registration-failed"), null
-                    ))
-                }
-                // 标题与简介共用同一组 setText/触摸/长按基础 hook；标题 id 在首次 setText 时才能按名解析，
-                // 所以安装回执只证明共用 hook 已就位，是否真正命中由运行期 OBSERVED 证明。
-                if (runtimeTitleFreeCopyEnabled) {
-                    HostRuntimeDiagnosticsBridge.recordInstallation(FeatureInstallRecord(
-                        "free_copy_title_enabled",
-                        if (common) FeatureInstallResult.Installed(1)
-                        else FeatureInstallResult.Skipped("registration-failed"), null
-                    ))
-                }
-            }
-            freeCopyHookRetryOnAdapt.set {
-                if (runtimeCommentFreeCopyEnabled) StartupTrace.measure("legacy.comment") { installCommentFreeCopyHooks() }
-                if (runtimeCommentFreeCopyEnabled || descLikeFreeCopyEnabled) {
-                    StartupTrace.measure("legacy.description") { installDescriptionFreeCopyHooks() }
-                }
-                publishFreeCopyCapabilities()
-            }
-            if (runtimeCommentFreeCopyEnabled || descLikeFreeCopyEnabled) {
-                StartupTrace.measure("legacy.description") { installDescriptionFreeCopyHooks() }
-            }
-            if (processName == TARGET_PACKAGE) {
-                val installedCount =
-                    (if (commentFreeCopyHooksInstalled.get()) 1 else 0) +
-                        (if (descriptionFreeCopyHooksInstalled.get()) 1 else 0)
-                val result = when {
-                    !runtimeCommentFreeCopyEnabled && !descLikeFreeCopyEnabled ->
-                        FeatureInstallResult.Skipped("disabled")
-                    installedCount > 0 -> FeatureInstallResult.Installed(installedCount,
-                        complete = (!runtimeCommentFreeCopyEnabled || commentFamilies.isComplete()) &&
-                            (!descLikeFreeCopyEnabled || descriptionFreeCopyHooksInstalled.get()))
-                    else -> FeatureInstallResult.Skipped("registration-failed")
-                }
-                HostRuntimeDiagnosticsBridge.recordInstallation(
-                    FeatureInstallRecord("free_copy", result, failure = null)
-                )
-                publishFreeCopyCapabilities()
-            }
+            val freeCopyInstaller = FreeCopyFeatureInstaller(
+                initialCommentEnabled = initialCommentFreeCopyEnabled,
+                initialDescriptionEnabled = initialDescriptionFreeCopyEnabled,
+                initialTitleEnabled = initialTitleFreeCopyEnabled,
+                initialLightMode = initialLightMode,
+                initialAutoLight = initialAutoLight,
+                commentTopologyEnabled = commentTopologyEnabled,
+                adaptPlan = adaptPlan,
+                hostVersionCode = { startupCache.identity.versionCode },
+                initialAdaptResult = { hostAdaptResult },
+                onComposeMore = commentTopologyInstaller::rememberComposeMenu,
+                onComposeResetMore = commentTopologyInstaller::clearComposeMenu,
+                lowBindPointProvider = { hostAdaptResult?.commentLow },
+                highBindPointProvider = { hostAdaptResult?.commentHigh }
+            ).also(freeCopyInstallerRef::set)
+            featureInstallCoordinator.installAll(listOf(freeCopyInstaller))
             // 保持原有已授权相对时序：先安装功能 Hook，attach 再同步
             // 自由复制派生状态并触发版本适配，避免 quickLocate 与后台适配并发。
             val roamingCompatEnabled = roamingCompatPrefs.getBoolean(
@@ -5411,230 +2478,9 @@ class HookEntry : XposedModule() {
 
                             private fun applyAdaptOutcome(ok: Boolean, showToast: Boolean) {
                                 if (ok) {
-                                    // 成功回调只读一次缓存，各 installer 共用同一份不可变结果；
-                                    // requiresAdaptationRetry 与主线程二次状态检查仍按各自分支判断。
+                                    // 成功回调只读一次缓存，各 installer 共用同一份不可变结果。
                                     val adapted = VersionAdapter.loadCached(attachedContext, versionAdapterResetTimestamp)
-                                    adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
-                                    adapted?.kmpGrpcWireEngine?.let { engine ->
-                                        hookEnvironment.postToMain?.invoke {
-                                            com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter.resolve(
-                                                biliClassLoader,
-                                                engine
-                                            )?.let { surface ->
-                                                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KmpGrpcWireChannel.bindDeferred(
-                                                    hookEnvironment,
-                                                    surface
-                                                )
-                                            }
-                                        }
-                                    }
-                                    if (qualityInstaller.requiresAdaptationRetry) {
-                                        qualityPointsRef.set(adapted?.playerQuality)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (qualityInstaller.requiresAdaptationRetry)
-                                                featureInstallCoordinator.installAll(listOf(qualityInstaller))
-                                        }
-                                    }
-                                    if (detailPresentationInstaller.requiresAdaptationRetry) {
-                                        detailSpecialTagMapperRef.set(adapted?.detailSpecialTagMapper)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (detailPresentationInstaller.requiresAdaptationRetry)
-                                                featureInstallCoordinator.installAll(listOf(detailPresentationInstaller))
-                                        }
-                                    }
-                                    if (commentReplyButtonInstaller.requiresAdaptationRetry) {
-                                        commentReplyOwnersRef.set(adapted?.commentReplyButtonOwners.orEmpty())
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (commentReplyButtonInstaller.requiresAdaptationRetry)
-                                                featureInstallCoordinator.installAll(listOf(commentReplyButtonInstaller))
-                                        }
-                                    }
-                                    if (popupInstaller.requiresAdaptationRetry) {
-                                        popupPointsRef.set(adapted?.playerPopupPromotion)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (popupInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(popupInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (classicInstaller.requiresAdaptationRetry) {
-                                        classicPointsRef.set(adapted?.commentClassicStyle)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (classicInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(classicInstaller))
-                                                logInfo("comment_classic_adapt_ready", "[BIL] 旧版评论后台适配完成；已打开页面的实验缓存不会被改写，需冷启动")
-                                            }
-                                        }
-                                    }
-                                    if (systemEnvInstaller.requiresAdaptationRetry) {
-                                        systemEnvPointsRef.set(adapted?.systemEnvironment)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (systemEnvInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(systemEnvInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (sponsorInstaller.requiresAdaptationRetry || insightInstaller.requiresAdaptationRetry) {
-                                        sponsorClassesRef.set(adapted?.sponsorPlayer)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (sponsorInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(sponsorInstaller))
-                                            }
-                                            if (insightInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(insightInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (searchHomeInstaller.requiresAdaptationRetry || endPageInstaller.requiresAdaptationRetry) {
-                                        pagePointsRef.set(adapted?.pageBoundaries)
-                                        adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (searchHomeInstaller.requiresAdaptationRetry)
-                                                featureInstallCoordinator.installAll(listOf(searchHomeInstaller))
-                                            if (endPageInstaller.requiresAdaptationRetry)
-                                                featureInstallCoordinator.installAll(listOf(endPageInstaller))
-                                        }
-                                    }
-                                    if (commentTopologyInstaller.requiresAdaptationRetry || commentTopologyInstaller.requiresComposeAdaptationRetry) {
-                                        commentTopologyInstaller.updateAdaptedPoints(
-                                            points = adapted?.commentTopology,
-                                            lowBindPoint = adapted?.commentLow,
-                                            highBindPoint = adapted?.commentHigh,
-                                            composeMenuPoints = adapted?.commentComposeMenu,
-                                            kmpGrpcWireEngine = adapted?.kmpGrpcWireEngine
-                                        )
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (commentTopologyInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(commentTopologyInstaller))
-                                            } else if (commentTopologyInstaller.requiresComposeAdaptationRetry) {
-                                                commentTopologyInstaller.retryComposeInstallIfNeeded(hookEnvironment)
-                                            }
-                                        }
-                                    }
-                                    if (pausedAdInstaller.requiresAdaptationRetry) {
-                                        adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
-                                        adapted?.pause?.let(pausedPointsRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (pausedAdInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(pausedAdInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (blockUpdateInstaller.requiresAdaptationRetry) {
-                                        adapted?.blockUpdate?.let(blockUpdatePointRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (blockUpdateInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(blockUpdateInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (weChatShareInstaller.requiresAdaptationRetry) {
-                                        adapted?.weChatShare?.let(weChatShareInstaller::updateAdaptedClasses)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (weChatShareInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(weChatShareInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (playerSpeedInstaller.requiresAdaptationRetry) {
-                                        adapted?.playerSpeedMenu?.let(playerSpeedMenuRef::set)
-                                        adapted?.playerSpeedSession?.let(playerSpeedSessionRef::set)
-                                        adapted?.playerSpeedCalculator?.let(playerSpeedCalculatorRef::set)
-                                        adapted?.playerSpeedTheseus2LongPress?.let(playerSpeedTheseus2LongPressRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (playerSpeedInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(playerSpeedInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (homeRecommendEarlyLoadInstaller.requiresAdaptationRetry) {
-                                        adapted?.homeRecommendEarlyLoadListener?.let(homeEarlyLoadListenerRef::set)
-                                        val postToMain = hookEnvironment.postToMain
-                                        if (postToMain != null) {
-                                            postToMain.invoke {
-                                                if (homeRecommendEarlyLoadInstaller.requiresAdaptationRetry) {
-                                                    featureInstallCoordinator.installAll(listOf(homeRecommendEarlyLoadInstaller))
-                                                }
-                                            }
-                                        } else {
-                                            homeRecommendEarlyLoadInstaller.finishAdaptationWait()
-                                        }
-                                    }
-                                    if (aiDeclaredVideoInstaller.requiresAdaptationRetry) {
-                                        adapted?.aiPlaylistDirector?.let(aiPlaylistDirectorRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (aiDeclaredVideoInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(aiDeclaredVideoInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (followUpRecommendInstaller.requiresAdaptationRetry) {
-                                        adapted?.followUpRecommendBodies?.let(followUpRecommendBodiesRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (followUpRecommendInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(followUpRecommendInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (detailAppPromotionInstaller.requiresAdaptationRetry) {
-                                        adapted?.detailRelateGameComponent?.let(detailRelateGameComponentRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (detailAppPromotionInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(detailAppPromotionInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (storyActionIconsInstaller.requiresAdaptationRetry) {
-                                        adapted?.legacyStoryDanmakuBind?.let(legacyStoryDanmakuBindRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (storyActionIconsInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(storyActionIconsInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (cloudKeyFreezeInstaller.requiresAdaptationRetry) {
-                                        adapted?.cloudKeyFreezeContract?.let(cloudKeyFreezeContractRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (cloudKeyFreezeInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(cloudKeyFreezeInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (homeTabFilterInstaller.requiresAdaptationRetry) {
-                                        adapted?.homeTabs?.let(homeTabsPointsRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (homeTabFilterInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(homeTabFilterInstaller))
-                                            }
-                                        }
-                                    }
-                                    if (commentPurifyInstaller.requiresAdaptationRetry) {
-                                        adapted?.commentPurify?.let(commentPurifyPointsRef::set)
-                                        adapted?.kmpGrpcWireEngine?.let(pausedKmpWireRef::set)
-                                        hookEnvironment.postToMain?.invoke {
-                                            if (commentPurifyInstaller.requiresAdaptationRetry) {
-                                                featureInstallCoordinator.installAll(listOf(commentPurifyInstaller))
-                                            }
-                                        }
-                                    }
-                                    run {
-                                        val chrome = adapted?.homeChrome.orEmpty()
-                                        val cardSurfaces = adapted?.pageBoundaries?.cardSurfaces.orEmpty()
-                                        val followStyle = adapted?.followFeedStyle
-                                        hookEnvironment.postToMain?.invoke {
-                                            val pending = buildList {
-                                                if (homeChromeEnabled) {
-                                                    if (topBarFxInstaller.updateChromePoints(chrome)) add(topBarFxInstaller)
-                                                    if (bottomBarFxInstaller.updateChromePoints(chrome, adapted?.homeChromeSemantics)) add(bottomBarFxInstaller)
-                                                }
-                                                if (followFeedInstaller.updateAdaptedPoints(followStyle)) add(followFeedInstaller)
-                                                addAll(HostVideoCardStyleFeatureInstaller.updateAdaptedPoints(videoCardStyleInstallers, cardSurfaces, followStyle))
-                                            }
-                                            if (pending.isNotEmpty()) featureInstallCoordinator.installAll(pending)
-                                            if (homeTopTabCentering.updateChromePoints(chrome)) homeTopTabCentering.install(hookEnvironment)
-                                        }
-                                    }
-                                    retryFreeCopyHooksAfterAdapt()
+                                    featureInstallCoordinator.retryAdapted(adapted, ok = true)
                                     if (showToast) {
                                         VersionAdapter.showAdaptToast(
                                             attachedContext,
@@ -5642,7 +2488,7 @@ class HookEntry : XposedModule() {
                                         )
                                     }
                                 } else {
-                                    homeRecommendEarlyLoadInstaller.finishAdaptationWait()
+                                    featureInstallCoordinator.retryAdapted(adapted = null, ok = false)
                                     if (showToast) {
                                         VersionAdapter.showAdaptToast(
                                             attachedContext,
@@ -5756,7 +2602,7 @@ class HookEntry : XposedModule() {
                         plan = adaptPlan
                     ) }
                 }.onFailure { throwable ->
-                    homeRecommendEarlyLoadInstaller.finishAdaptationWait()
+                    featureInstallCoordinator.retryAdapted(adapted = null, ok = false)
                     logError(
                         "version_adapt_err",
                         "[BIL] 版本适配触发失败: $throwable"
@@ -5881,9 +2727,11 @@ class HookEntry : XposedModule() {
                             ).also { loadedModuleArtifact = it }
                             com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchLiveConfig.registerHost(
                                 appContext, live, artifact) {
-                                runtimeCommentFreeCopyEnabled = live.getBoolean(PREF_FREE_COPY_ENABLED, true)
-                                runtimeDescriptionFreeCopyEnabled = live.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true)
-                                freeCopyLightMode = live.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
+                                freeCopyInstallerRef.get()?.updateLiveConfig(
+                                    commentEnabled = live.getBoolean(PREF_FREE_COPY_ENABLED, true),
+                                    descriptionEnabled = live.getBoolean(PREF_FREE_COPY_DESC_ENABLED, true),
+                                    lightMode = live.getBoolean(PREF_FREE_COPY_LIGHT_MODE, false)
+                                )
                             }
                         }.onFailure { frameworkLog("[BIL] 热应用端点不可用，配置继续使用启动快照") }
                     }

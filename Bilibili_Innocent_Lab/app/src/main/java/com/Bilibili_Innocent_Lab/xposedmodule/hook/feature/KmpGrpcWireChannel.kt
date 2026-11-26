@@ -7,9 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
-import java.util.IdentityHashMap
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -25,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal object KmpGrpcWireChannel {
     private const val HOOK_ID = "kmp.grpc.wire.channel"
+    internal const val FAULT_OWNER = "kmp_grpc_wire_channel"
     private val EMPTY_ARGS = emptyArray<Any?>()
 
     private val dispatchersLock = Any()
@@ -368,7 +367,7 @@ internal object KmpGrpcWireChannel {
     }
 
     fun bindDeferred(environment: HookEnvironment, surface: KmpGrpcWireAdapter.WireSurface): Int {
-        val key = registrarKey(environment.registrar)
+        val key = environment.registrar.rootRegistrar
         val entries = synchronized(dispatchersLock) {
             pending.remove(key)?.entries?.toList().orEmpty()
         }
@@ -408,7 +407,8 @@ internal object KmpGrpcWireChannel {
             rpc = rpc,
             rpcFullName = rpcFullName,
             registration = createRegistration(
-                environment = environment,
+                logInfo = environment.logInfo,
+                logError = environment.logError,
                 rpc = rpc,
                 rpcFullName = rpcFullName,
                 what = what,
@@ -447,7 +447,8 @@ internal object KmpGrpcWireChannel {
             rpc = shortRpc,
             rpcFullName = cleanName,
             registration = createRegistration(
-                environment = environment,
+                logInfo = environment.logInfo,
+                logError = environment.logError,
                 rpc = shortRpc,
                 rpcFullName = cleanName,
                 what = what,
@@ -468,7 +469,8 @@ internal object KmpGrpcWireChannel {
     }
 
     private fun createRegistration(
-        environment: HookEnvironment,
+        logInfo: (String, String) -> Unit,
+        logError: (String, String) -> Unit,
         rpc: String,
         rpcFullName: String,
         what: String,
@@ -505,12 +507,12 @@ internal object KmpGrpcWireChannel {
             wireActive = wireActive,
             onCall = {
                 if (called.compareAndSet(false, true)) {
-                    environment.logInfo("${logKey}_wire_call", "[BIL] $what 线格式通道请求已进入 $rpcFullName")
+                    logInfo("${logKey}_wire_call", "[BIL] $what 线格式通道请求已进入 $rpcFullName")
                 }
             },
             onRequestFailed = { throwable ->
                 if (requestFailedLogged.compareAndSet(false, true)) {
-                    environment.logError(
+                    logError(
                         "${logKey}_wire_request_failed",
                         "[BIL] $what 线格式请求改写失败，已放行原请求($rpc): $throwable"
                     )
@@ -518,7 +520,7 @@ internal object KmpGrpcWireChannel {
             },
             onReplyFailed = { throwable ->
                 if (failedLogged.compareAndSet(false, true)) {
-                    environment.logError(
+                    logError(
                         "${logKey}_wire_failed",
                         "[BIL] $what 线格式处理失败，已放行原响应($rpc): $throwable"
                     )
@@ -528,7 +530,7 @@ internal object KmpGrpcWireChannel {
     }
 
     private fun queuePending(registrar: HookRegistrar, pendingReg: PendingRegistration) {
-        val key = registrarKey(registrar)
+        val key = registrar.rootRegistrar
         synchronized(dispatchersLock) {
             val bucket = pending.getOrPut(key) { PendingBucket() }
             if (bucket.entries.none { it.registration.logKey == pendingReg.registration.logKey && it.rpcFullName == pendingReg.rpcFullName }) {
@@ -558,24 +560,6 @@ internal object KmpGrpcWireChannel {
         return true
     }
 
-    private fun registrarKey(registrar: HookRegistrar): HookRegistrar {
-        var current = registrar
-        val visited = IdentityHashMap<HookRegistrar, Boolean>()
-        while (visited.put(current, true) == null) {
-            val delegateField = generateSequence(current.javaClass as Class<*>?) { it.superclass }
-                .flatMap { it.declaredFields.asSequence() }
-                .filter { !Modifier.isStatic(it.modifiers) && HookRegistrar::class.java.isAssignableFrom(it.type) }
-                .singleOrNull() ?: break
-            val next = runCatching {
-                delegateField.isAccessible = true
-                delegateField.get(current) as? HookRegistrar
-            }.getOrNull() ?: break
-            if (next.javaClass.simpleName == "TestHookRegistrar") break
-            current = next
-        }
-        return current
-    }
-
     private fun obtainDispatcher(
         environment: HookEnvironment,
         surface: KmpGrpcWireAdapter.WireSurface,
@@ -583,13 +567,14 @@ internal object KmpGrpcWireChannel {
         what: String,
         logKey: String
     ): Dispatcher? = synchronized(dispatchersLock) {
-        val key = registrarKey(environment.registrar)
+        val key = environment.registrar.rootRegistrar
         val byEntry = dispatchers.getOrPut(key) { HashMap() }
         byEntry[surface.engineEntry]?.let { return it }
         val created = Dispatcher(surface)
         val registered = runCatching {
             val entry = surface.engineEntry
-            environment.registrar.exact(HOOK_ID, surface.engine, entry.name, *entry.parameterTypes) {
+            key.exact(HOOK_ID, surface.engine, entry.name, *entry.parameterTypes) {
+                faultOwner = FAULT_OWNER
                 before { created.onEngineCall(args) }
             }
             true

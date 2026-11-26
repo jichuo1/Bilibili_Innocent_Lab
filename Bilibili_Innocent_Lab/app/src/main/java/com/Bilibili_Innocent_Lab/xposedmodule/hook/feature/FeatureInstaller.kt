@@ -8,6 +8,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreato
 import java.lang.reflect.Constructor
 
 internal interface HookRegistrar {
+    val rootRegistrar: HookRegistrar get() = this
+
     fun first(
         id: String,
         className: String,
@@ -56,6 +58,8 @@ internal class FeatureScopedRegistrar(
     private val base: HookRegistrar,
     private val featureId: String
 ) : HookRegistrar {
+    override val rootRegistrar: HookRegistrar get() = base.rootRegistrar
+
     private fun owned(block: ModernMemberHookCreator.() -> Unit): ModernMemberHookCreator.() -> Unit = {
         faultOwner = featureId
         block()
@@ -95,6 +99,69 @@ internal interface FeatureInstaller {
     fun install(environment: HookEnvironment): FeatureInstallResult
 }
 
+/**
+ * 支持后台版本适配完成后增量重试/补装的安装器契约。
+ *
+ * 安装器自身负责保持幂等与局部状态隔离；协调器只负责统一调度：
+ * 1. 在回调线程通过 [prepareAdaptedRetry] 更新适配结果并筛选需要重试的项；
+ * 2. 在主线程再次复核 [isAdaptationRetryPending]，通过 [retryAdapted] 按序执行，
+ *    并对单个安装器的异常做隔离，避免阻断后续重适配项。
+ */
+internal interface AdaptRetryableInstaller : FeatureInstaller {
+    val isAdaptationRetryPending: Boolean
+
+    fun prepareAdaptedRetry(adapted: VersionAdapter.AdaptResult?): Boolean
+
+    fun retryAdapted(
+        environment: HookEnvironment,
+        coordinator: FeatureInstallCoordinator
+    ) {
+        if (isAdaptationRetryPending) {
+            coordinator.installAll(listOf(this))
+        }
+    }
+
+    fun onAdaptationFailed() = Unit
+}
+
+/** 轻量可重适配点位槽，替代入口文件中散落的手动 AtomicReference 样板。 */
+internal class AdaptValueSlot<T>(initial: T) {
+    @Volatile
+    var value: T = initial
+
+    fun read(): T = value
+}
+
+/** 为既有安装器提供无侵入的 [AdaptRetryableInstaller] 包装，保留原签名与幂等边界。 */
+internal fun <T : FeatureInstaller> T.asAdaptRetryable(
+    requiresRetry: T.() -> Boolean,
+    onUpdate: T.(VersionAdapter.AdaptResult?) -> Unit = {},
+    onRetry: T.(HookEnvironment, FeatureInstallCoordinator) -> Unit = { _, coordinator ->
+        if (requiresRetry()) coordinator.installAll(listOf(this))
+    },
+    onFail: T.() -> Unit = {}
+): AdaptRetryableInstaller = object : AdaptRetryableInstaller, FeatureInstaller by this {
+    override val isAdaptationRetryPending: Boolean
+        get() = requiresRetry()
+
+    override fun prepareAdaptedRetry(adapted: VersionAdapter.AdaptResult?): Boolean {
+        if (!requiresRetry()) return false
+        onUpdate(adapted)
+        return requiresRetry()
+    }
+
+    override fun retryAdapted(
+        environment: HookEnvironment,
+        coordinator: FeatureInstallCoordinator
+    ) {
+        onRetry(environment, coordinator)
+    }
+
+    override fun onAdaptationFailed() {
+        onFail()
+    }
+}
+
 internal data class HookEnvironment(
     val processName: String,
     val classLoader: ClassLoader?,
@@ -119,7 +186,8 @@ internal data class HookEnvironment(
     /** 安装器结束后上报一次结构化结果；诊断异常不能反向影响 Hook 安装链。 */
     val installationEvidence: ((FeatureInstallRecord) -> Unit)? = null,
     val capabilityEvidence: ((String, FeatureInstallResult) -> Unit)? = null,
-    val runtimePhase: (() -> Boolean)? = null
+    val runtimePhase: (() -> Boolean)? = null,
+    val rootLogError: ((String, String) -> Unit)? = null
 )
 
 internal sealed interface FeatureInstallResult {
@@ -175,23 +243,45 @@ internal data class FeatureInstallRecord(
 internal class FeatureInstallCoordinator(
     private val environment: HookEnvironment
 ) {
+    private val capabilityStatesLock = Any()
+    private val capabilityStates = hashMapOf<String, FeatureInstallResult>()
+    private val retryablesLock = Any()
+    private val retryables = ArrayList<AdaptRetryableInstaller>()
+
+    fun registerRetryable(installer: AdaptRetryableInstaller): AdaptRetryableInstaller {
+        synchronized(retryablesLock) {
+            if (retryables.none { it === installer }) {
+                retryables += installer
+            }
+        }
+        return installer
+    }
+
     fun installAll(installers: Iterable<FeatureInstaller>): List<FeatureInstallRecord> =
         installers.map { installer ->
+            if (installer is AdaptRetryableInstaller) {
+                registerRetryable(installer)
+            }
             val capabilityLock = Any()
             val reported = hashSetOf<String>()
             val installedPhase = java.util.concurrent.atomic.AtomicBoolean(false)
             val planned = runCatching { installer.capabilityIds.toSet() }.getOrDefault(emptySet())
+            val baseLogError = environment.rootLogError ?: environment.logError
             val scoped = environment.copy(
                 registrar = FeatureScopedRegistrar(environment.registrar, installer.id),
                 runtimePhase = { installedPhase.get() },
+                rootLogError = baseLogError,
                 logError = { key, message ->
                     if (installedPhase.get()) environment.reportRuntimeEvidence(installer.id, FeatureRuntimeStage.ERROR)
-                    environment.logError(key, message)
+                    baseLogError(key, message)
                 },
                 capabilityEvidence = { id, result ->
                 if (id in planned) synchronized(capabilityLock) {
-                    environment.installationEvidence?.invoke(FeatureInstallRecord(id, result, null))
+                    synchronized(capabilityStatesLock) {
+                        capabilityStates[id] = result
+                    }
                     reported += id
+                    environment.installationEvidence?.invoke(FeatureInstallRecord(id, result, null))
                 }
             })
             val record = runCatching { StartupTrace.measure("feature.${installer.id}") { installer.install(scoped) } }
@@ -217,17 +307,30 @@ internal class FeatureInstallCoordinator(
             for (id in planned) {
                 // A group-wide failure before completion blocks its remaining declared paths.
                 // A successful parent NEVER supplies success for an unverified leaf.
+                // Re-entrant retries preserve prior Installed siblings monotonically without upgrading Unverified/Skipped.
                 synchronized(capabilityLock) {
                     if (id !in reported) {
-                        val outcome = when (val result = record.result) {
-                            is FeatureInstallResult.Skipped -> result
-                            else -> FeatureInstallResult.Unverified
+                        val preserveInstalled = synchronized(capabilityStatesLock) {
+                            capabilityStates[id] is FeatureInstallResult.Installed
                         }
-                        runCatching {
-                            environment.installationEvidence?.invoke(
-                                if (record.failure != null) FeatureInstallRecord(id, null, record.failure)
-                                else FeatureInstallRecord(id, outcome, null)
-                            )
+                        if (!preserveInstalled) {
+                            val outcome = when (val result = record.result) {
+                                is FeatureInstallResult.Skipped -> result
+                                else -> FeatureInstallResult.Unverified
+                            }
+                            if (record.failure == null) {
+                                synchronized(capabilityStatesLock) {
+                                    if (capabilityStates[id] !is FeatureInstallResult.Installed) {
+                                        capabilityStates[id] = outcome
+                                    }
+                                }
+                            }
+                            runCatching {
+                                environment.installationEvidence?.invoke(
+                                    if (record.failure != null) FeatureInstallRecord(id, null, record.failure)
+                                    else FeatureInstallRecord(id, outcome, null)
+                                )
+                            }
                         }
                     }
                 }
@@ -235,6 +338,65 @@ internal class FeatureInstallCoordinator(
             installedPhase.set(true)
             record
         }
+
+    /**
+     * 统一分发后台版本适配完成/失败后的增量重试，保持原注册顺序与双阶段检查：
+     * 先在当前回调隔离收集需要重装的项，再在主线程二次复核 [AdaptRetryableInstaller.isAdaptationRetryPending]
+     * 后执行；单个安装器异常不会阻断后续安装器或宿主线程。
+     */
+    fun retryAdapted(adapted: VersionAdapter.AdaptResult?, ok: Boolean = true) {
+        val snapshot = synchronized(retryablesLock) { retryables.toList() }
+        if (!ok) {
+            for (retryable in snapshot) {
+                runCatching { retryable.onAdaptationFailed() }.onFailure { throwable ->
+                    environment.logError(
+                        "feature_adapt_fail_${retryable.id}",
+                        "[BIL] 功能适配失败收尾 ${retryable.id} 异常，已隔离: $throwable"
+                    )
+                }
+            }
+            return
+        }
+        val pending = ArrayList<AdaptRetryableInstaller>()
+        for (retryable in snapshot) {
+            val shouldRetry = runCatching { retryable.prepareAdaptedRetry(adapted) }
+                .onFailure { throwable ->
+                    environment.logError(
+                        "feature_adapt_prepare_${retryable.id}",
+                        "[BIL] 功能重适配准备 ${retryable.id} 异常，已隔离: $throwable"
+                    )
+                }
+                .getOrDefault(false)
+            if (shouldRetry) pending += retryable
+        }
+        if (pending.isEmpty()) return
+        val postToMain = environment.postToMain
+        if (postToMain == null) {
+            for (retryable in pending) {
+                runCatching { retryable.onAdaptationFailed() }.onFailure { throwable ->
+                    environment.logError(
+                        "feature_adapt_nomain_${retryable.id}",
+                        "[BIL] 功能无主线程队列收尾 ${retryable.id} 异常，已隔离: $throwable"
+                    )
+                }
+            }
+            return
+        }
+        postToMain.invoke {
+            for (retryable in pending) {
+                runCatching {
+                    if (retryable.isAdaptationRetryPending) {
+                        retryable.retryAdapted(environment, this@FeatureInstallCoordinator)
+                    }
+                }.onFailure { throwable ->
+                    environment.logError(
+                        "feature_adapt_retry_${retryable.id}",
+                        "[BIL] 功能重适配执行 ${retryable.id} 异常，已隔离并继续: $throwable"
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Installation-time only; evidence collection failures must not affect business hooks. */
@@ -258,12 +420,20 @@ internal fun HookEnvironment.reportCapabilityCoverage(
 
 /** Bound once during installation; maps shared helper evidence to its actual leaf. */
 internal fun HookEnvironment.forCapabilityRuntime(id: String): HookEnvironment {
-    val sink = runtimeEvidence ?: return this
+    val scopedRegistrar = FeatureScopedRegistrar(registrar.rootRegistrar, id)
+    val baseLogError = rootLogError ?: logError
+    val sink = runtimeEvidence ?: return copy(
+        registrar = scopedRegistrar,
+        rootLogError = baseLogError,
+        logError = baseLogError
+    )
     return copy(
+        registrar = scopedRegistrar,
         runtimeEvidence = { _, stage, count -> sink(id, stage, count) },
+        rootLogError = baseLogError,
         logError = { key, message ->
             if (runtimePhase?.invoke() == true) reportRuntimeEvidence(id, FeatureRuntimeStage.ERROR)
-            logError(key, message)
+            baseLogError(key, message)
         }
     )
 }
