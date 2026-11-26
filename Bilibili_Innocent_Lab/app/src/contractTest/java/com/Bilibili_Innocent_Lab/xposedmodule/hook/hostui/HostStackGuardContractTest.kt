@@ -31,7 +31,9 @@ class HostStackGuardContractTest {
             "common/HostSurfaceScope.kt" to "host.surface.backdrop.predraw",
             "common/HostTouchGlowBinding.kt" to "host.touch_glow.predraw",
             "overlays/HostOverlaySurfaces.kt" to "host.overlay.surfaces.predraw",
-            "chrome/HostComposeChromePainter.kt" to "host.chrome.predraw"
+            "chrome/HostComposeChromePainter.kt" to "host.chrome.predraw",
+            "background/HostBackgroundPages.kt" to "host.background.page.predraw",
+            "follow/FollowFeedController.kt" to "host.follow.page.predraw"
         )
         for ((path, key) in entries) {
             assertTrue("$path must return true on failure", read(path).contains("HostThreadGuard.call(\"$key\", true)"))
@@ -45,11 +47,13 @@ class HostStackGuardContractTest {
 
     fun barEntriesAreGuardedAndKeepTheirRemovableIdentity() {
         val bottom = read("bottom/HostBottomBarFxController.kt")
-        assertGuarded(bottom, "host.bottom.sanitize", "host.bottom.hierarchy")
+        assertGuarded(bottom, "host.bottom.sanitize", "host.bottom.hierarchy",
+            "host.bottom.attach", "host.bottom.detach", "host.bottom.layout", "host.bottom.container.layout")
         assertTrue(bottom.contains("val sanitizeRunnable = Runnable {"))
         assertTrue(bottom.contains("tabHost.removeCallbacks(sanitizeRunnable)"))
         val top = read("top/HostTopBarFxController.kt")
-        assertGuarded(top, "host.top.sanitize", "host.top.attach", "host.top.detach", "host.top.page_padding")
+        assertGuarded(top, "host.top.sanitize", "host.top.attach", "host.top.detach", "host.top.page_padding",
+            "host.top.layout", "host.top.page_selected")
         assertTrue(top.contains("val sanitizeRunnable = Runnable {"))
         assertTrue(top.contains("topBarDock.removeCallbacks(sanitizeRunnable)"))
         assertFalse(top.contains("viewPager.post {"))
@@ -131,13 +135,25 @@ class HostStackGuardContractTest {
             ),
             "common/HostTouchGlowBinding.kt" to listOf("host.touch_glow.attach", "host.touch_glow.detach"),
             "overlays/HostCopyBubble.kt" to listOf(
-                "host.copy_bubble.frame", "host.copy_bubble.enter_end", "host.copy_bubble.exit_end"
+                "host.copy_bubble.frame", "host.copy_bubble.enter_end", "host.copy_bubble.exit_end",
+                "host.copy_bubble.destroy"
             ),
+            "background/HostBackgroundPages.kt" to listOf("host.background.page.layout"),
+            "follow/FollowFeedController.kt" to listOf(
+                "host.follow.row.attach", "host.follow.row.detach",
+                "host.follow.page.attach", "host.follow.page.detach", "host.follow.panel.detach"
+            ),
+            "follow/FollowFeedPersonalChrome.kt" to listOf("host.follow.personal_chrome.detach"),
+            "follow/FollowFeedSelection.kt" to listOf("host.follow.selection.detach"),
             "cards/HostCardMaterialScope.kt" to listOf(
                 "host.card.material.attach", "host.card.material.detach", "host.card.material.draw",
                 "host.card.material.refresh"
             ),
-            "cards/HostVideoCardStyle.kt" to listOf("host.card.detach", "host.card.list.attach", "host.card.list.detach")
+            "cards/HostVideoCardStyle.kt" to listOf(
+                "host.card.attach", "host.card.layout",
+                "host.card.detach", "host.card.list.attach", "host.card.list.detach"
+            ),
+            "cards/HostOgvCardHooks.kt" to listOf("host.ogv.card.draw")
         )
         for ((path, keys) in entries) assertGuarded(read(path), *keys.toTypedArray())
 
@@ -186,6 +202,15 @@ class HostStackGuardContractTest {
         assertTrue(restore.contains("first?.let { throw it }"))
     }
 
+    fun weakHashMapsDoNotPinKeysViaStrongValues() {
+        val materialScope = read("cards/HostCardMaterialScope.kt")
+        assertTrue(materialScope.contains("WeakHashMap<View, WeakReference<CardPaint>>()"))
+        assertFalse(materialScope.contains("WeakHashMap<View, CardPaint>()"))
+        val cardStyle = read("cards/HostVideoCardStyle.kt")
+        assertTrue(cardStyle.contains("WeakHashMap<ViewGroup, WeakReference<ListWatcher>>()"))
+        assertFalse(cardStyle.contains("WeakHashMap<ViewGroup, ListWatcher>()"))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HostStackGuardContractTest) -> Unit) {
@@ -204,5 +229,6 @@ class HostStackGuardContractTest {
         runIsolated { s -> s.remainingBackgroundTasksAreGuardedOnBothThreads() }
         runIsolated { s -> s.islandHostTouchFailuresPassThroughItsGuard() }
         runIsolated { s -> s.chromePreDrawAndRestoreKeepTheirControlFlow() }
+        runIsolated { s -> s.weakHashMapsDoNotPinKeysViaStrongValues() }
     }
 }

@@ -38,7 +38,9 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
         override fun dismiss() { try { super.dismiss() } finally { release() } }
     }
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {
-        override fun onActivityDestroyed(owner: Activity) { if (owner === activity) dialog.dismiss() }
+        override fun onActivityDestroyed(owner: Activity) = HostThreadGuard.run("host.copy_bubble.destroy") {
+            if (owner === activity) dialog.dismiss()
+        }
         override fun onActivityCreated(owner: Activity, state: Bundle?) = Unit
         override fun onActivityStarted(owner: Activity) = Unit
         override fun onActivityResumed(owner: Activity) = Unit

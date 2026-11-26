@@ -188,7 +188,7 @@ internal class HostBackgroundPages(
 
         fun start() {
             val tree = root.get()?.viewTreeObserver ?: return
-            if (observer?.get() === tree) return
+            if (!tree.isAlive || observer?.get() === tree) return
             stop()
             tree.addOnGlobalLayoutListener(this)
             tree.addOnPreDrawListener(this)
@@ -217,7 +217,7 @@ internal class HostBackgroundPages(
 
         override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.background.page.attach") { start() }
         override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.background.page.detach") { stop() }
-        override fun onGlobalLayout() { dirty = true }
+        override fun onGlobalLayout() = HostThreadGuard.run("host.background.page.layout") { dirty = true }
 
         private fun discover(root: ViewGroup) {
             val nextContainers = ArrayList<WeakReference<View>>()
@@ -284,7 +284,7 @@ internal class HostBackgroundPages(
             dirty = false
         }
 
-        override fun onPreDraw(): Boolean {
+        override fun onPreDraw(): Boolean = HostThreadGuard.call("host.background.page.predraw", true) {
             HostViewResourceNames.inPass { runCatching {
                 val page = root.get()?.takeIf { it.isShown } ?: return@runCatching
                 // 预加载页也需一次初始适配，建立共享壁纸归属并清除旧底板；之后才跳过离屏帧。
@@ -345,7 +345,7 @@ internal class HostBackgroundPages(
                 pageChrome?.apply(night)
                 readingSurfaces?.apply(night)
             }.onFailure(onError) }
-            return true
+            true
         }
 
         fun scroll(list: ViewGroup, dy: Int): Boolean {

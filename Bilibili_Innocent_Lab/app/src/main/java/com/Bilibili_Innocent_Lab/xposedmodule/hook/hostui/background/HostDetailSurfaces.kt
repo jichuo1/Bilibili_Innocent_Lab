@@ -176,7 +176,9 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
             owned.remove(view)
             target.binding = null
             target.drawable = null
+            target.texts = emptyList()
         }
+        targets.clear()
     }
 
     private fun name(view: View) = HostViewResourceNames.name(view)

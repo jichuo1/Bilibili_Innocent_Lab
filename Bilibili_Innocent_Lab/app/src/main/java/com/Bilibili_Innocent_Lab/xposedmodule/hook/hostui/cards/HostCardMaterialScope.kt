@@ -50,7 +50,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private var themeReadAt = 0L
     private val content = if (materialKind == HostCardMaterial.ACRYLIC)
         HostChromeContentSource(owner, palette.background, includeViewContent = false) else null
-    private val cards = WeakHashMap<View, CardPaint>()
+    private val cards = WeakHashMap<View, WeakReference<CardPaint>>()
     private val paints = WeakHashMap<CardPaint, WeakReference<View>>()
     private var hardwareDirty = true
     private var softwareDirty = true
@@ -148,7 +148,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
 
     private fun observe() {
         val next = owner.viewTreeObserver
-        if (observer === next) return
+        if (!next.isAlive || observer === next) return
         observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
         observer = next; next.addOnPreDrawListener(this)
     }
@@ -162,7 +162,8 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         if (visible != true) return@call true
         // 先更新一次共享节点，已有 View / Compose 显示列表可继续引用同一个节点。
         record(owner.isHardwareAccelerated)
-        for ((view, paint) in cards) {
+        for ((view, paintRef) in cards) {
+            val paint = paintRef.get() ?: continue
             view.getLocationInWindow(location)
             if (paint.lastX != location[0] || paint.lastY != location[1]) {
                 paint.lastX = location[0]; paint.lastY = location[1]
@@ -266,11 +267,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
 
     fun apply(view: View, radiusPx: Float): Drawable {
         check(!closed)
-        var paint = cards[view]
+        var paint = cards[view]?.get()
         if (paint == null || view.background !== paint) {
             paint?.close()
             paint = CardPaint(view, radiusPx, native = true)
-            cards[view] = paint; paints[paint] = WeakReference(view)
+            cards[view] = WeakReference(paint); paints[paint] = WeakReference(view)
             view.background = paint
         } else paint.radius(radiusPx)
         return paint
@@ -279,9 +280,9 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     fun composePaint(view: View, radiusPx: Float): CardPaint =
         CardPaint(view, radiusPx, native = false).also { paints[it] = WeakReference(view) }
 
-    fun release(view: View) { cards.remove(view)?.let { paints.remove(it); it.close() } }
-    fun positionChanged(view: View) { cards[view]?.invalidateSelf() }
-    internal fun diagnostics(view: View) = if (cards.containsKey(view)) material?.diagnostics() else null
+    fun release(view: View) { cards.remove(view)?.get()?.let { paints.remove(it); it.close() } }
+    fun positionChanged(view: View) { cards[view]?.get()?.invalidateSelf() }
+    internal fun diagnostics(view: View) = if (cards[view]?.get() != null) material?.diagnostics() else null
     internal fun samplingDiagnostics() = requireNotNull(session).diagnostics()
     internal fun samplingPerformance() = requireNotNull(session).performanceDiagnostics()
     internal fun micaDiagnostics() = mica?.diagnostics()
@@ -299,6 +300,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         private val matrix = Matrix()
         private val composite = Paint()
         private var disposed = false
+        internal val isClosed: Boolean get() = disposed
         private var windowX = 0f
         private var windowY = 0f
         internal var lastX = Int.MIN_VALUE

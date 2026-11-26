@@ -311,12 +311,14 @@ internal object HostTopBarFxController {
         var lastWidth = 0
         var lastHeight = 0
         topBarDock.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
-            val w = right - left
-            val h = bottom - top
-            if (w > 0 && h > 0 && (w != lastWidth || h != lastHeight)) {
-                lastWidth = w
-                lastHeight = h
-                requestSanitization()
+            HostThreadGuard.run("host.top.layout") {
+                val w = right - left
+                val h = bottom - top
+                if (w > 0 && h > 0 && (w != lastWidth || h != lastHeight)) {
+                    lastWidth = w
+                    lastHeight = h
+                    requestSanitization()
+                }
             }
         }
 
@@ -664,13 +666,10 @@ internal object HostTopBarFxController {
                 ?: return@runCatching
             val addListenerMethod = KavaMemberLookup.inheritedMethodOrNull(viewPager.javaClass, "addOnPageChangeListener", listenerClass)
                 ?: return@runCatching
-            val handler = java.lang.reflect.InvocationHandler { _, method, _ ->
-                if (method.name == "onPageSelected") {
-                    viewPager.post(HostThreadGuard.runnable("host.top.page_padding") {
-                        applyScrollPadding(viewPager, scrollPadding(), density, spinnerTravelBase())
-                    })
-                }
-                null
+            val handler = createPageChangeProxyHandler {
+                viewPager.post(HostThreadGuard.runnable("host.top.page_padding") {
+                    applyScrollPadding(viewPager, scrollPadding(), density, spinnerTravelBase())
+                })
             }
             val proxy = java.lang.reflect.Proxy.newProxyInstance(
                 viewPager.javaClass.classLoader,
@@ -680,6 +679,30 @@ internal object HostTopBarFxController {
             addListenerMethod.invoke(viewPager, proxy)
         }
     }
+
+    internal fun createPageChangeProxyHandler(onSelected: () -> Unit): java.lang.reflect.InvocationHandler =
+        java.lang.reflect.InvocationHandler { proxy, method, args ->
+            when (method.name) {
+                "onPageSelected" -> {
+                    HostThreadGuard.run("host.top.page_selected") { onSelected() }
+                    null
+                }
+                "equals" -> proxy === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "HostTopBarPageChangeListener"
+                else -> when (method.returnType) {
+                    Boolean::class.javaPrimitiveType -> false
+                    Int::class.javaPrimitiveType -> 0
+                    Long::class.javaPrimitiveType -> 0L
+                    Float::class.javaPrimitiveType -> 0f
+                    Double::class.javaPrimitiveType -> 0.0
+                    Byte::class.javaPrimitiveType -> 0.toByte()
+                    Short::class.javaPrimitiveType -> 0.toShort()
+                    Char::class.javaPrimitiveType -> '\u0000'
+                    else -> null
+                }
+            }
+        }
 
     internal fun findViewPager(root: ViewGroup): ViewGroup? {
         for (i in 0 until root.childCount) {

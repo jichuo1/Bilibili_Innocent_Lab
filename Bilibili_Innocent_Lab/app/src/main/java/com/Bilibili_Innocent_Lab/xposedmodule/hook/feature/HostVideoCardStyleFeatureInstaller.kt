@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardGridAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
@@ -28,7 +29,8 @@ internal class HostVideoCardStyleFeatureInstaller(
     override val id: String = ID,
     private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
     private val material: HostCardMaterial = HostCardMaterial.ORIGINAL,
-    private val cardSurfaces: Map<String, HookPoint> = emptyMap()
+    private val cardSurfaces: Map<String, HookPoint> = emptyMap(),
+    private val followFeedPoints: FollowFeedPoints? = null
 ) : FeatureInstaller {
     private var backgroundEnvironment: HookEnvironment? = null
     private var pageHookCount = 0
@@ -79,7 +81,7 @@ internal class HostVideoCardStyleFeatureInstaller(
                 }
             } else HostCardHookCoverage.NONE
             val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
-            if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages)
+            if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages, followFeedPoints)
             val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators, cardSurfaces["pegasus_divider"]) else HostCardHookCoverage.NONE
             var scrollHooks = 0
             if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
@@ -146,10 +148,11 @@ internal class HostVideoCardStyleFeatureInstaller(
         /** 两项诊断仍独立，实际 bind Hook、卡片识别、主题读取和列表监听只安装一套。 */
         fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig,
             homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(), material: HostCardMaterial = HostCardMaterial.ORIGINAL,
-            cardSurfaces: Map<String, HookPoint> = emptyMap()): List<FeatureInstaller> {
+            cardSurfaces: Map<String, HookPoint> = emptyMap(), followFeedPoints: FollowFeedPoints? = null): List<FeatureInstaller> {
             val delegate = HostVideoCardStyleFeatureInstaller(enabled, radiusDp, backgroundConfig,
                 id = if (enabled || homeSpacing.enabled) ID else BACKGROUND_ID, homeSpacing = homeSpacing.normalized(),
-                material = if (enabled) material else HostCardMaterial.ORIGINAL, cardSurfaces = cardSurfaces)
+                material = if (enabled) material else HostCardMaterial.ORIGINAL, cardSurfaces = cardSurfaces,
+                followFeedPoints = followFeedPoints)
             var result: FeatureInstallResult? = null
             fun install(environment: HookEnvironment): FeatureInstallResult = result ?: delegate.install(environment).also { result = it }
             return listOf(
@@ -169,7 +172,8 @@ internal class HostVideoCardStyleFeatureInstaller(
                                 complete = themeReady)
                             is FeatureInstallResult.Skipped -> if ((enabled || homeSpacing.enabled) && shared.reason == "registration-failed") {
                                 // 卡片测量点失败时，背景仍可独立使用 bind；保持原有故障隔离。
-                                when (val fallback = HostVideoCardStyleFeatureInstaller(false, radiusDp, backgroundConfig, BACKGROUND_ID).install(environment)) {
+                                when (val fallback = HostVideoCardStyleFeatureInstaller(false, radiusDp, backgroundConfig, BACKGROUND_ID,
+                                    followFeedPoints = followFeedPoints).install(environment)) {
                                     is FeatureInstallResult.Installed -> fallback.copy(hookCount = fallback.hookCount + themeHooks, complete = themeReady)
                                     else -> fallback
                                 }

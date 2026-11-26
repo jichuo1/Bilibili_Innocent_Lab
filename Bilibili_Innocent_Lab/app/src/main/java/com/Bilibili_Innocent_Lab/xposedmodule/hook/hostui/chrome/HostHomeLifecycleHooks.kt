@@ -8,8 +8,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** Fragment dispatch survives subclasses omitting super.onViewCreated; unrelated pages are excluded. */
 internal object HostHomeLifecycleHooks {
     private val legacyOwners = setOf(
-        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment",
-        "tv.danmaku.p9138bili.p9228ui.main2.basic.BaseMainFrameFragment"
+        "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment"
     )
 
     fun install(environment: HookEnvironment, id: String, onRoot: (ViewGroup, Any) -> Unit): Int {

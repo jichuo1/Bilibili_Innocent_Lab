@@ -94,7 +94,7 @@ internal class HostVideoCardStyle(
         return false
     }
     private val excluded = WeakHashMap<View, Int>()
-    private val listWatchers = WeakHashMap<ViewGroup, ListWatcher>()
+    private val listWatchers = WeakHashMap<ViewGroup, WeakReference<ListWatcher>>()
     private val resourceKinds = SparseIntArray()
     private val recyclerTypes = HashMap<Class<*>, Boolean>()
     private val rowDecorations = android.graphics.Rect()
@@ -107,11 +107,13 @@ internal class HostVideoCardStyle(
         }
     }
     private val layoutListener = View.OnLayoutChangeListener { view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-        // 滚动只改变位置，跳过所有查找、反射、遍历和轮廓重建。
-        if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) safelyApply(view)
+        HostThreadGuard.run("host.card.layout") {
+            // 滚动只改变位置，跳过所有查找、反射、遍历和轮廓重建。
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) safelyApply(view)
+        }
     }
     private val attachListener = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(view: View) = safelyApply(view)
+        override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.card.attach") { safelyApply(view) }
         override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.card.detach") {
             states[view]?.let { state ->
                 state.surfaceScope?.get()?.release(view)
@@ -140,7 +142,7 @@ internal class HostVideoCardStyle(
 
         fun start() {
             val current = parent.get()?.viewTreeObserver ?: return
-            if (observer?.get() === current) return
+            if (!current.isAlive || observer?.get() === current) return
             stop()
             current.addOnPreDrawListener(this)
             observer = WeakReference(current)
@@ -409,7 +411,7 @@ internal class HostVideoCardStyle(
             else HostVideoCardStyleSpec.cardRadius(root.width, root.height, radiusDp, density)
         val resized = state.updateGeometry(root.width, root.height, radius)
         val color = HostVideoCardSurface.color(night, root.context)
-        val scope = if (material.usesSharedField) listWatchers[parent]?.surfaceScope(night, root.context) ?: return else null
+        val scope = if (material.usesSharedField) listWatchers[parent]?.get()?.surfaceScope(night, root.context) ?: return else null
         if (state.surfaceScope?.get() !== scope || state.surface == null || root.background !== state.surface ||
             state.surfaceRadius != radius || state.color != color) {
             if (state.surfaceScope?.get() !== scope) state.surfaceScope?.get()?.release(root)
@@ -437,9 +439,9 @@ internal class HostVideoCardStyle(
     }
 
     private fun watch(parent: ViewGroup) {
-        if (!listWatchers.containsKey(parent)) {
+        if (listWatchers[parent]?.get() == null) {
             val watcher = ListWatcher(parent)
-            listWatchers[parent] = watcher
+            listWatchers[parent] = WeakReference(watcher)
             parent.addOnAttachStateChangeListener(watcher)
             if (parent.isAttachedToWindow) watcher.start()
         }

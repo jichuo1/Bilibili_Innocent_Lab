@@ -275,6 +275,7 @@ internal class HostTopIslandBinding private constructor(
             override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.top.island.detach") {
                 observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(preDraw)
                 observer = null
+                nativeScroll = null
                 settle()
                 gesture = null
                 consumed = false
@@ -290,7 +291,10 @@ internal class HostTopIslandBinding private constructor(
     }
 
     private fun observe() {
-        if (observer != null) return
+        observer?.let {
+            if (it.isAlive) return
+            observer = null
+        }
         input.viewTreeObserver.takeIf { it.isAlive }?.let {
             it.addOnPreDrawListener(preDraw)
             observer = it
@@ -514,6 +518,7 @@ internal class HostTopIslandBinding private constructor(
                 bubbleTouch = false
                 consumed = false
                 compactGesture = null
+                nativeScroll = null
                 input.parent?.requestDisallowInterceptTouchEvent(false)
             }
             return true
@@ -521,6 +526,7 @@ internal class HostTopIslandBinding private constructor(
         if (consumed) {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 consumed = false
+                nativeScroll = null
                 input.parent?.requestDisallowInterceptTouchEvent(false)
             }
             return true
@@ -544,6 +550,10 @@ internal class HostTopIslandBinding private constructor(
             forward(event, MotionEvent.ACTION_CANCEL)
             glow?.resetGestureState()
             consumed = event.actionMasked != MotionEvent.ACTION_UP
+            if (event.actionMasked == MotionEvent.ACTION_UP) {
+                gesture = null
+                nativeScroll = null
+            }
             input.parent?.requestDisallowInterceptTouchEvent(consumed)
             animateTo(true, gestureVelocity(event))
             return true
@@ -553,6 +563,7 @@ internal class HostTopIslandBinding private constructor(
         if (event.actionMasked == MotionEvent.ACTION_DOWN) scrollOrigin = scrollPosition(nativeScroll)
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
             gesture = null
+            nativeScroll = null
             input.parent?.requestDisallowInterceptTouchEvent(false)
             glow?.resetGestureState()
         } else {

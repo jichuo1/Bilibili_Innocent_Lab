@@ -10,6 +10,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
 import com.lumen.coacervation.engine.model.LumenPalette
@@ -51,7 +52,7 @@ internal class FollowFeedSelection private constructor(
     private var closed = false
     private val attach = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) = Unit
-        override fun onViewDetachedFromWindow(v: View) = pause()
+        override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.follow.selection.detach") { pause() }
     }
 
     init {

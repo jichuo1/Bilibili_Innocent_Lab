@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 
 import android.content.res.ColorStateList
 import android.graphics.Rect
@@ -55,8 +56,10 @@ internal class FollowFeedController(
     private val pages = WeakHashMap<View, WeakReference<Page>>()
     private val personalChrome = WeakHashMap<View, WeakReference<FollowFeedPersonalChrome>>()
     private val rowAttach = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(view: View) { safely { attachRow(view) } }
-        override fun onViewDetachedFromWindow(view: View) {
+        override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.follow.row.attach") {
+            safely { attachRow(view) }
+        }
+        override fun onViewDetachedFromWindow(view: View) = HostThreadGuard.run("host.follow.row.detach") {
             rows[view]?.let { it.edits.restore(); it.restoreInsets(); it.palette = null; it.page.clear() }
         }
     }
@@ -336,12 +339,12 @@ internal class FollowFeedController(
 
         private fun observe(view: View) {
             val tree = view.viewTreeObserver
-            if (observer === tree) return
+            if (!tree.isAlive || observer === tree) return
             observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
             tree.addOnPreDrawListener(this); observer = tree
         }
 
-        override fun onPreDraw(): Boolean {
+        override fun onPreDraw(): Boolean = HostThreadGuard.call("host.follow.page.predraw", true) {
             safely {
                 val view = root.get() ?: return@safely
                 // ViewPager 的相邻页会先滑入窗口，之后才收到选中/恢复回调。
@@ -399,7 +402,7 @@ internal class FollowFeedController(
                     diagnostics("cards-visible")
                 }
             }
-            return true
+            true
         }
 
         fun pause() {
@@ -440,8 +443,10 @@ internal class FollowFeedController(
                 "gpu=${d.gpuDraws}, software=${d.softwareDraws}, recordings=${d.contentRecordings}, palette=${d.paletteGeneration}")
         }
 
-        override fun onViewAttachedToWindow(v: View) = resume()
-        override fun onViewDetachedFromWindow(v: View) { close(); pages.remove(v) }
+        override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.follow.page.attach") { resume() }
+        override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.follow.page.detach") {
+            close(); pages.remove(v)
+        }
         override fun close() {
             if (closed) return
             closed = true
@@ -505,7 +510,7 @@ internal class FollowFeedController(
                     layer.addView(view, if (reference) layer.childCount else 0, FrameLayout.LayoutParams(0, 0))
                 }
                 override fun onViewAttachedToWindow(v: View) = Unit
-                override fun onViewDetachedFromWindow(v: View) {
+                override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.follow.panel.detach") {
                     binding?.close(); binding = null
                     materialScope?.release(view); materialPaint = null
                 }

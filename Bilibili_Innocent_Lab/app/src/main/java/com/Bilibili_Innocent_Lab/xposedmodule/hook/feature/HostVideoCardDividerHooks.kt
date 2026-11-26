@@ -7,7 +7,6 @@ import android.content.Context
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardHookCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HostCardSemanticAdapter.REPACKAGED_PEGASUS_DIVIDER
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -73,7 +72,7 @@ internal object HostVideoCardDividerHooks {
     }
 
     internal fun pegasusBoundary(loader: ClassLoader, cached: HookPoint?): Method? {
-        val direct = listOf("com.bilibili.pegasus.widget.j", "com.bilibili.pegasus.widget.l", REPACKAGED_PEGASUS_DIVIDER)
+        val direct = listOf("com.bilibili.pegasus.widget.j", "com.bilibili.pegasus.widget.l")
             .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }.flatMap { owner ->
                 KavaMemberLookup.declaredMethods(owner, true) { verifiedPegasus(loader, it) }
             }
@@ -88,8 +87,8 @@ internal object HostVideoCardDividerHooks {
 
     internal fun verifiedPegasus(loader: ClassLoader, method: Method): Boolean {
         val owner = method.declaringClass.name
-        if (method.name != "onDrawOver" || owner != REPACKAGED_PEGASUS_DIVIDER &&
-            !owner.startsWith("com.bilibili.pegasus.widget.")) return false
+        if (method.name != "onDrawOver" || (owner.isEmpty() ||
+                (!owner.startsWith("com.bilibili.pegasus.widget.") && '.' in owner))) return false
         val decoration = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$ItemDecoration") ?: return false
         val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView") ?: return false
         val state = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$State") ?: return false

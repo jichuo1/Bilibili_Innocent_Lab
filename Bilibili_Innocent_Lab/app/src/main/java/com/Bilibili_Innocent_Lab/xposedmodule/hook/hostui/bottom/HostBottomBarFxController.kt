@@ -123,13 +123,17 @@ internal object HostBottomBarFxController {
         requestSanitization()
 
         tabHost.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) = requestSanitization()
-            override fun onViewDetachedFromWindow(v: View) {
+            override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.bottom.attach") {
+                requestSanitization()
+            }
+            override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.bottom.detach") {
                 sanitizePosted = false
                 tabHost.removeCallbacks(sanitizeRunnable)
             }
         })
-        tabHost.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> requestSanitization() }
+        tabHost.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            HostThreadGuard.run("host.bottom.layout") { requestSanitization() }
+        }
 
 
         // 4. 插入专属硬件加速指示滑块、柔光图层与实时透镜 (放在最底层)
@@ -152,7 +156,9 @@ internal object HostBottomBarFxController {
         }
 
         container?.let { c ->
-            c.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> requestSanitization() }
+            c.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                HostThreadGuard.run("host.bottom.container.layout") { requestSanitization() }
+            }
 
             fun hookTabTouch() {
                 requestSanitization()

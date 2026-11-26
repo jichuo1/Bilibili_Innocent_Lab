@@ -27,6 +27,7 @@ import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import com.lumen.coacervation.engine.model.LumenPalette
 import com.lumen.coacervation.engine.widget.LumenSpring
+import java.lang.ref.WeakReference
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -629,21 +630,38 @@ internal class HostBottomBarDockLayer(
         }
     }
 
+    private var attachedObserver: WeakReference<ViewTreeObserver>? = null
+
+    private fun detachObservers() {
+        attachedObserver?.get()?.takeIf { it.isAlive }?.let { observer ->
+            observer.removeOnPreDrawListener(preDrawListener)
+            observer.removeOnGlobalLayoutListener(heroLayoutListener)
+        }
+        attachedObserver = null
+        container?.viewTreeObserver?.takeIf { it.isAlive }?.let { observer ->
+            observer.removeOnPreDrawListener(preDrawListener)
+            observer.removeOnGlobalLayoutListener(heroLayoutListener)
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         HostThreadGuard.run("host.bottom.dock.attach") {
             disposed = false
             hero.invalidate()
-            container?.viewTreeObserver?.addOnPreDrawListener(preDrawListener)
-            container?.viewTreeObserver?.addOnGlobalLayoutListener(heroLayoutListener)
+            detachObservers()
+            container?.viewTreeObserver?.takeIf { it.isAlive }?.let { observer ->
+                observer.addOnPreDrawListener(preDrawListener)
+                observer.addOnGlobalLayoutListener(heroLayoutListener)
+                attachedObserver = WeakReference(observer)
+            }
             backdrop?.attach(tabHost)
         }
     }
 
     override fun onDetachedFromWindow() {
         HostThreadGuard.run("host.bottom.dock.detach") {
-            container?.viewTreeObserver?.removeOnPreDrawListener(preDrawListener)
-            container?.viewTreeObserver?.removeOnGlobalLayoutListener(heroLayoutListener)
+            detachObservers()
             hero.restore()
             resetInteraction()
             backdrop?.detach()

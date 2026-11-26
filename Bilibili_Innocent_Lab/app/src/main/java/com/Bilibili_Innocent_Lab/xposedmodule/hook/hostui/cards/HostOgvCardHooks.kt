@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAcc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
@@ -126,7 +127,9 @@ internal object HostOgvCardHooks {
             val draw = Proxy.newProxyInstance(function.classLoader, arrayOf(function)) { proxy, method, arguments ->
                 when (method.name) {
                     "invoke" -> {
-                        runCatching { arguments?.firstOrNull()?.let { painter.draw(it) } }.onFailure(onError)
+                        HostThreadGuard.run("host.ogv.card.draw") {
+                            runCatching { arguments?.firstOrNull()?.let { painter.draw(it) } }.onFailure(onError)
+                        }
                         unit
                     }
                     "hashCode" -> System.identityHashCode(proxy)
@@ -164,7 +167,13 @@ internal object HostOgvCardHooks {
                 if (width <= 0 || height <= 0) return
                 if (material.usesSharedField && positioned) {
                     val shared = HostCardMaterialRegistry.scope(owner, night, material) ?: return
-                    if (this.scope?.get() !== shared || materialPaint == null) {
+                    if (shared.closed) {
+                        materialPaint?.close()
+                        materialPaint = null
+                        this.scope = null
+                        return
+                    }
+                    if (this.scope?.get() !== shared || materialPaint == null || materialPaint?.isClosed == true) {
                         materialPaint?.close()
                         materialPaint = shared.composePaint(owner, radius * owner.resources.displayMetrics.density)
                         this.scope = WeakReference(shared)
@@ -196,7 +205,7 @@ internal object HostOgvCardHooks {
                     method("androidx.compose.ui.draw.ShadowKt", "shadow-", 6),
                     method("androidx.compose.ui.draw.ClipKt", "clip", 2),
                     method("androidx.compose.ui.draw.DrawModifierKt", "drawBehind", 2),
-                    method("androidx.compose.foundation.layout.PaddingKt", "padding-qDBjuR0", 5),
+                    method("androidx.compose.foundation.layout.PaddingKt", "padding-", 5),
                     type("kotlin.jvm.functions.Function1"), requireNotNull(requireNotNull(KavaMemberLookup.fieldOrNull(type("kotlin.Unit"), "INSTANCE")).get(null)),
                     method("androidx.compose.ui.graphics.drawscope.DrawScope", "getSize-", 0),
                     method("androidx.compose.ui.graphics.drawscope.DrawScope", "getDrawContext", 0),

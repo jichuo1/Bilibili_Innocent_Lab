@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.model.LumenPalette
 import java.lang.ref.WeakReference
 
@@ -47,7 +48,7 @@ internal class FollowFeedPersonalChrome private constructor(root: View, arrow: V
     }
 
     override fun onViewAttachedToWindow(v: View) = Unit
-    override fun onViewDetachedFromWindow(v: View) = close()
+    override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.follow.personal_chrome.detach") { close() }
     override fun close() {
         if (closed) return
         closed = true

@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.commentOwnerActivity
@@ -14,7 +15,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 
 internal object HostBackgroundPageHooks {
-    fun install(environment: HookEnvironment, pages: HostBackgroundPages): Int {
+    fun install(environment: HookEnvironment, pages: HostBackgroundPages, followFeedPoints: FollowFeedPoints? = null): Int {
         val loader = environment.classLoader ?: return 0
         val nativeCount = installNative(environment, pages)
         val fragment = KavaMemberLookup.classOrNull(loader, "androidx.fragment.app.Fragment") ?: return nativeCount
@@ -55,13 +56,13 @@ internal object HostBackgroundPageHooks {
             }
             count++
         }
-        return count + installOpusBackground(environment) + installCommentLayers(environment, pages) + installCommentSectionBackground(environment) + installComposeTheme(environment, pages) + installCompose(environment)
+        return count + installOpusBackground(environment, followFeedPoints) + installCommentLayers(environment, pages) + installCommentSectionBackground(environment) + installComposeTheme(environment, pages) + installCompose(environment)
     }
 
     /** 图文正文和段落间距共用颜色入口；保留引用底色、按压态及所有 ItemOffsets。 */
-    private fun installOpusBackground(environment: HookEnvironment): Int {
+    private fun installOpusBackground(environment: HookEnvironment, followFeedPoints: FollowFeedPoints?): Int {
         val loader = environment.classLoader ?: return 0
-        val access = HostOpusBackgroundAccess.resolve(loader) ?: return 0
+        val access = HostOpusBackgroundAccess.resolve(loader, followFeedPoints) ?: return 0
         val color = access.color
         environment.registrar.exact("host_background.opus_fill", color.declaringClass, color.name, *color.parameterTypes) {
             after {

@@ -179,10 +179,26 @@ private class HostComposeSemanticsAccessCases {
         val point = HomeChromeSemanticsPoint(P::class.java.name, "z")
         assertEquals(point, HomeChromeSemanticsPoint.fromJson(point.toJson()))
         assertEquals(setOf("holder", "key"), point.toJson().keys().asSequence().toSet())
-        listOf(JSONObject(), JSONObject().put("holder", "java.lang.String").put("key", "value"),
+        for (rootHolder in listOf("ue52", "ngf2", "vlf2", "a")) {
+            val rootPoint = HomeChromeSemanticsPoint(rootHolder, "z")
+            assertTrue(rootHolder, rootPoint.isStructurallyValid())
+            assertEquals(rootHolder, rootPoint, HomeChromeSemanticsPoint.fromJson(rootPoint.toJson()))
+        }
+        listOf(
+            JSONObject(),
+            JSONObject().put("holder", "java.lang.String").put("key", "value"),
+            JSONObject().put("holder", "kotlin.Unit").put("key", "z"),
+            JSONObject().put("holder", "android.view.View").put("key", "z"),
             JSONObject().put("holder", P::class.java.name).put("key", "bad/key"),
-            JSONObject().put("holder", "[Lb1.P;").put("key", "z")).forEach {
-            assertNull(HomeChromeSemanticsPoint.fromJson(it))
+            JSONObject().put("holder", "").put("key", "z"),
+            JSONObject().put("holder", ".").put("key", "z"),
+            JSONObject().put("holder", ".ue52").put("key", "z"),
+            JSONObject().put("holder", "ue52.").put("key", "z"),
+            JSONObject().put("holder", "ue..52").put("key", "z"),
+            JSONObject().put("holder", "1bad").put("key", "z"),
+            JSONObject().put("holder", "[Lb1.P;").put("key", "z")
+        ).forEach {
+            assertNull(it.toString(), HomeChromeSemanticsPoint.fromJson(it))
         }
     }
 
