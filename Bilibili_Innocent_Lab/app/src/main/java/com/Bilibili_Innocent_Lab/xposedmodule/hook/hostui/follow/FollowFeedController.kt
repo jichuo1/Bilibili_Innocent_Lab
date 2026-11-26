@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostStatusBarContrast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
@@ -249,6 +250,7 @@ internal class FollowFeedController(
             private set
         private val session = LumenSurfaceSession(root.context, palette,
             LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false))
+        private val statusContrast = HostStatusBarContrast()
         private val visibleBounds = Rect()
         private val cardOptions = FollowFeedStyle.card()
         private val edits = FollowFeedViewEdits()
@@ -367,6 +369,7 @@ internal class FollowFeedController(
                         rows.forEach { (row, state) -> if (state.page.get() === this) styleRow(row, state, this) }
                     }
                 }
+                statusContrast.apply(view, colors.dark)
                 if (!selectionAttempted) group(view, "dy_tab_layout")?.takeIf {
                     (it.getChildAt(0) as? ViewGroup)?.childCount?.let { count -> count > 0 } == true
                 }?.let {
@@ -410,6 +413,7 @@ internal class FollowFeedController(
             val view = root.get()
             if (view != null && view.windowVisibility == View.VISIBLE && HostViewVisibility.visible(view, visibleBounds)) return
             paused = true
+            view?.let(statusContrast::restore)
             statusBar?.pause()
             selection?.pause(); lists.values.forEach { it.releasePanels() }
             session.pause()
@@ -446,7 +450,10 @@ internal class FollowFeedController(
             if (closed) return
             closed = true
             observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this); observer = null
-            root.get()?.removeOnAttachStateChangeListener(this)
+            root.get()?.let { rootView ->
+                rootView.removeOnAttachStateChangeListener(this)
+                statusContrast.restore(rootView)
+            }
             header?.close(); header = null
             statusBar?.close(); statusBar = null
             selection?.close(); selection = null
