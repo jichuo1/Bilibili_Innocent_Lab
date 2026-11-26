@@ -19,9 +19,9 @@ internal object KmpGrpcWireAdapter {
     const val INTERCEPTOR = "kntr.base.moss.MossInterceptor"
     const val REPLY_MOSS = "com.bapis.bilibili.main.community.reply.v1.KReplyMoss"
     const val DIAGNOSTIC = "dex.assist.kmp_grpc_wire_engine"
-    private const val SERIALIZATION_STRATEGY = "kotlinx.serialization.SerializationStrategy"
-    private const val DESERIALIZATION_STRATEGY = "kotlinx.serialization.DeserializationStrategy"
-    private const val KCLASS = "kotlin.reflect.KClass"
+    const val SERIALIZATION_STRATEGY = "kotlinx.serialization.SerializationStrategy"
+    const val DESERIALIZATION_STRATEGY = "kotlinx.serialization.DeserializationStrategy"
+    const val KCLASS = "kotlin.reflect.KClass"
 
     val ENTRY_MARKS = listOf("GrpcEngine", "Building IgnetChain with ", "Handler is null for ")
     val query = DexAssistQuery.KMP_GRPC_WIRE_ENGINE

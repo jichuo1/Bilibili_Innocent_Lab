@@ -5,6 +5,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapte
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailRelateGameAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PausedAdDexAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
@@ -242,6 +243,7 @@ internal object DexMeguvizGraphPlans {
     const val TAG_LEGACY_STORY_DANMAKU_BIND = "legacy_story_danmaku_bind"
     const val TAG_THESEUS2_LONG_PRESS_LAUNCH = "theseus2_long_press_launch"
     const val TAG_THESEUS2_LONG_PRESS_PORT = "theseus2_long_press_port"
+    const val TAG_KMP_GRPC_WIRE_ENGINE = "kmp_grpc_wire_engine_graph"
 
     private const val MAX_RESULTS = DexMeguvizQueries.MAX_MATCHES + 1
     private val SYSTEM_DESCRIPTOR_PREFIXES = listOf(
@@ -315,6 +317,7 @@ internal object DexMeguvizGraphPlans {
             theseus2LongPressLaunchPlan(),
             theseus2LongPressPortPlan()
         )
+        DexAssistQuery.KMP_GRPC_WIRE_ENGINE -> listOf(kmpGrpcWireEnginePlan())
         else -> emptyList()
     }
 
@@ -355,7 +358,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = true
     )
 
     private fun commentReplyMapperPlan(): DexGraphPlan {
@@ -398,7 +402,8 @@ internal object DexMeguvizGraphPlans {
                 QueryIntent.ENUMERATE,
                 MAX_RESULTS,
                 GRAPH_MAX_WORK
-            )
+            ),
+            fallbackOnly = true
         )
     }
 
@@ -444,7 +449,8 @@ internal object DexMeguvizGraphPlans {
                 QueryIntent.ENUMERATE,
                 MAX_RESULTS,
                 GRAPH_MAX_WORK
-            )
+            ),
+            fallbackOnly = true
         )
     }
 
@@ -493,7 +499,8 @@ internal object DexMeguvizGraphPlans {
                 QueryIntent.ENUMERATE,
                 MAX_RESULTS,
                 GRAPH_MAX_WORK
-            )
+            ),
+            fallbackOnly = true
         )
     }
 
@@ -568,7 +575,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = true
     )
 
     private fun composeGroupedItemFallbackPlan(): DexGraphPlan = DexGraphPlan.Entity(
@@ -690,7 +698,8 @@ internal object DexMeguvizGraphPlans {
                 QueryIntent.ENUMERATE,
                 MAX_RESULTS,
                 GRAPH_MAX_WORK
-            )
+            ),
+            fallbackOnly = true
         )
     }
 
@@ -781,7 +790,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = true
     )
 
     private fun commentQuickReplyPlan(): DexGraphPlan = DexGraphPlan.Entity(
@@ -913,7 +923,8 @@ internal object DexMeguvizGraphPlans {
                 QueryIntent.ENUMERATE,
                 MAX_RESULTS,
                 GRAPH_MAX_WORK
-            )
+            ),
+            fallbackOnly = true
         )
     }
 
@@ -1030,7 +1041,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = true
     )
 
     private fun brandSplashKntrPageFallbackPlan(): DexGraphPlan = DexGraphPlan.MethodUses(
@@ -1609,7 +1621,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = true
     )
 
     private fun homeTabResourceModelPlan(): DexGraphPlan = DexGraphPlan.MethodUses(
@@ -1849,6 +1862,58 @@ internal object DexMeguvizGraphPlans {
         )
     }
 
+    private fun kmpGrpcWireEnginePlan(): DexGraphPlan {
+        val handlerInterfaces = entityScan(
+            EntityRelation.CLASS_DEFS,
+            EntityPredicate.flags(RawFlagOperation.CONTAINS, interfaceFlag())
+        )
+        val grouped = GraphExpression.groupByOwner(
+            inputs = listOf(
+                GraphExpression.label(
+                    entityScan(
+                        EntityRelation.METHOD_DEFS,
+                        EntityPredicate.all(
+                            EntityPredicate.normalMethod(),
+                            EntityPredicate.text(EntityTextField.NAME, TextOperation.EXACT, "onNext"),
+                            EntityPredicate.text(EntityTextField.PROTOTYPE, TextOperation.PREFIX, "([B)")
+                        )
+                    ),
+                    "on_next"
+                )
+            ),
+            minimum = 1L,
+            maximum = 16L,
+            requiredRoles = listOf("on_next"),
+            rolePolicy = GraphRolePolicy.DISTINCT
+        )
+        return DexGraphPlan.Graph(
+            TAG_KMP_GRPC_WIRE_ENGINE,
+            GraphQuery(
+                GraphExpression.semiJoin(handlerInterfaces, grouped, GraphJoinKey.SAME_ENTITY),
+                QueryIntent.ENUMERATE,
+                MAX_RESULTS,
+                GRAPH_MAX_WORK
+            ),
+            fallbackOnly = true
+        )
+    }
+
+    fun kmpGrpcWireMethodsForHandler(handlerDescriptor: String): EntityQuery = EntityQuery(
+        EntityRelation.METHOD_DEFS,
+        EntityPredicate.all(
+            EntityPredicate.normalMethod(),
+            EntityPredicate.flags(RawFlagOperation.CONTAINS, publicFlag()),
+            EntityPredicate.not(EntityPredicate.flags(RawFlagOperation.CONTAINS, staticFlag())),
+            EntityPredicate.text(EntityTextField.RETURN_TYPE, TextOperation.EXACT, "V"),
+            EntityPredicate.parameterCount(4L, 6L),
+            EntityPredicate.text(EntityTextField.PROTOTYPE, TextOperation.CONTAINS, "[B"),
+            EntityPredicate.text(EntityTextField.PROTOTYPE, TextOperation.CONTAINS, handlerDescriptor)
+        ),
+        QueryIntent.ENUMERATE,
+        MAX_RESULTS,
+        GRAPH_MAX_WORK
+    )
+
     private fun entityScan(relation: EntityRelation, predicate: EntityPredicate): GraphExpression =
         GraphExpression.scan(relation, GraphPredicate.from(predicate))
 
@@ -1877,6 +1942,10 @@ internal object DexMeguvizGraphPlans {
     private fun exactText(value: String): StaticTextMatch = StaticTextMatch(TextOperation.EXACT, value)
 
     private fun staticFlag(): RawDexFlags = RawDexFlags(Modifier.STATIC.toLong())
+
+    private fun publicFlag(): RawDexFlags = RawDexFlags(Modifier.PUBLIC.toLong())
+
+    private fun interfaceFlag(): RawDexFlags = RawDexFlags(Modifier.INTERFACE.toLong())
 
     private fun reflectionStaticFlag(): ReflectionFlags = ReflectionFlags(Modifier.STATIC.toLong())
 

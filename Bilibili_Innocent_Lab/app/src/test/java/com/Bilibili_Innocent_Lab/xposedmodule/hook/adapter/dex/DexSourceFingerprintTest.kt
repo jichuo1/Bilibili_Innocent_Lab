@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex
 
+import android.content.pm.ApplicationInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -362,6 +363,35 @@ class DexSourceFingerprintTest {
         }
     }
 
+    fun `canonicalizes dot paths falls back to public dirs and preserves real splitNames`() {
+        withTempDirectory { directory ->
+            val subDir = File(directory, "nested").apply { mkdirs() }
+            val baseApk = File(directory, "base.apk")
+            val splitFeat = File(directory, "split_feat.apk")
+            val splitRes = File(directory, "split_res.apk")
+            writeArchive(baseApk, mapOf("classes.dex" to byteArrayOf(1, 2, 3)))
+            writeArchive(splitFeat, mapOf("classes.dex" to byteArrayOf(4, 5, 6)))
+            writeArchive(splitRes, mapOf("resources.arsc" to byteArrayOf(7, 8, 9)))
+
+            val dotPath = File(subDir, "../base.apk").path
+            val canonicalized = requireNotNull(DexSourceFingerprint.inspectCodePaths(listOf(dotPath)))
+            assertEquals(listOf(baseApk.canonicalPath), canonicalized.codePaths)
+            assertFalse(canonicalized.codePaths.single().contains(".."))
+
+            val info = ApplicationInfo().apply {
+                sourceDir = null
+                publicSourceDir = dotPath
+                splitSourceDirs = null
+                splitPublicSourceDirs = arrayOf(splitRes.path, splitFeat.path)
+                splitNames = arrayOf("config.arm64_v8a", "feature_video")
+            }
+            val result = requireNotNull(DexSourceFingerprint.inspect(info))
+            assertEquals(listOf(baseApk.canonicalPath, splitFeat.canonicalPath), result.codePaths)
+            assertEquals(listOf<String?>(null, "feature_video"), result.splitNames)
+            assertEquals(listOf<String?>(null, "feature_video"), DexSourceFingerprint.splitNamesFor(result.codePaths))
+        }
+    }
+
     /** Random bytes deflate to roughly their own size, so damage lands in the payload, not the directory. */
     private fun incompressible() = ByteArray(4096).also { java.util.Random(7).nextBytes(it) }
 
@@ -409,5 +439,6 @@ class DexSourceFingerprintTest {
         runIsolated { s -> s.`already redirected java view is frozen for native callers`() }
         runIsolated { s -> s.`all active code splits remain readable during source cache eviction`() }
         runIsolated { s -> s.`resource splits do not invalidate either patched source with frozen views`() }
+        runIsolated { s -> s.`canonicalizes dot paths falls back to public dirs and preserves real splitNames`() }
     }
 }

@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
+import java.util.WeakHashMap
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -38,8 +39,25 @@ internal class BrandSplashImageCache(
     private var pending: ScheduledFuture<*>? = null
     private var requestToken = 0L
 
+    init {
+        synchronized(instancesLock) { instances[this] = Unit }
+    }
+
     fun current(): Photo? = photo.get()?.takeIf { it.signature == desiredSignature.get() }
     fun isSelectionCurrent(signature: String): Boolean = signature.isNotEmpty() && signature == desiredSignature.get()
+
+    /** 内存压力下释放模块持有的开屏解码缓存与在途重试；不主动 recycle 位图以留给渲染器安全退场。 */
+    fun clear() {
+        synchronized(lock) {
+            requestToken++
+            pending?.cancel(false)
+            pending = null
+            photo.set(null)
+        }
+        synchronized(scopes) {
+            scopes.removeAll { it.owner.get() == null }
+        }
+    }
 
     fun observeScope(owner: Any, invalidate: Method) {
         synchronized(scopes) {
@@ -155,5 +173,14 @@ internal class BrandSplashImageCache(
         "${it.key}/${it.hash}/${it.mode}/${it.showLogo}"
     }
 
-    companion object { private val RETRY_DELAYS = longArrayOf(250L, 1_000L, 2_500L, 5_000L) }
+    companion object {
+        private val RETRY_DELAYS = longArrayOf(250L, 1_000L, 2_500L, 5_000L)
+        private val instancesLock = Any()
+        private val instances = WeakHashMap<BrandSplashImageCache, Unit>()
+
+        fun clearAll() {
+            val snapshot = synchronized(instancesLock) { instances.keys.toList() }
+            snapshot.forEach { it.clear() }
+        }
+    }
 }

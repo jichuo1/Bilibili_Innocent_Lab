@@ -61,18 +61,145 @@ internal object HomeTabResourceAdapter {
 
     private fun semanticTokens(field: Field): Set<String> {
         val tokens = linkedSetOf(field.name)
-        for (annotation in field.annotations) {
+        extractJsonAnnotationTokens(field.annotations, tokens)
+        return tokens.mapTo(linkedSetOf()) { it.lowercase() }
+    }
+
+    private fun extractJsonAnnotationTokens(annotations: Array<Annotation>, out: MutableSet<String>) {
+        for (annotation in annotations) {
             val simple = annotation.annotationClass.java.simpleName
             if (simple == "JSONField" || simple == "SerializedName") {
                 for (attr in listOf("name", "value")) {
                     val raw = runCatching {
                         annotation.annotationClass.java.getMethod(attr).invoke(annotation) as? String
                     }.getOrNull()?.trim()
-                    if (!raw.isNullOrBlank()) tokens += raw
+                    if (!raw.isNullOrBlank()) out += raw
+                }
+                for (attr in listOf("alternateNames", "alternate")) {
+                    val arr = runCatching {
+                        annotation.annotationClass.java.getMethod(attr).invoke(annotation) as? Array<*>
+                    }.getOrNull()
+                    arr?.forEach { item ->
+                        val s = (item as? String)?.trim()
+                        if (!s.isNullOrBlank()) out += s
+                    }
                 }
             }
         }
-        return tokens.mapTo(linkedSetOf()) { it.lowercase() }
+    }
+
+    private fun splitWordsLower(raw: String): List<String> =
+        raw.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+            .split('_', '-', '.')
+            .map { it.lowercase() }
+            .filter { it.isNotEmpty() }
+
+    private fun roleFromTokenWords(tokens: Set<String>): String? {
+        for (token in tokens) {
+            val words = splitWordsLower(token)
+            val joined = words.joinToString("")
+            when {
+                joined in setOf("reporterid", "reportid", "tabid") ||
+                    ("report" in words && "id" in words) ||
+                    ("reporter" in words && "id" in words) -> return "reporter"
+                joined == "id" || (words.lastOrNull() == "id" && "tab" in words) -> return "id"
+                joined in setOf("title", "name") || "title" in words || words.lastOrNull() == "name" -> return "title"
+                joined in setOf("uri", "url") || "uri" in words || "url" in words -> return "uri"
+            }
+        }
+        return null
+    }
+
+    private fun isSafeProbeClass(type: Class<*>, stringFields: List<Field>): Boolean {
+        if (Modifier.isAbstract(type.modifiers) || stringFields.size > 16) return false
+        val unsafePrefixes = listOf(
+            "android.content.", "android.view.", "android.app.", "android.os.",
+            "java.io.", "java.net.", "kotlinx.coroutines."
+        )
+        return Lookup.declaredFields(type) { !Modifier.isStatic(it.modifiers) }.all { f ->
+            val tName = f.type.name
+            unsafePrefixes.none { tName.startsWith(it) }
+        }
+    }
+
+    private fun inferR8RolesByUsageAndConstants(
+        resource: Class<*>,
+        stringFields: List<Field>
+    ): Map<String, Field> {
+        val inferred = linkedMapOf<String, MutableSet<Field>>()
+        fun record(role: String, field: Field) {
+            inferred.getOrPut(role) { linkedSetOf() } += field
+        }
+
+        // 1. 语义分词补全（如 mTitle / tabUri / jumpUrl / reportId / JSON 注解备选名）
+        for (field in stringFields) {
+            val tokens = semanticTokens(field)
+            roleFromTokenWords(tokens)?.let { record(it, field) }
+        }
+
+        // 2. 轻量无副作用实例探测：若存在安全无参构造，则通过默认常量特征（如 URI scheme）、
+        //    无参 String getter 以及 toString() 字段标签反推被 R8 重命名的单字母字段角色。
+        if (isSafeProbeClass(resource, stringFields)) {
+            runCatching {
+                val noArgCtor = Lookup.declaredConstructors(resource, makeAccessible = true)
+                    .firstOrNull { it.parameterCount == 0 }
+                if (noArgCtor != null) {
+                    val instance = noArgCtor.newInstance()
+                    for (field in stringFields) {
+                        val initial = field.get(instance) as? String ?: continue
+                        val lower = initial.lowercase()
+                        if (lower.startsWith("http://") || lower.startsWith("https://") ||
+                            lower.startsWith("bilibili://") || (initial.startsWith("/") && initial.length > 1)
+                        ) {
+                            record("uri", field)
+                        }
+                    }
+
+                    val markerToField = linkedMapOf<String, Field>()
+                    stringFields.forEachIndexed { idx, field ->
+                        val marker = "__bil_probe_${idx}__"
+                        if (runCatching { field.set(instance, marker) }.isSuccess) {
+                            markerToField[marker] = field
+                        }
+                    }
+
+                    if (markerToField.isNotEmpty()) {
+                        val stringGetters = Lookup.declaredMethods(resource, makeAccessible = true) { m ->
+                            !Modifier.isStatic(m.modifiers) && m.parameterCount == 0 &&
+                                m.returnType == classOf<String>() && m.name != "toString"
+                        }
+                        for (getter in stringGetters) {
+                            val getterTokens = linkedSetOf(getter.name.removePrefix("get").lowercase())
+                            extractJsonAnnotationTokens(getter.annotations, getterTokens)
+                            val role = roleFromTokenWords(getterTokens) ?: continue
+                            val value = runCatching { getter.invoke(instance) as? String }.getOrNull() ?: continue
+                            markerToField[value]?.let { record(role, it) }
+                        }
+
+                        val toStringDecl = runCatching {
+                            resource.getMethod("toString").takeIf { it.declaringClass != Any::class.java }
+                        }.getOrNull()
+                        if (toStringDecl != null) {
+                            val rendered = runCatching { instance.toString() }.getOrNull().orEmpty()
+                            val pairPattern = Regex("([A-Za-z_][A-Za-z0-9_]*)[=:]'?(__bil_probe_[0-9]+__)'?")
+                            for (match in pairPattern.findAll(rendered)) {
+                                val label = match.groupValues[1].lowercase()
+                                val marker = match.groupValues[2]
+                                val field = markerToField[marker] ?: continue
+                                roleFromTokenWords(setOf(label))?.let { record(it, field) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 仅采纳一对一确定且彼此不冲突的推断结果；歧义角色保持未定并由上层确定性回退。
+        val uniqueByRole = inferred.mapNotNull { (role, fields) ->
+            fields.singleOrNull()?.let { role to it }
+        }.toMap()
+        val fieldUseCounts = uniqueByRole.values.groupingBy { it }.eachCount()
+        return uniqueByRole.filterValues { fieldUseCounts[it] == 1 }
     }
 
     internal fun resolveFieldMapping(resource: Class<*>): FieldMapping? {
@@ -102,13 +229,33 @@ internal object HomeTabResourceAdapter {
             )
         }
 
-        // R8 扁平化为单字母字段（如 y 的 a/b/d/e/f/g/h）时按字典序确定性对齐 DEX 字段序，消除 JVM/ART 反射顺序差异。
-        val sorted = stringFields.sortedBy(Field::getName)
+        // 若精确字段名被 R8 剥离（如单字母 a/b/d/e），综合语义注解、常量与方法使用线索区分角色；
+        // 对仍无法唯一区分的角色，在剩余字段中按字典序确定性补齐以兼容无额外线索的纯混淆 DTO。
+        val used = linkedSetOf<Field>()
+        val resolvedId = semanticId?.also { used += it }
+        val resolvedTitle = semanticTitle?.takeIf { used.add(it) }
+        val resolvedUri = semanticUri?.takeIf { used.add(it) }
+        val resolvedReporter = semanticReporter?.takeIf { used.add(it) }
+
+        val inferred = inferR8RolesByUsageAndConstants(resource, stringFields)
+        val finalId = resolvedId ?: inferred["id"]?.takeIf { used.add(it) }
+        val finalTitle = resolvedTitle ?: inferred["title"]?.takeIf { used.add(it) }
+        val finalUri = resolvedUri ?: inferred["uri"]?.takeIf { used.add(it) }
+        val finalReporter = resolvedReporter ?: inferred["reporter"]?.takeIf { used.add(it) }
+
+        val remaining = stringFields.filter { it !in used }.sortedBy(Field::getName)
+        var nextRemaining = 0
+        fun nextFallback(): Field? = remaining.getOrNull(nextRemaining++)
+
+        val id = finalId ?: nextFallback() ?: return null
+        val title = finalTitle ?: nextFallback() ?: return null
+        val uri = finalUri ?: nextFallback() ?: return null
+        val reporter = finalReporter ?: nextFallback()
         return FieldMapping(
-            idField = sorted[0].name,
-            titleField = sorted[1].name,
-            uriField = sorted[2].name,
-            reporterIdField = sorted.getOrNull(3)?.name
+            idField = id.name,
+            titleField = title.name,
+            uriField = uri.name,
+            reporterIdField = reporter?.name
         )
     }
 

@@ -191,12 +191,12 @@ internal object CommentComposeMenuAdapter {
         if (cachedLegacy != null) {
             return Resolved(legacyRow = cachedLegacy)
         }
-        val bubble = directBubbleRow(loader) ?: resolveBubbleRow(loader, cached?.bubbleRow)
-        val grouped = directGroupedRow(loader) ?: resolveGroupedRow(loader, cached?.groupedRow)
-        val groupedItem = directGroupedItem(loader, grouped?.declaringClass)
-            ?: resolveGroupedItem(loader, cached?.groupedItem)
+        val bubble = resolveBubbleRow(loader, cached?.bubbleRow) ?: directBubbleRow(loader)
+        val grouped = resolveGroupedRow(loader, cached?.groupedRow) ?: directGroupedRow(loader)
+        val groupedItem = resolveGroupedItem(loader, cached?.groupedItem)
+            ?: directGroupedItem(loader, grouped?.declaringClass)
         val legacy = if (bubble == null && grouped == null) {
-            directLegacyRow(loader) ?: resolveLegacyRow(loader, cached?.legacyRow)
+            resolveLegacyRow(loader, cached?.legacyRow) ?: directLegacyRow(loader)
         } else null
         return Resolved(bubble, grouped, groupedItem, legacy)
     }

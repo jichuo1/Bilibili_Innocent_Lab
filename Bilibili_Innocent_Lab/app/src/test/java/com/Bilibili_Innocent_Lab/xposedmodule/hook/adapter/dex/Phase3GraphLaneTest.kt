@@ -208,6 +208,44 @@ class Phase3GraphLaneTest {
         assertTrue("duplicate slot must be rejected", duplicateRejected)
     }
 
+    fun `chunking enforces 4096 limit split slots resolve real names and redundant plans stay fallbackOnly`() {
+        val chunks = DexMeguvizAssistEngine.calculateCandidateChunks(List(150) { 32 })
+        assertEquals(listOf(0..127, 128..149), chunks)
+        assertEquals(listOf(0..1, 2..2), DexMeguvizAssistEngine.calculateCandidateChunks(listOf(4000, 96, 1)))
+        assertTrue(DexMeguvizAssistEngine.calculateCandidateChunks(emptyList()).isEmpty())
+
+        val slots = DexMeguvizAssistEngine.resolveSplitSlotNames(
+            splitPaths = listOf("/data/app/split_feat.apk", "/data/app/split_other.apk", "/data/app/split_other2.apk"),
+            splitNames = listOf("feature_video", null, "feature_video")
+        )
+        assertEquals(3, slots.size)
+        assertEquals("feature_video", slots[0])
+        assertEquals("other", slots[1])
+        assertTrue("split slots must be distinct and printable", slots.distinct().size == 3 && slots[2] != "feature_video")
+
+        for (redundant in listOf(
+            DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER,
+            DexAssistQuery.COMMENT_REPLY_MAPPER,
+            DexAssistQuery.SPONSOR_CONTAINER_SCOPE,
+            DexAssistQuery.SPONSOR_PLAYER_WRAPPER,
+            DexAssistQuery.PEGASUS_DIVIDER,
+            DexAssistQuery.STORY_QUALITY_DEFAULT,
+            DexAssistQuery.PAUSED_AD_REQUEST_API,
+            DexAssistQuery.BRAND_SPLASH_KNTR_PAGE,
+            DexAssistQuery.COMMENT_COMPOSE_MORE_MENU
+        )) {
+            val plans = DexMeguvizQueries.graphPlans(redundant)
+            assertTrue("$redundant plans should be fallbackOnly", plans.isNotEmpty() && plans.all { it.fallbackOnly })
+        }
+        val homeTabPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_TAB_RESOURCE)
+        assertTrue(homeTabPlans[0].fallbackOnly)
+        assertFalse(homeTabPlans[1].fallbackOnly)
+
+        val backdropIr = DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_CHROME_TOP_BACKDROP).single().toQueryIrJson()
+        val rightActionsIr = DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS).single().toQueryIrJson()
+        assertEquals(backdropIr, rightActionsIr)
+    }
+
     @Test
     fun verifyAllCases() {
         fun runIsolated(block: (Phase3GraphLaneTest) -> Unit) {
@@ -216,5 +254,6 @@ class Phase3GraphLaneTest {
         runIsolated { it.`entity graph and methodType validation allows partial source scope and fails closed on errors`() }
         runIsolated { it.`outcome resolution preserves verified flat candidates and stays fail closed when empty`() }
         runIsolated { it.`scopedAdvancedGraphQuery attaches snapshot slots and inherited_fields without altering limits`() }
+        runIsolated { it.`chunking enforces 4096 limit split slots resolve real names and redundant plans stay fallbackOnly`() }
     }
 }

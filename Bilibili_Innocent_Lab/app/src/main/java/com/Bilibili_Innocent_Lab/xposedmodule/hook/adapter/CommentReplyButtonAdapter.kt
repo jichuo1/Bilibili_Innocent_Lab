@@ -104,9 +104,10 @@ internal object CommentReplyButtonAdapter {
     internal fun inspectOwner(owner: Class<*>, family: String): List<NativePlan> =
         inspectOwnerForAnyFamily(owner)?.takeIf { it.first == family }?.second.orEmpty()
 
-    fun directPlans(loader: ClassLoader): Map<String, List<NativePlan>> {
+    private fun directPlansFor(loader: ClassLoader, families: Collection<String>): Map<String, List<NativePlan>> {
         val result = linkedMapOf<String, List<NativePlan>>()
         LEGACY_PACKAGES.forEach { (family, packageName) ->
+            if (family !in families) return@forEach
             val byOwner = ('a'..'z').mapNotNull { suffix ->
                 val owner = Lookup.classOrNull(loader, "$packageName.$suffix") ?: return@mapNotNull null
                 inspectOwner(owner, family).takeIf { it.isNotEmpty() }
@@ -116,17 +117,23 @@ internal object CommentReplyButtonAdapter {
         return result
     }
 
+    fun directPlans(loader: ClassLoader): Map<String, List<NativePlan>> =
+        directPlansFor(loader, FAMILIES)
+
     fun directOwners(loader: ClassLoader): Map<String, String> =
         directPlans(loader).mapValues { (_, plans) -> plans.first().method.declaringClass.name }
 
     fun resolvePlans(loader: ClassLoader, cached: Map<String, String>): Map<String, List<NativePlan>> {
-        val result = directPlans(loader).toMutableMap()
+        val result = linkedMapOf<String, List<NativePlan>>()
         FAMILIES.forEach { family ->
-            if (family in result) return@forEach
             val ownerName = cached[family]?.takeIf(::allowedOwnerName) ?: return@forEach
             val owner = Lookup.classOrNull(loader, ownerName) ?: return@forEach
             val plans = inspectOwner(owner, family)
             if (plans.isNotEmpty()) result[family] = plans
+        }
+        val missing = FAMILIES.filter { it !in result }
+        if (missing.isNotEmpty()) {
+            result.putAll(directPlansFor(loader, missing))
         }
         return result
     }

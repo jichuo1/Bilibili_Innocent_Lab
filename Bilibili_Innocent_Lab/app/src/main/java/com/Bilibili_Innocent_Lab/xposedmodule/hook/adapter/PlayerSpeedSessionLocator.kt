@@ -56,6 +56,14 @@ internal object PlayerSpeedSessionLocator {
     fun refreshCache(enabled: Boolean, applicable: Boolean, directFound: Boolean, cachedFound: Boolean, attempted: Boolean) =
         needsQuery(enabled, applicable, directFound) && !cachedFound && !attempted
 
+    fun refreshCache(
+        enabled: Boolean,
+        applicable: () -> Boolean,
+        directFound: () -> Boolean,
+        cachedFound: () -> Boolean,
+        attempted: () -> Boolean
+    ): Boolean = enabled && !attempted() && applicable() && !cachedFound() && !directFound()
+
     fun modern(loader: ClassLoader): Modern? = runCatching {
         val continuation = Lookup.classOrNull(loader, RUN) ?: return null
         val params = Lookup.classOrNull(loader, PARAMS) ?: return null

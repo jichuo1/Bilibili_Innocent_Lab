@@ -146,6 +146,13 @@ class DexMeguvizQueriesTest {
         KmpGrpcWireAdapter.ENTRY_MARKS.forEach { token ->
             assertTrue("Missing KMP wire token $token", wireText.contains(token))
         }
+        val wirePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.KMP_GRPC_WIRE_ENGINE)
+        assertEquals(1, wirePlans.size)
+        assertTrue(wirePlans.single().fallbackOnly)
+        assertEquals(DexMeguvizGraphPlans.TAG_KMP_GRPC_WIRE_ENGINE, wirePlans.single().tag)
+        val wireGraphIr = decodeQueryIr(wirePlans.single().toQueryIrJson())
+        assertTrue(wireGraphIr.contains("onNext"))
+        assertTrue(wireGraphIr.contains("([B)"))
 
         val composeText = DexMeguvizQueries.rules(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU)
             .joinToString("\n") { it.toString(Charsets.UTF_8) }

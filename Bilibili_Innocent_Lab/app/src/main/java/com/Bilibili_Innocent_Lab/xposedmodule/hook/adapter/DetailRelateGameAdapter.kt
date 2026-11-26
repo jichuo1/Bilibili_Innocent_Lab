@@ -107,10 +107,8 @@ internal object DetailRelateGameAdapter {
         return pairs.singleOrNull()
     }
 
-    fun resolvePair(loader: ClassLoader, cachedComponentName: String?): ResolvedPair? {
-        directPair(loader)?.let { return it }
-        return resolveCachedPair(loader, cachedComponentName)
-    }
+    fun resolvePair(loader: ClassLoader, cachedComponentName: String?): ResolvedPair? =
+        resolveCachedPair(loader, cachedComponentName) ?: directPair(loader)
 
     private fun resolveCachedPair(loader: ClassLoader, cachedComponentName: String?): ResolvedPair? {
         val name = cachedComponentName?.takeIf(::allowedComponentName) ?: return null
@@ -129,7 +127,7 @@ internal object DetailRelateGameAdapter {
         enabled: Boolean,
         attempted: Boolean
     ): Boolean = enabled && !attempted && applicable(loader) &&
-        direct(loader) == null && resolve(loader, cached) == null
+        resolve(loader, cached) == null && direct(loader) == null
 
     fun locate(
         loader: ClassLoader,
@@ -139,8 +137,8 @@ internal object DetailRelateGameAdapter {
         planned: Boolean
     ): String? {
         if (!enabled) return cached
-        direct(loader)?.let { return cached?.takeIf { resolve(loader, it) != null } }
         resolve(loader, cached)?.let { return it }
+        direct(loader)?.let { return it }
         if (!planned) return null
         val result = session?.result(query) as? DexAssistResult.Candidates ?: return null
         if (result.classes.size > MAX_CANDIDATES || result.methods.size > MAX_CANDIDATES) return null

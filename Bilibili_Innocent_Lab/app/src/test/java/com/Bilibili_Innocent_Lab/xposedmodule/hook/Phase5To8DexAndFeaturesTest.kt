@@ -10,8 +10,14 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentComposeMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentReplyButtonAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DetailRelateGameAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeTabResourceAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexGraphPlan
@@ -440,12 +446,12 @@ class Phase5To8DexAndFeaturesTest {
         }
         val pagePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE)
         assertEquals(2, pagePlans.size)
-        assertFalse(pagePlans[0].fallbackOnly)
+        assertTrue(pagePlans[0].fallbackOnly)
         assertTrue(pagePlans[1].fallbackOnly)
 
         val composePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU)
         assertEquals(3, composePlans.size)
-        assertFalse(composePlans[0].fallbackOnly)
+        assertTrue(composePlans[0].fallbackOnly)
         assertTrue(composePlans[1].fallbackOnly)
         assertTrue(composePlans[2].fallbackOnly)
 
@@ -857,6 +863,72 @@ class Phase5To8DexAndFeaturesTest {
         )
     }
 
+    class ObfHomeTabWithGettersAndScheme(
+        @JvmField var z: String = "",
+        @JvmField var w: String = "",
+        @JvmField var a: String = "bilibili://main/home",
+        @JvmField var m: String = ""
+    ) {
+        fun getId(): String = z
+        fun getTitle(): String = w
+        fun getReportId(): String = m
+    }
+
+    class ObfHomeTabPlainAlpha(
+        @JvmField var b: String = "",
+        @JvmField var a: String = "",
+        @JvmField var d: String = "",
+        @JvmField var c: String = ""
+    )
+
+    fun `lazy refreshCache short circuits warm cache first skips probes and home tab infers flattened roles`() {
+        var probes = 0
+        fun failOnLambda(): Boolean {
+            probes++
+            return true
+        }
+        assertFalse(PlayerSpeedSessionLocator.refreshCache(false, ::failOnLambda, ::failOnLambda, ::failOnLambda, ::failOnLambda))
+        assertFalse(PlayerSpeedLocator.calculatorRefreshCache(false, ::failOnLambda, ::failOnLambda, ::failOnLambda, ::failOnLambda))
+        assertFalse(WeChatShareCompatAccess.refreshCache(false, ::failOnLambda, ::failOnLambda, ::failOnLambda, ::failOnLambda))
+        assertEquals("disabled features must not evaluate refreshCache lambdas", 0, probes)
+
+        var directChecked = 0
+        assertFalse(
+            WeChatShareCompatAccess.refreshCache(
+                enabled = true,
+                applicable = { true },
+                directFound = { directChecked++; false },
+                cachedFound = { true },
+                attempted = { false }
+            )
+        )
+        assertEquals("valid cached hit must short-circuit directFound lambda", 0, directChecked)
+
+        val loaderLookups = mutableListOf<String>()
+        val probeLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                loaderLookups += name
+                return super.loadClass(name, resolve)
+            }
+        }
+        assertNull(DetailRelateGameAdapter.resolve(probeLoader, "evil.pkg.Comp"))
+        assertTrue(CommentReplyButtonAdapter.resolvePlans(probeLoader, emptyMap()).isEmpty())
+        assertTrue(loaderLookups.any { it.startsWith("com.bilibili.app.comment3.") })
+        assertFalse(CommentComposeMenuAdapter.resolve(probeLoader, null).isComplete())
+
+        val getterMapped = requireNotNull(HomeTabResourceAdapter.resolveFieldMapping(ObfHomeTabWithGettersAndScheme::class.java))
+        assertEquals("z", getterMapped.idField)
+        assertEquals("w", getterMapped.titleField)
+        assertEquals("a", getterMapped.uriField)
+        assertEquals("m", getterMapped.reporterIdField)
+
+        val alphaFallback = requireNotNull(HomeTabResourceAdapter.resolveFieldMapping(ObfHomeTabPlainAlpha::class.java))
+        assertEquals("a", alphaFallback.idField)
+        assertEquals("b", alphaFallback.titleField)
+        assertEquals("c", alphaFallback.uriField)
+        assertEquals("d", alphaFallback.reporterIdField)
+    }
+
     @Test
     fun verifyAllCases() {
         fun runIsolated(block: (Phase5To8DexAndFeaturesTest) -> Unit) {
@@ -877,5 +949,6 @@ class Phase5To8DexAndFeaturesTest {
         runIsolated { it.`follow up recommend requestBodyEntry matches 2 to 4 parameter coroutine body constructors`() }
         runIsolated { it.`splash auto night installs on kntr BrandSplashPage modifying only Modifier and changed mask`() }
         runIsolated { it.`comment bridges fall back structurally for nickname span, likable fields, rich text, and compose 2-field text`() }
+        runIsolated { it.`lazy refreshCache short circuits warm cache first skips probes and home tab infers flattened roles`() }
     }
 }

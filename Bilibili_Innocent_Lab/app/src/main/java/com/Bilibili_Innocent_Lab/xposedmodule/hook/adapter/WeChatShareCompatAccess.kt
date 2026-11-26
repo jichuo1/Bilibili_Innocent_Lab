@@ -100,6 +100,14 @@ internal class WeChatShareCompatAccess private constructor(
         fun refreshCache(enabled: Boolean, applicable: Boolean, directFound: Boolean, cachedFound: Boolean, attempted: Boolean) =
             needsQuery(enabled, applicable, directFound) && !cachedFound && !attempted
 
+        fun refreshCache(
+            enabled: Boolean,
+            applicable: () -> Boolean,
+            directFound: () -> Boolean,
+            cachedFound: () -> Boolean,
+            attempted: () -> Boolean
+        ): Boolean = enabled && !attempted() && applicable() && !cachedFound() && !directFound()
+
         fun assisted(loader: ClassLoader, session: DexAssistSession?): WeChatShareClasses? {
             val candidates = session?.result(DexAssistQuery.WECHAT_SHARE_WRAPPER_DISCOVERY)
                 as? DexAssistResult.Candidates ?: return null

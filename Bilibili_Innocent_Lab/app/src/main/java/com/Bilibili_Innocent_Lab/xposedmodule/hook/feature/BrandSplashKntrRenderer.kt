@@ -43,10 +43,8 @@ internal class BrandSplashKntrRenderer(
         val scopeGetter = KavaMemberLookup.methodOrNull(composer, "getRecomposeScope") ?: return false
         val invalidate = KavaMemberLookup.inheritedMethodOrNull(scopeGetter.returnType, "invalidate")
             ?.takeIf { it.returnType == Void.TYPE } ?: return false
-        val owners = (('a'..'z').map { PACKAGE + it } + PACKAGE + "BrandSplashPageKt")
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
-        val page = BrandSplashKntrAdapter.directPage(loader)
-            ?: BrandSplashKntrAdapter.resolvePage(loader, cachedPageMethod)
+        val page = BrandSplashKntrAdapter.resolvePage(loader, cachedPageMethod)
+            ?: BrandSplashKntrAdapter.directPage(loader)
             ?: return false
         val abi = requireNotNull(brandSplashPageAbi(page.parameterTypes.map { it.name }))
         val composerIndex = abi.composerIndex
@@ -55,13 +53,23 @@ internal class BrandSplashKntrRenderer(
         val exitPoint = BrandSplashKntrAccess.exit(loader, cachedExitClass) ?: return false
         val exitOwner = exitPoint.owner
         val exitMethod = exitPoint.resume
-        // 9.19+ 的紧凑版开屏将 draw lambda 扁平到根包，优先使用 DEX 定位结果并保留 legacy 兜底。
-        val drawOwners = (listOfNotNull(cachedDrawClass?.let { KavaMemberLookup.classOrNull(loader, it) }) +
-            if (page.parameterTypes[3] == function0) listOfNotNull(KavaMemberLookup.classOrNull(loader, COMPACT_DRAW)) else owners)
-            .distinct()
-        val draw = drawOwners.singleOrNull { owner ->
+        // 9.19+ 的紧凑版开屏将 draw lambda 扁平到根包，优先验证缓存或紧凑 draw 类；未命中时再扫描 legacy。
+        val legacyOwners = lazy(LazyThreadSafetyMode.NONE) {
+            (('a'..'z').map { PACKAGE + it } + PACKAGE + "BrandSplashPageKt")
+                .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }
+        }
+        fun matchesDrawOwner(owner: Class<*>): Boolean =
             KavaMemberLookup.declaredFields(owner).count { it.type == page.parameterTypes[0] } == 1 &&
                 KavaMemberLookup.declaredMethods(owner).count { it.name == "invoke" && it.parameterCount == 3 } == 1
+        val cachedDrawOwner = cachedDrawClass?.let { KavaMemberLookup.classOrNull(loader, it) }
+            ?.takeIf(::matchesDrawOwner)
+        val draw = cachedDrawOwner ?: run {
+            val fallbackOwners = if (page.parameterTypes[3] == function0) {
+                listOfNotNull(KavaMemberLookup.classOrNull(loader, COMPACT_DRAW))
+            } else {
+                legacyOwners.value
+            }
+            fallbackOwners.distinct().singleOrNull(::matchesDrawOwner)
         } ?: return false
         val invokeDraw = KavaMemberLookup.declaredMethods(draw).single { it.name == "invoke" && it.parameterCount == 3 }
         val drawModel = KavaMemberLookup.declaredFields(draw, makeAccessible = true).single { it.type == page.parameterTypes[0] }

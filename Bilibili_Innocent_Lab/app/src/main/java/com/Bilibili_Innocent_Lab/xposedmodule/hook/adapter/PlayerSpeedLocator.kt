@@ -89,6 +89,14 @@ internal object PlayerSpeedLocator {
         cachedFound: Boolean, attempted: Boolean) =
         calculatorNeedsQuery(enabled, applicable, directFound) && !cachedFound && !attempted
 
+    fun calculatorRefreshCache(
+        enabled: Boolean,
+        applicable: () -> Boolean,
+        directFound: () -> Boolean,
+        cachedFound: () -> Boolean,
+        attempted: () -> Boolean
+    ): Boolean = enabled && !attempted() && applicable() && !cachedFound() && !directFound()
+
     fun resolveCalculator(loader: ClassLoader, point: LongPressCalculatorPoint): Method? =
         theseus2LongPressCalculator(loader, point.owner, point.method, point.playable)
 
@@ -333,11 +341,13 @@ internal object PlayerSpeedLocator {
                         PlayerSpeedMenuAdapter.flattenedOwner(field.type.name) && recyclerAdapter?.isAssignableFrom(field.type) == true)
             }.singleOrNull()?.type
         }
-        val adapterCandidates = buildList {
-            widgetAdapter?.let(::add)
-            for (shortName in listOf("f", "g", "e", "h", "d")) {
-                val candidate = KavaMemberLookup.classOrNull(loader, "$SPEED_WIDGET_PKG.$shortName") ?: continue
-                if (candidate !in this) add(candidate)
+        val adapterCandidates = lazy(LazyThreadSafetyMode.NONE) {
+            buildList {
+                widgetAdapter?.let(::add)
+                for (shortName in listOf("f", "g", "e", "h", "d")) {
+                    val candidate = KavaMemberLookup.classOrNull(loader, "$SPEED_WIDGET_PKG.$shortName") ?: continue
+                    if (candidate !in this) add(candidate)
+                }
             }
         }
         val optionCandidates = lazy(LazyThreadSafetyMode.NONE) {
@@ -346,17 +356,30 @@ internal object PlayerSpeedLocator {
             }
         }
         val mediaResource = KavaMemberLookup.classOrNull(loader, MEDIA_RESOURCE)
-        val directFactory = if (mediaResource != null) {
-            speedMenuFactory(optionCandidates.value, mediaResource)
-        } else null
-        val factory = directFactory ?: if (mediaResource != null && hints?.factory != null && hints.optionClass != null) {
+        val cachedFactory = if (mediaResource != null && hints?.factory != null && hints.optionClass != null) {
             val candidates = listOfNotNull(
                 KavaMemberLookup.classOrNull(loader, hints.factory.className),
                 KavaMemberLookup.classOrNull(loader, hints.optionClass)
             ).distinct()
             speedMenuFactory(candidates, mediaResource)?.takeIf { hints.factory.matches(it.factoryMethod) }
         } else null
-        val directAdapter = adapterCandidates.mapNotNull { candidate ->
+        val factory = cachedFactory ?: if (mediaResource != null) {
+            speedMenuFactory(optionCandidates.value, mediaResource)
+        } else null
+        val cachedAdapter = hints?.adapter?.takeIf { point ->
+            !PlayerSpeedMenuAdapter.flattenedOwner(point.className) ||
+                widgetAdapter == null || point.className == widgetAdapter.name
+        }?.let { point ->
+            KavaMemberLookup.classOrNull(loader, point.className)?.let { owner ->
+                val cachedOptions = listOfNotNull(hints.optionClass?.let { KavaMemberLookup.classOrNull(loader, it) })
+                val fromCachedOptions = if (factory == null && cachedOptions.isNotEmpty()) {
+                    speedMenuAdapter(owner, recyclerAdapter, null) { cachedOptions }
+                } else null
+                (fromCachedOptions ?: speedMenuAdapter(owner, recyclerAdapter, factory) { optionCandidates.value })
+                    ?.takeIf { point.matches(it.populateMethod) }
+            }
+        }
+        val adapter = cachedAdapter ?: adapterCandidates.value.mapNotNull { candidate ->
             speedMenuAdapter(
                 adapterClass = candidate,
                 recyclerAdapter = recyclerAdapter,
@@ -364,21 +387,16 @@ internal object PlayerSpeedLocator {
                 optionCandidates = { optionCandidates.value }
             )
         }.singleOrNull()
-        val adapter = directAdapter ?: hints?.adapter?.takeIf { point ->
-            !PlayerSpeedMenuAdapter.flattenedOwner(point.className) ||
-                widgetAdapter == null || point.className == widgetAdapter.name
-        }?.let { point ->
-            KavaMemberLookup.classOrNull(loader, point.className)?.let { owner ->
-                speedMenuAdapter(owner, recyclerAdapter, factory) { optionCandidates.value }
-                    ?.takeIf { point.matches(it.populateMethod) }
-            }
-        }
         val resolvedFactory = factory ?: adapter?.let { point ->
             val ctor = point.optionConstructor
             val speedField = point.optionSpeedField
             val availField = point.optionAvailableField
             if (ctor != null && speedField != null && availField != null && mediaResource != null) {
-                speedMenuFactoryWithModel(optionCandidates.value, mediaResource, ctor, speedField, availField)
+                val cachedOptionOnly = hints?.optionClass?.let { KavaMemberLookup.classOrNull(loader, it) }
+                val fromHint = cachedOptionOnly?.let {
+                    speedMenuFactoryWithModel(listOf(it), mediaResource, ctor, speedField, availField)
+                }
+                fromHint ?: speedMenuFactoryWithModel(optionCandidates.value, mediaResource, ctor, speedField, availField)
             } else null
         }
         if (resolvedFactory == null && adapter == null) return null
@@ -394,10 +412,12 @@ internal object PlayerSpeedLocator {
                     KavaMemberLookup.declaredFields(field.type) { !it.isStatic && it.type == manager }.size == 1
             }.singleOrNull()?.type else null
             if (functionService != null && keelPlayer != null) {
-                val candidates = ('a'..'z').mapNotNull {
+                val cachedCompact = hints?.compactOwner
+                    ?.let { KavaMemberLookup.classOrNull(loader, it) }
+                    ?.let { speedMenuCompactRoute(it, functionService, keelPlayer) }
+                cachedCompact ?: ('a'..'z').mapNotNull {
                     KavaMemberLookup.classOrNull(loader, "$THESEUS_SPEED_PKG.$it")
-                } + listOfNotNull(hints?.compactOwner?.let { KavaMemberLookup.classOrNull(loader, it) })
-                candidates.distinct().mapNotNull { speedMenuCompactRoute(it, functionService, keelPlayer) }.singleOrNull()
+                }.distinct().mapNotNull { speedMenuCompactRoute(it, functionService, keelPlayer) }.singleOrNull()
             } else null
         } else null
         return SpeedMenuPoint(resolvedFactory, adapter, compactRoute)
