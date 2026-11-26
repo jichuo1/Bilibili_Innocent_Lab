@@ -138,6 +138,7 @@ internal class FrameCaptureBridge private constructor(
     private var power: FramePowerAdvisor? = null
     private val cadence = FrameSourceCadence(config.targetFps, interpolationRequired = config.interpolationRequired)
     private val native = AtomicBoolean(false)
+    private val restoring = AtomicBoolean(false)
     /** 实测 vsync（帧率上限自适应）：显式验证档位不测。 */
     private val vsync = FrameVsyncMeter()
     @Volatile private var limitedHz: Float? = null
@@ -149,10 +150,12 @@ internal class FrameCaptureBridge private constructor(
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
-            if (closed.get() || native.get()) return
+            if (closed.get() || native.get() || restoring.get()) return
             if (codecReference.get() == null || !isCurrent()) { close(); return }
             runCatching { drive(frameTimeNanos) }.onFailure { returnToNative("drive:${it.javaClass.simpleName}") }
-            Choreographer.getInstance().postFrameCallback(this)
+            if (!closed.get() && !native.get() && !restoring.get()) {
+                Choreographer.getInstance().postFrameCallback(this)
+            }
         }
     }
 
@@ -175,7 +178,11 @@ internal class FrameCaptureBridge private constructor(
             if (attach != null && isCurrent()) attach(display)
             return false
         }
-        driveHandler.post { Choreographer.getInstance().postFrameCallback(frameCallback) }
+        driveHandler.post {
+            if (!closed.get() && !native.get() && !restoring.get()) {
+                Choreographer.getInstance().postFrameCallback(frameCallback)
+            }
+        }
         host.log("bridge.start", "${width}x$height")
         return true
     }
@@ -198,6 +205,8 @@ internal class FrameCaptureBridge private constructor(
     /** 宿主 stop/release：拆除会话、断开 EGL；音频补偿归零。 */
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        restoring.set(true)
+        driveHandler.post { runCatching { Choreographer.getInstance().removeFrameCallback(frameCallback) } }
         capture.handler.post {
             if (isCurrent()) host.setAudioDelayUs(0L)
             session.close()
@@ -376,6 +385,7 @@ internal class FrameCaptureBridge private constructor(
 
     /** 管线主动放弃（准入失败、驱动异常）：经 Presenter 断开 EGL 后切回原生。 */
     private fun returnToNative(reason: String) {
+        if (!restoring.compareAndSet(false, true)) return
         if (native.get()) return
         nativeReason = reason
         host.log("bridge.native", reason)
@@ -388,7 +398,7 @@ internal class FrameCaptureBridge private constructor(
         if (!native.compareAndSet(false, true)) return
         audioDelayUs = 0L
         host.setAudioDelayUs(0L)
-        val decoder = codecReference.get()
+        val decoder: android.media.MediaCodec? = codecReference.get()
         val switched = decoder != null && (changeOutput?.invoke(display) ?: runCatching { decoder.setOutputSurface(display) }.isSuccess)
         host.log("bridge.restored", "${report.state}:${report.cause}:switched=$switched")
         // 温控/准入回退后本实例不会再恢复插帧；归还 RGB 账本、GL 线程与读回内存，避免闲置资源常驻。
@@ -396,8 +406,8 @@ internal class FrameCaptureBridge private constructor(
         // 系统实际刷新低于目标：解码器已回到显示 Surface，交给宿主按实测上限重新接管。
         val limit = limitedHz
         if (!isCurrent()) return
-        if (switched && decoder != null && limit != null) host.onDisplayLimited(decoder, limit)
-        else if (switched && decoder != null && rebuild) host.onRebuild(decoder)
+        if (decoder != null && switched && limit != null) host.onDisplayLimited(decoder, limit)
+        else if (decoder != null && switched && rebuild) host.onRebuild(decoder)
         // 降档与重建会按新目标重新接管并另报生效；其余回原生（本回调只在交还原生时发生）如实提示原因。
         else host.onStatus(FrameStatus.Inactive(nativeStatusReason(nativeReason)))
     }
@@ -517,14 +527,18 @@ internal class FrameCaptureBridge private constructor(
 
         /** 面板支持的刷新率（去重）；取不到时为空。 */
         internal fun displayModes(context: android.content.Context?): List<Float> = runCatching {
-            context!!.getSystemService(android.hardware.display.DisplayManager::class.java)
-                .getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes.map { it.refreshRate }.distinct()
+            context?.getSystemService(android.hardware.display.DisplayManager::class.java)
+                ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.supportedModes?.map { it.refreshRate }?.distinct()
+                ?: emptyList()
         }.getOrDefault(emptyList())
 
         /** 面板物理分辨率（长边, 短边）；取不到时为 (0, 0)，处理尺寸只受能力约束。 */
         private fun displaySize(context: android.content.Context?): Pair<Int, Int> = runCatching {
-            val manager = context!!.getSystemService(android.hardware.display.DisplayManager::class.java)
-            val modes = manager.getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes
+            val manager = context?.getSystemService(android.hardware.display.DisplayManager::class.java)
+                ?: return@runCatching 0 to 0
+            val modes = manager.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.supportedModes
+                ?: return@runCatching 0 to 0
+            if (modes.isEmpty()) return@runCatching 0 to 0
             val width = modes.maxOf { maxOf(it.physicalWidth, it.physicalHeight) }
             val height = modes.maxOf { minOf(it.physicalWidth, it.physicalHeight) }
             width to height

@@ -14,6 +14,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.Collections
@@ -94,8 +95,12 @@ internal class FrameInterpolationFeatureInstaller(
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled && !verificationAllowed) return skipped(environment, "disabled")
+        if (environment.processName != MAIN_PROCESS && environment.processName != PLAYER_PROCESS) {
+            return skipped(environment, "non-main-process")
+        }
         val loader = environment.classLoader ?: return skipped(environment, "missing-class-loader")
         val apk = moduleApk ?: return skipped(environment, "missing-module-apk")
+        ModuleNativeLoader.registerModuleApk(apk.path)
         this.environment = environment
         playerProcess = environment.processName == PLAYER_PROCESS
         val adapter = runCatching { Class.forName(ADAPTER, false, loader) }.getOrNull()
@@ -127,13 +132,32 @@ internal class FrameInterpolationFeatureInstaller(
                             attributes.preferredRefreshRate,
                             if (android.os.Build.VERSION.SDK_INT >= 35) window.decorView.requestedFrameRate else null))
                         attributes.preferredRefreshRate = target.toFloat()
-                        @Suppress("DEPRECATION")
-                        val display = activity.windowManager.defaultDisplay
-                        attributes.preferredDisplayModeId = display.supportedModes.firstOrNull {
-                            kotlin.math.abs(it.refreshRate - target) < .1f &&
-                                it.physicalWidth == display.mode.physicalWidth &&
-                                it.physicalHeight == display.mode.physicalHeight
-                        }?.modeId ?: 0
+                        val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            activity.display
+                        } else {
+                            @Suppress("DEPRECATION")
+                            activity.windowManager?.defaultDisplay
+                        } ?: activity.getSystemService(android.hardware.display.DisplayManager::class.java)
+                            ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+                        val currentMode = display?.mode
+                        val supportedModes = display?.supportedModes
+                        attributes.preferredDisplayModeId = if (currentMode != null && supportedModes != null) {
+                            selectPreferredDisplayModeId(
+                                supportedModes.map {
+                                    DisplayModeCandidate(
+                                        it.modeId,
+                                        it.physicalWidth,
+                                        it.physicalHeight,
+                                        it.refreshRate
+                                    )
+                                },
+                                currentMode.physicalWidth,
+                                currentMode.physicalHeight,
+                                target
+                            )
+                        } else {
+                            0
+                        }
                         window.attributes = attributes
                         if (android.os.Build.VERSION.SDK_INT >= 35) window.decorView.requestedFrameRate = target.toFloat()
                         displayProbes.remove(activity)?.let { runCatching { it.close() } }
@@ -402,7 +426,7 @@ internal class FrameInterpolationFeatureInstaller(
         return FeatureInstallResult.Installed(hooks, complete = complete)
     }
 
-    /** ijk 经 J4A 用旧式 6 参构造创建 PCM 输出；只有这些轨道参与音画补偿。 */
+    /** ijk 经 J4A 用旧式 6 参构造创建 PCM 输出；现代播放器走 AudioAttributes 5 参构造，均纳入音画补偿。 */
     private fun installAudio(registrar: com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar) {
         val int = Int::class.javaPrimitiveType!!
         val constructor = AudioTrack::class.java.getConstructor(int, int, int, int, int, int)
@@ -417,6 +441,31 @@ internal class FrameInterpolationFeatureInstaller(
                 audioRates[track] = rate
             }
         }
+        runCatching {
+            val modernConstructor = AudioTrack::class.java.getConstructor(
+                android.media.AudioAttributes::class.java,
+                android.media.AudioFormat::class.java,
+                int, int, int
+            )
+            registrar.constructor("$ID.audio.ctor.attrs", modernConstructor) {
+                after {
+                    if (hasThrowable) return@after
+                    val track = instance as? AudioTrack ?: return@after
+                    val attributes = argOrNull(0) as? android.media.AudioAttributes ?: return@after
+                    val format = argOrNull(1) as? android.media.AudioFormat ?: return@after
+                    if (attributes.usage != android.media.AudioAttributes.USAGE_MEDIA) return@after
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
+                        track.isOffloadedPlayback) {
+                        return@after
+                    }
+                    val bytes = when (format.encoding) { 2 -> 2; 3 -> 1; 4 -> 4; else -> return@after }
+                    val channels = format.channelCount.takeIf { it in 1..2 } ?: return@after
+                    val rate = format.sampleRate.takeIf { it > 0 } ?: return@after
+                    runCatching { FrameAudioDelay(rate, channels, bytes) }.getOrNull()?.let { audioTracks[track] = it }
+                    audioRates[track] = rate
+                }
+            }
+        }.onFailure { log("hook.missing", "audio.ctor.attrs") }
         installAudioClock(registrar)
         val bytes = ByteArray::class.java
         for (parameters in listOf(arrayOf(bytes, int, int), arrayOf(bytes, int, int, int))) {
@@ -428,18 +477,19 @@ internal class FrameInterpolationFeatureInstaller(
                     val track = instance as? AudioTrack ?: return@before
                     val delay = audioTracks[track] ?: return@before
                     delay.setTargetDelayUs(audioDelayUs)
+                    val offset = (argOrNull(1) as? Int) ?: return@before
                     val size = (argOrNull(2) as? Int) ?: return@before
                     val plan = delay.onWrite(size)
                     if (plan.silenceBytes > 0) {
                         writingSilence.set(true)
                         try { track.write(ByteArray(plan.silenceBytes), 0, plan.silenceBytes, AudioTrack.WRITE_BLOCKING) }
-                        finally { writingSilence.set(false) }
+                        finally { writingSilence.remove() }
                     }
                     if (plan.dropBytes > 0) {
                         // 整段被追回：不调用原方法，向宿主报告全部写入，宿主自身的计数保持不变。
                         if (plan.dropBytes >= size) { result = size; return@before }
                         setObjectExtra(DROPPED, plan.dropBytes)
-                        args[1] = (argOrNull(1) as Int) + plan.dropBytes
+                        args[1] = offset + plan.dropBytes
                         args[2] = size - plan.dropBytes
                     }
                 }
@@ -453,6 +503,15 @@ internal class FrameInterpolationFeatureInstaller(
         registrar.exact("$ID.audio.flush", AudioTrack::class.java, "flush") {
             before { (instance as? AudioTrack)?.let { audioTracks[it]?.onFlush() } }
         }
+        runCatching {
+            registrar.exact("$ID.audio.release", AudioTrack::class.java, "release") {
+                after {
+                    val track = instance as? AudioTrack ?: return@after
+                    audioTracks.remove(track)
+                    audioRates.remove(track)
+                }
+            }
+        }.onFailure { log("hook.missing", "audio.release") }
     }
 
     /**
@@ -716,9 +775,9 @@ internal class FrameInterpolationFeatureInstaller(
                 // 能力测量到面板分辨率为止：面板达 4K 才测 3840×2160（4K 测量本身约占 500 MB 显存池）。
                 val panelLong = runCatching {
                     host.getSystemService(android.hardware.display.DisplayManager::class.java)
-                        .getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes
-                        .maxOf { maxOf(it.physicalWidth, it.physicalHeight) }
-                }.getOrDefault(0)
+                        ?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.supportedModes
+                        ?.maxOfOrNull { maxOf(it.physicalWidth, it.physicalHeight) }
+                }.getOrNull() ?: 0
                 val sizes = listOf(1280 to 720, 1920 to 1080, 2560 to 1440) +
                     (if (panelLong >= 3840) listOf(3840 to 2160) else emptyList())
                 val modePolicy = FrameInterpolationModePolicy(forceMode, forcedMode)
@@ -829,12 +888,20 @@ internal class FrameInterpolationFeatureInstaller(
         return FeatureInstallResult.Skipped(reason)
     }
 
+    internal data class DisplayModeCandidate(
+        val modeId: Int,
+        val physicalWidth: Int,
+        val physicalHeight: Int,
+        val refreshRate: Float
+    )
+
     companion object {
         const val ID = "player_frame_interpolation"
         private const val STATUS = "player_frame_interpolation"
         private const val ADAPTER = "tv.danmaku.videoplayer.coreV2.adapter.ijk.IjkMediaPlayAdapter"
         private const val PLAYER = "tv.danmaku.ijk.media.player.IjkMediaPlayer"
         private const val VERIFY_DIR = "innocent-frame-verify"
+        private const val MAIN_PROCESS = "tv.danmaku.bili"
         private const val PLAYER_PROCESS = "tv.danmaku.bili:ijkservice"
         private const val CLIENT = "tv.danmaku.ijk.media.player.services.IjkMediaPlayerClient"
         private const val VERIFY_TAG = "InnocentFrame"
@@ -845,5 +912,27 @@ internal class FrameInterpolationFeatureInstaller(
         private const val STOP_BRIDGE = "innocent.frame.stop.bridge"
         private const val DROPPED = "innocent.frame.audio.dropped"
         private const val STATUS_REPEAT_NS = 4_000_000_000L
+
+        internal fun selectPreferredDisplayModeId(
+            modes: List<DisplayModeCandidate>,
+            physicalWidth: Int,
+            physicalHeight: Int,
+            target: Int
+        ): Int {
+            val matchingSize = modes.filter {
+                it.physicalWidth == physicalWidth &&
+                    it.physicalHeight == physicalHeight &&
+                    it.refreshRate.isFinite() &&
+                    it.refreshRate >= target - 0.5f
+            }
+            if (matchingSize.isEmpty()) return 0
+            val integerMultiple = matchingSize.filter { mode ->
+                val ratio = mode.refreshRate / target
+                val nearest = kotlin.math.round(ratio)
+                nearest >= 1f && kotlin.math.abs(ratio - nearest) < 0.02f
+            }.minByOrNull { kotlin.math.abs(it.refreshRate - target) }
+            if (integerMultiple != null) return integerMultiple.modeId
+            return matchingSize.minByOrNull { it.refreshRate }?.modeId ?: 0
+        }
     }
 }

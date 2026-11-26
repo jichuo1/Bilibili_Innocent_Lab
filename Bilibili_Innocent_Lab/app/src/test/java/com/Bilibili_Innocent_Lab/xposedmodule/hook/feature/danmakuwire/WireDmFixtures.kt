@@ -193,17 +193,45 @@ internal class WireReply(
         }
 
         private fun decodeColorful(payload: ByteArray): WireColorful {
-            if (payload.isEmpty()) return WireColorful(null)
-            var value = 0L
-            var shift = 0
+            var type: Int? = null
             var pos = 0
-            while (true) {
-                val b = payload[pos++].toLong() and 0xff
-                value = value or ((b and 0x7f) shl shift)
-                if (b and 0x80 == 0L) break
-                shift += 7
+            while (pos < payload.size) {
+                var v = 0L
+                var shift = 0
+                while (true) {
+                    val b = payload[pos++].toLong() and 0xff
+                    v = v or ((b and 0x7f) shl shift)
+                    if (b and 0x80 == 0L) break
+                    shift += 7
+                }
+                val field = (v ushr 3).toInt()
+                when (val wt = (v and 7).toInt()) {
+                    0 -> {
+                        var value = 0L
+                        var s2 = 0
+                        while (true) {
+                            val b = payload[pos++].toLong() and 0xff
+                            value = value or ((b and 0x7f) shl s2)
+                            if (b and 0x80 == 0L) break
+                            s2 += 7
+                        }
+                        if (field == 2) type = value.toInt()
+                    }
+                    2 -> {
+                        var len = 0
+                        var s3 = 0
+                        while (true) {
+                            val b = payload[pos++].toLong() and 0xff
+                            len = len or (((b and 0x7f) shl s3).toInt())
+                            if (b and 0x80 == 0L) break
+                            s3 += 7
+                        }
+                        pos += len
+                    }
+                    else -> error("unsupported wire type $wt in fixture colorful")
+                }
             }
-            return WireColorful(value.toInt())
+            return WireColorful(type)
         }
 
         private val DEFAULT = WireReply()

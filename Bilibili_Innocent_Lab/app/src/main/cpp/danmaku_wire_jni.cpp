@@ -120,44 +120,60 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
         return nullptr;
     }
     // jboolean 是单字节 0/1，可直接当 u8 位图交给 Rust。
-    auto* keep = reinterpret_cast<const uint8_t*>(env->GetBooleanArrayElements(keepElem, nullptr));
-    auto* recolor = reinterpret_cast<const uint8_t*>(env->GetBooleanArrayElements(recolorElem, nullptr));
-    auto* keepSrcBytes = reinterpret_cast<const uint8_t*>(env->GetBooleanArrayElements(keepSrc, nullptr));
-    if (keep == nullptr || recolor == nullptr || keepSrcBytes == nullptr) {
+    jboolean* keepRaw = env->GetBooleanArrayElements(keepElem, nullptr);
+    if (keepRaw == nullptr) {
         clearPending(env);
+        env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
+        return nullptr;
     }
+    jboolean* recolorRaw = env->GetBooleanArrayElements(recolorElem, nullptr);
+    if (recolorRaw == nullptr) {
+        clearPending(env);
+        env->ReleaseBooleanArrayElements(keepElem, keepRaw, JNI_ABORT);
+        env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
+        return nullptr;
+    }
+    jboolean* keepSrcRaw = env->GetBooleanArrayElements(keepSrc, nullptr);
+    if (keepSrcRaw == nullptr) {
+        clearPending(env);
+        env->ReleaseBooleanArrayElements(recolorElem, recolorRaw, JNI_ABORT);
+        env->ReleaseBooleanArrayElements(keepElem, keepRaw, JNI_ABORT);
+        env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
+        return nullptr;
+    }
+    const auto* keep = reinterpret_cast<const uint8_t*>(keepRaw);
+    const auto* recolor = reinterpret_cast<const uint8_t*>(recolorRaw);
+    const auto* keepSrcBytes = reinterpret_cast<const uint8_t*>(keepSrcRaw);
     jbyteArray result = nullptr;
-    if (keep != nullptr && recolor != nullptr && keepSrcBytes != nullptr) {
-        // 六字段统一传全：Rust 侧 rewrite 只用其中三个，但签名与 scan 对齐，
-        // 避免将来扩展时留下"0 号字段静默失效"的陷阱。
-        const DwFields fields = makeFields(elemsField, weightField, colorfulField, contentField, srcField, srcTypeField);
-        uint8_t* rewriteOut = nullptr;
-        size_t rewriteLen = 0;
-        const int32_t code = dw_rewrite(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(replyLen),
-                                        &fields,
-                                        keep, static_cast<size_t>(keepLen),
-                                        recolor, static_cast<size_t>(recolorLen),
-                                        keepSrcBytes, static_cast<size_t>(srcLen),
-                                        &rewriteOut, &rewriteLen);
-        if (code == 0 && rewriteLen <= static_cast<size_t>(INT32_MAX)) {
-            // 空输出（rewriteOut==null && len==0）对空输入是合法结果。
-            result = env->NewByteArray(static_cast<jsize>(rewriteLen));
-            if (result == nullptr) {
+    // 六字段统一传全：Rust 侧 rewrite 只用其中三个，但签名与 scan 对齐，
+    // 避免将来扩展时留下"0 号字段静默失效"的陷阱。
+    const DwFields fields = makeFields(elemsField, weightField, colorfulField, contentField, srcField, srcTypeField);
+    uint8_t* rewriteOut = nullptr;
+    size_t rewriteLen = 0;
+    const int32_t code = dw_rewrite(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(replyLen),
+                                    &fields,
+                                    keep, static_cast<size_t>(keepLen),
+                                    recolor, static_cast<size_t>(recolorLen),
+                                    keepSrcBytes, static_cast<size_t>(srcLen),
+                                    &rewriteOut, &rewriteLen);
+    if (code == 0 && rewriteLen <= static_cast<size_t>(INT32_MAX)) {
+        // 空输出（rewriteOut==null && len==0）对空输入是合法结果。
+        result = env->NewByteArray(static_cast<jsize>(rewriteLen));
+        if (result == nullptr) {
+            clearPending(env);
+        } else if (rewriteOut != nullptr) {
+            env->SetByteArrayRegion(result, 0, static_cast<jsize>(rewriteLen),
+                                    reinterpret_cast<const jbyte*>(rewriteOut));
+            if (env->ExceptionCheck()) {
                 clearPending(env);
-            } else if (rewriteOut != nullptr) {
-                env->SetByteArrayRegion(result, 0, static_cast<jsize>(rewriteLen),
-                                        reinterpret_cast<const jbyte*>(rewriteOut));
-                if (env->ExceptionCheck()) {
-                    clearPending(env);
-                    result = nullptr;
-                }
+                result = nullptr;
             }
         }
-        if (rewriteOut != nullptr) dw_free_u8(rewriteOut, rewriteLen);
     }
+    if (rewriteOut != nullptr) dw_free_u8(rewriteOut, rewriteLen);
     env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
-    if (keep != nullptr) env->ReleaseBooleanArrayElements(keepElem, const_cast<jboolean*>(reinterpret_cast<const jboolean*>(keep)), JNI_ABORT);
-    if (recolor != nullptr) env->ReleaseBooleanArrayElements(recolorElem, const_cast<jboolean*>(reinterpret_cast<const jboolean*>(recolor)), JNI_ABORT);
-    if (keepSrcBytes != nullptr) env->ReleaseBooleanArrayElements(keepSrc, const_cast<jboolean*>(reinterpret_cast<const jboolean*>(keepSrcBytes)), JNI_ABORT);
+    env->ReleaseBooleanArrayElements(keepElem, keepRaw, JNI_ABORT);
+    env->ReleaseBooleanArrayElements(recolorElem, recolorRaw, JNI_ABORT);
+    env->ReleaseBooleanArrayElements(keepSrc, keepSrcRaw, JNI_ABORT);
     return result;
 }

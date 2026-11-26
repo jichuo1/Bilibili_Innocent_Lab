@@ -1,20 +1,28 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets
 
+import android.system.ErrnoException
+import android.system.Os
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.WRITE
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 /** Only fixed filenames under an app-owned root. All writers use unique temporary files + atomic replacement. */
-internal class AudioAssetStore(root: File, private val hostAbi: String? = null) {
+internal class AudioAssetStore(
+    root: File,
+    private val hostAbi: String? = null,
+    private val posixChmod: ((Path, Int) -> Unit)? = null
+) {
     val directory: File
     init {
         val parent = root.canonicalFile.toPath()
@@ -23,6 +31,7 @@ internal class AudioAssetStore(root: File, private val hostAbi: String? = null) 
         val path = parent.resolve("bil-audio-${AudioAssetSpec.ID}" + (hostAbi?.let { "-$it" } ?: ""))
         Files.createDirectories(path)
         if (Files.isSymbolicLink(path) || path.toRealPath().parent != parent) throw AudioAssetFailure("unsafe_directory")
+        enforcePosixMode(path, MODE_DIR)
         directory = path.toFile()
     }
     fun file(part: AudioAsset) = File(directory, if (hostAbi == null) part.remoteName else part.name)
@@ -34,7 +43,10 @@ internal class AudioAssetStore(root: File, private val hostAbi: String? = null) 
 
     fun install(part: AudioAsset, input: () -> InputStream): File {
         val target = file(part)
-        if (valid(part)) return target
+        if (valid(part)) {
+            enforcePosixMode(target.toPath(), MODE_FILE)
+            return target
+        }
         val temporary = Files.createTempFile(directory.toPath(), ".audio-", ".part")
         try {
             input().use { source ->
@@ -44,13 +56,39 @@ internal class AudioAssetStore(root: File, private val hostAbi: String? = null) 
                     channel.force(true)
                 }
             }
+            enforcePosixMode(temporary, MODE_FILE)
             synchronized(publicationLock) {
                 // Another writer may have published the verified asset while this copy was prepared.
                 // Avoid replacing that file while its caller is already reading it.
                 if (!valid(part)) Files.move(temporary, target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+                else enforcePosixMode(target.toPath(), MODE_FILE)
             }
             return target
         } finally { Files.deleteIfExists(temporary) }
+    }
+
+    private fun enforcePosixMode(path: Path, mode: Int) {
+        if (hostAbi == null) return
+        val custom = posixChmod
+        if (custom != null) {
+            custom(path, mode)
+            return
+        }
+        if (isWindows()) return
+        try {
+            Os.chmod(path.toString(), mode)
+        } catch (failure: RuntimeException) {
+            if (failure.message == "Stub!") {
+                val permissions = PosixFilePermissions.fromString(
+                    if (mode == MODE_DIR) "rwx------" else "r--------"
+                )
+                Files.setPosixFilePermissions(path, permissions)
+            } else {
+                throw AudioAssetFailure("chmod_failed", path.fileName?.toString().orEmpty(), cause = failure)
+            }
+        } catch (failure: ErrnoException) {
+            throw AudioAssetFailure("chmod_failed", path.fileName?.toString().orEmpty(), cause = failure)
+        }
     }
 
     /** Fixed archive entries only; never extract archive-supplied paths or dex/classes. */
@@ -79,8 +117,12 @@ internal class AudioAssetStore(root: File, private val hostAbi: String? = null) 
     }
 
     companion object {
+        internal const val MODE_FILE = 0x100
+        internal const val MODE_DIR = 0x1C0
         private val processLock = Any()
         private val publicationLock = Any()
+        private fun isWindows(): Boolean =
+            System.getProperty("os.name", "").orEmpty().startsWith("Windows", ignoreCase = true)
         fun verify(part: AudioAsset, input: InputStream, output: OutputStream? = null, progress: (Long) -> Unit = {}) {
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(64 * 1024)

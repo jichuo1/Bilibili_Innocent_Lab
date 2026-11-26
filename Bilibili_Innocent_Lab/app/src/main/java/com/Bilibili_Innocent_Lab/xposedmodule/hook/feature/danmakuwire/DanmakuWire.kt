@@ -82,9 +82,8 @@ internal object DanmakuWire {
         return Scan(elems, srcs)
     }
 
-    private class Cursor(val buf: ByteArray) {
-        var pos = 0
-        fun remaining() = buf.size - pos
+    private class Cursor(val buf: ByteArray, var pos: Int = 0, val limit: Int = buf.size) {
+        fun remaining() = limit - pos
         fun take(len: Int): Int? {
             if (len < 0 || remaining() < len) return null
             val start = pos
@@ -112,10 +111,10 @@ internal object DanmakuWire {
             if (field == 0 || raw ushr 32 != 0L) return null
             return field to wt
         }
-        /** 长度先比后转：32 位 JVM 上 Long→Int 回绕必须先拒绝。 */
+        /** 长度先比后转：有符号 Long 负值与 32 位 JVM Long→Int 回绕必须先拒绝。 */
         fun delimited(): Int? {
             val len = varint() ?: return null
-            if (len > remaining()) return null
+            if (len < 0L || len > remaining()) return null
             return len.toInt()
         }
         fun skipPayload(wt: Int): Boolean = when (wt) {
@@ -128,8 +127,7 @@ internal object DanmakuWire {
     }
 
     private fun scanElem(buf: ByteArray, from: Int, to: Int, f: DanmakuWireFields): ElemSignal? {
-        val cur = Cursor(buf)
-        cur.pos = from
+        val cur = Cursor(buf, from, to)
         var weight: Int? = null
         var colorful: Int? = null
         var contentStart = -1
@@ -138,8 +136,8 @@ internal object DanmakuWire {
         while (cur.pos < to) {
             val (field, wt) = cur.tag() ?: return null
             when {
-                field == f.weightField && wt == 0 -> weight = cur.varint()?.toInt()
-                field == f.colorfulField && wt == 0 -> colorful = cur.varint()?.toInt()
+                field == f.weightField && wt == 0 -> weight = (cur.varint() ?: return null).toInt()
+                field == f.colorfulField && wt == 0 -> colorful = (cur.varint() ?: return null).toInt()
                 field == f.contentField && wt == 2 -> {
                     val len = cur.delimited() ?: return null
                     val start = cur.take(len) ?: return null
@@ -149,25 +147,24 @@ internal object DanmakuWire {
                 }
                 else -> if (!cur.skipPayload(wt)) return null
             }
-            if (cur.pos > to) return null
         }
+        if (cur.pos != to) return null
         return ElemSignal(weight, colorful, contentStart, contentLen, hasContent)
     }
 
     /** 返回 (是否解析成功, type 值)：无 type 字段是合法状态（kind=null），不能与拒绝混叠。 */
     private fun scanSrc(buf: ByteArray, from: Int, to: Int, f: DanmakuWireFields): Pair<Boolean, Int?> {
-        val cur = Cursor(buf)
-        cur.pos = from
+        val cur = Cursor(buf, from, to)
         var kind: Int? = null
         while (cur.pos < to) {
             val (field, wt) = cur.tag() ?: return false to null
             if (field == f.colorfulTypeField && wt == 0) {
-                kind = cur.varint()?.toInt()
+                kind = (cur.varint() ?: return false to null).toInt()
             } else if (!cur.skipPayload(wt)) {
                 return false to null
             }
-            if (cur.pos > to) return false to null
         }
+        if (cur.pos != to) return false to null
         return true to kind
     }
 
@@ -243,8 +240,7 @@ internal object DanmakuWire {
     private fun rewriteElem(
         buf: ByteArray, from: Int, to: Int, f: DanmakuWireFields, out: ByteArrayOutput,
     ): Boolean {
-        val cur = Cursor(buf)
-        cur.pos = from
+        val cur = Cursor(buf, from, to)
         var colorfulSeen = 0
         while (cur.pos < to) {
             val start = cur.pos
@@ -261,7 +257,7 @@ internal object DanmakuWire {
                 out.write(buf, start, cur.pos - start)
             }
         }
-        return true
+        return cur.pos == to
     }
 
     fun rewrite(

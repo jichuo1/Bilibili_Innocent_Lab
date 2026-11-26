@@ -18,7 +18,7 @@ internal class FrameSourceCadence(
     private var gaps = 0L
     private var frames = 0L
 
-    fun add(ptsUs: Long) {
+    @Synchronized fun add(ptsUs: Long) {
         frames++
         val previous = lastPts
         lastPts = ptsUs
@@ -32,11 +32,11 @@ internal class FrameSourceCadence(
     }
 
     /** 重新开始（seek/不连续）：间隔历史作废，缺帧计数保留供诊断。 */
-    fun reset() { lastPts = Long.MIN_VALUE }
+    @Synchronized fun reset() { lastPts = Long.MIN_VALUE }
 
-    fun sourceFps(): Double? = medianUs()?.let { 1_000_000.0 / it }
+    @Synchronized fun sourceFps(): Double? = medianUs()?.let { 1_000_000.0 / it }
 
-    fun verdict(): Verdict {
+    @Synchronized fun verdict(): Verdict {
         if (intervals.size < minSamples) return Verdict.PENDING
         val fps = sourceFps() ?: return Verdict.PENDING
         val ratio = targetFps / fps
@@ -46,7 +46,7 @@ internal class FrameSourceCadence(
             else Verdict.UNSUITABLE
     }
 
-    fun describe(): String = "%.2ffps frames=%d gaps=%d".format(sourceFps() ?: 0.0, frames, gaps)
+    @Synchronized fun describe(): String = "%.2ffps frames=%d gaps=%d".format(sourceFps() ?: 0.0, frames, gaps)
 
     private fun medianUs(): Long? = if (intervals.isEmpty()) null else intervals.sorted()[intervals.size / 2]
 

@@ -111,7 +111,7 @@ internal object FrameGpuCapabilityProbe {
 
     private fun probeQcomMotionLibrary(): Boolean = runCatching {
         Class.forName("io.github.jichuo1.meguviz.media.GlesMotionWarp")
-        System.loadLibrary("meguviz_qcom_motion")
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader.load("meguviz_qcom_motion")
         true
     }.getOrDefault(false)
 }

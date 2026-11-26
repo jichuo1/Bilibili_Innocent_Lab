@@ -15,9 +15,24 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         val originalBuffer: ByteBuffer?,
         val originalPosition: Int,
         internal val input: FloatArray,
+        internal val output: FloatArray,
         internal val checkpoint: DoubleArray,
+        internal val postCheckpoint: DoubleArray,
         internal val samplesPerUnit: Double
     )
+    private class Continuation(
+        val remainingInput: FloatArray,
+        val remainingOutput: FloatArray,
+        val postCheckpoint: DoubleArray
+    )
+
+    private var reusableInput: FloatArray? = null
+    private var reusableOutput: FloatArray? = null
+    private var reusableShorts: ShortArray? = null
+    private var reusableBytes: ByteArray? = null
+    private var reusableBytesWrapper: ByteBuffer? = null
+    private var reusableBuffer: ByteBuffer? = null
+    private var continuation: Continuation? = null
 
     fun prepare(data: Any?, offset: Int, count: Int): Pending? {
         if (offset < 0 || count <= 0 || count > MAX_UNITS) return null
@@ -29,46 +44,76 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
             is ByteArray -> {
                 if (encoding == 4 || offset > data.size - count || count % (bytesPerSample * processor.channelCount) != 0) return null
                 val buffer = ByteBuffer.wrap(data, offset, count).slice().order(ByteOrder.nativeOrder())
-                input = decode(buffer, count / bytesPerSample); units = 1.0 / bytesPerSample
+                val sampleCount = count / bytesPerSample
+                input = acquireInput(sampleCount)
+                decodeInto(buffer, input, sampleCount)
+                units = 1.0 / bytesPerSample
             }
             is ShortArray -> {
                 if (encoding != 2 || offset > data.size - count || count % processor.channelCount != 0) return null
-                input = FloatArray(count) { data[offset + it] / 32768f }; units = 1.0
+                input = acquireInput(count)
+                for (i in 0 until count) input[i] = data[offset + i] / 32768f
+                units = 1.0
             }
             is FloatArray -> {
                 if (encoding != 4 || offset > data.size - count || count % processor.channelCount != 0) return null
-                input = data.copyOfRange(offset, offset + count); units = 1.0
+                input = acquireInput(count)
+                System.arraycopy(data, offset, input, 0, count)
+                units = 1.0
             }
             is ByteBuffer -> {
                 if (count > data.remaining() || count % (bytesPerSample * processor.channelCount) != 0) return null
                 val buffer = data.duplicate().order(ByteOrder.nativeOrder())
-                input = decode(buffer, count / bytesPerSample); units = 1.0 / bytesPerSample
+                val sampleCount = count / bytesPerSample
+                input = acquireInput(sampleCount)
+                decodeInto(buffer, input, sampleCount)
+                units = 1.0 / bytesPerSample
             }
             else -> return null
         }
         val checkpoint = processor.checkpoint()
-        val output = input.copyOf()
-        try {
-            processor.process(output)
-            val replacement: Any = when (data) {
-                is ShortArray -> ShortArray(count) { pcm16(output[it]) }
-                is FloatArray -> output
-                else -> {
-                    val buffer = ByteBuffer.allocate(count).order(ByteOrder.nativeOrder())
-                    for (sample in output) when (encoding) {
-                        2 -> buffer.putShort(pcm16(sample))
-                        3 -> buffer.put((sample * 128 + 128).roundToInt().coerceIn(0, 255).toByte())
-                        4 -> buffer.putFloat(sample)
-                    }
-                    buffer.flip()
-                    if (data is ByteBuffer) buffer else buffer.array()
-                }
+        val output = acquireOutput(input.size)
+        val cached = continuation
+        continuation = null
+        val postCheckpoint: DoubleArray
+        if (cached != null && input.contentEquals(cached.remainingInput)) {
+            cached.remainingOutput.copyInto(output)
+            processor.restore(cached.postCheckpoint)
+            postCheckpoint = cached.postCheckpoint
+        } else {
+            input.copyInto(output)
+            try {
+                processor.process(output)
+            } catch (failure: Throwable) {
+                processor.restore(checkpoint)
+                throw failure
             }
-            return Pending(replacement, count, original, original?.position() ?: 0, input, checkpoint, units)
-        } catch (failure: Throwable) {
-            processor.restore(checkpoint)
-            throw failure
+            postCheckpoint = processor.checkpoint()
         }
+        val replacement: Any = when (data) {
+            is ShortArray -> {
+                val target = reusableShorts?.takeIf { it.size == count }
+                    ?: ShortArray(count).also { reusableShorts = it }
+                for (i in 0 until count) target[i] = pcm16(output[i])
+                target
+            }
+            is FloatArray -> output
+            is ByteBuffer -> {
+                val buffer = reusableBuffer?.takeIf { it.capacity() >= count }
+                    ?.apply { clear(); limit(count); order(ByteOrder.nativeOrder()) }
+                    ?: ByteBuffer.allocate(count).order(ByteOrder.nativeOrder()).also { reusableBuffer = it }
+                encodeSamples(output, buffer)
+                buffer.flip()
+                buffer
+            }
+            else -> {
+                val target = acquireBytes(count)
+                val buffer = reusableBytesWrapper!!.apply { clear(); order(ByteOrder.nativeOrder()) }
+                encodeSamples(output, buffer)
+                target
+            }
+        }
+        return Pending(replacement, count, original, original?.position() ?: 0, input, output, checkpoint, postCheckpoint, units)
     }
 
     /** Never rewrite the return value. Android advances only the private replacement buffer. */
@@ -77,10 +122,32 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         val units = if (valid) accepted else 0
         if (units != pending.count) {
             processor.restore(pending.checkpoint)
-            val samples = (units * pending.samplesPerUnit).toInt()
-            processor.process(pending.input, samples / processor.channelCount)
+            val rawSamples = units * pending.samplesPerUnit
+            val samples = rawSamples.toInt()
+            val frames = samples / processor.channelCount
+            val alignedSamples = frames * processor.channelCount
+            processor.process(pending.input, frames)
+            val exactSlice = units == 0 || (rawSamples == alignedSamples.toDouble() && alignedSamples < pending.output.size)
+            continuation = if (valid && exactSlice) {
+                Continuation(
+                    remainingInput = pending.input.copyOfRange(alignedSamples, pending.input.size),
+                    remainingOutput = pending.output.copyOfRange(alignedSamples, pending.output.size),
+                    postCheckpoint = pending.postCheckpoint
+                )
+            } else {
+                null
+            }
+        } else {
+            continuation = null
         }
-        if (valid) pending.originalBuffer?.position(pending.originalPosition + units)
+        if (valid) {
+            pending.originalBuffer?.let { buffer ->
+                val target = pending.originalPosition.toLong() + units.toLong()
+                if (target in 0L..buffer.limit().toLong()) {
+                    buffer.position(target.toInt())
+                }
+            }
+        }
     }
 
     /** Debug-only evidence of the exact accepted, encoded prefix; never retains PCM or alters
@@ -127,11 +194,36 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
             kotlin.math.sqrt(inputEnergy / samples), kotlin.math.sqrt(outputEnergy / samples))
     }
 
-    private fun decode(buffer: ByteBuffer, size: Int) = FloatArray(size) {
-        when (encoding) {
-            2 -> buffer.short / 32768f
-            3 -> ((buffer.get().toInt() and 255) - 128) / 128f
-            else -> buffer.float
+    private fun acquireInput(size: Int): FloatArray =
+        reusableInput?.takeIf { it.size == size } ?: FloatArray(size).also { reusableInput = it }
+
+    private fun acquireOutput(size: Int): FloatArray =
+        reusableOutput?.takeIf { it.size == size } ?: FloatArray(size).also { reusableOutput = it }
+
+    private fun acquireBytes(size: Int): ByteArray {
+        val existing = reusableBytes
+        if (existing != null && existing.size == size) return existing
+        return ByteArray(size).also {
+            reusableBytes = it
+            reusableBytesWrapper = ByteBuffer.wrap(it).order(ByteOrder.nativeOrder())
+        }
+    }
+
+    private fun encodeSamples(output: FloatArray, buffer: ByteBuffer) {
+        for (sample in output) when (encoding) {
+            2 -> buffer.putShort(pcm16(sample))
+            3 -> buffer.put((sample * 128 + 128).roundToInt().coerceIn(0, 255).toByte())
+            4 -> buffer.putFloat(sample)
+        }
+    }
+
+    private fun decodeInto(buffer: ByteBuffer, target: FloatArray, size: Int) {
+        for (i in 0 until size) {
+            target[i] = when (encoding) {
+                2 -> buffer.short / 32768f
+                3 -> ((buffer.get().toInt() and 255) - 128) / 128f
+                else -> buffer.float
+            }
         }
     }
 

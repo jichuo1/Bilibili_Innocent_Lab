@@ -1,10 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
+
 /**
  * `libinnocent_danmaku_wire.so` 的加载闩锁与 JNI 入口。
  *
  * 与 DexMeguviz（`DexMeguvizAssistEngine`）同一范式：`NOT_TRIED/AVAILABLE/UNAVAILABLE` 三态、
- * 一次性 `System.loadLibrary`、失败永不重试不抛出。加载与首次探测只发生在安装期，
+ * 一次性 `ModuleNativeLoader.load`、失败永不重试不抛出。加载与首次探测只发生在安装期，
  * 弹幕回调热路径上只读一个 volatile 状态。ABI 版本不符同样视为不可用（新旧 .so/类
  * 混装时不猜）。所有包装方法捕获 Throwable：符号缺失（R8 keep 失效）、加载期 OOM、
  * 垫片折算的拒绝（返回 null）都折叠成"本次不可用"，由安装器回退下一层。
@@ -36,7 +38,7 @@ internal object DanmakuWireNative {
             synchronized(this) {
                 if (state == NOT_TRIED) {
                     state = try {
-                        System.loadLibrary("innocent_danmaku_wire")
+                        ModuleNativeLoader.load("innocent_danmaku_wire")
                         if (nativeAbiVersion() == EXPECTED_ABI_VERSION) AVAILABLE else UNAVAILABLE
                     } catch (_: Throwable) {
                         UNAVAILABLE

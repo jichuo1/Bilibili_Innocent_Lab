@@ -166,8 +166,10 @@ internal class FrameQcomBridge private constructor(
                     // into that extent so a smaller playback surface gets the complete image.
                     check(validExtent(egl.width, egl.height))
                     warp?.close()
+                    warp = null
                     warp = openBackend(egl.width, egl.height)
                 }
+                power?.close()
                 power = FramePowerAdvisor(host.context(), periodNs / 2)
                 rifeFactory = null
                 host.log("$logName.selected", "source=${sourceWidth}x$sourceHeight output=${egl.width}x${egl.height} sourceFps=$sourceFps target=$targetFps input=${if (ahb) "AHB" else "PBO"}")
@@ -211,7 +213,7 @@ internal class FrameQcomBridge private constructor(
     }
 
     override fun close() {
-        if (closed.compareAndSet(false, true) || parked) {
+        if (closed.compareAndSet(false, true)) {
             output.revoke()
             handler.post { if (parked) resumeRetirement() else stop() }
         }

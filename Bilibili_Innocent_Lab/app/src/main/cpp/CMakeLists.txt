@@ -20,6 +20,7 @@ set_target_properties(meguviz_qcom_motion PROPERTIES LIBRARY_OUTPUT_DIRECTORY "$
 foreach(target meguviz_qcom_motion_core meguviz_qcom_motion)
     target_compile_options(${target} PRIVATE "$<$<CONFIG:Debug>:-O2>")
 endforeach()
+target_link_options(meguviz_qcom_motion PRIVATE "LINKER:-z,max-page-size=16384")
 
 # Query the decoder's existing window without acquiring a second buffer producer.
 add_library(bil_frame_window SHARED frame_window.cpp)

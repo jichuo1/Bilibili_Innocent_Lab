@@ -157,6 +157,61 @@ class AudioRescueWriteTest {
         assertNull(writer.prepare("not PCM", 0, 4))
     }
 
+    fun `reuses buffers on matching frame sizes and avoids duplicate speech inference on non-blocking retries`() {
+        var inferCalls = 0
+        val countingModel = AudioSpeechModel { spectrum, caches ->
+            inferCalls++
+            caches[0][0] += .00001f
+            spectrum.map { it * .9f }.toFloatArray()
+        }
+        val expectedProcessor = AudioRescueProcessor(48000, 2, AudioRescueConfig(voiceFocus = true),
+            AudioSpeechEnhancer(48000, 2, AudioSpeechModel { s, c -> c[0][0] += .00001f; s.map { it * .9f }.toFloatArray() }))
+        val actualProcessor = AudioRescueProcessor(48000, 2, AudioRescueConfig(voiceFocus = true),
+            AudioSpeechEnhancer(48000, 2, countingModel))
+
+        val writer = AudioRescueWrite(actualProcessor, 4)
+        val input = FloatArray(4800) { if (it % 2 == 0) .2f else -.1f }
+        val first = writer.prepare(input, 0, input.size)!!
+        val callsAfterFirst = inferCalls
+        assertTrue(callsAfterFirst > 0)
+        // WRITE_NON_BLOCKING returns 0 -> retry identical buffer without running ONNX inference again.
+        writer.finish(first, 0)
+        val zeroRetry = writer.prepare(input, 0, input.size)!!
+        assertEquals(callsAfterFirst, inferCalls)
+        assertSame(first.data, zeroRetry.data)
+        // Partial write of 1600 floats commits the accepted prefix, then retries remaining 3200 floats without running ONNX inference again.
+        writer.finish(zeroRetry, 1600)
+        val callsAfterPartialCommit = inferCalls
+        expectedProcessor.process(input.copyOfRange(0, 1600))
+        val tailRetry = writer.prepare(input, 1600, 3200)!!
+        assertEquals(callsAfterPartialCommit, inferCalls)
+        val expectedTail = input.copyOfRange(1600, 4800).also { expectedProcessor.process(it) }
+        assertArrayEquals(expectedTail, tailRetry.data as FloatArray, 0f)
+        writer.finish(tailRetry, tailRetry.count)
+        assertEquals(callsAfterPartialCommit, inferCalls)
+        assertArrayEquals(expectedProcessor.checkpoint(), actualProcessor.checkpoint(), 0.0)
+
+        // ByteBuffer/ByteArray/ShortArray reuse when frame size matches, and bounds-safe limit() check.
+        val bbWriter = AudioRescueWrite(processor(), 2)
+        val caller = ByteBuffer.wrap(bytes(1000, -1000, 2000, -2000, 3000, -3000, 4000, -4000))
+        val bb1 = bbWriter.prepare(caller, 0, 8)!!
+        caller.limit(10) // Shrunk externally before finish: must not throw IllegalArgumentException.
+        bbWriter.finish(bb1, 8)
+        assertEquals(8, caller.position())
+        val caller2 = ByteBuffer.wrap(bytes(500, -500, 600, -600))
+        val bb2 = bbWriter.prepare(caller2, 0, 8)!!
+        assertSame(bb1.data, bb2.data)
+        bbWriter.finish(bb2, 8)
+
+        val baWriter = AudioRescueWrite(processor(), 2)
+        val rawBytes = bytes(100, 200, 300, 400)
+        val ba1 = baWriter.prepare(rawBytes, 0, 8)!!
+        baWriter.finish(ba1, 8)
+        val ba2 = baWriter.prepare(rawBytes, 0, 8)!!
+        assertSame(ba1.data, ba2.data)
+        assertEquals(8, (ba2.data as ByteArray).size)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (AudioRescueWriteTest) -> Unit) {
@@ -175,5 +230,6 @@ class AudioRescueWriteTest {
         runIsolated { s -> s.`PCM sixteen bit identity roundtrip preserves full signed range`() }
         runIsolated { s -> s.`float buffer writes use byte units and sanitize nonfinite input`() }
         runIsolated { s -> s.`invalid ranges unknown encodings surround misalignment and huge writes stay with Android`() }
+        runIsolated { s -> s.`reuses buffers on matching frame sizes and avoids duplicate speech inference on non-blocking retries`() }
     }
 }

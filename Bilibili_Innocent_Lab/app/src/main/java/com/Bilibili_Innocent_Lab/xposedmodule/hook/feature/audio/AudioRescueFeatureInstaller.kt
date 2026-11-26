@@ -1,10 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio
 
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
 import java.nio.ByteBuffer
 import java.util.Collections
 import java.util.WeakHashMap
@@ -39,6 +42,7 @@ internal class AudioRescueFeatureInstaller(
         }
         var writer = AudioRescueWrite(processor(), encoding)
         var evidenceCaptured = false
+        @Volatile var faulted = false
         fun reset() { writer = AudioRescueWrite(processor(), encoding) }
     }
     private data class InFlight(val session: Session, val writer: AudioRescueWrite, val pending: AudioRescueWrite.Pending, val generation: Int, val entry: Int)
@@ -51,6 +55,7 @@ internal class AudioRescueFeatureInstaller(
         if (!config.enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != MAIN_PROCESS && environment.processName != PLAYER_PROCESS)
             return FeatureInstallResult.Skipped("non-main-process")
+        ModuleNativeLoader.registerModuleApk(moduleApk?.path)
         if ((config.noiseReduction || config.voiceFocus) && moduleApk != null && hostCodeCache != null && remoteFile != null)
             AudioRescueModel.prepare(moduleApk, hostCodeCache, remoteFile, environment.logInfo)
         val int = Int::class.javaPrimitiveType!!
@@ -81,6 +86,7 @@ internal class AudioRescueFeatureInstaller(
                         // generation, so state is discarded after that write returns.
                         session.lock.lock()
                         try {
+                            if (session.faulted) return@before
                             val generation = session.generation.get()
                             if (session.appliedGeneration != generation || (!session.speechReady && session.rate >= 16000 &&
                                     (config.noiseReduction || config.voiceFocus) && AudioRescueModel.current() != null)) {
@@ -90,7 +96,13 @@ internal class AudioRescueFeatureInstaller(
                             val count = argOrNull(if (buffer) 1 else 2) as? Int ?: return@before
                             val offset = if (buffer) 0 else argOrNull(1) as? Int ?: return@before
                             val writer = session.writer
-                            val pending = writer.prepare(argOrNull(0), offset, count) ?: return@before
+                            val pending = try {
+                                writer.prepare(argOrNull(0), offset, count)
+                            } catch (failure: Throwable) {
+                                session.faulted = true
+                                environment.logError("$id.write.failed", "[BIL] 音频拯救单轨已隔离，写入预处理失败: $failure")
+                                null
+                            } ?: return@before
                             setObjectExtra(TRANSACTION, InFlight(session, writer, pending, generation, index))
                             args[0] = pending.data
                             if (!buffer) args[1] = 0
@@ -118,8 +130,8 @@ internal class AudioRescueFeatureInstaller(
                             }
                             if (transaction.generation != transaction.session.generation.get()) transaction.session.reset()
                         } catch (failure: Throwable) {
-                            ready.set(false)
-                            environment.logError("$id.write.failed", "[BIL] 音频拯救已停用，写入状态恢复失败: $failure")
+                            transaction.session.faulted = true
+                            environment.logError("$id.write.failed", "[BIL] 音频拯救单轨已隔离，写入状态恢复失败: $failure")
                         } finally {
                             inWrite.remove()
                             transaction.session.lock.unlock()
@@ -154,13 +166,21 @@ internal class AudioRescueFeatureInstaller(
     }
 
     private fun session(track: AudioTrack): Session? = synchronized(tracks) {
-        tracks[track]?.let { return@synchronized it }
+        tracks[track]?.let { return@synchronized if (it.faulted) null else it }
         // Compressed passthrough, surround and unknown formats are never interpreted as PCM.
-        // getAudioAttributes requires API 29. The public volume stream getter works at minSdk
-        // 27 and matches ijk's legacy STREAM_MUSIC AudioTrack construction without reflection.
-        if (track.state != AudioTrack.STATE_INITIALIZED || track.streamType != AudioManager.STREAM_MUSIC ||
+        if (track.state != AudioTrack.STATE_INITIALIZED || !isEligibleMediaTrack(track) ||
             track.audioFormat !in setOf(2, 3, 4) || track.channelCount !in 1..2 || track.sampleRate !in 8000..192000) return@synchronized null
         Session(track.sampleRate, track.channelCount, track.audioFormat, config).also { tracks[track] = it }
+    }
+
+    private fun isEligibleMediaTrack(track: AudioTrack): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (track.isOffloadedPlayback) return false
+            val usage = runCatching { track.audioAttributes.usage }.getOrNull()
+            return usage == AudioAttributes.USAGE_MEDIA || usage == AudioAttributes.USAGE_UNKNOWN
+        }
+        @Suppress("DEPRECATION")
+        return track.streamType == AudioManager.STREAM_MUSIC
     }
 
     companion object {

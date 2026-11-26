@@ -127,6 +127,80 @@ class DanmakuWireTest {
         assertEquals(scan.elems[0], back.elems[0])
         assertEquals(scan.srcKinds, back.srcKinds)
     }
+
+    @Test
+    fun realBilibiliCrossMessageFieldsAreValidAndRoundtrip() {
+        // Real Bilibili protocol: DmSegMobileReply.elems = 1 AND DmColorful.type = 1
+        val realFields = fields.copy(colorfulTypeField = 1)
+        assertTrue(realFields.isValid())
+        // Cross-message equality with weightField is also allowed.
+        assertTrue(fields.copy(colorfulTypeField = fields.weightField).isValid())
+        // Per-message collisions remain rejected.
+        assertFalse(fields.copy(colorfulSrcField = fields.elemsField).isValid())
+        assertFalse(fields.copy(weightField = fields.contentField).isValid())
+        assertFalse(fields.copy(colorfulField = fields.contentField).isValid())
+
+        val srcPayload = DanmakuWire.ByteArrayOutput().also {
+            writeVarintField(it, 1, 60001L)
+        }.toByteArray()
+        val srcBlock = DanmakuWire.ByteArrayOutput().also {
+            writeBytesField(it, realFields.colorfulSrcField, srcPayload)
+        }.toByteArray()
+        val reply = concat(elem(2, 60001, "drop"), elem(9, 60001, "keep"), srcBlock)
+        val scan = DanmakuWire.scan(reply, realFields)!!
+        assertEquals(2, scan.elems.size)
+        assertEquals(listOf<Int?>(60001), scan.srcKinds)
+
+        val rewritten = DanmakuWire.rewrite(
+            reply,
+            realFields,
+            booleanArrayOf(false, true),
+            booleanArrayOf(false, true),
+            booleanArrayOf(false),
+        )!!
+        val rescan = DanmakuWire.scan(rewritten, realFields)!!
+        assertEquals(1, rescan.elems.size)
+        assertEquals(0, rescan.elems[0].colorful)
+        assertEquals(0, rescan.srcKinds.size)
+    }
+
+    @Test
+    fun signed64BitLengthBypassAndInnerTruncatedOrOverrunInputsAreRejected() {
+        // 0x8000000000000005 as 10-byte varint: signed negative Long with low 32 bits == 5.
+        val negativeBypass = byteArrayOf(
+            0x0a,
+            0x85.toByte(), 0x80.toByte(), 0x80.toByte(), 0x80.toByte(), 0x80.toByte(),
+            0x80.toByte(), 0x80.toByte(), 0x80.toByte(), 0x80.toByte(), 0x01,
+            'h'.code.toByte(), 'e'.code.toByte(), 'l'.code.toByte(), 'l'.code.toByte(), 'o'.code.toByte(),
+        )
+        assertNull(DanmakuWire.scan(negativeBypass, fields))
+        assertNull(DanmakuWire.rewrite(negativeBypass, fields, BooleanArray(0), BooleanArray(0), BooleanArray(0)))
+
+        // Truncated varint inside DanmakuElem (weight field 8, continuation byte 0x80 at end).
+        val truncatedWeightElem = DanmakuWire.ByteArrayOutput().also {
+            writeBytesField(it, fields.elemsField, byteArrayOf(0x40, 0x80.toByte()))
+        }.toByteArray()
+        assertNull(DanmakuWire.scan(truncatedWeightElem, fields))
+
+        // Truncated varint inside DmColorful (type field 2, continuation byte 0x80 at end).
+        val truncatedSrcType = DanmakuWire.ByteArrayOutput().also {
+            writeBytesField(it, fields.colorfulSrcField, byteArrayOf(0x10, 0x80.toByte()))
+        }.toByteArray()
+        assertNull(DanmakuWire.scan(truncatedSrcType, fields))
+
+        // Inner length overrun inside elem followed by trailing reply bytes (would overrun without Cursor limit=to).
+        val overrunElemBody = byteArrayOf(
+            ((fields.contentField shl 3) or 2).toByte(),
+            0x0a, // claims 10 bytes inside a 3-byte elem
+            'a'.code.toByte(),
+        )
+        val overrunReply = concat(
+            DanmakuWire.ByteArrayOutput().also { writeBytesField(it, fields.elemsField, overrunElemBody) }.toByteArray(),
+            unknownTop(),
+        )
+        assertNull(DanmakuWire.scan(overrunReply, fields))
+        assertNull(DanmakuWire.rewrite(overrunReply, fields, booleanArrayOf(true), booleanArrayOf(true), BooleanArray(0)))
+    }
 }
 
 /** 探针 + 端到端自检：在带真实 wire 编解码的 fixture 上过全链路（含宿主 parseFrom 核条数）。 */

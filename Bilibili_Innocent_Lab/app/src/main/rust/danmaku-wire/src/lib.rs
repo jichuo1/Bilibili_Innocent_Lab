@@ -9,7 +9,8 @@
 //! - group（wire type 3/4）与非法 wire type（6/7）**只在本库自行解析的层级拒绝**；
 //!   按长度跳过的载荷内部（嵌套未知子消息等）不解析、原样保留——这是有意的取舍。
 //! - 读侧字段重复出现取最后一次、命名字段 wire type 不符按未知字段跳过，与 Java 解析器同语义。
-//! - 六个字段号必须在 1..2^29-1 且互异，否则整体拒绝（碰撞会导致静默少提取，绝不带病工作）。
+//! - 六个字段号必须在 1..2^29-1 且同消息内互异（不同子消息如 elems=1 与 DmColorful.type=1 允许同号），
+//!   否则整体拒绝（同消息碰撞会导致静默少提取，绝不带病工作）。
 //!
 //! 恐慌与内存边界：所有 C 入口 `catch_unwind` 后转错误码；`panic=unwind` 是硬合同（见 Cargo.toml），
 //! panic=abort 会在宿主进程里直接 abort，PROTECTIVE 异常模式兜不住原生崩溃。
@@ -41,7 +42,7 @@ pub struct WireFields {
 }
 
 impl WireFields {
-    /// 六个号都在合法区间且互异；任何碰撞都意味着探针结果不可信，整体拒绝。
+    /// 六个号都在合法区间且同消息内字段号互异；同消息碰撞会导致静默少提取，整体拒绝。
     fn validated(&self) -> Result<(), WireError> {
         let all = [
             self.elems_field, self.weight_field, self.colorful_field,
@@ -52,12 +53,14 @@ impl WireFields {
                 return Err(WireError::Fields);
             }
         }
-        for i in 0..all.len() {
-            for j in (i + 1)..all.len() {
-                if all[i] == all[j] {
-                    return Err(WireError::Fields);
-                }
-            }
+        if self.elems_field == self.colorful_src_field {
+            return Err(WireError::Fields);
+        }
+        if self.weight_field == self.colorful_field
+            || self.weight_field == self.content_field
+            || self.colorful_field == self.content_field
+        {
+            return Err(WireError::Fields);
         }
         Ok(())
     }
@@ -730,16 +733,97 @@ mod tests {
 
     #[test]
     fn colliding_or_out_of_range_fields_are_rejected() {
+        let mut same_reply = F;
+        same_reply.colorful_src_field = same_reply.elems_field;
+        assert!(matches!(scan(&[], &same_reply), Err(WireError::Fields)));
+        assert!(matches!(rewrite(&[], &same_reply, &RewriteMask { keep_elem: &[], recolor_elem: &[], keep_src: &[] }), Err(WireError::Fields)));
         let mut bad = F;
         bad.weight_field = bad.colorful_field;
         assert!(matches!(scan(&[], &bad), Err(WireError::Fields)));
         assert!(matches!(rewrite(&[], &bad, &RewriteMask { keep_elem: &[], recolor_elem: &[], keep_src: &[] }), Err(WireError::Fields)));
+        let mut bad2 = F;
+        bad2.weight_field = bad2.content_field;
+        assert!(matches!(scan(&[], &bad2), Err(WireError::Fields)));
+        let mut bad3 = F;
+        bad3.colorful_field = bad3.content_field;
+        assert!(matches!(scan(&[], &bad3), Err(WireError::Fields)));
         let mut zero = F;
         zero.elems_field = 0;
         assert!(matches!(scan(&[], &zero), Err(WireError::Fields)));
         let mut huge = F;
         huge.elems_field = 536_870_912;
         assert!(matches!(scan(&[], &huge), Err(WireError::Fields)));
+    }
+
+    #[test]
+    fn real_bilibili_cross_message_field_numbers_are_allowed() {
+        // Real protocol: DmSegMobileReply.elems = 1 AND DmColorful.type = 1 (plus cross-message overlap with weight).
+        let f = WireFields {
+            elems_field: 1,
+            weight_field: 8,
+            colorful_field: 11,
+            content_field: 10,
+            colorful_src_field: 4,
+            colorful_type_field: 1,
+        };
+        let mut elem1_body = Vec::new();
+        elem1_body.extend(varint_field(f.weight_field, 2));
+        elem1_body.extend(varint_field(f.colorful_field, 60001));
+        elem1_body.extend(bytes_field(f.content_field, b"drop"));
+        let mut elem2_body = Vec::new();
+        elem2_body.extend(varint_field(f.weight_field, 9));
+        elem2_body.extend(varint_field(f.colorful_field, 60001));
+        elem2_body.extend(bytes_field(f.content_field, b"keep"));
+        let mut src_body = Vec::new();
+        src_body.extend(varint_field(f.colorful_type_field, 60001));
+
+        let mut reply = Vec::new();
+        reply.extend(bytes_field(f.elems_field, &elem1_body));
+        reply.extend(bytes_field(f.elems_field, &elem2_body));
+        reply.extend(bytes_field(f.colorful_src_field, &src_body));
+
+        let out = scan(&reply, &f).unwrap();
+        assert_eq!(out.elems.len(), 2);
+        assert_eq!(out.elems[0].weight, Some(2));
+        assert_eq!(out.elems[1].weight, Some(9));
+        assert_eq!(out.srcs.len(), 1);
+        assert_eq!(out.srcs[0].kind, Some(60001));
+
+        let rewritten = rewrite(
+            &reply,
+            &f,
+            &RewriteMask { keep_elem: &[0, 1], recolor_elem: &[0, 1], keep_src: &[0] },
+        )
+        .unwrap();
+        let rescan = scan(&rewritten, &f).unwrap();
+        assert_eq!(rescan.elems.len(), 1);
+        assert_eq!(rescan.elems[0].colorful, Some(0));
+        assert_eq!(rescan.srcs.len(), 0);
+    }
+
+    #[test]
+    fn signed_high_bit_length_and_truncated_inner_varints_are_rejected() {
+        // 0x8000_0000_0000_0005 as 10-byte varint: signed i64 negative (-9223372036854775803) with low32=5.
+        let mut high_bit_len = tag(F.elems_field, 2);
+        high_bit_len.extend_from_slice(&[0x85, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]);
+        high_bit_len.extend_from_slice(b"hello");
+        assert!(matches!(scan(&high_bit_len, &F), Err(WireError::Truncated)));
+        assert!(matches!(
+            rewrite(&high_bit_len, &F, &RewriteMask { keep_elem: &[], recolor_elem: &[], keep_src: &[] }),
+            Err(WireError::Truncated)
+        ));
+
+        // Truncated varint for weight inside elem.
+        let mut trunc_weight = tag(F.weight_field, 0);
+        trunc_weight.push(0x80);
+        let reply_w = bytes_field(F.elems_field, &trunc_weight);
+        assert!(matches!(scan(&reply_w, &F), Err(WireError::Truncated)));
+
+        // Truncated varint for colorful_type inside src.
+        let mut trunc_type = tag(F.colorful_type_field, 0);
+        trunc_type.push(0x80);
+        let reply_s = bytes_field(F.colorful_src_field, &trunc_type);
+        assert!(matches!(scan(&reply_s, &F), Err(WireError::Truncated)));
     }
 
     #[test]
