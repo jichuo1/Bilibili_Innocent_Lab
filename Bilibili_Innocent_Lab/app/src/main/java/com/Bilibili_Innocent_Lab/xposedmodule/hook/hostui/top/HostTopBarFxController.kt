@@ -17,6 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HostChromeAttachments
 import android.annotation.SuppressLint
 import android.graphics.Outline
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -235,8 +236,15 @@ internal object HostTopBarFxController {
         // 只在模块背景接管页面时剥离，个人中心 main_top_bg_imageview 始终保留原画。
         val headId = context.resources.getIdentifier("main_top_bg", "id", context.packageName)
         val headArtwork = if (headId != 0) root.rootView.findViewById<View>(headId) else null
+        var materialThemeReadAt = 0L
         val materialPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.top.material.predraw", true) {
-            val current = theme.read()
+            val now = SystemClock.uptimeMillis()
+            val current = if (materialThemeReadAt == 0L || now - materialThemeReadAt >= 250L) {
+                materialThemeReadAt = now
+                theme.read()
+            } else {
+                materialColors
+            }
             artifacts.clear(current)
             if (config.backgroundPreset != HostBackgroundPreset.OFF && current.garbAccent != null) headArtwork?.let {
                 HostChromeArtwork.clear(it)

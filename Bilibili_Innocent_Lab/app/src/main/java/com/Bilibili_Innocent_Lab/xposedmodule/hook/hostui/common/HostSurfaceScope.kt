@@ -60,11 +60,12 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var focusObserver: ViewTreeObserver? = null
     private var backdropVersion: Long? = null
     private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.surface.backdrop.predraw", true) {
+        if (content?.isShown == false) return@call true
         surfaces.forEach { (_, spec) -> spec.prismSurface?.sync(spec.insetX, spec.insetY) }
         if (viewportSource?.sync() == true) session?.notifyPositionChanged()
         // Snapshot child invalidations before the software legibility probe can draw the
         // content and consume their dirty flags later in this same pre-draw dispatch.
-        val version = (viewportSource ?: contentSource)?.contentVersion
+        val version = viewportSource?.preDrawContentVersion() ?: contentSource?.contentVersion
         if (version != backdropVersion) {
             backdropVersion = version
             // Ancestor backgrounds and retained child updates can bypass the owner's dirty
@@ -224,10 +225,18 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
             spec.prismSurface = HostPrismSurface(view, palette, active, source).also { it.sync(spec.insetX, spec.insetY) }
             return
         }
-        spec.binding = active.bindSource(view, effectiveOptions(spec.options),
-            (viewportSource ?: contentSource).takeIf { spec.options.sampling.enabled })
+        val resolvedOptions = effectiveOptions(spec.options)
+        val boundSource = (viewportSource ?: contentSource).takeIf { resolvedOptions.sampling.enabled }
+        spec.binding = active.bindSource(view, resolvedOptions, boundSource)?.also { binding ->
+            HostMemoryPressureBridge.registerBinding(binding)
+            HostSurfaceStyle.enableRenderTargetBackdropIfEligible(
+                binding = binding,
+                options = resolvedOptions,
+                hasViewContentSource = boundSource == null
+            )
+        }
         spec.background = view.background
-        spec.binding?.let { legibility?.bind(view, it, effectiveOptions(spec.options)) }
+        spec.binding?.let { legibility?.bind(view, it, resolvedOptions) }
         spec.shapeWidth = -1
         applyShape(view, spec)
     }

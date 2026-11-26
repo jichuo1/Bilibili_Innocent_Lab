@@ -177,6 +177,9 @@ internal class HostBackgroundScene(private val config: HostBackgroundConfig, pri
         /** 测试：清空共享位图缓存，制造冷 miss。 */
         internal fun clearSharedCache() = synchronized(cacheLock) { rasters.evictAll() }
 
+        /** 内存压力下释放跨页面共享的非活跃底图缓存。 */
+        internal fun clearForMemoryPressure() = clearSharedCache()
+
         /** 工作线程：取一个最旧的未开始任务生成，完成后只通知仍订阅它的 Scene。 */
         private fun drain() {
             val key = synchronized(cacheLock) { flights.take { it.scene.get() != null } } ?: return

@@ -58,6 +58,8 @@ internal class HostBottomBarDockLayer(
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private val publishViewId = resources.getIdentifier("home_publish_icon", "id", context.packageName)
     private val artworkId = resources.getIdentifier("tab_background", "id", context.packageName)
+    private var artworkView: WeakReference<View>? = null
+    private var themeReadAt = 0L
     private val hero = HostGarbHeroBinding(tabHost, dimEnabled = config.mineGarbDim)
     private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
         HostThreadGuard.run("host.bottom.hero.layout") { hero.invalidate() }
@@ -129,7 +131,11 @@ internal class HostBottomBarDockLayer(
         shadow?.sync(materialColors.dark)
         if (config.liquidGlass) hero.refresh(materialColors.garbAccent != null)
         // 装扮异步图片/切页可只重置 visibility，不触发布局或普通 Tab 背景检查。
-        if (config.liquidGlass && artworkId != 0) tabHost.findViewById<View>(artworkId)?.let(HostChromeArtwork::clear)
+        if (config.liquidGlass && artworkId != 0) {
+            val cached = artworkView?.get()?.takeIf { it.isAttachedToWindow && it.id == artworkId }
+            val resolved = cached ?: tabHost.findViewById<View>(artworkId)?.also { artworkView = WeakReference(it) }
+            resolved?.let(HostChromeArtwork::clear)
+        }
         // 宿主会在按压/切页/重建 tab 时重新挂上官方背景并重新布局：这里逐帧只做 O(items) 空判，
         // 命中才请求一次合并后的整树清理；不再每帧全树递归 + 资源名解析（快速切换掉帧的来源）。
         if (hostReappliedArtifacts()) requestSanitization()
@@ -147,9 +153,15 @@ internal class HostBottomBarDockLayer(
     } }
 
     private fun refreshMaterial() {
-        val colors = theme.read()
+        val now = SystemClock.uptimeMillis()
+        val colors = if (themeReadAt == 0L || now - themeReadAt >= 250L) {
+            themeReadAt = now
+            theme.read()
+        } else {
+            materialColors
+        }
         val changed = colors != materialColors
-        backdrop?.updatePalette(colors)
+        if (changed) backdrop?.updatePalette(colors)
         if (config.liquidGlass && (changed || backdrop?.owns(tabHost) != true)) {
             backdrop?.floating(tabHost, colors.dark, radiusDp)
         }

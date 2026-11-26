@@ -172,7 +172,9 @@ internal class HostBackgroundPages(
             var offset = 0L
         }
 
-        private fun visible(list: ViewGroup) = list.isShown && list.getGlobalVisibleRect(android.graphics.Rect())
+        private val visibleListBounds = android.graphics.Rect()
+
+        private fun visible(list: ViewGroup) = list.isShown && list.getGlobalVisibleRect(visibleListBounds)
 
         private fun position(list: ViewGroup) = positions.getOrPut(list) { Position(list) }.also {
             if (it.offset != 0L && it.top.isAtTop(list)) it.offset = 0L
@@ -302,13 +304,17 @@ internal class HostBackgroundPages(
                 if (wallpaperSystemBars && kind == HostBackgroundPagePolicy.Kind.NATIVE && page === page.rootView) {
                     // 侧边中心默认使用白色状态栏文字；透明化后按壁纸主题同步对比度，覆盖晚到的 Compose 副作用。
                     val darkBars = night || (sideCenter?.get()?.background as? ColorDrawable)?.color == android.graphics.Color.BLACK
-                    val lightFlags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-                    val flags = if (darkBars) page.systemUiVisibility and lightFlags.inv() else page.systemUiVisibility or lightFlags
-                    if (flags != page.systemUiVisibility) page.systemUiVisibility = flags
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
                         val appearance = if (darkBars) 0 else mask
                         page.windowInsetsController?.let { if (it.systemBarsAppearance and mask != appearance) it.setSystemBarsAppearance(appearance, mask) }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val lightFlags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                        @Suppress("DEPRECATION")
+                        val flags = if (darkBars) page.systemUiVisibility and lightFlags.inv() else page.systemUiVisibility or lightFlags
+                        @Suppress("DEPRECATION")
+                        if (flags != page.systemUiVisibility) page.systemUiVisibility = flags
                     }
                 }
                 if (wholePage) background.apply(page, night)

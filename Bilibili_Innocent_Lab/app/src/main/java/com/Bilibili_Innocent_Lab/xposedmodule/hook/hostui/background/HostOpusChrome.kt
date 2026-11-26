@@ -2,15 +2,20 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsetsController
 import android.widget.FrameLayout
-import com.lumen.coacervation.engine.host.LumenContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
+import com.lumen.coacervation.engine.host.LumenSourceAvailability
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions
 import com.lumen.coacervation.engine.host.LumenSurfaceSampling
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
+import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
+import com.lumen.coacervation.engine.host.LumenVersionedContentSource
 import com.lumen.coacervation.engine.model.LumenPalette
 import com.lumen.coacervation.engine.model.SurfaceRole
 import java.lang.ref.WeakReference
@@ -46,13 +51,28 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
         clipToPadding = true
     })
     private val bindings = WeakHashMap<View, LumenSurfaceBinding>()
+    private val stickyTitleIds = IntArray(stickyTitleNames.size) { Int.MIN_VALUE }
+    private val stickyTitleViews = Array<WeakReference<View>?>(stickyTitleNames.size) { null }
     private var session: LumenSurfaceSession? = null
     private var dark: Boolean? = null
     private var wallpaper: Drawable? = null
     private var samplingState = Long.MIN_VALUE
-    private val source = object : LumenContentSource {
+    private val source = object : LumenVersionedContentSource {
         override val coordinateView: View get() = requireNotNull(this@HostOpusChrome.root.get())
         override val excludesSurfaces: Boolean = true
+        override val observeCoordinateViewInvalidations: Boolean = false
+        override val sourceEpoch: Long get() = 0L
+        override val availability: LumenSourceAvailability get() = LumenSourceAvailability.READY
+        override val contentVersion: Long
+            get() {
+                val root = this@HostOpusChrome.root.get() ?: return 0L
+                val bg = root.background
+                val state = (bg as? HostBackgroundDrawable)?.samplingState ?: 0L
+                var version = state
+                version = version * 31L + System.identityHashCode(bg)
+                version = version * 31L + if (dark == true) 1L else 0L
+                return version and Long.MAX_VALUE
+            }
         override fun drawContent(canvas: Canvas) {
             // 只取独立壁纸，不绘制页面子树，避免采样到栏位自身和封面播放器。
             this@HostOpusChrome.root.get()?.background?.draw(canvas)
@@ -70,7 +90,8 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
     fun apply(night: Boolean) {
         val root = root.get() ?: return
         val style = if (night) darkStyle else lightStyle
-        val session = session ?: LumenSurfaceSession(root.context, style.palette).also { session = it }
+        val session = session ?: LumenSurfaceSession(root.context, style.palette,
+            LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false)).also { session = it }
         val changed = dark != night
         if (changed) { session.updatePalette(style.palette); dark = night }
         fun surface(view: View?, header: Boolean = false) {
@@ -78,6 +99,7 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
             val binding = if (header) session.ensureSource(view, style.header, source) else session.ensure(view, style.bottom)
             if (binding !== bindings[view]) {
                 bindings[view] = binding
+                HostMemoryPressureBridge.registerBinding(binding)
                 view.background?.let { owned[view] = it }
             }
         }
@@ -85,9 +107,20 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
         surface(guide.get())
         val top = top.get()
         // 封面阶段沿用原生圆形返回/更多按钮；吸顶文字出现后承托整行标题。
-        val sticky = stickyTitleNames.any { name ->
-            val id = root.resources.getIdentifier(name, "id", root.context.packageName)
-            id != 0 && root.findViewById<View>(id)?.visibility == View.VISIBLE
+        var sticky = false
+        for (i in stickyTitleNames.indices) {
+            var id = stickyTitleIds[i]
+            if (id == Int.MIN_VALUE) {
+                id = root.resources.getIdentifier(stickyTitleNames[i], "id", root.context.packageName)
+                stickyTitleIds[i] = id
+            }
+            if (id == 0) continue
+            val cached = stickyTitleViews[i]?.get()?.takeIf { it.isAttachedToWindow && it.id == id }
+            val resolved = cached ?: root.findViewById<View>(id)?.also { stickyTitleViews[i] = WeakReference(it) }
+            if (resolved?.visibility == View.VISIBLE) {
+                sticky = true
+                break
+            }
         }
         if (sticky) surface(top, header = true)
         else top?.let { bindings.remove(it)?.close(); owned.remove(it) }
@@ -98,10 +131,21 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
             session.notifyContentChanged()
         }
         // 图文封面在状态栏以下，系统文字应按壁纸深浅显示，不跟随封面按钮的白色。
-        val mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         val decor = root.rootView
-        val flags = if (night) decor.systemUiVisibility and mask.inv() else decor.systemUiVisibility or mask
-        if (decor.systemUiVisibility != flags) decor.systemUiVisibility = flags
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+            val appearance = if (night) 0 else mask
+            decor.windowInsetsController?.let {
+                if (it.systemBarsAppearance and mask != appearance) it.setSystemBarsAppearance(appearance, mask)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            @Suppress("DEPRECATION")
+            val flags = if (night) decor.systemUiVisibility and mask.inv() else decor.systemUiVisibility or mask
+            @Suppress("DEPRECATION")
+            if (decor.systemUiVisibility != flags) decor.systemUiVisibility = flags
+        }
     }
 
     override fun close() {

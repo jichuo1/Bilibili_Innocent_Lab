@@ -97,6 +97,10 @@ internal class HostVideoCardStyle(
     private val listWatchers = WeakHashMap<ViewGroup, WeakReference<ListWatcher>>()
     private val resourceKinds = SparseIntArray()
     private val recyclerTypes = HashMap<Class<*>, Boolean>()
+
+    init {
+        synchronized(instancesLock) { instances[this] = Unit }
+    }
     private val rowDecorations = android.graphics.Rect()
     private val coverNames = setOf("cover_layout", "cover", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "ivCover")
     private val titleNames = setOf("title", "title_layout", "video_title", "tv_title", "tvTitle")
@@ -466,6 +470,7 @@ internal class HostVideoCardStyle(
             name == "cover_bottom_info_container" -> INFO
             else -> OTHER
         }
+        if (resourceKinds.size() >= MAX_RESOURCE_KINDS) resourceKinds.clear()
         resourceKinds.put(id, kind)
         return kind
     }
@@ -507,20 +512,41 @@ internal class HostVideoCardStyle(
         return false
     }
 
-    private fun isRecycler(type: Class<*>): Boolean = recyclerTypes.getOrPut(type) {
+    private fun isRecycler(type: Class<*>): Boolean = recyclerTypes[type] ?: run {
+        if (recyclerTypes.size >= MAX_RECYCLER_TYPES) recyclerTypes.clear()
+        var resolved = false
         var current: Class<*>? = type
         while (current != null) {
-            if (current.name == "androidx.recyclerview.widget.RecyclerView") return@getOrPut true
+            if (current.name == "androidx.recyclerview.widget.RecyclerView") {
+                resolved = true
+                break
+            }
             current = current.superclass
         }
-        false
+        recyclerTypes[type] = resolved
+        resolved
     }
 
-    private companion object {
-        const val OTHER = 0
-        const val COVER = 1
-        const val TITLE = 2
-        const val INFO = 3
-        const val PLAYER = 4
+    fun trimCaches() {
+        resourceKinds.clear()
+        recyclerTypes.clear()
+    }
+
+    companion object {
+        private const val OTHER = 0
+        private const val COVER = 1
+        private const val TITLE = 2
+        private const val INFO = 3
+        private const val PLAYER = 4
+        private const val MAX_RESOURCE_KINDS = 256
+        private const val MAX_RECYCLER_TYPES = 128
+
+        private val instancesLock = Any()
+        private val instances = WeakHashMap<HostVideoCardStyle, Unit>()
+
+        fun trimAllCaches() {
+            val snapshot = synchronized(instancesLock) { instances.keys.toList() }
+            snapshot.forEach { it.trimCaches() }
+        }
     }
 }

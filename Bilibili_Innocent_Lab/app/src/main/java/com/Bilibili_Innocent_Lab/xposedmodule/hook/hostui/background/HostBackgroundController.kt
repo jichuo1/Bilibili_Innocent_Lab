@@ -24,6 +24,10 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
     private var applied = false
     val requiresNight: Boolean get() = config.preset.isCelestial
 
+    init {
+        synchronized(controllerLock) { liveControllers[this] = Unit }
+    }
+
     // 卡片与背景速度为 2:1；先累计内容距离再换算，避免逐帧整数舍入丢失慢速滚动。
     fun scroll(list: ViewGroup, dy: Int) {
         if (dy == 0 || config.preset == HostBackgroundPreset.CUSTOM) return
@@ -107,20 +111,40 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         })
     }
 
+    private val recyclerLock = Any()
     private val recyclerTypes = HashMap<Class<*>, Boolean>()
-    private fun isRecycler(type: Class<*>): Boolean = recyclerTypes.getOrPut(type) {
+    private fun isRecycler(type: Class<*>): Boolean = synchronized(recyclerLock) {
+        recyclerTypes[type]?.let { return@synchronized it }
+        if (recyclerTypes.size >= MAX_RECYCLER_TYPES) recyclerTypes.clear()
+        var resolved = false
         var current: Class<*>? = type
         while (current != null) {
             // ViewPager2 的 RecyclerView 只是分页容器，不能把壁纸提升到标签栏背后。
-            if (current.name.startsWith("androidx.viewpager2.")) return@getOrPut false
-            if (current.name == "androidx.recyclerview.widget.RecyclerView") return@getOrPut true
+            if (current.name.startsWith("androidx.viewpager2.")) break
+            if (current.name == "androidx.recyclerview.widget.RecyclerView") {
+                resolved = true
+                break
+            }
             current = current.superclass
         }
-        false
+        recyclerTypes[type] = resolved
+        resolved
+    }
+
+    fun trimCaches() {
+        synchronized(recyclerLock) { recyclerTypes.clear() }
     }
 
     companion object {
+        private const val MAX_RECYCLER_TYPES = 128
+        private val controllerLock = Any()
+        private val liveControllers = WeakHashMap<HostBackgroundController, Unit>()
         private val main by lazy { Handler(Looper.getMainLooper()) }
         private val worker by lazy { Executors.newSingleThreadExecutor { Thread(it, "host-background").apply { isDaemon = true } } }
+
+        fun trimAllCaches() {
+            val snapshot = synchronized(controllerLock) { liveControllers.keys.toList() }
+            snapshot.forEach { it.trimCaches() }
+        }
     }
 }

@@ -29,6 +29,24 @@ internal class HostChromeViewportSource private constructor(
     private val contentBounds = RectF()
     private var unsafe = false
     private var drawing = false
+    private var preDrawCacheArmed = false
+    private var preDrawCachedVersion = 0L
+    private var preDrawCachedSourceVersion = 0L
+    private var preDrawCachedNano = 0L
+
+    companion object {
+        private const val PRE_DRAW_COALESCE_WINDOW_NS = 8_000_000L
+
+        fun create(
+            source: HostChromeContentSource,
+            compositeView: Boolean = false,
+            regions: (consumer: (View, Float, Float, Float) -> Unit) -> Unit
+        ): HostChromeViewportSource? {
+            val content = source.coordinateView as? ViewGroup ?: return null
+            val proxyOwner = (if (compositeView) content.rootView as? ViewGroup else content) ?: return null
+            return HostChromeViewportSource(source, compositeView, content, proxyOwner, regions)
+        }
+    }
     override val coordinateView = object : View(content.context) {
         // OverlayViewGroup has no ordinary parent chain; its default isShown() is false.
         // The proxy has exactly the same lifecycle and visible region as its content owner.
@@ -51,8 +69,32 @@ internal class HostChromeViewportSource private constructor(
     override val availability: LumenSourceAvailability get() =
         if (unsafe) LumenSourceAvailability.PROHIBITED else source.availability
     override val contentVersion: Long
-        get() = mapping.withAncestorMemo {
-            var version = source.contentVersion
+        get() {
+            if (preDrawCacheArmed) {
+                val armed = preDrawCacheArmed
+                preDrawCacheArmed = false
+                if (armed && System.nanoTime() - preDrawCachedNano in 0L..PRE_DRAW_COALESCE_WINDOW_NS &&
+                    source.contentVersion == preDrawCachedSourceVersion
+                ) {
+                    return preDrawCachedVersion
+                }
+            }
+            return computeContentVersion()
+        }
+
+    /** 预绘制首次快照并向同帧内随后到达的引擎 Group 共享结果，避免同一帧遍历两次视图树。 */
+    internal fun preDrawContentVersion(): Long {
+        val baseVersion = source.contentVersion
+        val computed = computeContentVersion(baseVersion)
+        preDrawCachedSourceVersion = baseVersion
+        preDrawCachedVersion = computed
+        preDrawCachedNano = System.nanoTime()
+        preDrawCacheArmed = true
+        return computed
+    }
+
+    private fun computeContentVersion(baseVersion: Long = source.contentVersion): Long = mapping.withAncestorMemo {
+            var version = baseVersion
             version = version * 31 + coordinateView.left
             version = version * 31 + coordinateView.top
             version = version * 31 + coordinateView.width
@@ -89,7 +131,9 @@ internal class HostChromeViewportSource private constructor(
                     for (index in 0 until view.childCount) {
                         val child = view.getChildAt(index)
                         if (child.visibility != View.VISIBLE || child.alpha <= 0f) continue
-                        child.matrix.getValues(childMatrix)
+                        val localMatrix = child.matrix
+                        if (localMatrix.isIdentity) SamplingMatrixMath.identity(childMatrix)
+                        else localMatrix.getValues(childMatrix)
                         SamplingMatrixMath.translateAfter(childMatrix, (child.left.toLong() - view.scrollX).toFloat(),
                             (child.top.toLong() - view.scrollY).toFloat())
                         SamplingMatrixMath.multiply(transform, childMatrix, childMatrix)
@@ -100,13 +144,15 @@ internal class HostChromeViewportSource private constructor(
             // Background-only sources already declare all their inputs. Surface invalidations
             // must not wake them, and there is no foreground subtree to inspect.
             if (!source.excludesSurfaces && mapping.sourceToTarget(content, coordinateView, matrix)) {
-                matrix.getValues(matrixValues)
+                if (matrix.isIdentity) SamplingMatrixMath.identity(matrixValues)
+                else matrix.getValues(matrixValues)
                 visit(content, matrixValues, 0)
             }
             version and Long.MAX_VALUE
         }
 
     fun sync(): Boolean {
+        preDrawCacheArmed = false
         union.setEmpty()
         unsafe = false
         // OverlayViewGroup is attached to the Window but has no ordinary parent chain to
@@ -158,17 +204,8 @@ internal class HostChromeViewportSource private constructor(
         } finally { canvas.restoreToCount(saved); drawing = false }
     }
 
-    override fun close() { proxyOwner.overlay.remove(coordinateView) }
-
-    companion object {
-        fun create(
-            source: HostChromeContentSource,
-            compositeView: Boolean = false,
-            regions: (consumer: (View, Float, Float, Float) -> Unit) -> Unit
-        ): HostChromeViewportSource? {
-            val content = source.coordinateView as? ViewGroup ?: return null
-            val proxyOwner = (if (compositeView) content.rootView as? ViewGroup else content) ?: return null
-            return HostChromeViewportSource(source, compositeView, content, proxyOwner, regions)
-        }
+    override fun close() {
+        preDrawCacheArmed = false
+        proxyOwner.overlay.remove(coordinateView)
     }
 }

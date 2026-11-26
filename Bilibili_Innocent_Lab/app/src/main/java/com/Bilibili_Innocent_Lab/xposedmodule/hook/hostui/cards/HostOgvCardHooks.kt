@@ -57,7 +57,7 @@ internal object HostOgvCardHooks {
             environment.registrar.exact("host_video_cards.ogv.${method.declaringClass.name}.${method.name}",
                 method.declaringClass, method.name, *method.parameterTypes) {
                 before {
-                    if (!point.accepts(instance, args)) return@before
+                    if (!point.accepts(instance, ::argOrNull)) return@before
                     val composer = argOrNull(composerIndex) ?: return@before
                     val view = access.read(composer) ?: return@before
                     if (!isCardContent(view)) return@before

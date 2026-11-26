@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
@@ -549,7 +551,12 @@ internal class FollowFeedController(
                                 .also { materialScope = it }
                             scope.refresh(colors.dark)
                             materialPaint = scope.apply(view, radius.toFloat())
-                        } else binding = session.bind(view, options)
+                        } else {
+                            binding = session.bind(view, options).also {
+                                HostMemoryPressureBridge.registerBinding(it)
+                                HostSurfaceStyle.enableRenderTargetBackdropIfEligible(it, options, hasViewContentSource = true)
+                            }
+                        }
                         return true
                     }
                     return false
@@ -597,15 +604,18 @@ internal class FollowFeedController(
                         entry.value.close(); staleReferences.remove(); surfacesChanged = true
                     }
                 }
+                var totalPanels = lists.values.sumOf { it.panelCount }
                 for (i in 0 until list.childCount) {
                     val child = list.getChildAt(i)
                     val row = updateIndex.rowAt(i) ?: continue
                     val panel = panels[row.identity] ?: run {
                         // 配额优先保证外层承托；内层不足时退回宿主引用底色。
-                        if (lists.values.sumOf { it.panelCount } >= FollowFeedStyle.MAX_CARD_SURFACES)
+                        if (totalPanels >= FollowFeedStyle.MAX_CARD_SURFACES) {
                             lists.values.forEach { if (it.releaseReferences()) surfacesChanged = true }
-                        if (lists.values.sumOf { it.panelCount } < FollowFeedStyle.MAX_CARD_SURFACES)
-                            Panel().also { panels[row.identity] = it; surfacesChanged = true }
+                            totalPanels = lists.values.sumOf { it.panelCount }
+                        }
+                        if (totalPanels < FollowFeedStyle.MAX_CARD_SURFACES)
+                            Panel().also { panels[row.identity] = it; totalPanels++; surfacesChanged = true }
                         else null
                     } ?: continue
                     panel.include(row, i, child)
@@ -614,7 +624,7 @@ internal class FollowFeedController(
                 while (iterator.hasNext()) {
                     val panel = iterator.next().value
                     if (panel.generation != generation || !panel.valid) {
-                        panel.close(); iterator.remove(); surfacesChanged = true; continue
+                        panel.close(); iterator.remove(); totalPanels--; surfacesChanged = true; continue
                     }
                     if (panel.place(cardOptions, 0)) surfacesChanged = true
                 }
@@ -624,8 +634,8 @@ internal class FollowFeedController(
                     val reference = row.reference ?: continue
                     val key = updateIndex.keyAt(i) ?: continue
                     if (panels[row.identity]?.valid != true) continue
-                    val panel = references[key] ?: if (lists.values.sumOf { it.panelCount } < FollowFeedStyle.MAX_CARD_SURFACES) {
-                        Panel(reference = true).also { references[key] = it; surfacesChanged = true }
+                    val panel = references[key] ?: if (totalPanels < FollowFeedStyle.MAX_CARD_SURFACES) {
+                        Panel(reference = true).also { references[key] = it; totalPanels++; surfacesChanged = true }
                     } else continue
                     panel.include(FollowFeedRow(reference.identity, reference.first, reference.last, row.position), i, child)
                 }

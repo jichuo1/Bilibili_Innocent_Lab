@@ -17,13 +17,16 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarFxConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostDockFitPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopCapsuleWidthPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ContentRefreshCoalescer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockClearanceReader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeViewportSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
@@ -31,9 +34,13 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMater
 import com.lumen.coacervation.engine.host.LumenPrismGlass
 import com.lumen.coacervation.engine.host.LumenPrismOptions
 import com.lumen.coacervation.engine.host.LumenPrismShadowOptions
+import com.lumen.coacervation.engine.host.LumenSurfaceBackend
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
+import com.lumen.coacervation.engine.host.LumenSurfaceFailure
+import com.lumen.coacervation.engine.host.LumenSurfaceSampling
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
 import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
+import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
@@ -113,6 +120,11 @@ internal class HostComposeChromePainter(
     private var observer: ViewTreeObserver? = null
     private var version: Long? = null
     private var paused = false
+    private val gpuRecheckMs = LumenSurfaceSampling().minIntervalMs
+    private var gpuCheckedAt = 0L
+    private var gpuBacked = false
+    private val coalescer = ContentRefreshCoalescer(gpuRecheckMs)
+    private val contentRefresh = HostThreadGuard.runnable("host.chrome.content_refresh") { onContentRefreshTimer() }
     private val backdropRecovery = HostChromeBackdropRecovery<ViewGroup>()
     private var probeAt: Long? = null
     private val visibleBounds = Rect()
@@ -170,6 +182,7 @@ internal class HostComposeChromePainter(
                 }
                 if (!visible) {
                     cancelBackdropProbe()
+                    cancelContentRefresh()
                     return@call proceed
                 }
                 val nextContent = selectContent()
@@ -181,8 +194,20 @@ internal class HostComposeChromePainter(
                 }
                 scheduleBackdropProbe(currentOwner)
                 if (viewport?.sync() == true) session?.notifyPositionChanged()
-                val next = viewport?.contentVersion
-                if (next != version) { version = next; session?.notifyContentChanged() }
+                val next = viewport?.preDrawContentVersion()
+                if (next != version) {
+                    version = next
+                    val now = SystemClock.uptimeMillis()
+                    val retained = canRetainGpuFrame(now)
+                    val wasArmed = coalescer.armed
+                    val decision = coalescer.onChange(now, coalesce = retained)
+                    if (decision == ContentRefreshCoalescer.NOW) {
+                        if (wasArmed) currentOwner.removeCallbacks(contentRefresh)
+                        notifyUpdatedContent()
+                    } else if (decision > 0L) {
+                        currentOwner.postOnAnimationDelayed(contentRefresh, decision)
+                    }
+                }
             } catch (error: Throwable) {
                 failure(error)
                 throw error
@@ -436,7 +461,9 @@ internal class HostComposeChromePainter(
         val glow = glow ?: HostGlowView(owner.context, colors.accent, owner.resources.displayMetrics.density, 0f).also {
             this.glow = it; it.layout(0, 0, width, height)
         }
-        glow.layout(0, 0, width, height)
+        if (glow.left != 0 || glow.top != 0 || glow.right != width || glow.bottom != height) {
+            glow.layout(0, 0, width, height)
+        }
         glow.updateGesture(1f, 0f, 0f, localX, localY, width, height)
         wake()
     }
@@ -524,7 +551,9 @@ internal class HostComposeChromePainter(
             if (appearance.material == HostGlassMaterial.PRISM) {
                 prism = LumenPrismGlass(target, colors.palette(), prismOptions(owner), active, viewport?.coordinateView)
             } else {
-                binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport)
+                binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport)?.also {
+                    HostMemoryPressureBridge.registerBinding(it)
+                }
             }
             target.wake = ::wake
             observer = owner.viewTreeObserver.takeIf { it.isAlive }?.also {
@@ -619,6 +648,7 @@ internal class HostComposeChromePainter(
         val oldViewport = viewport; viewport = null
         if (replacementReady && compositionObserved) compositionDirty = true
         source = null; version = null; paused = false; replacementReady = false; capsule = null
+        gpuCheckedAt = 0L; gpuBacked = false
         oldTarget?.wake = null
         var failure: Throwable? = null
         fun close(action: () -> Unit) {
@@ -627,6 +657,7 @@ internal class HostComposeChromePainter(
                 if (previous == null) failure = error else if (previous !== error) runCatching { previous.addSuppressed(error) }
             }
         }
+        close { cancelContentRefresh() }
         if (hadProbe) close { currentOwner?.removeCallbacks(backdropProbe) }
         close { currentOwner?.removeCallbacks(frameWake) }
         close { oldObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(preDraw) }
@@ -643,5 +674,38 @@ internal class HostComposeChromePainter(
             close { float?.restore() }
         }
         return failure
+    }
+
+    private fun canRetainGpuFrame(now: Long): Boolean =
+        HostUiPowerPolicy.canRetainGpuFrame(HostUiPowerPolicy.current.retainsGpuFrames, AndroidVersion.code) {
+            if (gpuCheckedAt == 0L || now - gpuCheckedAt >= gpuRecheckMs) {
+                gpuBacked = surfaceGpuBacked()
+                gpuCheckedAt = now
+            }
+            gpuBacked
+        }
+
+    private fun surfaceGpuBacked(): Boolean {
+        val active = session?.diagnostics() ?: return false
+        if (active.paused || active.lastFailure != LumenSurfaceFailure.NONE) return false
+        val backend = prism?.diagnostics()?.backdropBackend ?: binding?.diagnostics()?.backend ?: return false
+        return backend == LumenSurfaceBackend.GPU
+    }
+
+    private fun cancelContentRefresh() {
+        owner.get()?.removeCallbacks(contentRefresh)
+        coalescer.cancel()
+    }
+
+    private fun onContentRefreshTimer() {
+        if (failed || paused) return
+        val remaining = coalescer.onTimer(SystemClock.uptimeMillis())
+        if (remaining == ContentRefreshCoalescer.NOW) notifyUpdatedContent()
+        else if (remaining > 0L) owner.get()?.postOnAnimationDelayed(contentRefresh, remaining)
+    }
+
+    private fun notifyUpdatedContent() {
+        if (canRetainGpuFrame(SystemClock.uptimeMillis())) viewport?.coordinateView?.invalidate()
+        else session?.notifyContentChanged()
     }
 }

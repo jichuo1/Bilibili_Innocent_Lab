@@ -73,7 +73,12 @@ internal class HostPrismSurface(
         if (layer.measuredWidth != width || layer.measuredHeight != height)
             layer.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
-        layer.layout(host.left + x, host.top + y, host.left + x + width, host.top + y + height)
+        val left = host.left + x
+        val top = host.top + y
+        val right = left + width
+        val bottom = top + height
+        if (layer.left != left || layer.top != top || layer.right != right || layer.bottom != bottom)
+            layer.layout(left, top, right, bottom)
         layer.pivotX = host.pivotX - x
         layer.pivotY = host.pivotY - y
         layer.translationX = host.translationX

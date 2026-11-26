@@ -1,0 +1,148 @@
+package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
+
+import android.app.Application
+import android.content.ComponentCallbacks
+import android.content.ComponentCallbacks2
+import android.content.Context
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.CommentEmojiAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import sun.misc.Unsafe
+
+class HostMemoryPressureBridgeTest {
+    private open class RecordingApplication : Application() {
+        override fun getApplicationContext(): Context = this
+
+        override fun registerComponentCallbacks(callback: ComponentCallbacks) {
+            recordedCallbacks?.add(callback)
+        }
+
+        override fun unregisterComponentCallbacks(callback: ComponentCallbacks) {
+            recordedCallbacks?.remove(callback)
+            unregisteredCallbacks?.add(callback)
+        }
+    }
+
+    private fun allocateApp(
+        registered: MutableList<ComponentCallbacks>,
+        unregistered: MutableList<ComponentCallbacks>
+    ): Application {
+        recordedCallbacks = registered
+        unregisteredCallbacks = unregistered
+        val unsafe = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
+        return unsafe.allocateInstance(RecordingApplication::class.java) as Application
+    }
+
+    fun restore() {
+        HostMemoryPressureBridge.resetForTests()
+        recordedCallbacks = null
+        unregisteredCallbacks = null
+    }
+
+    fun `trim classification distinguishes UI hidden from background and critical levels`() {
+        assertEquals(HostMemoryPressureBridge.LEVEL_MODERATE, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE))
+        assertEquals(HostMemoryPressureBridge.LEVEL_MODERATE, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW))
+        assertEquals(HostMemoryPressureBridge.LEVEL_CRITICAL, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL))
+        assertEquals(HostMemoryPressureBridge.LEVEL_NONE, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN))
+        assertEquals(HostMemoryPressureBridge.LEVEL_MODERATE, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND))
+        assertEquals(HostMemoryPressureBridge.LEVEL_MODERATE, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_MODERATE))
+        assertEquals(HostMemoryPressureBridge.LEVEL_CRITICAL, HostMemoryPressureBridge.classifyTrimLevel(ComponentCallbacks2.TRIM_MEMORY_COMPLETE))
+        assertEquals(HostMemoryPressureBridge.LEVEL_NONE, HostMemoryPressureBridge.classifyTrimLevel(0))
+    }
+
+    fun `thermal curve maps status progressively to lumen quality pressure`() {
+        assertEquals(0f, HostMemoryPressureBridge.thermalQualityPressure(-1), 0f)
+        assertEquals(0f, HostMemoryPressureBridge.thermalQualityPressure(0), 0f)
+        assertEquals(0f, HostMemoryPressureBridge.thermalQualityPressure(1), 0f)
+        assertEquals(0.5f, HostMemoryPressureBridge.thermalQualityPressure(2), 0f)
+        assertEquals(0.75f, HostMemoryPressureBridge.thermalQualityPressure(3), 0f)
+        assertEquals(1f, HostMemoryPressureBridge.thermalQualityPressure(4), 0f)
+        assertEquals(1f, HostMemoryPressureBridge.thermalQualityPressure(5), 0f)
+        assertEquals(1f, HostMemoryPressureBridge.thermalQualityPressure(6), 0f)
+    }
+
+    fun `install is idempotent per application and forwards trim levels cleanly`() {
+        val registered = mutableListOf<ComponentCallbacks>()
+        val unregistered = mutableListOf<ComponentCallbacks>()
+        val app = allocateApp(registered, unregistered)
+        var moderateCalls = 0
+        var criticalCalls = 0
+        HostMemoryPressureBridge.registerTrimCallbacks(
+            onModerate = { moderateCalls++ },
+            onCritical = { criticalCalls++ }
+        )
+
+        HostMemoryPressureBridge.install(app)
+        HostMemoryPressureBridge.install(app)
+        assertEquals(1, registered.size)
+
+        val callback = registered.single() as ComponentCallbacks2
+        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+        assertEquals(0, moderateCalls)
+        assertEquals(0, criticalCalls)
+
+        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+        assertEquals(1, moderateCalls)
+        assertEquals(0, criticalCalls)
+
+        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+        assertEquals(2, moderateCalls)
+        assertEquals(1, criticalCalls)
+
+        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+        assertEquals(3, moderateCalls)
+        assertEquals(2, criticalCalls)
+
+        callback.onLowMemory()
+        assertEquals(4, moderateCalls)
+        assertEquals(3, criticalCalls)
+
+        HostMemoryPressureBridge.resetForTests()
+        assertTrue(registered.isEmpty())
+    }
+
+    fun `soft floating surface disables refraction and allows render target backdrop only with view content source`() {
+        val soft = HostSurfaceStyle.floating(dark = false, radiusDp = 24f, appearance = HostChromeAppearance(HostGlassMaterial.SOFT))
+        assertFalse(soft.sampling.refractionEnabled)
+        assertEquals(1f, soft.backdropOpacity, 0f)
+        assertTrue(HostSurfaceStyle.isRenderTargetBackdropEligible(soft, hasViewContentSource = true))
+        assertFalse(HostSurfaceStyle.isRenderTargetBackdropEligible(soft, hasViewContentSource = false))
+
+        val liquid = HostSurfaceStyle.floating(dark = true, radiusDp = 24f, appearance = HostChromeAppearance(HostGlassMaterial.LIQUID))
+        assertTrue(liquid.sampling.refractionEnabled)
+        assertFalse(HostSurfaceStyle.isRenderTargetBackdropEligible(liquid, hasViewContentSource = true))
+    }
+
+    fun `emoji adapter caches can be cleared safely under memory pressure`() {
+        CommentEmojiAdapter.clearCaches()
+        val res = CommentEmojiAdapter.resolve(commentItem = null, raw = "plain", spans = emptyList())
+        assertTrue(res.spanMatches.isEmpty())
+        HostMemoryPressureBridge.dispatchModerate()
+    }
+
+    @Test
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostMemoryPressureBridgeTest) -> Unit) {
+            val s = HostMemoryPressureBridgeTest()
+            try {
+                block(s)
+            } finally {
+                s.restore()
+            }
+        }
+        runIsolated { s -> s.`trim classification distinguishes UI hidden from background and critical levels`() }
+        runIsolated { s -> s.`thermal curve maps status progressively to lumen quality pressure`() }
+        runIsolated { s -> s.`install is idempotent per application and forwards trim levels cleanly`() }
+        runIsolated { s -> s.`soft floating surface disables refraction and allows render target backdrop only with view content source`() }
+        runIsolated { s -> s.`emoji adapter caches can be cleared safely under memory pressure`() }
+    }
+
+    private companion object {
+        var recordedCallbacks: MutableList<ComponentCallbacks>? = null
+        var unregisteredCallbacks: MutableList<ComponentCallbacks>? = null
+    }
+}

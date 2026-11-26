@@ -6,13 +6,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import com.lumen.coacervation.engine.host.LumenContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
+import com.lumen.coacervation.engine.host.LumenSourceAvailability
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions
 import com.lumen.coacervation.engine.host.LumenSurfaceSampling
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
 import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
+import com.lumen.coacervation.engine.host.LumenVersionedContentSource
 import com.lumen.coacervation.engine.model.LumenPalette
 import com.lumen.coacervation.engine.model.SurfaceRole
 import java.lang.ref.WeakReference
@@ -36,7 +38,7 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
     private var rasterReady = false
     private var width = 0
     private var height = 0
-    private var source: LumenContentSource? = null
+    private var source: LumenVersionedContentSource? = null
 
     /** 布局变化时只发现容器，跳过列表条目；不为每条评论建立独立采样。 */
     fun discover() {
@@ -97,11 +99,26 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
         if (targets.isEmpty()) return
         val themeChanged = dark != night
         val active = session ?: LumenSurfaceSession(panel.context, LumenPalette.neutral(night),
-            LumenSurfaceSessionOptions(maxSurfaces = 8)).also {
+            LumenSurfaceSessionOptions(maxSurfaces = 8, pauseWhenWindowUnfocused = false)).also {
             session = it
-            source = object : LumenContentSource {
+            source = object : LumenVersionedContentSource {
                 override val coordinateView: View get() = requireNotNull(this@HostDetailSurfaces.panel.get())
                 override val excludesSurfaces: Boolean = true
+                override val observeCoordinateViewInvalidations: Boolean = false
+                override val sourceEpoch: Long get() = 0L
+                override val availability: LumenSourceAvailability get() = LumenSourceAvailability.READY
+                override val contentVersion: Long
+                    get() {
+                        val host = this@HostDetailSurfaces.panel.get() ?: return 0L
+                        val next = host.background as? HostBackgroundDrawable
+                        var v = if (dark == true) 1L else 0L
+                        v = v * 31L + host.width
+                        v = v * 31L + host.height
+                        v = v * 31L + (next?.samplingState ?: 0L)
+                        v = v * 31L + (next?.scrollOffset ?: 0L)
+                        v = v * 31L + if (next?.isRasterReady == true) 1L else 0L
+                        return v and Long.MAX_VALUE
+                    }
                 override fun drawContent(canvas: Canvas) {
                     // 只绘制原有壁纸，绝不调用 panel.draw()，避免祖先采样包含注入表面。
                     // 模糊会采样到面板边界外；先补齐不透明输入，避免底边把下层文字重新透出来。
@@ -119,6 +136,7 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
                     target.binding = target.overlay?.binding
                 } else target.binding = active.bindSource(view, options(target.role, night),
                     source.takeIf { frosted(target.role) })
+                target.binding?.let(HostMemoryPressureBridge::registerBinding)
                 target.drawable = view.background
                 target.drawable?.let { owned[view] = it }
             } else if (themeChanged) {

@@ -20,10 +20,10 @@ internal object HostBackgroundTheme {
             val night = KavaMemberLookup.fieldOrNull(theme, "NIGHT_THEME_ID")?.getInt(null)
                 ?: error("Missing host night theme id")
             environment.registrar.exact("host_background.theme", current.declaringClass, current.name, *current.parameterTypes) {
-                after { if (!hasThrowable) result = night }
+                replaceResultOnSuccess(night)
             }
             environment.registrar.exact("host_background.theme_follow_system", follow.declaringClass, follow.name, *follow.parameterTypes) {
-                after { if (!hasThrowable) result = false }
+                replaceResultOnSuccess(false)
             }
             environment.logInfo("host_background_night_theme", "[BIL] 夜空背景自动使用宿主深色主题，原主题偏好保留")
             2

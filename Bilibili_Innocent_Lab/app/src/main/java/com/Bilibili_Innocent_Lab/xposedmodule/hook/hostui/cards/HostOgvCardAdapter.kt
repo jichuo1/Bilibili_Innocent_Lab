@@ -22,14 +22,40 @@ internal object HostOgvCardAdapter {
     class Point(val method: Method, val modifierIndex: Int, val composerIndex: Int,
         val changedIndex: Int, val defaultsIndex: Int? = null, val radiusIndex: Int? = null,
         private val modifier: Class<*>, private val composer: Class<*>, private val model: Field? = null) {
-        fun accepts(receiver: Any?, args: Array<Any?>): Boolean = runCatching {
-            args.size == method.parameterCount && (modifier.isInstance(args[modifierIndex]) ||
-                defaultsIndex != null && args[modifierIndex] == null &&
-                (args[defaultsIndex] as? Int)?.let { it and (1 shl modifierIndex) != 0 } == true) &&
-                composer.isInstance(args[composerIndex]) && args[changedIndex] is Int &&
-                (defaultsIndex == null || args[defaultsIndex] is Int) &&
-                (model == null || receiver != null && model.get(receiver) != null)
-        }.getOrDefault(false)
+        fun accepts(receiver: Any?, args: Array<Any?>): Boolean =
+            args.size == method.parameterCount && accepts(receiver) { args[it] }
+
+        inline fun accepts(receiver: Any?, argAt: (Int) -> Any?): Boolean = try {
+            if (!acceptsReceiver(receiver)) false
+            else {
+                val modifierArg = argAt(modifierIndex)
+                val defaultsArg = if (defaultsIndex != null) argAt(defaultsIndex) else null
+                val modifierValid = isModifierInstance(modifierArg) ||
+                    (defaultsIndex != null && modifierArg == null && hasModifierDefault(defaultsArg))
+                modifierValid &&
+                    (defaultsIndex == null || defaultsArg is Int) &&
+                    isComposerInstance(argAt(composerIndex)) &&
+                    argAt(changedIndex) is Int
+            }
+        } catch (_: Throwable) {
+            false
+        }
+
+        @PublishedApi
+        internal fun acceptsReceiver(receiver: Any?): Boolean {
+            val modelField = model ?: return true
+            return receiver != null && runCatching { modelField.get(receiver) != null }.getOrDefault(false)
+        }
+
+        @PublishedApi
+        internal fun isModifierInstance(value: Any?): Boolean = modifier.isInstance(value)
+
+        @PublishedApi
+        internal fun isComposerInstance(value: Any?): Boolean = composer.isInstance(value)
+
+        @PublishedApi
+        internal fun hasModifierDefault(defaultsArg: Any?): Boolean =
+            (defaultsArg as? Int)?.let { it and (1 shl modifierIndex) != 0 } == true
 
         fun rewrite(args: Array<Any?>, supplied: Any, radius: Float) {
             args[modifierIndex] = supplied

@@ -11,11 +11,7 @@ import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundSizingPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidImageDecoderApi28
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.ModernBackdropBlur
+import com.lumen.coacervation.engine.background.LiquidBackgroundImportFailure
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -45,19 +41,19 @@ internal object HostBackgroundImages {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        check(total <= LiquidBackgroundSizingPolicy.MAX_INPUT_BYTES)
+                        check(total <= HostBackgroundSizingPolicy.MAX_INPUT_BYTES)
                         output.write(buffer, 0, count)
                     }
                 }
             } ?: error("Unreadable image")
             // 与模块皮肤同一导入解码入口；失败原因原样上抛，UI 据此区分超限/损坏文案。
-            val normalized = LiquidBackgroundStore.normalizeForImport(raw)
+            val normalized = HostBackgroundImageDecoder.normalizeForImport(raw)
             bitmap = normalized.bitmap ?: error(normalized.failure ?: LiquidBackgroundImportFailure.UNSUPPORTED_IMAGE)
             FileOutputStream(target).use {
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                 it.fd.sync()
             }
-            check(target.length() in 1..LiquidBackgroundSizingPolicy.MAX_ASSET_BYTES)
+            check(target.length() in 1..HostBackgroundSizingPolicy.MAX_ASSET_BYTES)
             return asset
         } catch (failure: Throwable) {
             target.delete()
@@ -97,20 +93,20 @@ internal object HostBackgroundImages {
             val file = file(context, config.asset)
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.absolutePath, bounds)
-            if (!LiquidBackgroundSizingPolicy.isSupportedDeclaredSize(bounds.outWidth, bounds.outHeight)) {
+            if (!HostBackgroundSizingPolicy.isSupportedDeclaredSize(bounds.outWidth, bounds.outHeight)) {
                 return@runCatching null
             }
             val source = if (Build.VERSION.SDK_INT >= 28) {
-                LiquidImageDecoderApi28.decode(file, PREVIEW_MAX_EDGE)
+                HostImageDecoderApi28.decode(file, PREVIEW_MAX_EDGE)
             } else {
                 val options = BitmapFactory.Options().apply {
                     inPreferredConfig = Bitmap.Config.ARGB_8888
-                    inSampleSize = LiquidBackgroundSizingPolicy.decodeSampleSize(
+                    inSampleSize = HostBackgroundSizingPolicy.decodeSampleSize(
                         bounds.outWidth, bounds.outHeight, PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE
                     )
                 }
                 BitmapFactory.decodeFile(file.absolutePath, options)
-                    ?.let { LiquidBackgroundStore.applyExifOrientation(it, file) }
+                    ?.let { HostBackgroundImageDecoder.applyExifOrientation(it, file) }
             } ?: return@runCatching null
             try { process(source, config) } finally { source.recycle() }
         }.getOrNull()
@@ -126,8 +122,8 @@ internal object HostBackgroundImages {
             colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(config.saturation / 100f) })
         }
         Canvas(target).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), paint)
-        // 模糊复用皮肤家族同源的 ModernBackdropBlur（同为三遍双向盒式、边缘复制，
-        // 输出逐位一致）；其半径上限 32，超出时先按比例降采样再模糊，观感等效。
+        // 模糊复用与皮肤家族同源的三遍双向盒式卷积（边缘复制，输出逐位一致）；
+        // 其半径上限 32，超出时先按比例降采样再模糊，观感等效。
         val radius = (config.blur * width / 360f / 2f).roundToInt()
         var processedPixels: IntArray? = null
         if (radius > 0) {
@@ -135,7 +131,7 @@ internal object HostBackgroundImages {
                 // 直接像素通路：不经过 Bitmap 预乘往返，透明像素的模糊语义与旧实现一致。
                 val pixels = IntArray(width * height)
                 target.getPixels(pixels, 0, width, 0, 0, width, height)
-                val result = ModernBackdropBlur.blurInto(pixels, IntArray(pixels.size), width, height, radius)
+                val result = HostBackdropBlur.blurInto(pixels, IntArray(pixels.size), width, height, radius)
                 target.setPixels(result, 0, width, 0, 0, width, height)
                 processedPixels = result
             } else {
@@ -148,7 +144,7 @@ internal object HostBackgroundImages {
                         Paint(Paint.FILTER_BITMAP_FLAG))
                     val pixels = IntArray(blurWidth * blurHeight)
                     blurred.getPixels(pixels, 0, blurWidth, 0, 0, blurWidth, blurHeight)
-                    val result = ModernBackdropBlur.blurInto(pixels, IntArray(pixels.size), blurWidth, blurHeight,
+                    val result = HostBackdropBlur.blurInto(pixels, IntArray(pixels.size), blurWidth, blurHeight,
                         (radius * blurScale).roundToInt().coerceIn(1, MAX_BLUR_RADIUS))
                     blurred.setPixels(result, 0, blurWidth, 0, 0, blurWidth, blurHeight)
                     Canvas(target).drawBitmap(blurred, null, android.graphics.Rect(0, 0, width, height),

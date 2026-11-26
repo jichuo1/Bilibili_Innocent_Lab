@@ -66,8 +66,12 @@ internal class ViewSamplingMatrix {
         var depth = 0
         while (depth++ < 128) {
             // View.matrix includes translation, scale, rotation and their actual pivot.
-            current.matrix.getValues(step)
-            if (!SamplingMatrixMath.isFinite(step)) return false
+            if (current.matrix.isIdentity) {
+                SamplingMatrixMath.identity(step)
+            } else {
+                current.matrix.getValues(step)
+                if (!SamplingMatrixMath.isFinite(step)) return false
+            }
             val parent = current.parent as? View
             SamplingMatrixMath.translateAfter(step,
                 (current.left.toLong() - (parent?.scrollX ?: 0)).toFloat(),
@@ -107,8 +111,12 @@ internal class ViewSamplingMatrix {
         }
         for (index in chain.indices.reversed()) {
             val node = chain[index]
-            node.matrix.getValues(step)
-            if (!SamplingMatrixMath.isFinite(step)) return false
+            if (node.matrix.isIdentity) {
+                SamplingMatrixMath.identity(step)
+            } else {
+                node.matrix.getValues(step)
+                if (!SamplingMatrixMath.isFinite(step)) return false
+            }
             val parent = node.parent as? View
             SamplingMatrixMath.translateAfter(step,
                 (node.left.toLong() - (parent?.scrollX ?: 0)).toFloat(),

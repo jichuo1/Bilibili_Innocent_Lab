@@ -70,6 +70,10 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private var observer: ViewTreeObserver? = null
     private var hardwareScene: HostCardMaterialScene? = null
     private var softwareScene: HostCardMaterialScene? = null
+
+    init {
+        synchronized(instancesLock) { instances[this] = Unit }
+    }
     private val location = IntArray(2)
     private val visibleBounds = Rect()
     private val mapping = ViewSamplingMatrix()
@@ -362,9 +366,20 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         }
     }
 
+    fun releaseOffscreenRenderNodes() {
+        if (closed) return
+        if (visible != true || !owner.isShown) {
+            hardwareScene?.close(); hardwareScene = null
+            softwareScene?.close(); softwareScene = null
+            hardwareDirty = true; softwareDirty = true
+            hardwareRecordedFrame = -1L; softwareRecordedFrame = -1L
+        }
+    }
+
     override fun close() {
         if (closed) return
         closed = true
+        synchronized(instancesLock) { instances.remove(this) }
         cancelContentRefresh()
         observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this); observer = null
         owner.removeOnAttachStateChangeListener(this)
@@ -374,5 +389,15 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         softwareScene?.close(); softwareScene = null
         owner.overlay.remove(field)
         if (session != null) owner.overlay.remove(source)
+    }
+
+    companion object {
+        private val instancesLock = Any()
+        private val instances = WeakHashMap<HostCardMaterialScope, Unit>()
+
+        fun releaseAllOffscreenRenderNodes() {
+            val snapshot = synchronized(instancesLock) { instances.keys.toList() }
+            snapshot.forEach { it.releaseOffscreenRenderNodes() }
+        }
     }
 }

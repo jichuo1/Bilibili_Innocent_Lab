@@ -18,7 +18,6 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Bundle
 import android.os.SystemClock
-import android.view.Choreographer
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -31,6 +30,10 @@ import android.widget.HorizontalScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallPassthrough
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
+import io.github.jichuo1.meguviz.android.runtime.core.ErrorSink
+import io.github.jichuo1.meguviz.android.runtime.core.FrameScheduler
+import io.github.jichuo1.meguviz.android.runtime.platform.BudgetFrameDriver
+import io.github.jichuo1.meguviz.android.runtime.platform.MainThreadDispatcher
 import java.util.WeakHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -84,10 +87,19 @@ internal class HostTopIslandBinding private constructor(
     }
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = glyphColor }
     private val spinnerBounds = RectF(-7.5f * density, -7.5f * density, 7.5f * density, 7.5f * density)
-    private val feedbackFrame = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) = HostThreadGuard.run("host.top.island.feedback") {
+    private val feedbackChannelKey = Any()
+    private val springChannelKey = Any()
+    private var frameScheduler: FrameScheduler? = null
+    private var feedbackChannel: FrameScheduler.FrameChannel? = null
+    private var springChannel: FrameScheduler.FrameChannel? = null
+    private val feedbackWork = FrameScheduler.FrameWork { tick, quota ->
+        HostThreadGuard.run("host.top.island.feedback") {
             feedbackQueued = false
-            if (!input.isAttachedToWindow || !collapsed) { feedbackFrameNanos = 0L; return@run }
+            if (!input.isAttachedToWindow || !collapsed) {
+                feedbackFrameNanos = 0L
+                return@run
+            }
+            val frameTimeNanos = tick.frameTimeNanos()
             val previous = feedbackFrameNanos
             feedbackFrameNanos = frameTimeNanos
             feedback.advance(if (previous == 0L) 1f / 60f else (frameTimeNanos - previous) / 1e9f)
@@ -95,6 +107,7 @@ internal class HostTopIslandBinding private constructor(
             input.invalidate()
             ensureFeedbackFrames()
         }
+        minOf(1, quota)
     }
     private val arrowPath = Path().apply {
         moveTo(0f, 8f * density)
@@ -109,30 +122,30 @@ internal class HostTopIslandBinding private constructor(
         lineTo(7.5f * density, -2f * density)
         lineTo(1.5f * density, -2f * density)
     }
-    private val frameCallback = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
-            val continued = HostThreadGuard.call("host.top.island.frame", false) {
-                if (!animating) return
-                if (!input.isAttachedToWindow) {
-                    settle()
-                    return
-                }
-                val previous = lastFrameNanos
-                lastFrameNanos = frameTimeNanos
-                val seconds = if (previous == 0L) 1f / 60f else (frameTimeNanos - previous) / 1e9f
-                val target = if (collapsed) 1f else 0f
-                spring.advance(seconds.coerceAtMost(HostTopIslandMotionSpec.MAX_FRAME_SECONDS), target,
-                    if (collapsed) HostTopIslandMotionSpec.COLLAPSE_STIFFNESS else HostTopIslandMotionSpec.EXPAND_STIFFNESS,
-                    if (collapsed) HostTopIslandMotionSpec.DAMPING_RATIO else HostTopIslandMotionSpec.EXPAND_DAMPING_RATIO)
-                applyProgress(spring.value)
-                val travel = (dock.width - dock.height).coerceAtLeast(1).toFloat()
-                if (spring.atRest(target, .5f / travel)) settle()
-                else Choreographer.getInstance().postFrameCallback(this)
-                true
+    private val springWork = FrameScheduler.FrameWork { tick, quota ->
+        val continued = HostThreadGuard.call("host.top.island.frame", false) {
+            if (!animating) return@call true
+            if (!input.isAttachedToWindow) {
+                settle()
+                return@call true
             }
-            // 失败的一帧不再续约；animating 留着的话，之后的 animateTo 以为动画还在跑，岛就卡在半途。
-            if (!continued) animating = false
+            val frameTimeNanos = tick.frameTimeNanos()
+            val previous = lastFrameNanos
+            lastFrameNanos = frameTimeNanos
+            val seconds = if (previous == 0L) 1f / 60f else (frameTimeNanos - previous) / 1e9f
+            val target = if (collapsed) 1f else 0f
+            spring.advance(seconds.coerceAtMost(HostTopIslandMotionSpec.MAX_FRAME_SECONDS), target,
+                if (collapsed) HostTopIslandMotionSpec.COLLAPSE_STIFFNESS else HostTopIslandMotionSpec.EXPAND_STIFFNESS,
+                if (collapsed) HostTopIslandMotionSpec.DAMPING_RATIO else HostTopIslandMotionSpec.EXPAND_DAMPING_RATIO)
+            applyProgress(spring.value)
+            val travel = (dock.width - dock.height).coerceAtLeast(1).toFloat()
+            if (spring.atRest(target, .5f / travel)) settle()
+            else springChannel?.takeIf { !it.isClosed }?.requestFrame()
+            true
         }
+        // 失败的一帧不再续约；animating 留着的话，之后的 animateTo 以为动画还在跑，岛就卡在半途。
+        if (!continued) animating = false
+        minOf(1, quota)
     }
 
     private val input = object : View(dock.context), HostDockLayer {
@@ -280,7 +293,7 @@ internal class HostTopIslandBinding private constructor(
                 gesture = null
                 consumed = false
                 feedback.reset()
-                Choreographer.getInstance().removeFrameCallback(feedbackFrame)
+                releaseFrameScheduler()
                 feedbackQueued = false
                 feedbackFrameNanos = 0L
                 glow?.resetGestureState()
@@ -373,11 +386,41 @@ internal class HostTopIslandBinding private constructor(
         ensureFeedbackFrames()
     }
 
+    private fun ensureFrameScheduler(): FrameScheduler? {
+        val current = frameScheduler
+        if (current != null) return current
+        return runCatching {
+            val owner = MainThreadDispatcher()
+            val driver = BudgetFrameDriver(owner, true)
+            val errors = ErrorSink { error -> ModernHookLog.info("[BIL] 顶栏灵动岛帧调度异常: $error") }
+            val scheduler = FrameScheduler(owner, driver, errors, 4)
+            feedbackChannel = scheduler.openChannel(feedbackChannelKey, feedbackWork, 2)
+            springChannel = scheduler.openChannel(springChannelKey, springWork, 2)
+            frameScheduler = scheduler
+            scheduler
+        }.onFailure {
+            ModernHookLog.info("[BIL] 初始化顶栏预算帧调度器失败: $it")
+            releaseFrameScheduler()
+        }.getOrNull()
+    }
+
+    private fun releaseFrameScheduler() {
+        runCatching { feedbackChannel?.close() }
+        feedbackChannel = null
+        runCatching { springChannel?.close() }
+        springChannel = null
+        runCatching { frameScheduler?.close() }
+        frameScheduler = null
+    }
+
     private fun ensureFeedbackFrames() {
-        if (!feedbackQueued && collapsed && input.isAttachedToWindow && feedback.needsFrame(SystemClock.uptimeMillis())) {
+        val now = SystemClock.uptimeMillis()
+        if (!feedbackQueued && collapsed && input.isAttachedToWindow && feedback.needsFrame(now)) {
+            ensureFrameScheduler()
+            val channel = feedbackChannel?.takeUnless { it.isClosed } ?: return
             feedbackQueued = true
-            Choreographer.getInstance().postFrameCallback(feedbackFrame)
-        } else if (!feedback.needsFrame(SystemClock.uptimeMillis())) feedbackFrameNanos = 0L
+            channel.requestFrame()
+        } else if (!feedback.needsFrame(now)) feedbackFrameNanos = 0L
     }
 
     private fun horizontalInset() = HostTopIslandMotionSpec.horizontalInset(
@@ -412,7 +455,7 @@ internal class HostTopIslandBinding private constructor(
 
     private fun settle() {
         animating = false
-        Choreographer.getInstance().removeFrameCallback(frameCallback)
+        springChannel?.takeUnless { it.isClosed }?.cancelPending()
         lastFrameNanos = 0L
         val target = if (collapsed) 1f else 0f
         spring.reset(target)
@@ -436,7 +479,9 @@ internal class HostTopIslandBinding private constructor(
             spring.velocity = initialVelocity.coerceIn(-1.5f, 1.5f)
             lastFrameNanos = 0L
             animating = true
-            Choreographer.getInstance().postFrameCallback(frameCallback)
+            ensureFrameScheduler()
+            val channel = springChannel?.takeUnless { it.isClosed }
+            if (channel != null) channel.requestFrame() else settle()
         }
         ModernHookLog.info("[BIL] 顶栏灵动岛: ${if (compact) "collapsed" else "expanded"}")
     }
