@@ -43,6 +43,28 @@ class HostBackgroundPagesInstrumentedTest {
             override fun getApplicationContext() = activity.applicationContext
         }
 
+    @Test fun nativePageIdentityIsVisibleBeforeWindowAttachment() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = resourceContext(activity)
+                val root = FrameLayout(context)
+                val compose = FrameLayout(context)
+                root.addView(compose, FrameLayout.LayoutParams(-1, -1))
+                val pages = HostBackgroundPages(
+                    HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.AURORA), { throw it }),
+                    HostVideoCardHostAccess(activity.classLoader)
+                ) { throw it }
+
+                assertFalse(root.isAttachedToWindow)
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+
+                assertEquals(HostBackgroundPagePolicy.Kind.NATIVE, HostBackgroundPages.kind(compose))
+                assertSame(root, HostBackgroundPages.owner(compose))
+            }
+        }
+    }
+
     @Test fun channelSuggestionsCoverResultsAcrossQueryAndVisibilityChanges() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
