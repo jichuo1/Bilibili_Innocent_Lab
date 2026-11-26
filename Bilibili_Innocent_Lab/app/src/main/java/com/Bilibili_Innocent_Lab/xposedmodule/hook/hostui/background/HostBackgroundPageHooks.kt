@@ -216,7 +216,7 @@ internal object HostBackgroundPageHooks {
         } ?: return@runCatching 0
         val backgroundColors = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
         val fillTypes = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
-        data class DrawPage(val width: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
+        data class DrawPage(val width: Int, val height: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
         val scopes = ThreadLocal.withInitial { java.util.ArrayDeque<DrawPage>() }
         environment.registrar.exact("host_background.compose_color", bg.declaringClass, bg.name, *bg.parameterTypes) {
             after { if (!hasThrowable) (result as? Long)?.let { backgroundColors.add(it) } }
@@ -228,7 +228,8 @@ internal object HostBackgroundPageHooks {
                 val supported = node != null && kind != null && kind != HostBackgroundPagePolicy.Kind.DYNAMIC && !HostBackgroundPages.protectedAncestor(node)
                 val preserveCards = node?.let { commentOwnerActivity(it.context) }?.javaClass?.name ==
                     HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
-                scopes.get()?.push(DrawPage(if (supported) node.width else 0, node?.resources?.displayMetrics?.density ?: 1f,
+                scopes.get()?.push(DrawPage(if (supported) node.width else 0, if (supported) node.height else 0,
+                    node?.resources?.displayMetrics?.density ?: 1f,
                     kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT, preserveCards))
             }
             after {
@@ -252,9 +253,12 @@ internal object HostBackgroundPageHooks {
                 // 必须一起保留 Bg1，否则只剩白色顶盖，正文和底部填充被壁纸挖空。
                 if (page.preserveCards && color in backgroundColors) return@before
                 val packed = argOrNull(2) as? Long ?: return@before
+                val width = Float.fromBits((packed ushr 32).toInt())
                 val height = Float.fromBits(packed.toInt())
                 if (color !in backgroundColors && !(page.native && HostBackgroundPagePolicy.nativeComposePanel(color, height, page.density))) return@before
-                if (HostBackgroundPagePolicy.pageRectangle(Float.fromBits((packed ushr 32).toInt()), height, page.width)) result = null
+                if (!HostBackgroundPagePolicy.pageRectangle(width, height, page.width)) return@before
+                val y = instance?.let(access::translation)?.second ?: Float.NaN
+                if (!HostBackgroundPagePolicy.fixedEdgeChrome(height, page.height, page.density, y)) result = null
             }
         }
         3

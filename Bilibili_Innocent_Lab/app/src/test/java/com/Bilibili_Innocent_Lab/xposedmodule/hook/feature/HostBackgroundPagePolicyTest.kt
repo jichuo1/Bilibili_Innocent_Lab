@@ -114,12 +114,24 @@ class HostBackgroundPagePolicyTest {
 
     fun composeButtonsAndInvalidGeometryKeepTheirBackgrounds() {
         assertTrue(HostBackgroundPagePolicy.pageRectangle(1080f, 2300f, 1080))
+        assertTrue(HostBackgroundPagePolicy.pageRectangle(1080f, 222f, 1080))
         assertTrue(HostBackgroundPagePolicy.pageRectangle(1000f, 80f, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(140f, 60f, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(Float.NaN, 60f, 1080))
+        assertFalse(HostBackgroundPagePolicy.pageRectangle(140f, 1600f, 1080))
+        assertFalse(HostBackgroundPagePolicy.pageRectangle(Float.NaN, 1600f, 1080))
         assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, Float.POSITIVE_INFINITY, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, 0f, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, 100f, 0))
+        assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, 1600f, 0))
+    }
+
+    fun fixedComposeEdgeChromeIsSeparatedFromScrollingPanels() {
+        val density = 2.75f
+        assertTrue(HostBackgroundPagePolicy.fixedEdgeChrome(222f, 2340, density, 0f))
+        assertTrue(HostBackgroundPagePolicy.fixedEdgeChrome(122f, 2340, density, 2218f))
+        assertFalse("A scrolling comment panel must not become fixed chrome", HostBackgroundPagePolicy.fixedEdgeChrome(893f, 2340, density, 1f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(1886f, 2340, density, 0f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(277f, 2340, density, 0f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(80f, 2340, density, 0f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(122f, 2340, density, 1000f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(Float.NaN, 2340, density, 0f))
     }
 
     fun nativeComposePanelsKeepBusinessColorsAndThinLines() {
@@ -147,6 +159,7 @@ class HostBackgroundPagePolicyTest {
         runIsolated { s -> s.artworkAndTranslucentSurfacesAreNotPlainPageFills() }
         runIsolated { s -> s.nativeWindowsCoverUnlistedPagesAndKeepImmersiveWindows() }
         runIsolated { s -> s.composeButtonsAndInvalidGeometryKeepTheirBackgrounds() }
+        runIsolated { s -> s.fixedComposeEdgeChromeIsSeparatedFromScrollingPanels() }
         runIsolated { s -> s.nativeComposePanelsKeepBusinessColorsAndThinLines() }
     
         HostBackgroundWorldCases().verifyAllCases()

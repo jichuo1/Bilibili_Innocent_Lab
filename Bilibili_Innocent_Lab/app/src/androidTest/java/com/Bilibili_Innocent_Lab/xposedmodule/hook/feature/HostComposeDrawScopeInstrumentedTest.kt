@@ -41,5 +41,9 @@ class HostComposeDrawScopeInstrumentedTest {
         assertEquals(7, resolved.draw.parameterCount)
         assertTrue(resolved.draw.parameterTypes.take(3).all { it == Long::class.javaPrimitiveType })
         assertTrue(resolved.scope.declaredMethods.any { it.name == "drawContent" })
+        assertNotNull("Canvas translation is required to distinguish fixed chrome from scrolling panels", resolved.drawContext)
+        assertNotNull("Canvas translation is required to distinguish fixed chrome from scrolling panels", resolved.canvas)
+        assertNotNull("Canvas translation is required to distinguish fixed chrome from scrolling panels", resolved.nativeCanvas)
+        assertEquals("getNativeCanvas", resolved.nativeCanvas?.name)
     }
 }
