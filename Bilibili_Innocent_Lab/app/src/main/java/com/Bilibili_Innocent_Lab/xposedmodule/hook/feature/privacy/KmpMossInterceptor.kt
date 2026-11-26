@@ -117,12 +117,33 @@ internal class KmpMossInterceptor(
     /** `bilibili.app.interface.v1.History/CursorV2`, the same shape as the Java MethodDescriptor name. */
     internal fun fullMethodName(descriptor: Any): String? = synchronized(descriptorNames) {
         if (descriptorNames.containsKey(descriptor)) return descriptorNames[descriptor]
-        // The descriptor is a data class; its toString carries the three names as literals.
-        val match = DESCRIPTOR.find(descriptor.toString())
+        // The descriptor is a data class; its toString carries the three names as literals unless R8 stripped it.
+        val raw = descriptor.toString()
+        val match = DESCRIPTOR.find(raw)
         val name = match?.let { "${it.groupValues[1]}.${it.groupValues[2]}/${it.groupValues[3]}" }
+            ?: if (OBJECT_TO_STRING.matches(raw)) descriptorFromMembers(descriptor) else null
         if (descriptorNames.size >= MAX_CACHED_DESCRIPTORS) descriptorNames.clear()
         descriptorNames[descriptor] = name
         name
+    }
+
+    private fun descriptorFromMembers(descriptor: Any): String? {
+        fun read(memberNames: List<String>): String? {
+            val type = descriptor.javaClass
+            for (name in memberNames) {
+                Lookup.fieldOrNull(type, name, includeSuperclasses = true)?.takeIf { it.type == String::class.java }?.let { field ->
+                    return (runCatching { field.get(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
+                }
+                Lookup.inheritedMethodOrNull(type, name)?.takeIf { it.parameterCount == 0 && it.returnType == String::class.java }?.let { method ->
+                    return (runCatching { method.invoke(descriptor) as? String }.getOrNull())?.takeIf(String::isNotBlank)
+                }
+            }
+            return null
+        }
+        val pkg = read(listOf("packageName", "getPackageName")) ?: return null
+        val svc = read(listOf("serviceName", "getServiceName")) ?: return null
+        val mtd = read(listOf("methodName", "getMethodName")) ?: return null
+        return "$pkg.$svc/$mtd"
     }
 
     private fun response(request: Any, payload: ByteArray?, error: Exception?): Any {
@@ -145,5 +166,6 @@ internal class KmpMossInterceptor(
         private val EMPTY = ByteArray(0)
         private const val MAX_CACHED_DESCRIPTORS = 4096
         private val DESCRIPTOR = Regex("""packageName=([^,]+), serviceName=([^,]+), methodName=([^,]+),""")
+        private val OBJECT_TO_STRING = Regex("""^[A-Za-z0-9_.$]+@[0-9a-fA-F]+$""")
     }
 }

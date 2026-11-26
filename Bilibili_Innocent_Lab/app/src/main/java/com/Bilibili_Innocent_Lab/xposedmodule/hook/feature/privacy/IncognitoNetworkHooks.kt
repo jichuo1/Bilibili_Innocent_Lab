@@ -85,9 +85,16 @@ internal class IncognitoNetworkHooks(
         fun sanitize(original: Any, identity: IncognitoSession.Identity): Any {
             val builder = requireNotNull(host.call(original, "newBuilder"))
             listOf("Cookie", "Authorization", "Proxy-Authorization", "X-Bili-Access-Key", "X-Bili-Mid",
-                "Display-ID", "X-Bili-Ticket", "Bili-Ticket", "X-Bili-Aurora-Eid").forEach { host.call(builder, "removeHeader", it) }
+                "Display-ID", "X-Bili-Ticket", "Bili-Ticket", "X-Bili-Aurora-Eid",
+                "X-Bili-Metadata-Bin", "X-Bili-Device-Bin", "X-Bili-Fawkes-Req-Bin")
+                .forEach { host.call(builder, "removeHeader", it) }
             listOf("Buvid", "Device-ID", "fp_local", "fp_remote", "GuestId").forEach {
                 host.call(builder, "header", it, identity.buvid)
+            }
+            listOf("Buvid3", "Buvid4").forEach { name ->
+                if (host.call(original, "header", name) != null) {
+                    host.call(builder, "header", name, identity.buvid)
+                }
             }
             host.call(builder, "header", "Session-ID", identity.sessionId)
             host.call(builder, "header", "session_id", identity.sessionId)

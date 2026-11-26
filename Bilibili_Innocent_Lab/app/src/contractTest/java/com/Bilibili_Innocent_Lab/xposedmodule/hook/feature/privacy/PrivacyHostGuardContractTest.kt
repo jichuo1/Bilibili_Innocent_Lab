@@ -54,14 +54,22 @@ class PrivacyHostGuardContractTest {
     }
 
     fun hostCalledProxiesReturnTypedDefaults() {
-        listOf("GuestHostFavoriteSnackbar.kt", "GuestNativeListHttpHooks.kt", "GuestNativeFollowGroupMenu.kt")
+        listOf(
+            "GuestHostFavoriteSnackbar.kt",
+            "GuestNativeListHttpHooks.kt",
+            "GuestNativeFollowGroupMenu.kt",
+            "IgnetHttpSanitizer.kt"
+        )
             .forEach { file ->
                 val source = read(file)
                 assertTrue(file, source.contains("hostProxyDefaultValue(method.returnType)"))
                 assertFalse(file, source.contains("else -> null"))
                 assertFalse(file, source.contains("return@newProxyInstance null"))
             }
-        assertTrue(read("IncognitoNetworkHooks.kt").contains("else -> hostProxyDefaultValue(m.returnType)"))
+        val netSource = read("IncognitoNetworkHooks.kt")
+        assertTrue(netSource.contains("else -> hostProxyDefaultValue(m.returnType)"))
+        assertTrue(netSource.contains("X-Bili-Fawkes-Req-Bin"))
+        assertTrue(netSource.contains("\"Buvid3\", \"Buvid4\""))
     }
 
     @org.junit.Test

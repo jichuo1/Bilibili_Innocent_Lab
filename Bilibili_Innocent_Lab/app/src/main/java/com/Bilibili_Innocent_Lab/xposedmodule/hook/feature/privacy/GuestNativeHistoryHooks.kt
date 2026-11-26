@@ -175,6 +175,7 @@ internal class GuestNativeHistoryHooks(
      */
     private fun installBannerGuard(banner: View) {
         // 预绘制故障开放：守卫里出错按 true 放行，宿主照常绘制。
+        var attachedObserver: java.lang.ref.WeakReference<ViewTreeObserver>? = null
         val guard = ViewTreeObserver.OnPreDrawListener {
             HostThreadGuard.call("guest.history.banner.predraw", true) {
                 if (isGuest() && banner.visibility != View.GONE) {
@@ -183,13 +184,25 @@ internal class GuestNativeHistoryHooks(
                 } else true
             }
         }
-        fun attach(view: View) = view.viewTreeObserver.addOnPreDrawListener(guard)
+        fun detach(view: View) {
+            attachedObserver?.get()?.takeIf { it.isAlive }?.removeOnPreDrawListener(guard)
+            attachedObserver = null
+            view.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(guard)
+        }
+        fun attach(view: View) {
+            val next = view.viewTreeObserver
+            if (!next.isAlive) return
+            if (attachedObserver?.get() === next) return
+            detach(view)
+            next.addOnPreDrawListener(guard)
+            attachedObserver = java.lang.ref.WeakReference(next)
+        }
         if (banner.isAttachedToWindow) attach(banner)
         banner.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(view: View) =
                 HostThreadGuard.run("guest.history.banner.attach") { attach(view) }
             override fun onViewDetachedFromWindow(view: View) =
-                HostThreadGuard.run("guest.history.banner.detach") { view.viewTreeObserver.removeOnPreDrawListener(guard) }
+                HostThreadGuard.run("guest.history.banner.detach") { detach(view) }
         })
     }
 

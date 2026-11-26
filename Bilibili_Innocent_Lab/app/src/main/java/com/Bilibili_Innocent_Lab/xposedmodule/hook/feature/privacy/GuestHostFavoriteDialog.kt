@@ -29,7 +29,9 @@ import java.util.WeakHashMap
  * true, so while one of the dialogs opened here runs its own code, `isLogin()` answers true on that thread ([GuestLoginScope]);
  * nothing outside the dialog sees it. A build without that shape keeps the module's picker.
  */
-internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
+internal class GuestHostFavoriteDialog(
+    private val localBoundaryReady: () -> Boolean = { true }
+) : GuestVideoFavoriteHooks.HostDialog {
     private class Parts(val params: Constructor<*>, val dialog: Constructor<*>, val activity: Class<*>, val ugc: Any,
                         val scene: Any, val storyScene: Any)
 
@@ -39,7 +41,12 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
     /** Dialogs opened here, with the page each was opened on; the host's own dialogs never get the login answer. */
     private val opened = Collections.synchronizedMap(WeakHashMap<Any, WeakReference<Context>>())
 
-    override fun install(env: HookEnvironment, loader: ClassLoader): Boolean = runCatching {
+    override fun install(env: HookEnvironment, loader: ClassLoader): Boolean {
+        if (!localBoundaryReady()) {
+            env.reportStatus("guest_video_favorite_host_dialog", "skipped-no-local-boundary")
+            return false
+        }
+        return runCatching {
         val host = PrivacyHostAccess(loader)
         val dialog = host.type(DIALOG)
         val launcher = host.type("androidx.activity.result.ActivityResultLauncher")
@@ -119,13 +126,15 @@ internal class GuestHostFavoriteDialog : GuestVideoFavoriteHooks.HostDialog {
         }
         parts = Parts(paramsConstructor, dialogConstructor, activity, ugc, detail, story)
         true
-    }.getOrElse {
-        env.reportStatus("guest_video_favorite_host_dialog", "absent:${it.javaClass.simpleName}")
-        false
+        }.getOrElse {
+            env.reportStatus("guest_video_favorite_host_dialog", "absent:${it.javaClass.simpleName}")
+            false
+        }
     }
 
     override fun show(context: Context?, video: LocalVirtualLibrary.Video, favorited: Boolean, story: Boolean,
                       onClosed: () -> Unit): Boolean {
+        if (!localBoundaryReady()) return false
         val found = parts ?: return false
         val activity = context?.hostActivity?.takeUnless { it.isFinishing || it.isDestroyed } ?: return false
         if (!found.activity.isInstance(activity)) return false

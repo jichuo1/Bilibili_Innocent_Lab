@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
@@ -191,9 +192,14 @@ internal class KmpMossBoundary private constructor(
          * start: the channel would stay open), otherwise a boundary that registers nothing until
          * [install] is called.
          */
-        fun prepare(env: HookEnvironment, session: IncognitoSession?, isolationReady: () -> Boolean): Prepared? {
+        fun prepare(
+            env: HookEnvironment,
+            session: IncognitoSession?,
+            isolationReady: () -> Boolean,
+            cachedEngine: VersionAdapter.HookPoint? = null
+        ): Prepared? {
             val loader = env.classLoader ?: return null
-            return when (val resolved = KmpMossSurface.resolve(loader)) {
+            return when (val resolved = KmpMossSurface.resolve(loader, cachedEngine = cachedEngine)) {
                 KmpMossSurface.Result.Absent -> Prepared.Absent
                 is KmpMossSurface.Result.Unresolved -> {
                     runCatching { env.logError("kmp_moss:unresolved", "[BIL] KMP moss pipeline unresolved: ${resolved.reason}") }

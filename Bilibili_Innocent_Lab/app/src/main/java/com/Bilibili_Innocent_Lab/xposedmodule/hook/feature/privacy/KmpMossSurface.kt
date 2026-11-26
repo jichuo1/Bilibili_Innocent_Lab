@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
@@ -66,9 +68,17 @@ internal class KmpMossSurface(
         private const val SERIALIZATION_STRATEGY = "kotlinx.serialization.SerializationStrategy"
         private const val KCLASS = "kotlin.reflect.KClass"
 
-        fun resolve(loader: ClassLoader, names: Names = Names()): Result {
-            val engine = Lookup.classOrNull(loader, names.engine) ?: return Result.Absent
+        fun resolve(
+            loader: ClassLoader,
+            names: Names = Names(),
+            cachedEngine: VersionAdapter.HookPoint? = null
+        ): Result {
             fun fail(reason: String): Result = Result.Unresolved(reason)
+            val engine = Lookup.classOrNull(loader, names.engine)
+                ?: cachedEngine?.let { KmpGrpcWireAdapter.resolve(loader, it)?.engine }
+                ?: return if (Lookup.classOrNull(loader, names.interceptor) != null ||
+                    Lookup.classOrNull(loader, names.exception) != null
+                ) fail("engine") else Result.Absent
 
             val interceptor = Lookup.classOrNull(loader, names.interceptor)?.takeIf { it.isInterface }
                 ?: return fail("interceptor")
@@ -169,11 +179,29 @@ internal class KmpMossSurface(
                 headerMapGetters, response.ctor, response.hasRequest, exceptionCtor, descriptorIndex, handlerIndex))
         }
 
-        /** Nested types, from the InnerClasses attribute or — if R8 stripped it — by probing `$a`..`$z`. */
+        /** Nested types, from the InnerClasses attribute, declared signature types, or `$a..$z` / `$A..$Z` probing. */
         private fun nestedClasses(loader: ClassLoader, owner: Class<*>): Set<Class<*>> {
             val found = LinkedHashSet<Class<*>>(owner.declaredClasses.toList())
             for (c in 'a'..'z') Lookup.classOrNull(loader, "${owner.name}$$c")?.let(found::add)
+            for (c in 'A'..'Z') Lookup.classOrNull(loader, "${owner.name}$$c")?.let(found::add)
             for (name in listOf("Protocol", "LogLevel")) Lookup.classOrNull(loader, "${owner.name}$$name")?.let(found::add)
+            fun addIfHostType(candidate: Class<*>) {
+                if (!candidate.isPrimitive && !candidate.isArray &&
+                    !candidate.name.startsWith("java.") && !candidate.name.startsWith("kotlin.")
+                ) found.add(candidate)
+            }
+            for (method in Lookup.declaredMethods(owner)) {
+                addIfHostType(method.returnType)
+                method.parameterTypes.forEach(::addIfHostType)
+            }
+            for (snapshot in found.toList()) {
+                if (snapshot.isInterface) {
+                    for (method in Lookup.declaredMethods(snapshot)) {
+                        addIfHostType(method.returnType)
+                        method.parameterTypes.forEach(::addIfHostType)
+                    }
+                }
+            }
             return found
         }
 

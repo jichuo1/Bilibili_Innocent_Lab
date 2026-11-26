@@ -46,27 +46,38 @@ internal object PrivacyNetworkPolicy {
         return false
     }
 
+    internal enum class KeyAction { DROP, DEVICE_ID, SESSION_ID, KEEP }
+
+    internal fun keyAction(key: String): KeyAction = when (key.lowercase()) {
+        in ACCOUNT_KEYS, in TRACKING_KEYS -> KeyAction.DROP
+        in DEVICE_KEYS -> KeyAction.DEVICE_ID
+        in SESSION_KEYS -> KeyAction.SESSION_ID
+        else -> KeyAction.KEEP
+    }
+
     fun blockRpc(fullName: String): Boolean {
         val service = fullName.substringBefore('/').lowercase()
         val method = fullName.substringAfter('/', "").lowercase()
         if (service.contains("heartbeat") || service.contains("report") ||
             service.contains("neuron")) return true
-        if (method in setOf("room", "enter", "leave", "expose", "exposure", "impression", "record")) return true
+        if (method in setOf("room", "enter", "leave", "expose", "exposure", "impression", "record",
+                "reply", "ping", "vote", "cancel")) return true
         if (service.contains("history") && !method.startsWith("get")) return true
         if (service.contains("search") && listOf("addhistory", "delhistory", "clearhistory",
                 "synchistory", "report").any(method::contains)) return true
         return listOf("report", "heartbeat", "click", "dislike", "feedback", "add", "delete",
-            "modify", "follow", "like", "coin", "share", "send", "publish", "set", "update")
+            "modify", "follow", "like", "coin", "share", "send", "publish", "set", "update",
+            "create", "remove", "edit", "save", "upload", "submit", "post", "vote", "track",
+            "log", "ping", "sync", "cancel", "unfollow", "unlike", "unfav")
             .any(method::startsWith)
     }
 
     fun parameters(input: Map<String, String>, identity: IncognitoSession.Identity): Map<String, String> =
-        input.filterKeys { it.lowercase() !in ACCOUNT_KEYS && it.lowercase() !in TRACKING_KEYS }
+        input.filterKeys { keyAction(it) != KeyAction.DROP }
             .mapValues { (key, value) ->
-                when (key.lowercase()) {
-                    "buvid", "buvid3", "buvid4", "device_id", "deviceid", "fp_local", "fp_remote",
-                    "fp", "guestid", "guest_id", "android_id", "oaid", "imei" -> identity.buvid
-                    "session_id", "sessionid", "session" -> identity.sessionId
+                when (keyAction(key)) {
+                    KeyAction.DEVICE_ID -> identity.buvid
+                    KeyAction.SESSION_ID -> identity.sessionId
                     else -> value
                 }
             }
@@ -75,4 +86,7 @@ internal object PrivacyNetworkPolicy {
         "sessdata", "dedeuserid", "dedeuserid__ckmd5", "bili_jct", "csrf", "csrf_token")
     private val TRACKING_KEYS = setOf("spmid", "from_spmid", "trackid", "track_id", "search_id",
         "from_trackid", "from_av", "from_viewaid", "from_bv", "from_cid", "recommend_id", "ad_extra")
+    private val DEVICE_KEYS = setOf("buvid", "buvid3", "buvid4", "device_id", "deviceid", "fp_local",
+        "fp_remote", "fp", "guestid", "guest_id", "android_id", "oaid", "imei")
+    private val SESSION_KEYS = setOf("session_id", "sessionid", "session")
 }

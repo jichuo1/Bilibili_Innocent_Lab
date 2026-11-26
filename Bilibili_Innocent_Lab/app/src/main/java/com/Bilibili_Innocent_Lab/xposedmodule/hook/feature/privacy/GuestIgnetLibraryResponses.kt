@@ -91,6 +91,9 @@ internal class GuestIgnetLibraryResponses(
         }
     }
 
+    var writeHookInstalled: Boolean = false
+        private set
+
     fun install(env: HookEnvironment): Int = runCatching {
         val loader = requireNotNull(env.classLoader)
         val request = PrivacyStructuralResolver.type(loader, requestClass)
@@ -154,6 +157,7 @@ internal class GuestIgnetLibraryResponses(
                     if (!hasThrowable) result?.let { writes[it] = write }
                 }
             }
+            writeHookInstalled = true
             hooks++
         } else {
             env.reportStatus("guest_ignet_library_write", "absent")

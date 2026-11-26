@@ -16,7 +16,7 @@ internal class GuestNativeFavoriteHooks(
     private val isGuest: () -> Boolean
 ) {
     private val relations = java.util.Collections.synchronizedMap(WeakHashMap<Any, Unit>())
-    private val sheets = WeakHashMap<Any, Map<Long, String>>()
+    private val sheets = java.util.Collections.synchronizedMap(WeakHashMap<Any, Map<Long, String>>())
     @Volatile private var snapshot = LocalVirtualLibrary.Collections()
 
     fun install(env: HookEnvironment) {

@@ -35,7 +35,7 @@ internal class GuestDynamicLoginRowFilter(
     private val isGuest: () -> Boolean,
     private val liveDataClass: Class<*>?
 ) {
-    private val verifiedLiveDatas = java.util.WeakHashMap<Any, Boolean>()
+    private val verifiedLiveDatas = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, Boolean>())
     private val pairShapeCache = ConcurrentHashMap<Class<*>, PairValueShape?>()
     private val stateShapeCache = ConcurrentHashMap<Class<*>, Boolean>()
     private val loginItemShapeCache = ConcurrentHashMap<Class<*>, Boolean>()

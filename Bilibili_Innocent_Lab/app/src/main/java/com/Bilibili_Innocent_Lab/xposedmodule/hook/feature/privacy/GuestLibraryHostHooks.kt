@@ -20,6 +20,9 @@ internal class GuestLibraryHostHooks(
     private val followPage = GuestFollowListPage(library, isGuest)
     private val followGroupBindings = GuestFollowGroupBindings<GuestLibraryRuntime.Token>()
 
+    var localListsInstalled: Boolean = false
+        private set
+
     fun install(env: HookEnvironment): Int {
         val loader = env.classLoader ?: return 0
         library.nativePage = { activity, section ->
@@ -91,9 +94,9 @@ internal class GuestLibraryHostHooks(
         val fragment = Lookup.classOrNull(loader, MINE_FRAGMENT)
         if (fragment != null) attempt("follow_count") {
             val number = requireNotNull(Lookup.fieldOrNull(fragment, "p0"))
-            val numbers = java.util.WeakHashMap<TextView, Unit>()
+            val numbers = java.util.Collections.synchronizedMap(java.util.WeakHashMap<TextView, Unit>())
             fun update(state: LocalVirtualLibrary.Collections) {
-                if (isGuest()) numbers.keys.toList().forEach { it.text = String.format(java.util.Locale.ROOT, "%d", state.follows.size) }
+                if (isGuest()) synchronized(numbers) { numbers.keys.toList() }.forEach { it.text = String.format(java.util.Locale.ROOT, "%d", state.follows.size) }
             }
             library.observeCollections(::update)
             fun bind(target: Any?) {
@@ -159,6 +162,7 @@ internal class GuestLibraryHostHooks(
         attempt("native_watch_later_add") { GuestNativeWatchLaterAddHooks(library, isGuest).install(env) }
         val nativeLists = GuestNativeListHttpHooks(library, isGuest, followGroupBindings)
         val localLists = attempt("native_list_http") { nativeLists.install(env) }
+        localListsInstalled = localLists
         val groupPages = if (localLists && nativeLists.followGroupClonesInstalled) {
             attempt("native_follow_group_pages") { GuestNativeFollowGroupPages(library, isGuest, followGroupBindings).install(env) }
         } else {

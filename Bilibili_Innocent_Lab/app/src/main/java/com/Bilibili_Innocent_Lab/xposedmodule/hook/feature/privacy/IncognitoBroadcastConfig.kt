@@ -108,6 +108,12 @@ internal class IncognitoBroadcastConfig(
             "grpc_stream_biz_room_enabled" to "room"
         )
 
+        fun hasBroadcastSurface(loader: ClassLoader?, names: Names = Names()): Boolean = loader != null && (
+            Lookup.hasClass(loader, names.kmpConfig) ||
+                Lookup.hasClass(loader, names.runtimeHelper) ||
+                Lookup.hasClass(loader, names.engine)
+            )
+
         fun disabledFeature(key: Any?): String? = (key as? String)?.let(DISABLED::get)
 
         fun isBroadcastCall(frames: Array<StackTraceElement>, names: Names = Names()): Boolean = frames.any {

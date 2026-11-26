@@ -22,7 +22,7 @@ internal class GuestNativeFollowListHooks(private val library: GuestLibraryRunti
         val page = host.type(ACTIVITY)
         fun local(activity: Activity?) = isGuest() && activity?.intent?.getBooleanExtra(EXTRA, false) == true
         fun field(target: Any, name: String) = requireNotNull(Lookup.fieldOrNull(target.javaClass, name)).get(target)
-        val pages = java.util.WeakHashMap<Activity, Unit>()
+        val pages = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Activity, Unit>())
         fun refresh(activity: Activity) {
             val weak = WeakReference(activity)
             library.nativeRequest({ it.readSnapshot().collections.follows }) { outcome ->
@@ -38,7 +38,7 @@ internal class GuestNativeFollowListHooks(private val library: GuestLibraryRunti
                 }, { host.call(live, "P") })
             }
         }
-        library.observeCollections { pages.keys.toList().filter(::local).forEach(::refresh) }
+        library.observeCollections { synchronized(pages) { pages.keys.toList() }.filter(::local).forEach(::refresh) }
         env.registrar.exact("guest.native.follow.load", page, "g9") {
             before {
                 val activity = instance as? Activity
