@@ -14,16 +14,21 @@ import org.junit.Test
  */
 class AdaptiveGlowRenderGuardTest {
 
-    private fun source(relative: String): String= com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource.read(relative)
+    private fun source(relative: String): String =
+        if (relative.startsWith("core/") || relative.startsWith("widget/")) {
+            com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource.engine(relative)
+        } else {
+            com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource.read(relative)
+        }
 
     private val surfaces = listOf(
-        "ui/activity/ModernNavigationBar.kt",
-        "ui/activity/LogSegmentScrubBar.kt",
+        "widget/LumenNavigationBar.kt",
+        "widget/LumenSegmentScrubBar.kt",
         "ui/interaction/ElasticInteractionController.kt"
     )
 
     fun geometryLayerStaysFreeOfAndroidGraphics() {
-        val policy = source("ui/activity/AdaptiveGlowPolicy.kt")
+        val policy = source("core/touch/AdaptiveGlowPolicy.kt")
         val imports = policy.lineSequence().filter { it.startsWith("import ") }.toList()
         assertTrue("纯几何层不得 import android.graphics", imports.none { it.contains("android.graphics") })
         assertTrue("纯几何层不得 import Canvas/Paint/Shader",
@@ -42,7 +47,7 @@ class AdaptiveGlowRenderGuardTest {
     }
 
     fun rendererBuildsTheShaderExactlyOnceAndOutsideDraw() {
-        val renderer = source("ui/widget/TouchGlowRenderer.kt")
+        val renderer = source("core/touch/TouchGlowRenderer.kt")
         assertEquals("shader 只准建一次", 1, Regex("RadialGradient\\(").findAll(renderer).count())
         val buildIndex = renderer.indexOf("RadialGradient(")
         val drawIndex = renderer.indexOf("fun draw(")
@@ -56,12 +61,12 @@ class AdaptiveGlowRenderGuardTest {
     }
 
     fun allThreeSurfacesShareTheSameGeometry() {
-        assertTrue(source("ui/activity/ModernNavigationBar.kt").contains("GlowState"))
-        assertTrue(source("ui/activity/LogSegmentScrubBar.kt").contains("GlowState"))
+        assertTrue(source("widget/LumenNavigationBar.kt").contains("GlowState"))
+        assertTrue(source("widget/LumenSegmentScrubBar.kt").contains("GlowState"))
         assertTrue(source("ui/interaction/ElasticInteractionController.kt").contains("GlowState"))
         // 底栏与 scrub 条必须共用同一个渲染器，而不是各自画
-        assertTrue(source("ui/activity/ModernNavigationBar.kt").contains("TouchGlowRenderer"))
-        assertTrue(source("ui/activity/LogSegmentScrubBar.kt").contains("TouchGlowRenderer"))
+        assertTrue(source("widget/LumenNavigationBar.kt").contains("TouchGlowRenderer"))
+        assertTrue(source("widget/LumenSegmentScrubBar.kt").contains("TouchGlowRenderer"))
         assertTrue(source("ui/interaction/ElasticInteractionController.kt").contains("TouchGlowRenderer"))
     }
 
@@ -75,12 +80,12 @@ class AdaptiveGlowRenderGuardTest {
         val controller = source("ui/interaction/ElasticInteractionController.kt")
         assertTrue("TouchHighlight 触点必须减去视图平移",
             controller.contains("val touchX = centerX - viewShiftX"))
-        val nav = source("ui/activity/ModernNavigationBar.kt")
+        val nav = source("widget/LumenNavigationBar.kt")
         assertTrue("底栏 GlowView 触点必须减去视图平移",
             nav.contains("val touchX = centerX - viewShiftX"))
         assertTrue("底栏必须把应用平移增量传给 GlowView",
             nav.contains("viewShiftX = x - initialOffsetX"))
-        val scrub = source("ui/activity/LogSegmentScrubBar.kt")
+        val scrub = source("widget/LumenSegmentScrubBar.kt")
         assertTrue("scrub 条 GlowView 触点必须减去视图平移",
             scrub.contains("val touchX = centerX - viewShiftX"))
         assertTrue("scrub 条必须把应用平移增量传给 GlowView",

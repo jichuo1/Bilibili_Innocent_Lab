@@ -10,7 +10,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.jichuo1.meguviz.android.extensions.isUiInNightMode
+import io.github.jichuo1.meguviz.android.runtime.core.Registration
 import io.github.jichuo1.meguviz.android.window.InsetsSlot
+import io.github.jichuo1.meguviz.android.window.InsetsSnapshot
 import io.github.jichuo1.meguviz.android.window.ViewScope
 import io.github.jichuo1.meguviz.android.window.WindowSession
 
@@ -22,6 +24,7 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
     private val restorations = mutableListOf<() -> Unit>()
     private var insetsScope: ViewScope? = null
     private var insets: InsetsSlot? = null
+    private var defaultPadding: InsetsSlot.LocalLayout? = null
 
     init {
         try {
@@ -30,8 +33,10 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
             val target = activity.window
             val controller = WindowCompat.getInsetsController(target, root)
             val darkContent = !activity.resources.configuration.isUiInNightMode
-            own({ target.statusBarColor }, { target.statusBarColor = it }, Color.TRANSPARENT)
-            own({ target.navigationBarColor }, { target.navigationBarColor = it }, Color.TRANSPARENT)
+            if (Build.VERSION.SDK_INT < 35) {
+                own({ target.statusBarColor }, { target.statusBarColor = it }, Color.TRANSPARENT)
+                own({ target.navigationBarColor }, { target.navigationBarColor = it }, Color.TRANSPARENT)
+            }
             own({ controller.isAppearanceLightStatusBars }, { controller.isAppearanceLightStatusBars = it }, darkContent)
             own({ controller.isAppearanceLightNavigationBars }, { controller.isAppearanceLightNavigationBars = it }, darkContent)
             own({ controller.systemBarsBehavior }, { controller.systemBarsBehavior = it },
@@ -41,7 +46,9 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
                 own({ target.isNavigationBarContrastEnforced }, { target.isNavigationBarContrastEnforced = it }, false)
             }
             if (Build.VERSION.SDK_INT >= 28) {
-                own({ target.navigationBarDividerColor }, { target.navigationBarDividerColor = it }, Color.TRANSPARENT)
+                if (Build.VERSION.SDK_INT < 35) {
+                    own({ target.navigationBarDividerColor }, { target.navigationBarDividerColor = it }, Color.TRANSPARENT)
+                }
                 val cutoutMode = if (Build.VERSION.SDK_INT >= 30) {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                 } else {
@@ -61,7 +68,9 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
             WindowCompat.setDecorFitsSystemWindows(target, false)
             val scope = session.scope(root).also { insetsScope = it }
             insets = InsetsSlot.claimExclusive(scope).also { slot ->
-                slot.applyPaddingToOwnedContainer(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+                defaultPadding = slot.applyPaddingToOwnedContainer(
+                    WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+                )
                 slot.enableAnimationUpdatesInOwnedSlot()
             }
         } catch (failure: Throwable) {
@@ -76,12 +85,12 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
         write(applied)
     }
 
-    /** Must precede another owner writing this root's Insets listener slot. */
-    fun handOffInsets(root: View) {
-        if (closed || rootView !== root) return
-        val previous = insets
-        insets = null
-        previous?.handOffToExternalOwner()
+    /** Shares the owned [InsetsSlot] via [InsetsSlot.observe] and releases default container padding when taken over by page layout. */
+    fun observeContentInsets(root: View, observer: (InsetsSnapshot) -> Unit): Registration? {
+        if (closed || rootView !== root) return null
+        defaultPadding?.close()
+        defaultPadding = null
+        return insets?.observe(observer)
     }
 
     override fun close() {
@@ -93,9 +102,11 @@ internal class BilWindowDelegate(activity: Activity, root: View, session: Window
                 if (failure == null) failure = error else failure?.addSuppressed(error)
             }
         }
+        release { defaultPadding?.close() }
         release { insetsScope?.close() }
         restorations.asReversed().forEach { release(it) }
         restorations.clear()
+        defaultPadding = null
         insetsScope = null
         insets = null
         rootView = null

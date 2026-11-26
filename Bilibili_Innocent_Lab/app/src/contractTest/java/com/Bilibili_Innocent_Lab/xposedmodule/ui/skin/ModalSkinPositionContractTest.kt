@@ -57,7 +57,7 @@ class ModalSkinPositionContractTest {
      * 主窗口自己的滚动与二级页形变仍按原规则抑制。
      */
     fun dialogWindowMotionDoesNotSuppressMainWindowSampling() {
-        val liquid = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
+        val liquid = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         val flush = liquid.after("private fun flushSurfaceRefresh(").before("private fun isSurfacePotentiallyVisible(")
         assertTrue(flush.contains("if (originChanged && windowRoot === mainWindowRoot) surfaceMoved = true"))
         val register = liquid.after("internal fun registerSurfaceView(").before("footprint.update(bounds, radiusPx, originX, originY)")

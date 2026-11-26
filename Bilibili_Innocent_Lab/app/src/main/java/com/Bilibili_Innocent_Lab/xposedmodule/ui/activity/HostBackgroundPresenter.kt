@@ -27,7 +27,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundImages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
+import com.lumen.coacervation.engine.background.LiquidBackgroundImportFailure
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import io.github.jichuo1.meguviz.android.extensions.textColor
 

@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -21,26 +22,30 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import com.Bilibili_Innocent_Lab.xposedmodule.R
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowBackdropTarget
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowFloatingChrome
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowLegibilityPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowScrollEdge
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowScrollEdgePolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ModuleMemoryPressureHub
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ModuleMemoryPressureListener
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
+import com.lumen.coacervation.engine.glow.GlowBackdropTarget
+import com.lumen.coacervation.engine.glow.GlowFloatingChrome
+import com.lumen.coacervation.engine.glow.GlowLegibilityPolicy
+import com.lumen.coacervation.engine.glow.GlowScrollEdge
+import com.lumen.coacervation.engine.glow.GlowScrollEdgePolicy
+import com.lumen.coacervation.engine.widget.LumenNavigationBar
+import com.lumen.coacervation.engine.widget.NavigationBarColors
+import com.lumen.coacervation.engine.widget.NavigationBarSurface
 import io.github.jichuo1.meguviz.android.extensions.child
 import io.github.jichuo1.meguviz.android.extensions.firstChildOrNull
 import io.github.jichuo1.meguviz.android.extensions.removeSelf
 import io.github.jichuo1.meguviz.android.extensions.textColor
 import io.github.jichuo1.meguviz.android.extensions.textToString
+import io.github.jichuo1.meguviz.android.extensions.toast
+import io.github.jichuo1.meguviz.android.runtime.core.Registration
 import io.github.jichuo1.meguviz.ui.UiSession
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmStop
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmSubmission
 import io.github.jichuo1.meguviz.ui.prewarm.PrewarmWork
 import io.github.jichuo1.meguviz.ui.prewarm.UiPrewarmer
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ModuleMemoryPressureHub
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.ModuleMemoryPressureListener
-import io.github.jichuo1.meguviz.android.extensions.toast
 import kotlin.math.roundToInt
 
 /** Owns final page construction and arrangement; setting identity and state exist before Views. */
@@ -68,8 +73,6 @@ internal class SettingsHomePresenter(
         const val TAG = "SettingsHomePresenter"
         /** 一帧（120Hz≈8.3ms）多一点的余量；只用于事后判断是否让出剩余页，不能抢占构造。 */
         const val PREWARM_UNIT_BUDGET_NANOS = 12_000_000L
-        const val PREWARM_RETRY_MILLIS = 300L
-        const val PREWARM_START_DELAY_MILLIS = 800L
     }
 
     private val density = activity.resources.displayMetrics.density
@@ -81,8 +84,9 @@ internal class SettingsHomePresenter(
     private var textChain: SettingsPageTextChain? = null
     private val pageCount = 5
     private val headings = ArrayList<View>(pageCount)
-    private var navigation: ModernNavigationBar? = null
+    private var navigation: LumenNavigationBar? = null
     private var navigationRail: AdaptiveNavigationRail? = null
+    private var topInsetRegistration: Registration? = null
     private var chromeMode = NavigationChromeMode.BOTTOM_BAR
     private var favoriteSpanCount = 1
     private var contentStartPadPx = 0
@@ -119,6 +123,10 @@ internal class SettingsHomePresenter(
     private var disposed = false
     private var prewarmer: UiPrewarmer? = null
     private var prewarmIdleQueued = false
+    private var prewarmFirstFrameDrawn = false
+    private var prewarmDrawObserver: ViewTreeObserver? = null
+    private var prewarmDrawListener: ViewTreeObserver.OnDrawListener? = null
+    private val prewarmQueuedPages = BooleanArray(pageCount)
     private var prewarmAllowed = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
     private val idleQueue = Looper.getMainLooper().queue
     private val onPrewarmIdle = MessageQueue.IdleHandler {
@@ -129,10 +137,18 @@ internal class SettingsHomePresenter(
     private val armPrewarmIdle = Runnable {
         if (canPrewarm()) idleQueue.addIdleHandler(onPrewarmIdle) else prewarmIdleQueued = false
     }
+    private val onPrewarmFirstDraw = ViewTreeObserver.OnDrawListener {
+        prewarmFirstFrameDrawn = true
+        shell.post {
+            clearFirstDrawListener()
+            if (canPrewarm()) armNextFramePrewarm()
+        }
+    }
     private val prewarmAttachment = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(view: View) = schedulePrewarm(PREWARM_START_DELAY_MILLIS)
+        override fun onViewAttachedToWindow(view: View) = schedulePrewarm()
         override fun onViewDetachedFromWindow(view: View) {
             cancelPrewarmAdmission()
+            prewarmQueuedPages.fill(false)
             prewarmer?.onDetached()
         }
     }
@@ -245,18 +261,18 @@ internal class SettingsHomePresenter(
         skinContentSource(pager)
         val navIcons = intArrayOf(R.drawable.ic_favorites, R.drawable.ic_purify, R.drawable.ic_enhancement,
             R.drawable.ic_palette, R.drawable.ic_science)
-        val navColors = ModernNavigationColors(
+        val navColors = NavigationBarColors(
             text = activity.getColor(R.color.colorTextGray),
             selectedText = activity.monetColors.primary,
             highlight = activity.monetColors.primary
         )
-        val navBackgroundFactory: (ModernNavigationSurface, Float) -> android.graphics.drawable.Drawable = { surface, radius ->
+        val navBackgroundFactory: (NavigationBarSurface, Float) -> android.graphics.drawable.Drawable = { surface, radius ->
             when (surface) {
-                ModernNavigationSurface.BAR -> activity.skinFloatingBackground(activity.monetColors.surface, radius)
-                ModernNavigationSurface.SELECTION -> activity.skinChromeOverlayBackground(activity.monetColors.surface, radius, selected = true)
+                NavigationBarSurface.BAR -> activity.skinFloatingBackground(activity.monetColors.surface, radius)
+                NavigationBarSurface.SELECTION -> activity.skinChromeOverlayBackground(activity.monetColors.surface, radius, selected = true)
             }
         }
-        val dock = ModernNavigationBar(
+        val dock = LumenNavigationBar(
             context = activity,
             titles = titleIds.map(activity::getString),
             icons = navIcons,
@@ -377,26 +393,61 @@ internal class SettingsHomePresenter(
         renderFavorites()
         SettingsFavoritesRepository.read(activity.applicationContext, this)
         installTopInset()
-        // 让开冷启动首屏与入场动效；之后每个空闲窗口最多预建一页。
+        // 让开冷启动首屏与入场动效；首帧绘制完成后的空闲窗口由 UiPrewarmer 逐页推进。
         shell.addOnAttachStateChangeListener(prewarmAttachment)
         ModuleMemoryPressureHub.addListener(pressureListener)
-        schedulePrewarm(PREWARM_START_DELAY_MILLIS)
+        schedulePrewarm()
     }
 
     /**
      * 首次切页不再在点击帧里现场构建整页：首帧画完、主线程空闲后，由 UiPrewarmer 每帧最多
      * 预建一个未建页面（相邻页优先）。用户一开始拖动或点选就整体取消，等下一次空闲再续。
-     * 最小单元是页面计划里的一个步骤（见 [SettingsPagePlan]）：超出帧预算时本轮剩余工作让到下次空闲，
-     * 已建好的部分保留，下次从游标继续。
+     * 最小单元是页面计划里的一个步骤（见 [SettingsPagePlan]）：超出帧预算时让到下一帧，
+     * 已建好的部分保留，其余已排队的页面继续推进，未完成页保留计划游标。
      */
-    private fun schedulePrewarm(delayMillis: Long = 0) {
+    private fun schedulePrewarm() {
         if (!canPrewarm() || prewarmIdleQueued || builtPages.all { it }) return
-        prewarmIdleQueued = shell.postDelayed(armPrewarmIdle, delayMillis)
+        if (!prewarmFirstFrameDrawn) {
+            if (prewarmDrawListener == null) {
+                val observer = shell.viewTreeObserver
+                if (observer.isAlive) {
+                    prewarmDrawObserver = observer
+                    prewarmDrawListener = onPrewarmFirstDraw
+                    observer.addOnDrawListener(onPrewarmFirstDraw)
+                } else {
+                    prewarmFirstFrameDrawn = true
+                    armNextFramePrewarm()
+                }
+            }
+            return
+        }
+        armNextFramePrewarm()
+    }
+
+    private fun armNextFramePrewarm() {
+        if (!canPrewarm() || prewarmIdleQueued || builtPages.all { it }) return
+        prewarmIdleQueued = true
+        shell.postOnAnimation(armPrewarmIdle)
+    }
+
+    private fun clearFirstDrawListener() {
+        val listener = prewarmDrawListener ?: return
+        val observer = prewarmDrawObserver
+        prewarmDrawListener = null
+        prewarmDrawObserver = null
+        if (observer != null && observer.isAlive) {
+            runCatching { observer.removeOnDrawListener(listener) }
+        }
+        val currentObserver = shell.viewTreeObserver
+        if (currentObserver.isAlive && currentObserver !== observer) {
+            runCatching { currentObserver.removeOnDrawListener(listener) }
+        }
     }
 
     private fun canPrewarm() = !disposed && prewarmAllowed && shell.isAttachedToWindow
 
     private fun cancelPrewarmAdmission() {
+        clearFirstDrawListener()
         shell.removeCallbacks(armPrewarmIdle)
         idleQueue.removeIdleHandler(onPrewarmIdle)
         prewarmIdleQueued = false
@@ -404,8 +455,9 @@ internal class SettingsHomePresenter(
 
     fun setPrewarmStarted(started: Boolean) {
         prewarmAllowed = started
-        if (started) schedulePrewarm(PREWARM_START_DELAY_MILLIS) else {
+        if (started) schedulePrewarm() else {
             cancelPrewarmAdmission()
+            prewarmQueuedPages.fill(false)
             prewarmer?.cancel()
         }
     }
@@ -413,21 +465,22 @@ internal class SettingsHomePresenter(
     fun onLowMemory() {
         prewarmAllowed = false
         cancelPrewarmAdmission()
+        prewarmQueuedPages.fill(false)
         prewarmer?.onLowMemory()
     }
 
     private fun submitPrewarm() {
         if (disposed) return
         val session = prewarmSession() ?: return
-        // 分页动画/回弹期间主线程在帧间也会空闲；只在静止时预建，否则稍后再看。
-        if (!pager.isSettled) { schedulePrewarm(PREWARM_RETRY_MILLIS); return }
+        // 分页动画/回弹期间主线程在帧间也会空闲；只在静止时预建，否则让到下一帧。
+        if (!pager.isSettled) { schedulePrewarm(); return }
         // maxUnitsPerWork 是一个 work 的累计单元上限：页面计划最多 MAX_STEPS 个步骤加一个收尾单元，
         // 取这个有界规模；放成 1 会在第一个单元未完成时就按 UNIT_LIMIT 误丢弃。
         val queue = prewarmer ?: UiPrewarmer.attach(session, capacity = pageCount, maxUnitsPerWork = SettingsPagePlan.MAX_UNITS,
             maxUnitNanos = PREWARM_UNIT_BUDGET_NANOS).also { prewarmer = it }
-        if (queue.pendingCount > 0) return
         val current = pager.selectedPage
-        val order = (0 until pageCount).filter { !builtPages[it] }.sortedBy { kotlin.math.abs(it - current) }
+        val order = (0 until pageCount).filter { !builtPages[it] && !prewarmQueuedPages[it] }
+            .sortedBy { kotlin.math.abs(it - current) }
         for (index in order) {
             // 本单元刚推进过的页面仍是“当前”结果：否则调度器会把刚完成的单元当作过期丢弃，预算判断失效。
             var ran = false
@@ -444,13 +497,21 @@ internal class SettingsHomePresenter(
                         true
                     }
                 },
-                ready = {},
+                ready = {
+                    prewarmQueuedPages[index] = false
+                    if (!disposed && !builtPages.all { it }) schedulePrewarm()
+                },
                 discard = { reason ->
-                    // 单个单元超过预算：本轮剩余工作让出，等下一次空闲；未完成的页面保留计划游标，下次从原处继续。
-                    if (reason == PrewarmStop.OVER_BUDGET) { queue.cancel(); schedulePrewarm(PREWARM_RETRY_MILLIS) }
+                    prewarmQueuedPages[index] = false
+                    // 单个单元超过预算：保留其余排队工作与当前页面计划游标，只将后续重试让到下一帧。
+                    if (reason == PrewarmStop.OVER_BUDGET) schedulePrewarm()
                 },
             ))
-            if (submission != PrewarmSubmission.Accepted) break
+            if (submission == PrewarmSubmission.Accepted) {
+                prewarmQueuedPages[index] = true
+            } else {
+                break
+            }
         }
     }
 
@@ -458,21 +519,22 @@ internal class SettingsHomePresenter(
     private fun pausePrewarm() {
         val queue = prewarmer ?: return
         if (queue.pendingCount == 0) return
+        prewarmQueuedPages.fill(false)
         queue.cancel()
-        schedulePrewarm(PREWARM_RETRY_MILLIS)
+        schedulePrewarm()
     }
 
     /**
-     * 接管根布局的顶部安全边距（BilWindowDelegate 默认把 systemBars + 刘海整体写成根 padding，
-     * 根的 clipToPadding 把内容裁在状态栏下沿）。左、右、下照旧缩进，底栏与导航栏行为不变。
+     * 观察 BilWindowDelegate 持有的 InsetsSlot：移除默认顶部 padding 让页面内容从状态栏背后滑过，
+     * 左、右、下照旧缩进，底栏与导航栏行为不变。
      */
     private fun installTopInset() {
-        activity.handOffModuleInsets(shell)
-        ViewCompat.setOnApplyWindowInsetsListener(shell) { view, insets ->
-            val safe = insets.getInsets(
+        topInsetRegistration?.close()
+        topInsetRegistration = activity.observeModuleInsets(shell) { snapshot ->
+            val safe = snapshot.combined(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(safe.left, 0, safe.right, safe.bottom)
+            shell.setPadding(safe.left, 0, safe.right, safe.bottom)
             if (systemTopInset != safe.top) {
                 systemTopInset = safe.top
                 (header?.layoutParams as? ViewGroup.MarginLayoutParams)?.let { params ->
@@ -482,7 +544,6 @@ internal class SettingsHomePresenter(
                 navigationRail?.let(::applyRailMargins)
                 applyScrollInsets()
             }
-            insets
         }
         ViewCompat.requestApplyInsets(shell)
     }
@@ -858,6 +919,9 @@ internal class SettingsHomePresenter(
     fun dispose() {
         disposed = true
         cancelPrewarmAdmission()
+        prewarmQueuedPages.fill(false)
+        topInsetRegistration?.close()
+        topInsetRegistration = null
         shell.removeOnAttachStateChangeListener(prewarmAttachment)
         ModuleMemoryPressureHub.removeListener(pressureListener)
         prewarmer?.let { queue -> runCatching { queue.close() } }

@@ -1,12 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingsUiSource
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidControlStyle
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidSurfaceAlphaPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidTokenResolver
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidVisualTuningPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
-import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
@@ -14,41 +8,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 
-/** Pure state tests plus source wiring guards; not an Android visual/interaction acceptance test. */
+/** Source wiring and BIL modal coverage guards; small-control math lives in Lumen 1.6.2. */
 class LiquidControlStyleTest {
-    fun `all native state combinations preserve selection and disable interaction emphasis`() {
-        for (enabled in listOf(false, true)) for (checked in listOf(false, true)) {
-            for (pressed in listOf(false, true)) for (focused in listOf(false, true)) {
-                val state = LiquidControlStyle.resolve(enabled, checked, pressed, focused)
-                assertEquals(checked, state.selected)
-                assertEquals(enabled && (pressed || focused), state.emphasized)
-                assertEquals(if (enabled) 255 else 100, LiquidControlStyle.opacity(state))
-                assertTrue(LiquidControlStyle.fillAlpha(state) in 1..254)
-            }
-        }
-    }
-
-    fun `selected controls remain distinguishable without focus or press`() {
-        val idle = LiquidControlStyle.resolve(true, false, false, false)
-        val checked = LiquidControlStyle.resolve(true, true, false, false)
-        val focused = LiquidControlStyle.resolve(true, false, false, true)
-        assertTrue(LiquidControlStyle.fillAlpha(checked) > LiquidControlStyle.fillAlpha(idle))
-        assertTrue(LiquidControlStyle.fillAlpha(focused) > LiquidControlStyle.fillAlpha(idle))
-        assertTrue(LiquidControlStyle.opacity(idle) > LiquidControlStyle.opacity(idle.copy(enabled = false)))
-    }
-
-    fun `new semantic surfaces retain fallback readability in both themes`() {
-        for (dark in listOf(false, true)) {
-            val params = LiquidTokenResolver.resolve(LiquidVisualTuningPolicy.resolve(dark))
-            for (role in listOf(SurfaceRole.FILLED_BUTTON, SurfaceRole.TEXT_BUTTON, SurfaceRole.SELECTED_ITEM)) {
-                val optical = LiquidSurfaceAlphaPolicy.resolve(role, false, params)
-                val fallback = LiquidSurfaceAlphaPolicy.resolve(role, true, params)
-                assertTrue(optical in 0f..1f)
-                assertTrue(fallback in optical..1f)
-            }
-        }
-    }
-
     private fun source(relative: String): String {
         val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/$relative"
         return SourceContract.read(path)
@@ -118,8 +79,8 @@ class LiquidControlStyleTest {
 
     fun `control styling is gated and cannot change preferences or listeners`() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
-        val controls = skin.after("protected fun stylePreparedSkinControls").before("/** 让一个")
-        assertTrue(controls.contains("if (skinSessionOrNull == null || lifecycleEnded) return"))
+        val controls = skin.after("protected fun stylePreparedSkinControls").before("/** Shared modern controls")
+        assertTrue(controls.contains("if (!lumen.isPrepared || lifecycleEnded) return"))
         listOf("isChecked =", "setOnCheckedChangeListener", "setOnClickListener", "getSharedPreferences",
             "performClick(", "addOnGlobalLayoutListener", "PixelCopy", "RuntimeShader").forEach {
             assertFalse(it, controls.contains(it))
@@ -127,16 +88,15 @@ class LiquidControlStyleTest {
         assertTrue(controls.contains("is SwitchCompat"))
         assertTrue(controls.contains("is CheckBox"))
         assertTrue(controls.contains("is EditText"))
-        assertTrue(controls.contains("view.setPadding(left, top, right, bottom)"))
-        assertTrue(controls.contains("view.foreground = RippleDrawable"))
+        assertTrue(controls.contains("view.foreground = lumen.controlOutline(14f)"))
     }
 
     fun `control outline stays pinned to the viewport of scrolled inputs`() {
-        val skin = source("ui/skin/activity/SkinnedActivity.kt")
-        val outline = skin.after("private fun controlOutline(").before("/** 让一个")
-        assertTrue(outline.contains("return viewportForeground(StateListDrawable()"))
-        val wrapper = source("ui/skin/geometry/ViewportForegroundDrawable.kt")
-        assertTrue(wrapper.contains("LumenViewportForeground.wrap(drawable)"))
+        val delegate = LceMotionSource.engine("core/host/LumenActivityDelegate.kt")
+        val delegateOutline = delegate.after("public fun controlOutline(").before("public fun installStretch(")
+        assertTrue(delegateOutline.contains("LumenControlOutline.create(density, palette.primary, radiusDp, emphasized)"))
+        val controlOutline = LceMotionSource.engine("core/host/LumenControlOutline.kt")
+        assertTrue(controlOutline.contains("return ViewportForegroundDrawable(StateListDrawable().apply"))
         val engine = LceMotionSource.engine("core/host/ViewportForegroundDrawable.kt")
         val draw = engine.after("override fun draw(canvas: Canvas)").before("canvas.restoreToCount(saved)")
         assertTrue(draw.contains("view?.foreground === outer) view.scrollX"))
@@ -145,7 +105,7 @@ class LiquidControlStyleTest {
     }
 
     fun `choice drawing caches geometry and has no animator or capture loop`() {
-        val drawable = source("ui/skin/liquid/LiquidChoiceDrawable.kt")
+        val drawable = LceMotionSource.engine("core/liquid/LiquidChoiceDrawable.kt")
         val draw = drawable.after("override fun draw(canvas: Canvas)").before("override fun setAlpha")
         listOf("Path()", "RectF()", "LinearGradient(", "post", "invalidateSelf()").forEach {
             assertFalse(it, draw.contains(it))
@@ -174,7 +134,7 @@ class LiquidControlStyleTest {
 
     /** 2026-09-24 用户报告浅色下开关颜色较浅：浅色主题加深轨道，深色配比不变。 */
     fun `light theme switches keep a contrasting track`() {
-        val drawable = source("ui/skin/liquid/LiquidChoiceDrawable.kt")
+        val drawable = LceMotionSource.engine("core/liquid/LiquidChoiceDrawable.kt")
         assertTrue(drawable.contains("private val lightTheme = ColorUtils.calculateLuminance(surface) > 0.5"))
         fun constant(name: String) = Regex("const val $name = ([0-9.]+)f?").find(drawable)!!.groupValues[1].toFloat()
         assertTrue(constant("CHECKED_TRACK_WASH_LIGHT") > constant("CHECKED_TRACK_WASH"))
@@ -192,9 +152,6 @@ class LiquidControlStyleTest {
             val s = LiquidControlStyleTest()
             block(s)
         }
-        runIsolated { s -> s.`all native state combinations preserve selection and disable interaction emphasis`() }
-        runIsolated { s -> s.`selected controls remain distinguishable without focus or press`() }
-        runIsolated { s -> s.`new semantic surfaces retain fallback readability in both themes`() }
         runIsolated { s -> s.`all main activity modal creators use the skin container and shared presenter`() }
         runIsolated { s -> s.`control styling is gated and cannot change preferences or listeners`() }
         runIsolated { s -> s.`control outline stays pinned to the viewport of scrolled inputs`() }

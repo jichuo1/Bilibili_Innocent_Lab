@@ -1,13 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
-import java.io.File
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 
 /**
  * 2026-09-23 悬浮栏可读性改造 A 期的装配约束：层级边界、生命周期与底图同源。
@@ -46,7 +45,7 @@ class GlowFloatingChromeWiringTest {
     }
 
     fun chromeRemovesEveryObserverItAdds() {
-        val chrome = source("$base/skin/engine/GlowFloatingChrome.kt")
+        val chrome = LceMotionSource.engine("core/glow/GlowFloatingChrome.kt")
         for (kind in listOf("ScrollChangedListener", "GlobalLayoutListener", "PreDrawListener")) {
             assertEquals(kind, 1, Regex("addOn$kind\\(").findAll(chrome).count())
             assertEquals(kind, 1, Regex("removeOn$kind\\(").findAll(chrome).count())
@@ -58,7 +57,7 @@ class GlowFloatingChromeWiringTest {
     }
 
     fun dissolveDrawsTheVisibleRootBitmapNotTheOpticalCopy() {
-        val source = source("$base/skin/liquid/LiquidBackdropSource.kt")
+        val source = LceMotionSource.engine("core/liquid/LiquidBackdropSource.kt")
         val presentation = source.after("fun drawPresentationRegion(").before("\n    }\n")
         // 溶解区必须与根背景逐像素一致：根背景画的是 bitmap，不使用光学副本。
         assertTrue(source.contains("BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)"))
@@ -70,7 +69,7 @@ class GlowFloatingChromeWiringTest {
     }
 
     fun everyBackdropReplacementAdvancesTheGeneration() {
-        val renderer = source("$base/skin/liquid/LiquidActivityRenderer.kt")
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         val assignments = Regex("\\bbackdropSource = (created|source)\\b").findAll(renderer).count()
         assertEquals(3, assignments)
         // 三次换源（包含已发布皮肤缓存）+ 同尺寸位图的窗口映射更新。
@@ -85,14 +84,14 @@ class GlowFloatingChromeWiringTest {
     fun softwareCanvasDrawsNeverRefreshTheRecordedFootprint() {
         // 探针在软件画布上录内容：若表面也登记，footprint 的"上次录制位置"被刷新却没有重录，
         // 滚动后该表面不再失效，玻璃里的背景停在旧位置（Phase A review 发现）。
-        val drawables = source("$base/skin/liquid/LiquidSurfaceDrawables.kt")
+        val drawables = LceMotionSource.engine("core/liquid/LiquidSurfaceDrawables.kt")
         assertTrue(drawables.contains("if (canvas.isHardwareAccelerated) {\n" +
             "                renderer.registerSurfaceView("))
         assertEquals(1, Regex("registerSurfaceView\\(").findAll(drawables).count())
     }
 
     fun legibilityOnlyThickensFloatingSurfaces() {
-        val renderer = source("$base/skin/liquid/LiquidActivityRenderer.kt")
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         assertTrue(renderer.contains(
             "legibility = if (role == SurfaceRole.FLOATING && host != null) surfaceLegibility[host] else null"))
         assertTrue(renderer.contains("LiquidLegibilityTuning.tintAlpha(baseFraction, legibility.boost)"))
@@ -102,7 +101,7 @@ class GlowFloatingChromeWiringTest {
 
     /** 顶栏胶囊本体没有文字：补偿只加在圆按钮上，本体保持清透；底栏的标签压在玻璃上，照旧加厚。 */
     fun topCapsuleBodyStaysClearWhileItsButtonsCarryCompensation() {
-        val chrome = SourceContract.read("ui/skin/engine/GlowFloatingChrome.kt")
+        val chrome = LceMotionSource.engine("core/glow/GlowFloatingChrome.kt")
         assertTrue(chrome.contains("glow?.setSurfaceLegibility(surface.host, value.takeIf { surface.thickenHost })"))
         assertTrue(chrome.contains("surface.companions.forEach { glow?.setSurfaceLegibility(it, value) }"))
         val home = SourceContract.read("ui/activity/SettingsHomePresenter.kt")

@@ -25,9 +25,15 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowLegibilityPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.TouchGlowRenderer
+import com.lumen.coacervation.engine.glow.GlowLegibilityPolicy
 import com.lumen.coacervation.engine.motion.LumenAnimator
+import com.lumen.coacervation.engine.touch.GlowConfig
+import com.lumen.coacervation.engine.touch.GlowFrame
+import com.lumen.coacervation.engine.touch.GlowState
+import com.lumen.coacervation.engine.touch.TouchGlowRenderer
+import com.lumen.coacervation.engine.touch.reachablePileRoomPx
+import com.lumen.coacervation.engine.widget.NavigationBarColors
+import com.lumen.coacervation.engine.widget.NavigationBarSurface
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -36,15 +42,15 @@ private const val RAIL_LABEL_HALO_DP = 3f
 private const val RAIL_LABEL_HALO_ALPHA = 0.55f
 
 /**
- * 大屏/展开态悬浮左侧胶囊 Navigation Rail，与 [ModernNavigationBar] 共用 LCE 弹簧、高光及可读性策略。
+ * 大屏/展开态悬浮左侧胶囊 Navigation Rail，与 [com.lumen.coacervation.engine.widget.LumenNavigationBar] 共用 LCE 弹簧、高光及可读性策略。
  */
 @SuppressLint("ViewConstructor")
 internal class AdaptiveNavigationRail(
     context: Context,
     titles: List<CharSequence>,
     icons: IntArray,
-    private val colors: ModernNavigationColors,
-    backgroundFactory: (ModernNavigationSurface, Float) -> Drawable,
+    private val colors: NavigationBarColors,
+    backgroundFactory: (NavigationBarSurface, Float) -> Drawable,
     private val onSelect: (Int) -> Unit,
     private val onUserInteraction: () -> Unit,
     private val onVisualMovement: () -> Unit
@@ -64,7 +70,7 @@ internal class AdaptiveNavigationRail(
     private val labelViews = ArrayList<TextView>(count)
     private val items = ArrayList<RailItem>(count)
     private val selection = View(context).apply {
-        background = backgroundFactory(ModernNavigationSurface.SELECTION, 24f)
+        background = backgroundFactory(NavigationBarSurface.SELECTION, 24f)
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
     private val glow = GlowView(context)
@@ -104,7 +110,7 @@ internal class AdaptiveNavigationRail(
     private val slotHeight: Float get() = contentHeight / count
 
     init {
-        background = backgroundFactory(ModernNavigationSurface.BAR, 32f)
+        background = backgroundFactory(NavigationBarSurface.BAR, 32f)
         clipChildren = false
         clipToPadding = false
         clipToOutline = true

@@ -3,11 +3,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 import androidx.annotation.StringRes
 import io.github.jichuo1.meguviz.android.extensions.toast
 import com.Bilibili_Innocent_Lab.xposedmodule.R
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
+import com.lumen.coacervation.engine.LumenEngine
+import com.lumen.coacervation.engine.background.LiquidBackgroundImportFailure
+import com.lumen.coacervation.engine.background.LiquidBackgroundMode
+import com.lumen.coacervation.engine.background.LiquidBackgroundStore
+import com.lumen.coacervation.engine.model.SkinId
 
 /**
  * 外观相关的摘要文案与失败回退：应用语言、Liquid 背景。
@@ -38,7 +38,6 @@ internal fun MainActivity.currentLiquidBackgroundSummary(): String {
 internal fun MainActivity.liquidBackgroundFailureText(reason: LiquidBackgroundImportFailure): Int =
     when (reason) {
         LiquidBackgroundImportFailure.READ_FAILED -> R.string.liquid_background_read_failed
-        LiquidBackgroundImportFailure.ACCESS_DENIED -> R.string.liquid_background_access_denied
         LiquidBackgroundImportFailure.FILE_TOO_LARGE -> R.string.liquid_background_file_too_large
         LiquidBackgroundImportFailure.UNSUPPORTED_IMAGE -> R.string.liquid_background_unsupported
         LiquidBackgroundImportFailure.DIMENSIONS_TOO_LARGE ->
@@ -52,7 +51,7 @@ internal fun MainActivity.handleSkinRendererFailure() {
     runOnUiThread {
         if (skinFailureHandled || isFinishing || isDestroyed) return@runOnUiThread
         skinFailureHandled = true
-        if (SkinRepository.resolveRequestedSkin(applicationContext) == SkinId.MATERIAL_YOU) {
+        if (LumenEngine.requestedMaterial(applicationContext) == SkinId.MATERIAL_YOU) {
             toast(getString(R.string.skin_start_failed))
             recreate()
         } else {

@@ -40,8 +40,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository
+import com.lumen.coacervation.engine.LumenEngine
+import com.lumen.coacervation.engine.model.SkinId
 import android.widget.LinearLayout as NativeLinearLayout
 import androidx.core.graphics.ColorUtils
 import androidx.core.content.edit
@@ -1034,7 +1034,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                         isAllCaps = false
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 15f
-                        isChecked = SkinRepository.resolveRequestedSkin(applicationContext) == SkinId.LIQUID
+                        isChecked = LumenEngine.requestedMaterial(applicationContext) == SkinId.LIQUID
                         setOnCheckedChangeListener { button, checked ->
                             if (advancedMaterialProgrammaticSwitch) {
                                 return@setOnCheckedChangeListener
@@ -1784,7 +1784,7 @@ internal fun MainActivity.logSettingsCard(scope: LinearSettingsScope) = with(sco
                         stringResource(R.string.log_level_minimal),
                         stringResource(R.string.log_level_complete)
                     ),
-                    colors = ModernNavigationColors(
+                    colors = com.lumen.coacervation.engine.widget.NavigationBarColors(
                         text = colorResource(R.color.colorTextGray),
                         selectedText = monetColors.onPrimary,
                         highlight = monetColors.primary

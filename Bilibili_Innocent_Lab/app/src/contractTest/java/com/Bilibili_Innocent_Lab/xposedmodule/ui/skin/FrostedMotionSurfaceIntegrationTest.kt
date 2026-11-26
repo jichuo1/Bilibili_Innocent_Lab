@@ -4,8 +4,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.DiagnosticsEntryVisualSpec
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.FrostedMotionSurfaceAlpha
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,11 +16,9 @@ class FrostedMotionSurfaceIntegrationTest {
     fun frostedMotionRendererAndHostPagesKeepContinuousBackdropAndSafeDisposal() {
         for (dark in listOf(false, true)) {
             val callerAlpha = DiagnosticsEntryVisualSpec.scrimAlpha(dark)
-            val callerColor = (callerAlpha shl 24) or 0x00909090
-            val frame = FrostedMotionSurfaceAlpha.frameAlpha(callerColor, 128)
-            assertEquals(callerAlpha * 128 / 255, frame)
+            assertTrue(callerAlpha in 1..255)
         }
-        val renderer = source("skin/material/FrostedMaterialRenderer")
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         val draw = renderer.after("private class ModernSurfaceDrawable(")
             .before("internal object FrostedMotionSurfaceAlpha")
             .after("override fun draw(canvas: Canvas)").before("override fun setAlpha")

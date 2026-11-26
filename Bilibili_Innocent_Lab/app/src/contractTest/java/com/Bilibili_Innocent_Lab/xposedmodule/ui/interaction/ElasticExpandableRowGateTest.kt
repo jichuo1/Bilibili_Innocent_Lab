@@ -115,10 +115,15 @@ class ElasticExpandableRowGateTest {
 
     /** 诊断页的自绘涟漪同款：content 与 mask 都要声明圆角。 */
     fun diagnosticsRippleDeclaresTheDesignCorner() {
-        val body = diagnostics().after("private fun rippleBackground(")
+        val src = diagnostics()
+        val body = src.after("private fun TextView.rippleBackground(")
             .before("\n    }\n")
         assertFalse(body.contains("toDrawable()"))
-        assertEquals(2, body.lines().count { it.trimStart().startsWith("cornerRadius = ") })
+        assertTrue(body.contains("RecipeDrawable.forView(this, contentRecipe)"))
+        assertTrue(body.contains("RecipeDrawable.forView(this, maskRecipe)"))
+        for (recipe in listOf("transparent14Recipe", "mask14Recipe", "transparent20Recipe", "mask20Recipe")) {
+            assertTrue(recipe, src.after("val $recipe").before("\n        )").contains("ShapeSpec.roundRect(Length.dp("))
+        }
     }
 
     // 只在锚点所在的那个文件里取窗口，避免锚点靠近文件开头时把上一个文件的尾部算进来。

@@ -10,7 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapsh
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticsCollector
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
+import com.lumen.coacervation.engine.runtime.SkinSessionDiagnostics
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors

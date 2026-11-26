@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
-import java.io.File
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import org.junit.Assert.*
 import org.junit.Test
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
@@ -15,13 +15,15 @@ class ModernMaterialIntegrationTest {
         assertTrue(skin.contains("ModernPalette.resolve(this)"))
         assertFalse(source("ui/theme/MonetColors.kt").contains("ModernPalette"))
         val neutral = skin.after("internal fun neutralWindowBackground()").before("internal fun skinFloatingBackground")
-        assertTrue(neutral.contains("ModernMaterialDrawables.neutralWindow(monetColors)"))
+        assertTrue(neutral.contains("lumen.neutralWindowBackground()"))
         assertFalse(neutral.contains("prepareSkinSession"))
         assertFalse(neutral.contains("SkinPrefs"))
+        val delegate = LceMotionSource.engine("core/host/LumenActivityDelegate.kt")
+        assertTrue(delegate.contains("ModernMaterialDrawables.neutralWindow(palette)"))
     }
 
     fun materialUsesOneSharedPreblurredUnderlayWithoutTakingLiquidOwnership() {
-        val renderer = source("ui/skin/material/FrostedMaterialRenderer.kt")
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         assertTrue(renderer.contains("ModernBackdropBlur.blur(pixels"))
         assertTrue(renderer.contains("BitmapShader(result.blurred"))
         assertTrue(renderer.contains("worker.submit"))
@@ -31,7 +33,7 @@ class ModernMaterialIntegrationTest {
         assertFalse(renderer.contains("claimLiquidRenderSession"))
         assertFalse(renderer.before("private data class ModernBackdropFrame").contains(".recycle()"))
         assertFalse(renderer.after("private class ModernSurfaceDrawable").contains(".recycle()"))
-        val session = source("ui/skin/runtime/ActivitySkinSession.kt")
+        val session = LceMotionSource.engine("core/runtime/ActivitySkinSession.kt")
         assertTrue(session.contains("if (requestedSkin != SkinId.LIQUID) return materialRenderer.bindRoot(root)"))
         assertTrue(session.contains("val owner = if (requestedSkin == SkinId.LIQUID)"))
         assertTrue(session.contains("materialRenderer.close()"))
@@ -39,10 +41,10 @@ class ModernMaterialIntegrationTest {
 
     fun chromeRolesRemainDistinctAndGeometryRemainsCallerOwned() {
         val skin = source("ui/skin/activity/SkinnedActivity.kt")
-        assertTrue(skin.contains("skinBackground(color, radiusDp, materialOutline = true, role = SurfaceRole.FLOATING)"))
-        assertTrue(skin.contains("skinBackground(color, radiusDp, materialOutline = false, role = SurfaceRole.TOP_BAR)"))
-        assertTrue(skin.contains("skinBackground(color, radiusDp, materialOutline = true, role = SurfaceRole.SELECTED_ITEM)"))
-        val renderer = source("ui/skin/material/FrostedMaterialRenderer.kt")
+        assertTrue(skin.contains("lumen.surface(color, radiusDp, SurfaceRole.FLOATING)"))
+        assertTrue(skin.contains("lumen.surface(color, radiusDp, SurfaceRole.TOP_BAR)"))
+        assertTrue(skin.contains("lumen.surface(color, radiusDp, SurfaceRole.SELECTED_ITEM)"))
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         assertTrue(renderer.contains("radiusDp * density"))
         assertTrue(renderer.contains("observer.addOnScrollChangedListener(scroll)"))
         assertTrue(renderer.contains("observer.removeOnScrollChangedListener(state.scroll)"))

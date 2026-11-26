@@ -10,7 +10,6 @@ object LceMotionSource {
     private val readCache = ConcurrentHashMap<String, String>()
 
     internal val delegates = mapOf(
-        "LiquidStretchViewport.kt" to ("core/liquid/LiquidStretchViewport.kt" to "com.lumen.coacervation.engine.liquid.LiquidStretchViewport"),
         "BubbleIconProxy.kt" to ("motion/modal/BubbleIconProxy.kt" to "com.lumen.coacervation.engine.motion.modal.BubbleIconProxy"),
         "BubbleLayerMotionSpec.kt" to ("motion/modal/BubbleLayerMotionSpec.kt" to "com.lumen.coacervation.engine.motion.modal.BubbleLayerMotionSpec"),
         "BubbleMotionController.kt" to ("motion/modal/BubbleMotionController.kt" to "com.lumen.coacervation.engine.motion.modal.BubbleMotionController"),

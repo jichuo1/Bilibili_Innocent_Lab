@@ -11,11 +11,11 @@ class LumenDelegationContractTest {
         for ((hostFile, target) in LceMotionSource.delegates) {
             val relative = when {
                 target.first.startsWith("interaction/") -> "ui/interaction/$hostFile"
-                hostFile == "LiquidStretchViewport.kt" -> "ui/skin/liquid/$hostFile"
                 else -> "ui/activity/$hostFile"
             }
             val code = LceMotionSource.read(relative)
             assertTrue("Expected non-empty Lumen source for $hostFile (${target.second})", code.isNotEmpty())
         }
+        assertTrue(LceMotionSource.engine("core/liquid/LiquidStretchViewport.kt").isNotEmpty())
     }
 }

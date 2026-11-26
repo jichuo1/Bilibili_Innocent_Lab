@@ -10,9 +10,9 @@ import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.LogSegmentScrubBar
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
+import com.lumen.coacervation.engine.widget.LumenSegmentScrubBar
 import io.github.jichuo1.meguviz.android.extensions.toPx
 import io.github.jichuo1.meguviz.ui.ComponentType
 import io.github.jichuo1.meguviz.ui.ParentPolicy
@@ -36,7 +36,7 @@ private val imageWidget = SettingsWidget(ImageView::class.java) { ImageView(it.c
 private val spaceWidget = SettingsWidget(Space::class.java) { Space(it.context) }
 private val viewWidget = SettingsWidget(View::class.java) { View(it.context) }
 private val switchWidget = SettingsWidget(MaterialSwitch::class.java) { MaterialSwitch(it.context, null) }
-private val scrubWidget = SettingsWidget(LogSegmentScrubBar::class.java) { LogSegmentScrubBar(it.context, null) }
+private val scrubWidget = SettingsWidget(LumenSegmentScrubBar::class.java) { LumenSegmentScrubBar(it.context, null) }
 private val linearWidget = SettingsWidget(LinearLayout::class.java) { LinearLayout(it.context) }
 private val frameWidget = SettingsWidget(FrameLayout::class.java) { FrameLayout(it.context) }
 private val scrollWidget = SettingsWidget(NestedScrollView::class.java) { NestedScrollView(it.context) }
@@ -115,7 +115,7 @@ internal class SettingsScope<P : ViewGroup, LP : ViewGroup.LayoutParams>(
         return view
     }
 
-    fun logSegmentScrubBar(key: String, lparams: LP = params(), init: LogSegmentScrubBar.() -> Unit = {}): LogSegmentScrubBar =
+    fun logSegmentScrubBar(key: String, lparams: LP = params(), init: LumenSegmentScrubBar.() -> Unit = {}): LumenSegmentScrubBar =
         create(key, lparams, scrubWidget, init)
 
     fun linearLayout(key: String, lparams: LP = params(), init: LinearLayout.() -> Unit = {}, content: LinearSettingsScope.() -> Unit = {}): LinearLayout {

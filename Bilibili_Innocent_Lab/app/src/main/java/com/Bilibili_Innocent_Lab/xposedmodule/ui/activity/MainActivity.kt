@@ -154,14 +154,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesMarkdownRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundConfig
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportFailure
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundImportResult
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidRealtimeCaptureStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinRepository
+import com.lumen.coacervation.engine.LumenEngine
+import com.lumen.coacervation.engine.background.LiquidBackgroundImportResult
+import com.lumen.coacervation.engine.background.LiquidBackgroundStore
+import com.lumen.coacervation.engine.model.SkinId
+import io.github.jichuo1.meguviz.android.window.InsetsSlot
 import android.app.Dialog
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -2847,10 +2844,12 @@ class MainActivity : SkinnedActivity() {
             addView(root, NativeFrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
-        ViewCompat.setOnApplyWindowInsetsListener(windowFrame) { _, insets ->
+        val frameScope = dialogWindowSession(dialog)?.scope(windowFrame)
+        val frameInsetsSlot = frameScope?.let(InsetsSlot::claimExclusive)
+        val frameInsetsRegistration = frameInsetsSlot?.observe { snapshot ->
             // 与原来 decor 的默认内缩一致：只让开系统栏与刘海。弹窗是 adjustPan，
             // 输入法由系统平移窗口处理，不在这里内缩。
-            val safe = insets.getInsets(
+            val safe = snapshot.combined(
                 androidx.core.view.WindowInsetsCompat.Type.systemBars() or
                     androidx.core.view.WindowInsetsCompat.Type.displayCutout()
             )
@@ -2861,7 +2860,6 @@ class MainActivity : SkinnedActivity() {
                 params.setMargins(safe.left, safe.top, safe.right, safe.bottom)
                 root.layoutParams = params
             }
-            insets
         }
         // 子面板贴到父面板矩形上。两张 Dialog 的窗口原点不保证相同（状态栏、adjustPan），
         // 所以每次都拿 root 的屏幕位置换算，不假设 0。
@@ -3294,6 +3292,9 @@ class MainActivity : SkinnedActivity() {
             }
         }
         dialog.setOnDismissListener {
+            frameInsetsRegistration?.close()
+            frameInsetsSlot?.close()
+            frameScope?.close()
             releaseElasticInteraction()
             // 其他入口硬关（presentSizedModalDialog 开头的 activeConfirmDialog?.dismiss()）
             // 也要收掉在途 animator，否则回调会继续驱动一个已经消失的窗口。
@@ -4674,7 +4675,11 @@ class MainActivity : SkinnedActivity() {
         // （部分 LSPosed 版本无 DirectAccessService/路径差异）时保守不删，避免
         // 每次冷启动误删有效缓存导致全量分析重建（冷启动慢的根源）
         runCatching {
-            modulePrefs?.edit { putLong(HookEntry.PREF_PREFS_ALIVE_TS, System.currentTimeMillis()) }
+            liquidBackgroundWorker.execute {
+                runCatching {
+                    modulePrefs?.edit { putLong(HookEntry.PREF_PREFS_ALIVE_TS, System.currentTimeMillis()) }
+                }
+            }
         }
         adskipEnabled = uiSettings.bool(HookEntry.PREF_ENABLED)
         gamecardAdEnabled = uiSettings.bool(HookEntry.PREF_GAMECARD_ENABLED)
@@ -4884,20 +4889,34 @@ class MainActivity : SkinnedActivity() {
         freeCopyDescEnabled = uiSettings.bool(HookEntry.PREF_FREE_COPY_DESC_ENABLED)
         freeCopyTitleEnabled = uiSettings.bool(FeaturePreferences.FREE_COPY_TITLE_ENABLED)
         // 跨进程权威镜像：避开 LSPosed API 93+ 对默认 SharedPreferences 的重定向。
-        // 文件很小且只在模块 UI 启动/切换时写入，不进入 B 站启动或滚动热路径。
+        // 仅在首次缺少镜像或开关状态实际变化时异步落盘，避免冷启动主线程同步 fsync。
+        val freeCopySnapshotEnabled = freeCopyEnabled
+        val freeCopySnapshotDescEnabled = freeCopyDescEnabled
         runCatching {
-            val revision = System.currentTimeMillis().coerceAtLeast(1L)
-            modulePrefs?.edit { putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision) }
-            check(
-                FreeCopyConfigStore.write(
-                    applicationContext,
-                    freeCopyEnabled,
-                    freeCopyDescEnabled,
-                    revision
-                )
-            ) { "atomic mirror write returned false" }
+            liquidBackgroundWorker.execute {
+                runCatching {
+                    val existing = FreeCopyConfigStore.read(applicationContext)
+                    if (existing == null ||
+                        existing.commentEnabled != freeCopySnapshotEnabled ||
+                        existing.descriptionEnabled != freeCopySnapshotDescEnabled
+                    ) {
+                        val revision = System.currentTimeMillis().coerceAtLeast(1L)
+                        modulePrefs?.edit { putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision) }
+                        check(
+                            FreeCopyConfigStore.write(
+                                applicationContext,
+                                freeCopySnapshotEnabled,
+                                freeCopySnapshotDescEnabled,
+                                revision
+                            )
+                        ) { "atomic mirror write returned false" }
+                    }
+                }.onFailure { t ->
+                    Log.e("BilibiliInnocentLab", "write free copy config mirror failed", t)
+                }
+            }
         }.onFailure { t ->
-            Log.e("BilibiliInnocentLab", "write free copy config mirror failed", t)
+            Log.e("BilibiliInnocentLab", "schedule free copy config mirror failed", t)
         }
         freeCopyLightMode = uiSettings.bool(HookEntry.PREF_FREE_COPY_LIGHT_MODE)
         freeCopyAutoLight = uiSettings.bool(HookEntry.PREF_FREE_COPY_AUTO_LIGHT)
@@ -5420,7 +5439,9 @@ class MainActivity : SkinnedActivity() {
         return SettingsPagePlan(steps) {
             applyRestoredSettingsExpansion(index)
             styleHomeControls(parent)
-            settingsDestinations.forEachTarget { id, view -> settingDependencies.bind(view, id) }
+            settingsDestinations.forEachTarget({ it.isSameOrDescendantOf(parent) }) { id, view ->
+                settingDependencies.bind(view, id)
+            }
             settingDependencies.start(settingModelPreferences)
             refreshSettingAvailability()
             if (index == 4) { renderActivationUi(); renderNoRootUi() }
@@ -5487,20 +5508,19 @@ class MainActivity : SkinnedActivity() {
      */
     internal fun setAdvancedMaterial(button: CompoundButton, enabled: Boolean) {
         val target = if (enabled) SkinId.LIQUID else SkinId.MATERIAL_YOU
-        if (SkinRepository.resolveRequestedSkin(applicationContext) == target) return
-        val result = runCatching {
-            SkinRepository.beginSelection(applicationContext, target)
+        if (LumenEngine.requestedMaterial(applicationContext) == target) return
+        val persisted = runCatching {
+            LumenEngine.selectMaterial(applicationContext, target, enabled)
         }.onFailure { throwable ->
             Log.e("BilibiliInnocentLab", "persist advanced material selection failed", throwable)
-        }.getOrNull()
-        if (result?.persisted != true) {
+        }.getOrDefault(false)
+        if (!persisted) {
             advancedMaterialProgrammaticSwitch = true
             button.isChecked = !enabled
             advancedMaterialProgrammaticSwitch = false
             toast(getString(R.string.skin_save_failed))
             return
         }
-        runCatching { LiquidRealtimeCaptureStore.setEnabled(applicationContext, enabled) }
         button.post {
             if (!isFinishing && !isDestroyed) recreate()
         }

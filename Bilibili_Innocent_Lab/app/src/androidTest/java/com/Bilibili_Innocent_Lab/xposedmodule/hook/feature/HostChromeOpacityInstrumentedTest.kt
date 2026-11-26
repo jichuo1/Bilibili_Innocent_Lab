@@ -21,9 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScop
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.FrostedMaterialRenderer
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SurfaceRole
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
+import com.lumen.coacervation.engine.host.LumenSurfaceSession
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -45,7 +43,7 @@ class HostChromeOpacityInstrumentedTest {
             lateinit var page: FrameLayout
             lateinit var content: View
             lateinit var glass: View
-            var module: FrostedMaterialRenderer? = null
+            var moduleSession: LumenSurfaceSession? = null
             var scope: HostSurfaceScope? = null
             val pictures = LinkedHashMap<String, Bitmap>()
             val results = ArrayList<String>()
@@ -65,16 +63,16 @@ class HostChromeOpacityInstrumentedTest {
                 for (profile in listOf("module-soft", "host-soft", "old-transparent-soft", "host-liquid",
                     "module-soft-dark", "host-soft-dark", "old-transparent-soft-dark")) {
                     instrumentation.runOnMainSync {
-                        scope?.close(); module?.close(); scope = null; module = null
+                        scope?.close(); moduleSession?.close(); scope = null; moduleSession = null
                         glass.background = null; page.background = null
                         val dark = profile.endsWith("-dark")
                         val colors = HostChromeColors(dark, 0xFFFF6699.toInt())
                         val palette = colors.palette()
                         if (profile.startsWith("module-soft")) {
-                            module = FrostedMaterialRenderer(MonetColors(palette.primary, palette.onPrimary,
-                                palette.secondary, palette.tertiary, palette.surface, palette.background, palette.surfaceVariant), density).also {
-                                it.bindRoot(page); it.bindContentSource(content)
-                                glass.background = it.surface(palette.surface, 32f, SurfaceRole.FLOATING)
+                            val options = HostSurfaceStyle.floating(dark, 32f,
+                                HostChromeAppearance(material = HostGlassMaterial.SOFT))
+                            moduleSession = LumenSurfaceSession(page.context, palette).also {
+                                it.bind(glass, options, content)
                             }
                         } else {
                             val liquid = profile.contains("liquid")
@@ -93,7 +91,7 @@ class HostChromeOpacityInstrumentedTest {
                     File(output, "$profile.png").outputStream().use { picture.compress(Bitmap.CompressFormat.PNG, 100, it) }
                     results += "$profile fine-detail edge contrast=${detailContrast(picture, glass)}"
                     instrumentation.runOnMainSync {
-                        if (module != null) assertTrue("Module ambient base never became ready", module!!.revealFraction > .95f)
+                        if (moduleSession != null) assertTrue("No GPU samples for $profile", moduleSession!!.diagnostics().gpuDraws > 0)
                         if (scope != null) assertTrue("No GPU samples for $profile", (scope!!.diagnostics()?.gpuDraws ?: 0) > 0)
                     }
                 }
@@ -109,7 +107,7 @@ class HostChromeOpacityInstrumentedTest {
                 assertTrue("Dark legibility compensation restored the unwanted sample alpha: $dark / $darkOriginal", dark < darkOriginal * .1)
                 results += "soft retains GPU 17dp and software 10dp; all profiles leave user preferences unchanged"
             } finally {
-                instrumentation.runOnMainSync { scope?.close(); module?.close() }
+                instrumentation.runOnMainSync { scope?.close(); moduleSession?.close() }
                 pictures.values.forEach(Bitmap::recycle)
                 File(output, "results.txt").writeText(results.joinToString("\n"))
             }

@@ -54,7 +54,7 @@ class SettingsOrganizationInstrumentedTest {
             R.string.free_copy_auto_light, R.string.free_copy_light_mode
         )
         fun navigation(activity: MainActivity) = descendants(activity.window.decorView)
-            .filterIsInstance<ModernNavigationBar>().single()
+            .filterIsInstance<com.lumen.coacervation.engine.widget.LumenNavigationBar>().single()
         fun select(activity: MainActivity, title: Int) {
             descendants(navigation(activity)).single {
                 it.isClickable && it.contentDescription == activity.getString(title)

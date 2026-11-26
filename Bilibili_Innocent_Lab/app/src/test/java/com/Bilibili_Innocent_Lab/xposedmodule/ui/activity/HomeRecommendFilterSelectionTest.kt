@@ -13,6 +13,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRuntimeProfil
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ScopeRequestResult
+import com.lumen.coacervation.engine.touch.GlowConfig
+import com.lumen.coacervation.engine.touch.GlowFrame
+import com.lumen.coacervation.engine.touch.GlowShape
+import com.lumen.coacervation.engine.touch.GlowState
 import java.lang.reflect.Proxy
 import kotlin.math.abs
 import kotlin.math.cos

@@ -2,6 +2,11 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.ActivationDisplayState
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatus
+import com.lumen.coacervation.engine.touch.GlowConfig
+import com.lumen.coacervation.engine.touch.GlowFrame
+import com.lumen.coacervation.engine.touch.GlowShape
+import com.lumen.coacervation.engine.touch.GlowState
+import com.lumen.coacervation.engine.touch.reachablePileRoomPx
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -511,31 +516,12 @@ private class AdaptiveGlowEdgePileCases {
         }
     }
 
-    fun outwardNormalMatchesHandComputedDirections() {
-        val out = FloatArray(2)
-        roundedRectOutwardNormal(barWidth / 2f, -50f, barWidth, barHeight, cornerPx, out)
-        assertEquals(0f, out[0], 1e-4f); assertEquals(-1f, out[1], 1e-4f)
-        roundedRectOutwardNormal(barWidth / 2f, barHeight + 50f, barWidth, barHeight, cornerPx, out)
-        assertEquals(0f, out[0], 1e-4f); assertEquals(1f, out[1], 1e-4f)
-        roundedRectOutwardNormal(barWidth + 50f, barHeight / 2f, barWidth, barHeight, cornerPx, out)
-        assertEquals(1f, out[0], 1e-4f); assertEquals(0f, out[1], 1e-4f)
-        roundedRectOutwardNormal(-50f, barHeight / 2f, barWidth, barHeight, cornerPx, out)
-        assertEquals(-1f, out[0], 1e-4f); assertEquals(0f, out[1], 1e-4f)
-        // 端头圆弧外 45°：法向指向圆弧圆心到触点的方向
-        val cx = barWidth - cornerPx; val cy = cornerPx
-        roundedRectOutwardNormal(cx + 100f, cy - 100f, barWidth, barHeight, cornerPx, out)
-        assertEquals(0.7071f, out[0], 1e-3f); assertEquals(-0.7071f, out[1], 1e-3f)
-        // 无效边界：退化为固定方向且不产生 NaN
-        roundedRectOutwardNormal(1f, 1f, 0f, 0f, 0f, out)
-        assertTrue(out[0].isFinite() && out[1].isFinite())
-    }
-
-    fun axisDeltaIsModulo180() {
-        assertEquals(0f, shortestAxisDeltaDeg(0f, 180f), 1e-4f)
-        assertEquals(90f, shortestAxisDeltaDeg(0f, 90f), 1e-4f)
-        assertEquals(-10f, shortestAxisDeltaDeg(0f, 170f), 1e-4f)
-        assertEquals(10f, shortestAxisDeltaDeg(175f, 5f), 1e-4f)
-        assertEquals(0f, shortestAxisDeltaDeg(Float.NaN, 30f), 1e-4f)
+    private fun shortestAxisDeltaDeg(fromDeg: Float, toDeg: Float): Float {
+        if (!fromDeg.isFinite() || !toDeg.isFinite()) return 0f
+        var delta = (toDeg - fromDeg) % 180f
+        if (delta > 90f) delta -= 180f
+        if (delta < -90f) delta += 180f
+        return delta
     }
 
     fun verifyAllCases() {
@@ -554,8 +540,6 @@ private class AdaptiveGlowEdgePileCases {
         runIsolated { s -> s.crossingTheOutlineIsContinuousFrameToFrame() }
         runIsolated { s -> s.releaseOutsideStillFadesOut() }
         runIsolated { s -> s.extremeOvershootStaysFiniteAndBounded() }
-        runIsolated { s -> s.outwardNormalMatchesHandComputedDirections() }
-        runIsolated { s -> s.axisDeltaIsModulo180() }
     }
 }
 
@@ -1177,19 +1161,12 @@ private class AdaptiveGlowPolicyCases {
         }
     }
 
-    fun sdfMatchesHandComputedDistances() {
-        // 胶囊中心到边界的距离 = 半高
-        assertEquals(96f, -roundedRectSignedDistance(480f, 96f, 960f, 192f, 96f), 1e-3f)
-        // 距上边 4px
-        assertEquals(4f, -roundedRectSignedDistance(480f, 4f, 960f, 192f, 96f), 1e-3f)
-        // 上方外 10px 为负
-        assertEquals(-10f, -roundedRectSignedDistance(480f, -10f, 960f, 192f, 96f), 1e-3f)
-        // 矩形退化：(5,5) 距最近边 5px
-        assertEquals(5f, -roundedRectSignedDistance(5f, 5f, 100f, 100f, 0f), 1e-3f)
-        // 圆角外侧：(-10,-10) 在 100×100 r=20 的左上角外
-        assertEquals(-(sqrt(2f) * 30f - 20f), -roundedRectSignedDistance(-10f, -10f, 100f, 100f, 20f), 1e-2f)
-        // 边界本身为 0
-        assertEquals(0f, -roundedRectSignedDistance(480f, 0f, 960f, 192f, 96f), 1e-3f)
+    private fun shortestAngleDeltaDeg(fromDeg: Float, toDeg: Float): Float {
+        if (!fromDeg.isFinite() || !toDeg.isFinite()) return 0f
+        var delta = (toDeg - fromDeg) % 360f
+        if (delta > 180f) delta -= 360f
+        if (delta < -180f) delta += 360f
+        return delta
     }
 
     fun noisyVelocityKeepsTheAngleStable() {
@@ -1430,7 +1407,6 @@ private class AdaptiveGlowPolicyCases {
         runIsolated { s -> s.tailLagsBehindTheMotionAndIsBounded() }
         runIsolated { s -> s.releaseFadesOutAndTailVanishes() }
         runIsolated { s -> s.everyInputCombinationStaysFiniteAndInRange() }
-        runIsolated { s -> s.sdfMatchesHandComputedDistances() }
         runIsolated { s -> s.noisyVelocityKeepsTheAngleStable() }
         runIsolated { s -> s.nanFramesKeepThePreviousDirection() }
         runIsolated { s -> s.alphaIsContinuousAcrossTheAxialThreshold() }

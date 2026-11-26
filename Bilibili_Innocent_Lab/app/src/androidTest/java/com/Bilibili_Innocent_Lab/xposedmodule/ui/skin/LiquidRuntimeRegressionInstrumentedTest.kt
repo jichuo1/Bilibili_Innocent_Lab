@@ -17,7 +17,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.showSettingsSearchDialog
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.model.SkinId
+import com.lumen.coacervation.engine.model.SkinId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith

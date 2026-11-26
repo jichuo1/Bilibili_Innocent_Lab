@@ -38,16 +38,17 @@ class SettingsPageStepwiseBuildContractTest {
         // maxUnitsPerWork 必须覆盖整页计划；仍为 1 会在第一个单元未完成时按 UNIT_LIMIT 误丢弃。
         assertTrue(submit.contains("maxUnitsPerWork = SettingsPagePlan.MAX_UNITS"))
         assertFalse(submit.contains("maxUnitsPerWork = 1"))
-        val work = submit.after("PrewarmWork(").before("ready = {}")
+        val work = submit.after("PrewarmWork(").before("ready = {")
         assertTrue(work.contains("advancePage(index, untilComplete = false)"))
         assertFalse("预建不得再同步补完整页", work.contains("ensurePage("))
         // 刚推进过的页面仍是「当前」结果，否则完成的单元会被当成过期丢弃。
         assertTrue(work.contains("(ran || !builtPages[index])"))
         assertTrue(work.contains("ran = true"))
-        // 超预算只让出本轮；未完成页面的计划游标保留。
+        // 超预算只让出本轮到下一帧，未完成页面的计划游标保留（不 cancel 整个队列）。
         val discard = submit.after("discard = { reason ->")
         assertTrue(discard.contains("PrewarmStop.OVER_BUDGET"))
-        assertTrue(discard.contains("queue.cancel()"))
+        assertFalse(discard.contains("queue.cancel()"))
+        assertTrue(discard.contains("schedulePrewarm()"))
         assertFalse(discard.contains("plans["))
     }
 
@@ -212,7 +213,7 @@ class SettingsPageStepwiseBuildContractTest {
         }
         assertTrue(experimental.indexOf("appearanceContent = this") < experimental.indexOf("compatibilityContent = this"))
         // 状态镜像字段、偏好都在各自步骤里读：每个读取点都在 deferStep 块内。
-        for (read in listOf("isChecked = SkinRepository.resolveRequestedSkin", "isChecked = MaterialColorSpecStore.read",
+        for (read in listOf("isChecked = LumenEngine.requestedMaterial", "isChecked = MaterialColorSpecStore.read",
             "isChecked = ModalBackdropBlurStore.read", "isChecked = !isLauncherIconShowing", "isChecked = noRootDesiredEnabled",
             "isChecked = roamingCompatEnabled", "isChecked = predictiveBackEnabled", "isChecked = biliAccessKeyAuthorized")) {
             val at = experimental.indexOf(read)

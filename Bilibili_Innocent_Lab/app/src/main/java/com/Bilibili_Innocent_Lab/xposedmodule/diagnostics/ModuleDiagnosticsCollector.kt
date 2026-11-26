@@ -19,7 +19,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigPu
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannel
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostConfigChannels
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.runtime.SkinSessionDiagnostics
+import com.lumen.coacervation.engine.runtime.SkinSessionDiagnostics
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 

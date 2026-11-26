@@ -42,10 +42,10 @@ class SettingsFloatingToolbarTest {
         val home = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/SettingsHomePresenter.kt")
         val install = home.after("private fun installTopInset()").before("private fun applyScrollInsets()")
-        assertTrue(install.contains("ViewCompat.setOnApplyWindowInsetsListener(shell)"))
+        assertTrue(install.contains("activity.observeModuleInsets(shell)"))
         assertTrue(install.contains("WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()"))
         // 只接管顶部：左、右、下照旧缩进，底栏与导航栏行为不变。
-        assertTrue(install.contains("view.setPadding(safe.left, 0, safe.right, safe.bottom)"))
+        assertTrue(install.contains("shell.setPadding(safe.left, 0, safe.right, safe.bottom)"))
         assertTrue(install.contains("params.topMargin = dp(4) + systemTopInset"))
         assertTrue(install.contains("applyScrollInsets()"))
         assertTrue(install.contains("ViewCompat.requestApplyInsets(shell)"))

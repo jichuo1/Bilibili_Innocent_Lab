@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
@@ -9,23 +10,22 @@ import org.junit.Test
 
 class FrostedCustomBackgroundContractTest {
     fun ordinarySessionPassesApplicationContextAndWorkerUsesTheExistingAssetDecoder() {
-        val session = SourceContract.read("ui/skin/runtime/ActivitySkinSession.kt")
+        val session = LceMotionSource.engine("core/runtime/ActivitySkinSession.kt")
         assertTrue(session.contains("backgroundContext = activity.applicationContext"))
-        val renderer = SourceContract.read("ui/skin/material/FrostedMaterialRenderer.kt")
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         val request = renderer.after("private fun requestBackdrop").before("private fun acceptBackdrop")
         val worker = request.after("work = worker.submit")
         assertTrue(worker.contains("LiquidBackgroundStore.decodeBackdrop(context, config"))
         assertFalse(worker.contains("SkinRepository"))
         val factory = renderer.after("private object ModernBackdropFactory").before("private class ModernSurfaceDrawable")
         assertTrue(factory.contains("ModernMaterialPolicy.sampleSize(width, height)"))
-        assertTrue(factory.contains("LiquidBackdropSizingPolicy.resolvePresentation(width, height)"))
-        assertTrue(factory.indexOf("customBackground?.invoke(presentation.width, presentation.height)") >= 0)
-        assertTrue(factory.indexOf("customBackground?.invoke(presentation.width, presentation.height)") < factory.indexOf("AmbientBackdropScene.paint"))
+        assertTrue(factory.indexOf("customBackground?.invoke(w, h)") >= 0)
+        assertTrue(factory.indexOf("customBackground?.invoke(w, h)") < factory.indexOf("AmbientBackdropScene.paint"))
         assertFalse(renderer.contains("PixelCopy"))
     }
 
     fun foregroundMemoryReleaseKeepsTheDisplayUnderlayUntilStopOrClose() {
-        val renderer = SourceContract.read("ui/skin/material/FrostedMaterialRenderer.kt")
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         val root = renderer.after("fun bindRoot(view: View)").before("override fun surface")
         assertTrue(root.contains("val current = rootBackdrop"))
         val release = renderer.after("fun releaseMemory()").before("fun stop()")

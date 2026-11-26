@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
@@ -14,12 +15,17 @@ class LiquidBackgroundPreviewContractTest {
             .before("private fun MainActivity.restoreAutomaticLiquidBackground(")
         assertTrue(preview.contains("preview.doOnLayout { view ->"))
         assertTrue(preview.contains("view.width <= 0 || view.height <= 0"))
-        assertTrue(preview.contains("resolvePreview(view.width, view.height)"))
-        assertTrue(preview.indexOf("resolvePreview(") < preview.indexOf("liquidBackgroundWorker.execute"))
-        assertTrue(preview.contains("targetWidth = target.width"))
-        assertTrue(preview.contains("targetHeight = target.height"))
+        assertTrue(preview.indexOf("val viewWidth = view.width") < preview.indexOf("liquidBackgroundWorker.execute"))
+        assertTrue(preview.contains("LiquidBackgroundStore.decodePreview("))
+        assertTrue(preview.contains("viewWidth = viewWidth"))
+        assertTrue(preview.contains("viewHeight = viewHeight"))
         assertFalse(preview.contains("targetWidth = 640"))
         assertFalse(preview.contains("targetHeight = 360"))
+        val store = LceMotionSource.engine("core/background/LiquidBackgroundStore.kt")
+            .after("fun decodePreview(")
+            .before("internal fun decodeBackdrop(")
+        assertTrue(store.contains("LiquidBackdropSizingPolicy.resolvePreview(viewWidth, viewHeight)"))
+        assertTrue(store.contains("target.width, target.height"))
     }
 
     fun staleOrDetachedPreviewCannotAcceptDecodedBitmap() {

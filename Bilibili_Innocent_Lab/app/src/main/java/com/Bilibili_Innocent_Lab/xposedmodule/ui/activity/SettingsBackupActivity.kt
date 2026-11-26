@@ -72,7 +72,7 @@ import kotlin.math.abs
 
 /** SAF 驱动的设置备份、兼容性预览和确认导入页面。 */
 class SettingsBackupActivity : SkinnedActivity(),
-    com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidStaticBackdropHost {
+    com.lumen.coacervation.engine.liquid.LiquidStaticBackdropHost {
 
     private enum class Page {
         HOME,

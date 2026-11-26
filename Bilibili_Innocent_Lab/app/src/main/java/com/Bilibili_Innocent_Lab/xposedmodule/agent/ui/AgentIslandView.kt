@@ -12,6 +12,9 @@ import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentTaskState
+import io.github.jichuo1.meguviz.android.runtime.core.FrameDriver
+import io.github.jichuo1.meguviz.android.runtime.platform.BudgetFrameDriver
+import io.github.jichuo1.meguviz.android.runtime.platform.MainThreadDispatcher
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -46,13 +49,23 @@ internal class AgentIslandView(context: Context) : View(context) {
     private var ready = false
     private var frameScheduled = false
     private var frame = 0
+    private var lastAdvanceNanos = 0L
+    private val frameIntervalNanos = AgentIslandAnimationPolicy.FRAME_MS * 1_000_000L
+    private val frameDriver: FrameDriver = BudgetFrameDriver(MainThreadDispatcher(), true)
 
-    private val frameTick = object : Runnable {
-        override fun run() {
+    private val frameTick = object : FrameDriver.Callback {
+        override fun onFrame(frameTimeNanos: Long) {
             frameScheduled = false
-            if (!mayAnimate()) { invalidateGlyph(); return }
-            frame = (frame + 1) and 0xFFFF
-            invalidateGlyph()
+            if (!mayAnimate()) {
+                lastAdvanceNanos = 0L
+                invalidateGlyph()
+                return
+            }
+            if (lastAdvanceNanos == 0L || frameTimeNanos - lastAdvanceNanos >= frameIntervalNanos) {
+                lastAdvanceNanos = frameTimeNanos
+                frame = (frame + 1) and 0xFFFF
+                invalidateGlyph()
+            }
             scheduleFrame()
         }
     }
@@ -172,13 +185,13 @@ internal class AgentIslandView(context: Context) : View(context) {
 
     private fun scheduleFrame() {
         if (frameScheduled || !mayAnimate()) return
-        frameScheduled = true
-        if (!postDelayed(frameTick, AgentIslandAnimationPolicy.FRAME_MS)) frameScheduled = false
+        frameScheduled = frameDriver.request(frameTick)
     }
 
     private fun cancelFrame() {
-        removeCallbacks(frameTick)
+        frameDriver.remove(frameTick)
         frameScheduled = false
+        lastAdvanceNanos = 0L
     }
 
     @Suppress("DEPRECATION")

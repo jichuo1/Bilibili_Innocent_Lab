@@ -26,7 +26,7 @@ class InteractiveOverdrawClipConventionTest {
 
     private companion object {
         /** 已知会溢出自身边界的交互控件：实例化签名字符串。 */
-        val OVERDRAW_CONTROLS = listOf("logSegmentScrubBar(", "ModernNavigationBar(")
+        val OVERDRAW_CONTROLS = listOf("logSegmentScrubBar(", "LumenNavigationBar(")
     }
 
     /** MainActivity 与全部外移分卷的 builder 函数（类成员 4 缩进 + 顶层扩展 0 缩进，去重）。 */
@@ -45,7 +45,7 @@ class InteractiveOverdrawClipConventionTest {
         val names = overdrawHosts().map { it.first }
         assertTrue("没扫到任何宿主函数，护栏会静默通过：$names", names.size >= 2)
         assertTrue("logSettingsCard（LogSegmentScrubBar 的宿主）应在扫描范围内", "logSettingsCard" in names)
-        assertTrue("install（ModernNavigationBar 的宿主）应在扫描范围内", "install" in names)
+        assertTrue("install（LumenNavigationBar 的宿主）应在扫描范围内", "install" in names)
     }
 
     fun overdrawingControlsLiveInContainersWithBothClipFlagsOff() {
@@ -65,10 +65,10 @@ class InteractiveOverdrawClipConventionTest {
     }
 
     fun theControlsThemselvesLetTheirChildrenOverdraw() {
-        listOf("LogSegmentScrubBar", "ModernNavigationBar").forEach { name ->
+        listOf("widget/LumenSegmentScrubBar.kt", "widget/LumenNavigationBar.kt").forEach { enginePath ->
             assertTrue(
-                "$name 自身必须 clipChildren = false，否则滑块/光晕画不出控件边界",
-                SettingsUiSource.file(name).contains("clipChildren = false")
+                "$enginePath 自身必须 clipChildren = false，否则滑块/光晕画不出控件边界",
+                LceMotionSource.engine(enginePath).contains("clipChildren = false")
             )
         }
     }

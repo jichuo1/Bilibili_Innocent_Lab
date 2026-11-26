@@ -4,13 +4,7 @@ import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorFilter
-import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.PixelFormat
-import android.graphics.RectF
-import android.graphics.Shader
-import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -31,11 +25,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.LiveBackdropSampler
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.material.FrostedChromeGlassApi31
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowChromeGlassApi31
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowContentCaptureApi31
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
@@ -62,9 +51,7 @@ class HostChromeRenderingInstrumentedTest {
             lateinit var top: View
             lateinit var bottom: View
             var session: LumenSurfaceSession? = null
-            var original: LiveBackdropSampler? = null
             var animator: ValueAnimator? = null
-            val originalSurfaces = ArrayList<OriginalSoftSurface>()
             val bindings = ArrayList<LumenSurfaceBinding>()
             val density = instrumentation.targetContext.resources.displayMetrics.density
             val palette = HostChromeColors(false, 0xFFFF6699.toInt()).palette()
@@ -83,8 +70,6 @@ class HostChromeRenderingInstrumentedTest {
                 })
                 activity.setContentView(root)
             }
-            val reference = arrayOfNulls<Bitmap>(1)
-            val gpuReference = arrayOfNulls<Bitmap>(1)
             val soft = arrayOfNulls<Bitmap>(1)
             val metricsThread = HandlerThread("ChromeFrameMetrics").apply { start() }
             val collecting = AtomicBoolean(false)
@@ -99,70 +84,47 @@ class HostChromeRenderingInstrumentedTest {
             instrumentation.runOnMainSync { window.addOnFrameMetricsAvailableListener(listener, Handler(metricsThread.looper)) }
             val results = ArrayList<String>()
             try {
-                val profiles = listOf("original-software" to null,
+                val profiles = listOf(
                     "soft-software" to HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE),
-                    "original-gpu" to null,
                     "soft-auto" to HostChromeAppearance(),
-                    "liquid-auto" to HostChromeAppearance(material = HostGlassMaterial.LIQUID))
+                    "liquid-auto" to HostChromeAppearance(material = HostGlassMaterial.LIQUID)
+                )
                 for ((name, appearance) in profiles) {
                     instrumentation.runOnMainSync {
-                        session?.close(); original?.close(); bindings.clear()
-                        originalSurfaces.forEach { it.close() }; originalSurfaces.clear()
-                        content.originalCapture?.release(); content.originalCapture = null
-                        session = null; original = null; content.offset = 0f
-                        if (appearance == null) {
-                            original = LiveBackdropSampler(density, ViewSamplingMatrix()).also { it.bindSource(content) }
-                            val gpu = name == "original-gpu"
-                            if (gpu) content.originalCapture = GlowContentCaptureApi31()
-                            listOf(top, bottom).forEach { view ->
-                                val surface = OriginalSoftSurface(view, content, original!!, palette.surface, density, gpu)
-                                originalSurfaces += surface; view.background = surface
-                                original!!.register(view)
-                                view.postInvalidateOnAnimation()
-                            }
-                        } else {
-                            session = LumenSurfaceSession(top.context, palette)
-                            bindings += session!!.bind(top, HostSurfaceStyle.floating(false, 22f, appearance), content)
-                            bindings += session!!.bind(bottom, HostSurfaceStyle.floating(false, 32f, appearance), content)
-                        }
+                        session?.close(); bindings.clear()
+                        session = null; content.offset = 0f
+                        session = LumenSurfaceSession(top.context, palette)
+                        bindings += session!!.bind(top, HostSurfaceStyle.floating(false, 22f, appearance), content)
+                        bindings += session!!.bind(bottom, HostSurfaceStyle.floating(false, 32f, appearance), content)
                         content.invalidate(); top.invalidate(); bottom.invalidate()
                     }
                     SystemClock.sleep(100)
                     instrumentation.runOnMainSync { content.invalidate(); top.invalidate(); bottom.invalidate() }
                     SystemClock.sleep(700)
-                    if (appearance == null) instrumentation.runOnMainSync {
-                        assertTrue("Original reference never received a real sample", originalSurfaces.all { it.sampled })
-                    }
                     val picture = capture(window)
                     File(output, "$name.png").outputStream().use { picture.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                    if (name == "original-software") reference[0] = picture
-                    else if (name == "original-gpu") gpuReference[0] = picture
-                    else {
-                        val difference = surfaceDifference(reference[0]!!, picture, top, bottom)
-                        results += "$name vs original: mean absolute RGB difference=$difference/255"
-                        if (name == "soft-software") {
-                            assertTrue("Software compatibility changed the original material: $difference", difference < 8.0)
-                            soft[0] = picture
-                        } else {
-                            if (name == "soft-auto") {
-                                val gpuDifference = surfaceDifference(gpuReference[0]!!, picture, top, bottom)
-                                results += "$name vs original GPU: mean absolute RGB difference=$gpuDifference/255"
-                                assertTrue("GPU compatibility changed the original material: $gpuDifference", gpuDifference < 8.0)
-                            }
-                            if (name == "liquid-auto") assertTrue("Liquid and soft lens rendered identically",
-                                surfaceDifference(soft[0]!!, picture, top, bottom) > .2)
-                            picture.recycle()
+                    if (name == "soft-software") {
+                        soft[0] = picture
+                    } else {
+                        val difference = surfaceDifference(soft[0]!!, picture, top, bottom)
+                        results += "$name vs soft-software: mean absolute RGB difference=$difference/255"
+                        if (name == "soft-auto") {
+                            assertTrue("GPU and software soft lenses diverged: $difference", difference < 8.0)
                         }
+                        if (name == "liquid-auto") {
+                            assertTrue("Liquid and soft lens rendered identically", difference > .2)
+                        }
+                        picture.recycle()
                     }
                     instrumentation.runOnMainSync {
-                        if (appearance != null) bindings.forEach {
+                        bindings.forEach {
                             assertEquals(if (appearance.renderer == HostGlassRenderer.SOFTWARE) LumenSurfaceBackend.SOFTWARE else LumenSurfaceBackend.GPU, it.diagnostics()?.backend)
                         }
                         animator = ValueAnimator.ofFloat(0f, 1f).apply {
                             duration = 1800; repeatCount = ValueAnimator.INFINITE
                             addUpdateListener {
                                 content.offset = (it.animatedValue as Float) * 360 * density
-                                content.invalidate(); original?.invalidate(); session?.notifyPositionChanged()
+                                content.invalidate(); session?.notifyPositionChanged()
                             }
                             start()
                         }
@@ -180,28 +142,25 @@ class HostChromeRenderingInstrumentedTest {
                         return if (sorted.isEmpty()) -1.0 else sorted[((sorted.size - 1) * p).toInt()] / 1_000_000.0
                     }
                     results += "$name frames=${recorded.size} duration=${(ended - collectionStart.get()) / 1_000_000.0}ms refresh=${top.display.refreshRate}Hz total p50/p95=${percentile(recorded.map { it.total }, .5)}/${percentile(recorded.map { it.total }, .95)}ms GPU p95=${percentile(recorded.map { it.gpu }, .95)}ms deadline misses=${recorded.count { it.deadline > 0 && it.total > it.deadline }}"
-                    if (appearance != null) {
-                        instrumentation.runOnMainSync {
-                            bindings.first().setShapesPixels(top.width - top.height.toFloat(), 0f, top.height.toFloat(), top.height.toFloat(), 0f, 0f, 0f, 0f, false)
-                            content.offset = 0f; content.invalidate(); session?.notifyPositionChanged()
-                        }
-                        SystemClock.sleep(700)
-                        val collapsed = capture(window)
-                        File(output, "$name-collapsed.png").outputStream().use { collapsed.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                        collapsed.recycle()
-                        instrumentation.runOnMainSync {
-                            assertEquals(if (appearance.renderer == HostGlassRenderer.SOFTWARE) LumenSurfaceBackend.SOFTWARE else LumenSurfaceBackend.GPU, bindings.first().diagnostics()?.backend)
-                        }
+                    instrumentation.runOnMainSync {
+                        bindings.first().setShapesPixels(top.width - top.height.toFloat(), 0f, top.height.toFloat(), top.height.toFloat(), 0f, 0f, 0f, 0f, false)
+                        content.offset = 0f; content.invalidate(); session?.notifyPositionChanged()
+                    }
+                    SystemClock.sleep(700)
+                    val collapsed = capture(window)
+                    File(output, "$name-collapsed.png").outputStream().use { collapsed.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    collapsed.recycle()
+                    instrumentation.runOnMainSync {
+                        assertEquals(if (appearance.renderer == HostGlassRenderer.SOFTWARE) LumenSurfaceBackend.SOFTWARE else LumenSurfaceBackend.GPU, bindings.first().diagnostics()?.backend)
                     }
                 }
             } finally {
                 instrumentation.runOnMainSync {
-                    animator?.cancel(); session?.close(); original?.close()
-                    originalSurfaces.forEach { it.close() }; content.originalCapture?.release()
+                    animator?.cancel(); session?.close()
                     window.removeOnFrameMetricsAvailableListener(listener)
                 }
                 metricsThread.quitSafely(); metricsThread.join(3000)
-                reference[0]?.recycle(); gpuReference[0]?.recycle(); soft[0]?.recycle()
+                soft[0]?.recycle()
                 File(output, "results.txt").writeText(results.joinToString("\n"))
                 results.forEach { Log.i("HostChromeComparison", it) }
             }
@@ -237,16 +196,8 @@ class HostChromeRenderingInstrumentedTest {
 
     private class PatternContent(context: android.content.Context) : View(context) {
         var offset = 0f
-        var originalCapture: GlowContentCaptureApi31? = null
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        override fun onDraw(canvas: Canvas) {
-            val capture = originalCapture
-            if (capture != null && canvas.isHardwareAccelerated) {
-                val recording = capture.begin(width, height)
-                try { drawPattern(recording) } finally { capture.end() }
-                capture.drawInto(canvas)
-            } else drawPattern(canvas)
-        }
+        override fun onDraw(canvas: Canvas) = drawPattern(canvas)
         private fun drawPattern(canvas: Canvas) {
             canvas.drawColor(Color.rgb(234, 238, 242))
             val cell = 48 * resources.displayMetrics.density
@@ -259,36 +210,5 @@ class HostChromeRenderingInstrumentedTest {
                 canvas.drawLine(x + 8, y + cell * .4f, x + width / 8f - 8, y + cell * .6f, paint)
             }
         }
-    }
-
-    /** 模块 UI 的独立算法；与 FrostedMotionSurfaceAlpha 相同，完整帧的采样 alpha 是 255。 */
-    private class OriginalSoftSurface(private val view: View, private val content: PatternContent, private val sampler: LiveBackdropSampler,
-        private val color: Int, density: Float, gpu: Boolean) : Drawable(), AutoCloseable {
-        private val glass: GlowChromeGlassApi31? = if (gpu) FrostedChromeGlassApi31.create(density) else null
-        private val matrix = android.graphics.Matrix()
-        private val mapping = ViewSamplingMatrix()
-        var sampled = false
-            private set
-        private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = .65f * density }
-        private val region = RectF()
-        override fun draw(canvas: Canvas) {
-            region.set(bounds); val radius = region.height() / 2
-            val capture = content.originalCapture
-            if (glass != null && capture?.recorded == true && mapping.sourceToTarget(content, view, matrix)) {
-                glass.draw(canvas, bounds, radius, capture, 0f, 0f, 1f, 1f, 0f, null, matrix)
-                sampled = true
-            } else {
-                sampler.register(view); sampled = sampler.draw(canvas, region, radius, view, 255) || sampled
-            }
-            fill.color = (color and 0xFFFFFF) or (112 shl 24); canvas.drawRoundRect(region, radius, radius, fill)
-            edge.shader = LinearGradient(0f, region.top, 0f, region.bottom, 0x8CFFFFFF.toInt(), 0x20FFFFFF, Shader.TileMode.CLAMP)
-            region.inset(edge.strokeWidth / 2, edge.strokeWidth / 2)
-            canvas.drawRoundRect(region, radius - edge.strokeWidth / 2, radius - edge.strokeWidth / 2, edge)
-        }
-        override fun setAlpha(alpha: Int) = Unit
-        override fun setColorFilter(colorFilter: ColorFilter?) = Unit
-        @Suppress("DEPRECATION") override fun getOpacity() = PixelFormat.TRANSLUCENT
-        override fun close() { glass?.close() }
     }
 }

@@ -16,5 +16,10 @@ internal class SettingsDestinationRegistry<T : Any> {
     fun forEachTarget(action: (String, T) -> Unit) {
         targets.forEach { (id, refs) -> refs.mapNotNull { it.get() }.forEach { action(id, it) } }
     }
+    fun forEachTarget(filter: (T) -> Boolean, action: (String, T) -> Unit) {
+        targets.forEach { (id, refs) ->
+            refs.mapNotNull { it.get() }.forEach { if (filter(it)) action(id, it) }
+        }
+    }
     fun clear() = targets.clear()
 }

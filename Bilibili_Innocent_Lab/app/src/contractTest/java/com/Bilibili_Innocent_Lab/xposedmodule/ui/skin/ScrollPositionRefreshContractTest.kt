@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin
 
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
@@ -19,8 +20,9 @@ class ScrollPositionRefreshContractTest {
         assertTrue(source("activity/SettingsHomePresenter").contains("onScrollPositionChanged = skinScrollPositionChanged"))
         assertTrue(source("activity/SettingsHomePresenter").contains("it.onScrollPositionChanged = null"))
         assertTrue(source("activity/MainActivity").contains("notifyPreparedSkinScrollPositionChanged(scroll)"))
-        assertTrue(source("skin/activity/SkinnedActivity").contains("skinSessionOrNull?.notifyScrollPositionChanged(scrollHost)"))
-        assertTrue(source("skin/runtime/ActivitySkinSession").contains("activeEngine.notifyScrollPositionChanged(scrollHost)"))
+        assertTrue(source("skin/activity/SkinnedActivity").contains("lumen.notifyScrollPositionChanged(scrollHost)"))
+        assertTrue(LceMotionSource.engine("core/host/LumenActivityDelegate.kt").contains("session?.notifyScrollPositionChanged(scrollHost)"))
+        assertTrue(LceMotionSource.engine("core/runtime/ActivitySkinSession.kt").contains("activeEngine.notifyScrollPositionChanged(scrollHost)"))
     }
 
     fun secondaryPagesForwardActualScrollOffsetsLikeTheHomePage() {
@@ -42,9 +44,9 @@ class ScrollPositionRefreshContractTest {
     }
 
     fun scopedRefreshOnlyInvalidatesOldVisibleDescendantRecords() {
-        val scoped = source("skin/liquid/LiquidActivityRenderer")
+        val scoped = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
             .after("override fun notifyScrollPositionChanged(scrollHost: View)")
-            .before("override fun notifyPositionChanged()")
+            .before("private fun invalidateMovedSurfaces()")
         assertTrue(scoped.contains("ScrollSurfaceScope.contains(view, scrollHost)"))
         assertTrue(scoped.contains("footprint.refreshState.shouldRefresh"))
         assertTrue(scoped.contains("view.invalidate()"))
@@ -57,7 +59,7 @@ class ScrollPositionRefreshContractTest {
     }
 
     fun windowLateNotificationsFlushOnceAndOnDrawOnlyResetsFlags() {
-        val renderer = source("skin/liquid/LiquidActivityRenderer")
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         val window = renderer.after("private fun registerRefreshWindow(").before("private fun removeRefreshWindow(")
         assertTrue(window.contains("state?.batch?.beforeDraw()"))
         assertTrue(window.contains("if (state.batch.isAfterPreDraw) flushSurfaceRefresh(root)"))
@@ -71,17 +73,17 @@ class ScrollPositionRefreshContractTest {
         assertTrue(cleanup.contains("runCatching { it.removeOnDrawListener(state.draw) }.onFailure"))
         assertTrue(cleanup.contains("mainHandler.post"))
         assertTrue(cleanup.contains("runCatching { observer.removeOnDrawListener(state.draw) }"))
-        val generic = renderer.after("override fun notifyPositionChanged()").before("private fun invalidateMovedSurfaces()")
+        val generic = renderer.after("override fun notifyPositionChanged()").before("override fun notifyPositionChanged(changedView: View)")
         assertTrue(generic.contains("queueSurfaceRefresh(contentChanged = false)"))
         assertFalse(generic.contains("flushSurfaceRefresh"))
     }
 
     fun materialFallbackUsesTheSameActualScrollScopeWithoutStartingCaptureWork() {
-        val renderer = source("skin/material/FrostedMaterialRenderer")
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         val notify = renderer.after("override fun notifyScrollPositionChanged(scrollHost: View)")
             .before("private fun onPositionChanged()")
         assertTrue(notify.contains("!lifecycle.canWork"))
-        assertTrue(notify.contains("flushPositionChanges(windowRoot, scrollHost)"))
+        assertTrue(notify.contains("flushPositionChanges(scrollHost.rootView, scrollHost)"))
         assertFalse(notify.contains("capture("))
         val flush = renderer.after("private fun flushPositionChanges(").before("fun releaseMemory()")
         assertTrue(flush.contains("ScrollSurfaceScope.contains(view, scrollHost)"))

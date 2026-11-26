@@ -9,7 +9,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.widget.NestedScrollView
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidStretchGestureObserver
+import com.lumen.coacervation.engine.liquid.LiquidStretchGestureObserver
 import kotlin.math.abs
 
 /** Observes an intentional vertical gesture without consuming or changing nested-scroll dispatch. */

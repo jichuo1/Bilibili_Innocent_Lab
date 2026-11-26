@@ -20,8 +20,8 @@ class LiquidMotionMappingContractTest {
         assertTrue(choice.contains("createSkinSlidingSelection()"))
         assertTrue(choice.contains("frame.onSelect = onSelected"))
         assertFalse(choice.contains("ValueAnimator") || choice.contains("translationY ="))
-        val renderer = SourceContract.read("ui/skin/liquid/LiquidActivityRenderer.kt")
-        assertTrue(renderer.contains("com.lumen.coacervation.engine.liquid.LiquidStretchSampling()"))
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
+        assertTrue(renderer.contains("LiquidStretchSampling()"))
         assertTrue(renderer.contains("stretchCoordinates.resolve(host, root, stretchSampling)"))
     }
 
@@ -35,11 +35,11 @@ class LiquidMotionMappingContractTest {
     }
 
     fun mappingAndMaskShareTheRecordedFullTransform() {
-        val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         assertTrue(renderer.contains("surfaceCoordinates.sourceToTarget(screenTransform, root, surfaceToBackdrop)"))
         assertTrue(renderer.contains("surfaceCoordinates.localToScreen(view, footprint.screenTransform)"))
         assertTrue(renderer.contains("SamplingMatrixMath.equal(entry.value.screenTransform, refreshSurfaceTransform)"))
-        val feedback = LceMotionSource.read("ui/skin/liquid/LiquidFeedbackSuppressor.kt")
+        val feedback = LceMotionSource.engine("core/liquid/LiquidFeedbackSuppressor.kt")
         val mask = feedback.after("fun buildSuppressionMask(").before("fun sanitizeRealtimeCapture(")
         assertTrue(mask.contains("surfaceToCapture.setValues(footprint.screenTransform)"))
         assertFalse(mask.contains("Matrix()"))
@@ -47,14 +47,14 @@ class LiquidMotionMappingContractTest {
     }
 
     fun edgePullWithoutScrollSuppressesCaptureUntilTheExistingQuietRelease() {
-        val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         val stretch = renderer.after("private fun onStretchDistanceChanged(").before("override fun onTrimMemory(")
         assertTrue(stretch.contains("stretchWindows.updateForScrollHost(scrollHost, distance, next, nextDir)"))
         assertTrue(stretch.contains("if (state.distance > 0f) suppressRealtimeSamplingWhileScrolling()"))
         val settle = renderer.after("private fun onScrollSettleCheck(").before("private fun clearScrollSuppression(")
         assertTrue(settle.contains("stretchOpticalIntensity > 1f"))
         assertTrue(settle.contains("LiquidRealtimeCapturePolicy.WAKE_SETTLE_FRAMES"))
-        val viewport = LceMotionSource.read("ui/skin/liquid/LiquidStretchViewport.kt")
+        val viewport = LceMotionSource.engine("core/liquid/LiquidStretchViewport.kt")
         assertTrue(viewport.contains("if (nativeStretch) super.draw(canvas)"))
         assertTrue(stretch.contains("flushSurfaceRefresh(windowRoot)"))
         assertTrue(stretch.contains("if (windowRoot === boundRoot?.rootView)"))

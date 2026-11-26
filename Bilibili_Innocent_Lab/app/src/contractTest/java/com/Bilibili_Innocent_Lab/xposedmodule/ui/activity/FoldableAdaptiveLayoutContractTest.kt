@@ -22,9 +22,10 @@ class FoldableAdaptiveLayoutContractTest {
             delegate.contains("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS")
         )
 
-        val chrome = SourceContract.read("ui/skin/engine/GlowFloatingChrome.kt")
+        val chrome = com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
+            .engine("core/glow/GlowFloatingChrome.kt")
         assertTrue(chrome.contains("edge: GlowScrollEdge?"))
-        assertTrue(chrome.contains("\"FLOATING\""))
+        assertTrue(chrome.contains("\"FREE\""))
     }
 
     @Test

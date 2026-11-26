@@ -21,7 +21,7 @@ class BubbleSkinPositionContractTest {
     }
 
     fun unnotifiedWindowPanIsDetectedBeforeTheSurfaceBatchGate() {
-        val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
+        val renderer = LceMotionSource.engine("core/liquid/LiquidActivityRenderer.kt")
         val window = renderer.after("private fun registerRefreshWindow(").before("private fun removeRefreshWindow(")
         assertTrue(window.contains("surfaceCoordinates.localToScreen(root, refreshRootTransform)"))
         assertTrue(window.contains("state.position.update(refreshRootTransform)"))

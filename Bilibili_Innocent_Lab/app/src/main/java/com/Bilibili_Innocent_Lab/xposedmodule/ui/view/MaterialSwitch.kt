@@ -19,7 +19,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingState
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawable
+import com.lumen.coacervation.engine.liquid.LiquidChoiceDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.ModernPalette
 
 /**

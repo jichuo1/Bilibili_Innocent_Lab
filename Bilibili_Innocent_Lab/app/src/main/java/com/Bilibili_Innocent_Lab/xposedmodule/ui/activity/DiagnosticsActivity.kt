@@ -15,8 +15,8 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.app.Dialog
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.os.Build
@@ -28,6 +28,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -78,14 +79,21 @@ import java.util.Locale
 import kotlin.math.abs
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import io.github.jichuo1.meguviz.android.extensions.isUiInNightMode
+import io.github.jichuo1.meguviz.android.window.InsetsSlot
 import io.github.jichuo1.meguviz.drawable.android.RecipeDrawable
 import io.github.jichuo1.meguviz.drawable.model.DrawingRecipe
 import io.github.jichuo1.meguviz.drawable.model.FillSpec
+import io.github.jichuo1.meguviz.drawable.model.Length
 import io.github.jichuo1.meguviz.drawable.model.ShapeSpec
+import io.github.jichuo1.meguviz.ui.scheduler.ChoreographerFrameDriver
+import io.github.jichuo1.meguviz.ui.scheduler.ScheduledOperation
+import io.github.jichuo1.meguviz.ui.scheduler.SchedulerState
+import io.github.jichuo1.meguviz.ui.scheduler.SubmitResult
+import io.github.jichuo1.meguviz.ui.scheduler.UiScheduler
 
 /** 只读、本地优先的统一诊断中心。 */
 class DiagnosticsActivity : SkinnedActivity(),
-    com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidStaticBackdropHost {
+    com.lumen.coacervation.engine.liquid.LiquidStaticBackdropHost {
     private companion object {
         const val FRAMEWORK_STATUS_SETTLE_MS = 1_500L
         const val ENTER_DURATION_MS = 370L
@@ -95,12 +103,39 @@ class DiagnosticsActivity : SkinnedActivity(),
         const val MIN_CLOSE_DURATION_MS = 80L
         const val CONTENT_TRAVEL_DP = 12f
         const val KEY_SCROLL_Y = "diagnostics_scroll_y"
+        const val SNAPSHOT_SLICE_ITEMS = 2
+        const val SNAPSHOT_FRAME_BUDGET_NANOS = 4_000_000L
 
         val lightSeverityDotRecipes = severityDotRecipes(darkTheme = false)
         val darkSeverityDotRecipes = severityDotRecipes(darkTheme = true)
+        val lightSeverityChipRecipes = severityChipRecipes(darkTheme = false)
+        val darkSeverityChipRecipes = severityChipRecipes(darkTheme = true)
+        val transparent14Recipe: DrawingRecipe = DrawingRecipe.of(
+            ShapeSpec.roundRect(Length.dp(14f)),
+            FillSpec.solid(Color.TRANSPARENT)
+        )
+        val mask14Recipe: DrawingRecipe = DrawingRecipe.of(
+            ShapeSpec.roundRect(Length.dp(14f)),
+            FillSpec.solid(Color.WHITE)
+        )
+        val transparent20Recipe: DrawingRecipe = DrawingRecipe.of(
+            ShapeSpec.roundRect(Length.dp(20f)),
+            FillSpec.solid(Color.TRANSPARENT)
+        )
+        val mask20Recipe: DrawingRecipe = DrawingRecipe.of(
+            ShapeSpec.roundRect(Length.dp(20f)),
+            FillSpec.solid(Color.WHITE)
+        )
 
         private fun severityDotRecipes(darkTheme: Boolean) = DiagnosticStatusTone.entries.map { tone ->
             DrawingRecipe.of(ShapeSpec.ellipse(), FillSpec.solid(DiagnosticStatusPalette.color(tone, darkTheme)))
+        }
+
+        private fun severityChipRecipes(darkTheme: Boolean) = DiagnosticStatusTone.entries.map { tone ->
+            DrawingRecipe.of(
+                ShapeSpec.roundRect(Length.dp(9f)),
+                FillSpec.solid(ColorUtils.setAlphaComponent(DiagnosticStatusPalette.color(tone, darkTheme), 0x28))
+            )
         }
     }
 
@@ -110,6 +145,19 @@ class DiagnosticsActivity : SkinnedActivity(),
         ViewModelProvider(this)[DiagnosticsViewModel::class.java]
     }
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val snapshotScheduler by lazy(LazyThreadSafetyMode.NONE) {
+        UiScheduler(
+            driver = ChoreographerFrameDriver(),
+            assertOwner = { check(Looper.myLooper() === Looper.getMainLooper()) { "Diagnostics scheduler requires main thread" } },
+            stateCapacity = 32,
+            commandCapacity = 64,
+            maxOperationsPerFrame = 3,
+            maxFrameWorkNanos = SNAPSHOT_FRAME_BUDGET_NANOS
+        )
+    }
+    private var renderGeneration = 0L
+    private var cachedModalButtonColor = 0
+    private var cachedModalButtonRecipe: DrawingRecipe? = null
     private var frameworkCheckPending = true
     private var frameworkServiceObserved = false
     private var currentSnapshot: ModuleDiagnosticSnapshot? = null
@@ -295,6 +343,8 @@ class DiagnosticsActivity : SkinnedActivity(),
     }
 
     override fun onDestroy() {
+        renderGeneration++
+        runCatching { snapshotScheduler.close() }
         RemoteHookConfigStore.removeStatusListener(frameworkListener)
         mainHandler.removeCallbacksAndMessages(null)
         activeDialog?.dismiss()
@@ -508,6 +558,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             setPadding(12.dp, 0, 12.dp, 0)
             contentDescription = description
             background = rippleBackground(14f)
+            outlineProvider = roundedButtonOutlineProvider(14f)
             setOnClickListener { action() }
         }
 
@@ -568,6 +619,7 @@ class DiagnosticsActivity : SkinnedActivity(),
 
     private fun renderLoading() {
         if (currentSnapshot != null) return
+        renderGeneration++
         exportButton.isEnabled = false
         content.removeAllViews()
         content.addView(LinearLayout(this).apply {
@@ -583,6 +635,7 @@ class DiagnosticsActivity : SkinnedActivity(),
     }
 
     private fun renderFailure() {
+        renderGeneration++
         currentSnapshot = null
         exportButton.isEnabled = false
         content.removeAllViews()
@@ -597,6 +650,7 @@ class DiagnosticsActivity : SkinnedActivity(),
     }
 
     private fun renderSnapshot(snapshot: ModuleDiagnosticSnapshot) {
+        val generation = ++renderGeneration
         content.removeAllViews()
         content.addView(overallCard(snapshot), cardParams())
         supportExportButton = null
@@ -612,12 +666,45 @@ class DiagnosticsActivity : SkinnedActivity(),
                 }, linearWrap())
             }, cardParams())
         }
-        addSection(
+
+        val isSliceValid = {
+            !isFinishing && !isDestroyed && renderGeneration == generation
+        }
+        val operations = ArrayList<ScheduledOperation>()
+
+        fun enqueueSection(titleRes: Int, ids: List<DiagnosticItemId>) {
+            var sectionCard: LinearLayout? = null
+            var rowIndexOffset = 0
+            val chunks = ids.chunked(SNAPSHOT_SLICE_ITEMS)
+            chunks.forEachIndexed { chunkIndex, chunk ->
+                operations += ScheduledOperation("diag:section:$titleRes:$chunkIndex", isSliceValid) {
+                    val container = if (chunkIndex == 0) {
+                        content.addView(titleText(getString(titleRes)).apply {
+                            textSize = 16f
+                            setPadding(5.dp, 18.dp, 5.dp, 8.dp)
+                        }, linearMatch())
+                        card(padding = 0).also { created ->
+                            content.addView(created, cardParams(top = 0))
+                            sectionCard = created
+                        }
+                    } else {
+                        requireNotNull(sectionCard)
+                    }
+                    chunk.forEach { id ->
+                        val item = requireNotNull(snapshot.items.firstOrNull { it.id == id })
+                        if (rowIndexOffset > 0) container.addView(divider(), linearMatch(height = 1.dp))
+                        container.addView(itemRow(item, snapshot), linearMatch())
+                        rowIndexOffset++
+                    }
+                }
+            }
+        }
+
+        enqueueSection(
             R.string.diagnostics_section_environment,
-            listOf(DiagnosticItemId.MODULE_BUILD, DiagnosticItemId.TARGET_APP),
-            snapshot
+            listOf(DiagnosticItemId.MODULE_BUILD, DiagnosticItemId.TARGET_APP)
         )
-        addSection(
+        enqueueSection(
             R.string.diagnostics_section_runtime,
             listOf(
                 DiagnosticItemId.ACTIVATION,
@@ -627,51 +714,58 @@ class DiagnosticsActivity : SkinnedActivity(),
                 DiagnosticItemId.HOST_BOOTSTRAP,
                 DiagnosticItemId.FEATURE_COVERAGE,
                 DiagnosticItemId.HOST_ADAPTATION
-            ),
-            snapshot
+            )
         )
-        addSection(
+        enqueueSection(
             R.string.diagnostics_section_interface,
             listOf(
                 DiagnosticItemId.INTERFACE_SKIN,
                 DiagnosticItemId.SETTINGS_CATALOG,
                 DiagnosticItemId.LOGGING
-            ),
-            snapshot
+            )
         )
-        if (snapshot.inputs.nPatchEnvironment?.patch?.mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.MANAGER) {
-            content.addView(card().apply {
-                addView(bodyText(getString(R.string.npatch_module_recover_manager)), linearMatch())
-                addView(actionButton(getString(R.string.npatch_open_manager), getString(R.string.npatch_open_manager)) {
-                    val intent = FrameworkManagerLauncher.resolvePackage(this@DiagnosticsActivity, "top.nkbe.npatch")
-                    if (intent == null || runCatching { startActivity(intent) }.isFailure) {
-                        Toast.makeText(this@DiagnosticsActivity, R.string.npatch_manager_launch_failed, Toast.LENGTH_LONG).show()
-                    }
-                }, linearWrap())
-            }, cardParams())
-        }
-        if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG && snapshot.inputs.nPatchEnvironment?.patch?.markerPresent == true) {
-            content.addView(card().apply {
-                addView(bodyText(getString(R.string.npatch_test_crash_explanation)), linearMatch())
-                addView(actionButton(getString(R.string.npatch_test_crash), getString(R.string.npatch_test_crash)) {
-                    runCatching {
-                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessDiagnostics.requestTestCrash(applicationContext)
-                    }
-                }, linearWrap())
-            }, cardParams())
-        }
-        val restoreY = pendingRestoreScrollY
-        if (restoreY > 0) {
-            pendingRestoreScrollY = 0
-            scrollView?.let { target ->
-                target.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
-                    override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
-                        target.removeOnLayoutChangeListener(this)
-                        target.scrollTo(0, restoreY)
-                    }
-                })
-                target.requestLayout()
+
+        operations += ScheduledOperation("diag:tail", isSliceValid) {
+            if (snapshot.inputs.nPatchEnvironment?.patch?.mode == com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchMode.MANAGER) {
+                content.addView(card().apply {
+                    addView(bodyText(getString(R.string.npatch_module_recover_manager)), linearMatch())
+                    addView(actionButton(getString(R.string.npatch_open_manager), getString(R.string.npatch_open_manager)) {
+                        val intent = FrameworkManagerLauncher.resolvePackage(this@DiagnosticsActivity, "top.nkbe.npatch")
+                        if (intent == null || runCatching { startActivity(intent) }.isFailure) {
+                            Toast.makeText(this@DiagnosticsActivity, R.string.npatch_manager_launch_failed, Toast.LENGTH_LONG).show()
+                        }
+                    }, linearWrap())
+                }, cardParams())
             }
+            if (com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG && snapshot.inputs.nPatchEnvironment?.patch?.markerPresent == true) {
+                content.addView(card().apply {
+                    addView(bodyText(getString(R.string.npatch_test_crash_explanation)), linearMatch())
+                    addView(actionButton(getString(R.string.npatch_test_crash), getString(R.string.npatch_test_crash)) {
+                        runCatching {
+                            com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessDiagnostics.requestTestCrash(applicationContext)
+                        }
+                    }, linearWrap())
+                }, cardParams())
+            }
+            val restoreY = pendingRestoreScrollY
+            if (restoreY > 0) {
+                pendingRestoreScrollY = 0
+                scrollView?.let { target ->
+                    target.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                        override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
+                            target.removeOnLayoutChangeListener(this)
+                            target.scrollTo(0, restoreY)
+                        }
+                    })
+                    target.requestLayout()
+                }
+            }
+        }
+
+        if (snapshotScheduler.state != SchedulerState.ACTIVE ||
+            snapshotScheduler.submitBatch(operations) is SubmitResult.Rejected
+        ) {
+            operations.forEach { if (it.isValid()) it.action() }
         }
     }
 
@@ -738,10 +832,8 @@ class DiagnosticsActivity : SkinnedActivity(),
         textSize = 10f
         setTextColor(getColor(R.color.colorTextGray))
         setPadding(7.dp, 3.dp, 7.dp, 3.dp)
-        background = GradientDrawable().apply {
-            cornerRadius = 9.dp.toFloat()
-            setColor(ColorUtils.setAlphaComponent(severityColor(item.severity), 0x28))
-        }
+        val recipes = if (resources.configuration.isUiInNightMode) darkSeverityChipRecipes else lightSeverityChipRecipes
+        background = RecipeDrawable.forView(this, recipes[severityTone(item.severity).ordinal])
         skinStatusChip(this, severityColor(item.severity))
     }
 
@@ -1230,8 +1322,10 @@ class DiagnosticsActivity : SkinnedActivity(),
                 }
             )
         }
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+        val rootScope = dialogWindowSession(dialog)?.scope(root)
+        val rootInsetsSlot = rootScope?.let(InsetsSlot::claimExclusive)
+        val rootInsetsRegistration = rootInsetsSlot?.observe { snapshot ->
+            val safe = snapshot.combined(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val params = container.layoutParams as? FrameLayout.LayoutParams
             if (params != null) {
                 val baseSide = (32 * density).toInt()
@@ -1247,17 +1341,18 @@ class DiagnosticsActivity : SkinnedActivity(),
                     container.layoutParams = params
                 }
             }
-            insets
         }
         dialog.window?.apply {
             setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
             setDimAmount(0f)
             // Dialog 必须接管系统栏颜色，否则它会把诊断页的浅色状态栏替换成黑色。
             addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            @Suppress("DEPRECATION")
-            statusBarColor = this@DiagnosticsActivity.window.statusBarColor
-            @Suppress("DEPRECATION")
-            navigationBarColor = this@DiagnosticsActivity.window.navigationBarColor
+            if (Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                statusBarColor = this@DiagnosticsActivity.window.statusBarColor
+                @Suppress("DEPRECATION")
+                navigationBarColor = this@DiagnosticsActivity.window.navigationBarColor
+            }
             val pageBars = WindowCompat.getInsetsController(this@DiagnosticsActivity.window, this@DiagnosticsActivity.window.decorView)
             WindowCompat.getInsetsController(this, decorView).apply {
                 isAppearanceLightStatusBars = pageBars.isAppearanceLightStatusBars
@@ -1310,6 +1405,9 @@ class DiagnosticsActivity : SkinnedActivity(),
             } else false
         }
         dialog.setOnDismissListener {
+            rootInsetsRegistration?.close()
+            rootInsetsSlot?.close()
+            rootScope?.close()
             disposeElasticInteraction()
             backdropBlur?.clear()
             val dispatcher = backDispatcher
@@ -1370,14 +1468,11 @@ class DiagnosticsActivity : SkinnedActivity(),
                 (18 * density).toInt(),
                 (10 * density).toInt()
             )
-            val mask = GradientDrawable().apply {
-                cornerRadius = radius
-                setColor(Color.WHITE)
-            }
-            val content = if (filled) GradientDrawable().apply {
-                cornerRadius = radius
-                setColor(monetColors.primary)
-            } else null
+            val mask = RecipeDrawable.forView(this, mask20Recipe)
+            val content = RecipeDrawable.forView(
+                this,
+                if (filled) filledModalButtonRecipe(monetColors.primary) else transparent20Recipe
+            )
             background = RippleDrawable(
                 ColorStateList.valueOf(
                     ColorUtils.setAlphaComponent(
@@ -1507,21 +1602,30 @@ class DiagnosticsActivity : SkinnedActivity(),
         setBackgroundColor(ColorUtils.setAlphaComponent(getColor(R.color.colorTextGray), 0x18))
     }
 
-    private fun rippleBackground(radiusDp: Float): RippleDrawable {
-        val radius = radiusDp * resources.displayMetrics.density
-        // content 必须与 mask 同圆角：RippleDrawable.getOutline() 只取第一个非 mask 层，
-        // 无圆角的透明 content 报出 radius=0 的直角轮廓，长按高光会按方形裁剪
-        // （见 MainActivity.selfRippleBackground 同款注释）。
+    private fun filledModalButtonRecipe(color: Int): DrawingRecipe {
+        cachedModalButtonRecipe?.takeIf { cachedModalButtonColor == color }?.let { return it }
+        return DrawingRecipe.of(ShapeSpec.roundRect(Length.dp(20f)), FillSpec.solid(color)).also {
+            cachedModalButtonColor = color
+            cachedModalButtonRecipe = it
+        }
+    }
+
+    private fun roundedButtonOutlineProvider(radiusDp: Float) = object : ViewOutlineProvider() {
+        override fun getOutline(view: View, outline: Outline) {
+            outline.setRoundRect(0, 0, view.width, view.height, radiusDp * view.resources.displayMetrics.density)
+        }
+    }
+
+    private fun TextView.rippleBackground(radiusDp: Float): RippleDrawable {
+        val (contentRecipe, maskRecipe) = if (radiusDp >= 18f) {
+            transparent20Recipe to mask20Recipe
+        } else {
+            transparent14Recipe to mask14Recipe
+        }
         return RippleDrawable(
             ColorStateList.valueOf(ColorUtils.setAlphaComponent(monetColors.primary, 0x28)),
-            GradientDrawable().apply {
-                cornerRadius = radius
-                setColor(Color.TRANSPARENT)
-            },
-            GradientDrawable().apply {
-                cornerRadius = radius
-                setColor(Color.WHITE)
-            }
+            RecipeDrawable.forView(this, contentRecipe),
+            RecipeDrawable.forView(this, maskRecipe)
         )
     }
 

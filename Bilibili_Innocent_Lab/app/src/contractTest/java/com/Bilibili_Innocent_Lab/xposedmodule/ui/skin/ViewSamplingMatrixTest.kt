@@ -6,6 +6,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.*
 import org.junit.Test
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
@@ -112,7 +113,7 @@ class ViewSamplingMatrixTest {
             val path = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/skin/$relative.kt"
             return SourceContract.read(path)
         }
-        val renderer = source("material/FrostedMaterialRenderer")
+        val renderer = LceMotionSource.engine("core/material/FrostedMaterialRenderer.kt")
         val draw = renderer.after("internal fun drawSample(").before("internal fun register(")
         assertTrue(draw.contains("samplingMatrices.bitmapToTarget(sourceRoot, view,"))
         assertFalse(draw.contains("getLocationOnScreen"))

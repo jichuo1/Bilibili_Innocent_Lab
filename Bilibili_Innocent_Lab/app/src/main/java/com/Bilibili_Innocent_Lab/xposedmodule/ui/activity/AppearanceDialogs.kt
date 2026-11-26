@@ -26,12 +26,11 @@ import androidx.core.view.doOnLayout
 import androidx.core.view.setPadding
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundConfig
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundMode
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundPickerPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.background.LiquidBackgroundStore
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidBackdropSizingPolicy
-import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidRealtimeCaptureStore
+import com.lumen.coacervation.engine.LumenEngine
+import com.lumen.coacervation.engine.background.LiquidBackgroundConfig
+import com.lumen.coacervation.engine.background.LiquidBackgroundMode
+import com.lumen.coacervation.engine.background.LiquidBackgroundStore
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import io.github.jichuo1.meguviz.android.extensions.textColor
 import io.github.jichuo1.meguviz.android.extensions.toast
@@ -204,7 +203,7 @@ internal fun MainActivity.showLiquidBackgroundDialog(anchor: View? = null) {
         )
     }
 
-    val realtimeCaptureEnabled = LiquidRealtimeCaptureStore.isEnabled(applicationContext)
+    val realtimeCaptureEnabled = LumenEngine.isRealtimeCaptureEnabled(applicationContext)
     container.addView(
         createGitHubMenuRow(
             title = getString(R.string.liquid_realtime_capture_title),
@@ -521,21 +520,20 @@ private fun MainActivity.loadLiquidBackgroundPreview(
     preview: android.widget.ImageView,
     config: LiquidBackgroundConfig
 ) {
-    val backgroundColor = monetColors.background
-    val dark = ColorUtils.calculateLuminance(monetColors.surface) < 0.5
+    val palette = toLumenPalette()
     preview.doOnLayout { view ->
         if (isFinishing || isDestroyed || !dialog.isShowing ||
             liquidBackgroundDialog !== dialog || view.width <= 0 || view.height <= 0
         ) return@doOnLayout
-        val target = LiquidBackdropSizingPolicy.resolvePreview(view.width, view.height)
+        val viewWidth = view.width
+        val viewHeight = view.height
         liquidBackgroundWorker.execute {
-            val bitmap = LiquidBackgroundStore.decodeBackdrop(
+            val bitmap = LiquidBackgroundStore.decodePreview(
                 context = applicationContext,
                 config = config,
-                targetWidth = target.width,
-                targetHeight = target.height,
-                backgroundColor = backgroundColor,
-                dark = dark
+                viewWidth = viewWidth,
+                viewHeight = viewHeight,
+                palette = palette
             ) ?: return@execute
             runOnUiThread {
                 if (!isFinishing && !isDestroyed && dialog.isShowing &&
@@ -573,7 +571,7 @@ private fun MainActivity.restoreAutomaticLiquidBackground() {
 }
 
 private fun MainActivity.applyLiquidRealtimeCaptureEnabled(enabled: Boolean) {
-    if (!LiquidRealtimeCaptureStore.setEnabled(applicationContext, enabled)) {
+    if (!LumenEngine.setRealtimeCaptureEnabled(applicationContext, enabled)) {
         toast(getString(R.string.liquid_realtime_capture_save_failed))
         if (liquidBackgroundDialog == null && !isFinishing && !isDestroyed) {
             showLiquidBackgroundDialog()

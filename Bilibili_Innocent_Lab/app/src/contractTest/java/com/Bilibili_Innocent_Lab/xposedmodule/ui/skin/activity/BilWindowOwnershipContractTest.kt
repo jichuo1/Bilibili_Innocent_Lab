@@ -21,21 +21,20 @@ class BilWindowOwnershipContractTest {
         assertTrue(activity.after("override fun onDestroy()").contains("windowOwner?.close()"))
     }
 
-    fun settingsPageReceivesInsetOwnershipBeforeReplacingListener() {
+    fun settingsPageSharesOwnedInsetsWithoutReinstallingListener() {
         val presenter = SourceContract.read("ui/activity/SettingsHomePresenter.kt")
             .after("private fun installTopInset()")
             .before("private fun applyScrollInsets()")
-        val handOff = presenter.indexOf("activity.handOffModuleInsets(shell)")
-        val install = presenter.indexOf("ViewCompat.setOnApplyWindowInsetsListener(shell)")
-        assertTrue("the root must be handed off before the page installs its listener", handOff >= 0 && install > handOff)
+        assertTrue(presenter.contains("topInsetRegistration = activity.observeModuleInsets(shell)"))
 
         val activity = SourceContract.read("ui/skin/activity/SkinnedActivity.kt")
-        assertTrue(activity.contains("windowDelegate?.handOffInsets(root)"))
+        assertTrue(activity.contains("windowDelegate?.observeContentInsets(root, observer)"))
         val delegate = SourceContract.read("ui/skin/activity/BilWindowDelegate.kt")
-            .after("fun handOffInsets(root: View)")
+            .after("fun observeContentInsets(root: View, observer: (InsetsSnapshot) -> Unit)")
             .before("override fun close()")
         assertTrue(delegate.contains("rootView !== root"))
-        assertTrue(delegate.contains("previous?.handOffToExternalOwner()"))
+        assertTrue(delegate.contains("defaultPadding?.close()"))
+        assertTrue(delegate.contains("return insets?.observe(observer)"))
     }
 
     @org.junit.Test
@@ -45,6 +44,6 @@ class BilWindowOwnershipContractTest {
             block(s)
         }
         runIsolated { s -> s.uiBindingBorrowsTheWindowSessionUsedForInsets() }
-        runIsolated { s -> s.settingsPageReceivesInsetOwnershipBeforeReplacingListener() }
+        runIsolated { s -> s.settingsPageSharesOwnedInsetsWithoutReinstallingListener() }
     }
 }

@@ -155,7 +155,10 @@ class ModalBackdropBlurSpecTest {
     fun theSkinGateIsWiredToMaterialYouOnly() {
         val skinned = source("../skin/activity/SkinnedActivity")
         assertTrue(skinned.contains("isMaterialYouSkinEffective"))
-        assertTrue(skinned.contains("effectiveSkin != SkinId.LIQUID"))
+        assertTrue(skinned.contains("!lumen.isLiquidEffective"))
+        val delegate = com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
+            .engine("core/host/LumenActivityDelegate.kt")
+        assertTrue(delegate.contains("session?.effectiveSkin == SkinId.LIQUID"))
         val main = source("MainActivity")
         assertTrue(main.contains("materialYouSkin = isMaterialYouSkinEffective"))
         // 两条形变时钟都要驱动，无锚点弹窗借自己的入场进度。

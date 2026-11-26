@@ -114,11 +114,16 @@ class FairRunningMemoryCallSiteTest {
     }
 
     fun `skin sessions register with the module-only pressure hub`() {
-        val session = File(javaRoot, "ui/skin/runtime/ActivitySkinSession.kt").readText()
-        assertTrue(session.contains("ModuleMemoryPressureHub::addListener"))
+        val session = com.Bilibili_Innocent_Lab.xposedmodule.contract.LceMotionSource
+            .engine("core/runtime/ActivitySkinSession.kt")
+        assertTrue(session.contains("LumenMemoryPressureHub::addListener"))
         assertTrue(session.contains("removeListener(this)"))
         assertTrue(session.contains("onReleaseGraphics"))
         assertTrue(session.contains("onLowMemory()"))
+        val hub = File(javaRoot, "ui/skin/runtime/ModuleMemoryPressureHub.kt").readText()
+        assertTrue(hub.contains("LumenEngine.releaseGraphics()"))
+        val app = File(javaRoot, "application/DefaultApplication.kt").readText()
+        assertTrue(app.contains("ModuleMemoryPressureHub.releaseGraphics()"))
     }
 
     fun `private callback registration stays on the NPatch path`() {
