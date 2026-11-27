@@ -1,5 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.backup
 
+import com.bilab.core.settings.CoreSettingDefinition
+import com.bilab.core.settings.CoreSettingValidator
+import com.bilab.core.settings.CoreSettingValue
+import com.bilab.core.settings.CoreSettingValueType
+
 /** 备份协议允许的值类型。禁止把 SharedPreferences 的任意对象直接写入文件。 */
 internal sealed interface SettingValue {
     val typeName: String
@@ -17,6 +22,18 @@ internal sealed interface SettingValue {
     }
 }
 
+internal fun SettingValue.toCoreValue(): CoreSettingValue = when (this) {
+    is SettingValue.Bool -> CoreSettingValue.Bool(value)
+    is SettingValue.IntValue -> CoreSettingValue.IntValue(value)
+    is SettingValue.Text -> CoreSettingValue.Text(value)
+}
+
+internal fun CoreSettingValue.toSettingValue(): SettingValue = when (this) {
+    is CoreSettingValue.Bool -> SettingValue.Bool(value)
+    is CoreSettingValue.IntValue -> SettingValue.IntValue(value)
+    is CoreSettingValue.Text -> SettingValue.Text(value)
+}
+
 internal enum class SettingValueType(val serializedName: String) {
     BOOLEAN("boolean"),
     INTEGER("integer"),
@@ -26,6 +43,12 @@ internal enum class SettingValueType(val serializedName: String) {
         BOOLEAN -> value is SettingValue.Bool
         INTEGER -> value is SettingValue.IntValue
         STRING -> value is SettingValue.Text
+    }
+
+    fun toCoreValueType(): CoreSettingValueType = when (this) {
+        BOOLEAN -> CoreSettingValueType.BOOLEAN
+        INTEGER -> CoreSettingValueType.INTEGER
+        STRING -> CoreSettingValueType.STRING
     }
 
     companion object {
@@ -69,43 +92,35 @@ internal data class SettingSpec(
     val allowedStrings: Set<String>? = null,
     val maxStringLength: Int = DEFAULT_MAX_STRING_LENGTH
 ) {
-    fun accepts(value: SettingValue): Boolean {
-        if (!type.accepts(value)) return false
-        return when (value) {
-            is SettingValue.Bool -> true
-            is SettingValue.IntValue ->
-                (allowedIntegers == null || value.value in allowedIntegers) &&
-                    (integerRange == null || value.value in integerRange)
-            is SettingValue.Text ->
-                value.value.length <= maxStringLength &&
-                    (allowedStrings == null || value.value in allowedStrings)
-        }
+    private val coreDefinition: CoreSettingDefinition by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        CoreSettingDefinition(
+            id = id,
+            storageKey = storageKey,
+            type = type.toCoreValueType(),
+            defaultValue = defaultValue.toCoreValue(),
+            valueVersion = valueVersion,
+            introducedCatalogVersion = introducedCatalogVersion,
+            allowedIntegers = allowedIntegers,
+            integerRange = integerRange,
+            allowedStrings = allowedStrings,
+            maxStringLength = maxStringLength
+        )
     }
+
+    fun toCoreDefinition(): CoreSettingDefinition = coreDefinition
+
+    fun accepts(value: SettingValue): Boolean =
+        CoreSettingValidator.accepts(coreDefinition, value.toCoreValue())
 
     /**
      * 按当前模块实际读取语义导出旧版本遗留值：离散枚举回落到默认值，连续范围收敛到边界。
      * 类型错误和超长自由文本没有可靠含义，仍拒绝导出，避免静默猜测用户意图。
      */
-    fun normalizeForBackup(value: SettingValue): SettingValue? {
-        if (!type.accepts(value)) return null
-        val normalized = when (value) {
-            is SettingValue.Bool -> value
-            is SettingValue.IntValue -> when {
-                allowedIntegers != null && value.value !in allowedIntegers -> defaultValue
-                integerRange != null -> SettingValue.IntValue(value.value.coerceIn(integerRange))
-                else -> value
-            }
-            is SettingValue.Text -> when {
-                value.value.length > maxStringLength -> return null
-                allowedStrings != null && value.value !in allowedStrings -> defaultValue
-                else -> value
-            }
-        }
-        return normalized.takeIf(::accepts)
-    }
+    fun normalizeForBackup(value: SettingValue): SettingValue? =
+        CoreSettingValidator.normalizeForBackup(coreDefinition, value.toCoreValue())?.toSettingValue()
 
     companion object {
-        const val DEFAULT_MAX_STRING_LENGTH = 64 * 1024
+        const val DEFAULT_MAX_STRING_LENGTH = CoreSettingDefinition.DEFAULT_MAX_STRING_LENGTH
     }
 }
 

@@ -12,6 +12,7 @@ import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.os.Build
@@ -51,12 +52,17 @@ import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticSeverity
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticInputs
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeDiagnosticsSnapshot
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.ui.PluginManagementDialogController
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.ui.PluginModalHost
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.ui.PluginOverviewSummary
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.MonetColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -164,6 +170,47 @@ class DiagnosticsActivity : SkinnedActivity(),
     private lateinit var refreshButton: TextView
     private lateinit var exportButton: TextView
     private var supportExportButton: TextView? = null
+    private var latestPluginDiagnostics: PluginRuntimeDiagnosticsSnapshot? = null
+    private var latestPluginSummary: PluginOverviewSummary? = null
+    private var pluginSummaryView: TextView? = null
+    private val pluginModalHost = object : PluginModalHost {
+        override val activity: SkinnedActivity
+            get() = this@DiagnosticsActivity
+        override val monetColors: MonetColors
+            get() = this@DiagnosticsActivity.monetColors
+        override val isLiquidSkinEffective: Boolean
+            get() = this@DiagnosticsActivity.isLiquidSkinEffective
+        override val isMaterialYouSkinEffective: Boolean
+            get() = this@DiagnosticsActivity.isMaterialYouSkinEffective
+
+        override fun skinCardBackground(color: Int, radiusDp: Float): Drawable =
+            this@DiagnosticsActivity.skinCardBackground(color, radiusDp)
+
+        override fun skinModalBackground(color: Int, radiusDp: Float): Drawable =
+            this@DiagnosticsActivity.skinModalBackground(color, radiusDp)
+
+        override fun skinActionButton(view: TextView, filled: Boolean, radiusDp: Float) =
+            this@DiagnosticsActivity.skinActionButton(view, filled, radiusDp)
+
+        override fun skinStatusChip(view: TextView, accent: Int, radiusDp: Float) =
+            this@DiagnosticsActivity.skinStatusChip(view, accent, radiusDp)
+
+        override fun stylePreparedSkinControls(root: View) =
+            this@DiagnosticsActivity.stylePreparedSkinControls(root)
+
+        override fun notifyPreparedSkinPositionChanged() =
+            this@DiagnosticsActivity.notifyPreparedSkinPositionChanged()
+
+        override fun currentActiveDialog(): Dialog? = activeDialog
+
+        override fun onActiveDialogChanged(dialog: Dialog?) {
+            val closed = activeDialog != null && dialog == null
+            activeDialog = dialog
+            if (closed && !isFinishing && !isDestroyed) {
+                refreshPluginOverviewSummary(latestPluginDiagnostics)
+            }
+        }
+    }
 
     private val frameworkTimeout = Runnable {
         frameworkCheckPending = false
@@ -316,6 +363,8 @@ class DiagnosticsActivity : SkinnedActivity(),
         insetsRegistration?.close()
         insetsRegistration = null
         RemoteHookConfigStore.removeStatusListener(frameworkListener)
+        PluginManagementDialogController.clearIfHostDestroyed(this)
+        pluginSummaryView = null
         activeDialog?.dismiss()
         activeDialog = null
         stretchScrollTarget = null
@@ -506,6 +555,11 @@ class DiagnosticsActivity : SkinnedActivity(),
         viewModel.screenState.observe(this) { state ->
             renderOrDefer(state)
         }
+        viewModel.pluginDiagnosticsState.observe(this) { pluginSnapshot ->
+            latestPluginDiagnostics = pluginSnapshot
+            PluginManagementDialogController.updateDiagnostics(pluginSnapshot)
+            refreshPluginOverviewSummary(pluginSnapshot)
+        }
         viewModel.exportState.observe(this) { state ->
             val running = state is DiagnosticsExportState.Running
             exportRunning = running
@@ -561,6 +615,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         if (currentSnapshot != null) return
         renderGeneration++
         exportButton.isEnabled = false
+        pluginSummaryView = null
         content.removeAllViews()
         content.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -578,6 +633,7 @@ class DiagnosticsActivity : SkinnedActivity(),
         renderGeneration++
         currentSnapshot = null
         exportButton.isEnabled = false
+        pluginSummaryView = null
         content.removeAllViews()
         content.addView(card().apply {
             addView(titleText(getString(R.string.diagnostics_collection_failed)), linearMatch())
@@ -587,12 +643,43 @@ class DiagnosticsActivity : SkinnedActivity(),
                 ::beginManualRefresh
             ), linearWrap().apply { topMargin = 12.dp })
         }, cardParams())
+        content.addView(pluginManagementCard(), cardParams())
+        refreshPluginOverviewSummary(latestPluginDiagnostics)
+    }
+
+    private fun pluginManagementCard(): View = card().apply {
+        addView(titleText(PluginManagementDialogController.entryCardTitle(this@DiagnosticsActivity)), linearMatch())
+        val summaryView = bodyText(
+            PluginManagementDialogController.formatOverviewSummary(this@DiagnosticsActivity, latestPluginSummary)
+        )
+        pluginSummaryView = summaryView
+        addView(summaryView, linearMatch().apply { topMargin = 6.dp })
+        val buttonLabel = PluginManagementDialogController.entryCardButtonLabel(this@DiagnosticsActivity)
+        addView(actionButton(buttonLabel, buttonLabel) {
+            openPluginManager()
+        }, linearWrap().apply { topMargin = 10.dp })
+    }
+
+    private fun refreshPluginOverviewSummary(pluginSnapshot: PluginRuntimeDiagnosticsSnapshot?) {
+        PluginManagementDialogController.loadSummaryAsync(applicationContext, pluginSnapshot) { summary ->
+            if (isFinishing || isDestroyed) return@loadSummaryAsync
+            latestPluginSummary = summary
+            pluginSummaryView?.text = PluginManagementDialogController.formatOverviewSummary(this, summary)
+        }
+    }
+
+    private fun openPluginManager() {
+        if (pickerOpen || exportRunning || isFinishing || isDestroyed) return
+        PluginManagementDialogController.show(pluginModalHost, latestPluginDiagnostics)
     }
 
     private fun renderSnapshot(snapshot: ModuleDiagnosticSnapshot) {
         val generation = ++renderGeneration
+        pluginSummaryView = null
         content.removeAllViews()
         content.addView(overallCard(snapshot), cardParams())
+        content.addView(pluginManagementCard(), cardParams())
+        refreshPluginOverviewSummary(latestPluginDiagnostics)
         supportExportButton = null
         if (snapshot.inputs.nPatchEnvironment?.patch?.markerPresent == true) {
             content.addView(card().apply {

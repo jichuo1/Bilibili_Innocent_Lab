@@ -40,6 +40,14 @@ internal object ReceiptQueryTransport {
         MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE, MineComponentSnapshotQueryContract.EXTRA_HANDLED,
         MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED)
 
+    fun queryPluginDiagnostics(
+        context: Context,
+        allowWake: Boolean = false,
+        callback: (Reply) -> Unit
+    ) {
+        query(context, HostReceiptWire.PLUGIN_DIAGNOSTICS, allowWake = allowWake, callback = callback)
+    }
+
     fun query(
         context: Context,
         channel: String,
@@ -54,17 +62,30 @@ internal object ReceiptQueryTransport {
         fun finish(reply: Reply) { if (completed.compareAndSet(false, true)) callback(reply) }
         fun attempt(index: Int) {
             val compatibility = enabled && CommunicationCompatibilityStore.isEnabled(context)
+            fun handleFallback(reply: Reply) {
+                when {
+                    CommunicationCompatibilityPolicy.retryReceipt(compatibility, index, reply.failure) ->
+                        main.postDelayed({ if (!completed.get()) attempt(index + 1) }, CommunicationCompatibilityPolicy.RETRY_DELAY_MS)
+                    allowWake && HostProcessWakePolicy.shouldWake(reply.failure) &&
+                        woke.compareAndSet(false, true) ->
+                        wakeThenRetry(context, main, completed, reply, { finish(it) }) { attempt(index + 1) }
+                    else -> finish(reply)
+                }
+            }
             HostReceiptClient.query(channel, CommunicationCompatibilityPolicy.binderTimeout(compatibility)) { extras, nonce ->
-                if (extras != null) finish(Reply(extras, nonce))
-                else broadcast(context, channel, compatibility) { reply ->
-                    when {
-                        CommunicationCompatibilityPolicy.retryReceipt(compatibility, index, reply.failure) ->
-                            main.postDelayed({ if (!completed.get()) attempt(index + 1) }, CommunicationCompatibilityPolicy.RETRY_DELAY_MS)
-                        allowWake && HostProcessWakePolicy.shouldWake(reply.failure) &&
-                            woke.compareAndSet(false, true) ->
-                            wakeThenRetry(context, main, completed, reply, { finish(it) }) { attempt(index + 1) }
-                        else -> finish(reply)
-                    }
+                when {
+                    extras != null -> finish(Reply(extras, nonce))
+                    // 插件诊断只走在线 Binder 通道，避免误打到广播查询契约。
+                    channel == HostReceiptWire.PLUGIN_DIAGNOSTICS -> handleFallback(
+                        Reply(
+                            failure = if (HostReceiptRegistry.current() == null) {
+                                ReceiptQueryFailure.SEND_FAILED
+                            } else {
+                                ReceiptQueryFailure.TIMEOUT
+                            }
+                        )
+                    )
+                    else -> broadcast(context, channel, compatibility, ::handleFallback)
                 }
             }
         }

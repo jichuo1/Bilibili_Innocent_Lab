@@ -17,6 +17,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.StartupCacheSn
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashKntrAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.DexFeatureFlags
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
@@ -822,35 +823,45 @@ class Phase5To8CentralWiringTest {
         val adaptMethod = VersionAdapter::class.java.declaredMethods.single { it.name == "adapt" }
             .apply { isAccessible = true }
         val types = adaptMethod.parameterTypes
-        assertEquals(FollowFeedPoints::class.java, types[12])
-        assertEquals(HookPoint::class.java, types[67])
-        assertEquals(String::class.java, types[72])
-        assertEquals(Boolean::class.javaPrimitiveType, types[112])
+        assertEquals(10, types.size)
+        assertEquals(DexFeatureFlags::class.java, types[2])
+        assertEquals("HistorySnapshot", types[3].simpleName)
+        assertEquals("AssistHistory", types[4].simpleName)
+        assertEquals(AdaptPlan::class.java, types[5])
 
-        val assistHistoryClass = types.single { it.simpleName == "AssistHistory" }
-        val emptyHistory = assistHistoryClass.getDeclaredField("EMPTY").apply { isAccessible = true }.get(null)
-
-        val args = arrayOfNulls<Any>(types.size)
-        for (i in types.indices) {
-            args[i] = when (types[i]) {
-                Boolean::class.javaPrimitiveType -> false
-                Set::class.java -> emptySet<Any>()
-                Map::class.java -> emptyMap<Any, Any>()
-                AdaptPlan::class.java -> AdaptPlan.full()
-                assistHistoryClass -> emptyHistory
-                else -> null
-            }
+        val historyClass = types[3]
+        val emptyHistorySnapshot = runCatching {
+            historyClass.getDeclaredField("EMPTY").apply { isAccessible = true }.get(null)
+        }.getOrElse {
+            val comp = historyClass.getDeclaredField("Companion").apply { isAccessible = true }.get(null)
+            comp.javaClass.getMethod("getEMPTY").apply { isAccessible = true }.invoke(comp)
         }
-        args[0] = context
-        args[1] = loader
-        args[11] = followFeedStyleEnabled
-        args[20] = playerSpeedSessionEnabled
-        args[71] = guestBrowsingEnabled
-        args[109] = dexSource
-        args[110] = vc
-        args[111] = hostFingerprint
-        args[112] = splashAutoNightEnabled
-        return adaptMethod.invoke(VersionAdapter, *args) as AdaptResult
+        val assistHistoryClass = types[4]
+        val emptyAssistHistory = runCatching {
+            assistHistoryClass.getDeclaredField("EMPTY").apply { isAccessible = true }.get(null)
+        }.getOrElse {
+            val comp = assistHistoryClass.getDeclaredField("Companion").apply { isAccessible = true }.get(null)
+            comp.javaClass.getMethod("getEMPTY").apply { isAccessible = true }.invoke(comp)
+        }
+        val flags = DexFeatureFlags(
+            followFeedStyleEnabled = followFeedStyleEnabled,
+            playerSpeedSessionEnabled = playerSpeedSessionEnabled,
+            guestBrowsingEnabled = guestBrowsingEnabled,
+            splashAutoNightEnabled = splashAutoNightEnabled
+        )
+        return adaptMethod.invoke(
+            VersionAdapter,
+            context,
+            loader,
+            flags,
+            emptyHistorySnapshot,
+            emptyAssistHistory,
+            AdaptPlan.full(),
+            null,
+            dexSource,
+            vc,
+            hostFingerprint
+        ) as AdaptResult
     }
 
     @Test

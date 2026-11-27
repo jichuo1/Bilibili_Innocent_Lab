@@ -2,12 +2,15 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.content.Context
 import android.net.Uri
+import android.os.Looper
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticReportCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.DiagnosticHostQueryState
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.diagnostics.ModuleDiagnosticsCollector
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeDiagnosticsSnapshot
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsSnapshot
 import com.lumen.coacervation.engine.runtime.SkinSessionDiagnostics
@@ -66,6 +69,7 @@ internal class ShutdownSafeExecutor(threadName: String) {
 internal class DiagnosticsViewModel : ViewModel() {
     val screenState = MutableLiveData<DiagnosticsScreenState>(DiagnosticsScreenState.Loading)
     val exportState = MutableLiveData<DiagnosticsExportState>(DiagnosticsExportState.Idle)
+    val pluginDiagnosticsState = MutableLiveData<PluginRuntimeDiagnosticsSnapshot?>(null)
 
     private val worker = ShutdownSafeExecutor("module-diagnostics")
     private val generation = AtomicLong(0L)
@@ -80,6 +84,14 @@ internal class DiagnosticsViewModel : ViewModel() {
             screenState.value = DiagnosticsScreenState.Loading
         }
         val appContext = context.applicationContext ?: context
+        HostReceiptClient.queryPluginDiagnostics(appContext, allowWake = false) { pluginSnapshot ->
+            if (worker.isShutdown || generation.get() != request) return@queryPluginDiagnostics
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                pluginDiagnosticsState.value = pluginSnapshot
+            } else {
+                pluginDiagnosticsState.postValue(pluginSnapshot)
+            }
+        }
         HostRuntimeDiagnosticsQueryClient.query(appContext) { queryResult ->
             // 回调可能在页面销毁、执行器关闭之后才送达；那时没有任何接收方。
             if (worker.isShutdown) return@query

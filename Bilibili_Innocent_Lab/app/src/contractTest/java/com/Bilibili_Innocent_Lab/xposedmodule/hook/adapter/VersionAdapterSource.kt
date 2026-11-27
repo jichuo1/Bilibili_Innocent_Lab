@@ -104,7 +104,7 @@ internal object VersionAdapterSource {
      * 防止拆出的定位器、编解码、校验、合并或缓存模块逃出 `hook/adapter` 与 `hook/adapter/locators/`。
      */
     fun unscannedAdapterFiles(): List<String> {
-        val allowedSubDirs = setOf("dex", "locators")
+        val allowedSubDirs = setOf("dex", "locators", "wire")
         val offenders = mutableListOf<String>()
         adapterDir.listFiles().orEmpty().forEach { entry ->
             if (entry.isDirectory && entry.name !in allowedSubDirs) {

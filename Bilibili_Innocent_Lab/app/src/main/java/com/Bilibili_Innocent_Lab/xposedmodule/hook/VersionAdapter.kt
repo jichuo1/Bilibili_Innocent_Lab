@@ -2473,99 +2473,18 @@ object VersionAdapter {
             history: AdaptResult?,
             dexSource: DexSourceFingerprint.Result?
         ): AdaptResult? {
-            val prev = HistorySnapshot.of(history)
             val historyDiagnosticsById = history?.diagnosticsById.orEmpty()
-            fun wasConclusiveMissing(id: String): Boolean =
-                historyDiagnosticsById[id]?.let(AdaptAssistGate::isConclusiveMissing) == true
-            val semanticsAttempted = wasConclusiveMissing(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC)
-            val chromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
-                wasConclusiveMissing(HomeChromeAdapter.diagnostic(query))
-            }
-            val pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
-                historyDiagnosticsById[PageBoundaryAdapter.diagnostic(query)]?.let {
-                    it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it)
-                } == true
-            }
-            val speedMenuAttempted = historyDiagnosticsById[PlayerSpeedMenuAdapter.DIAGNOSTIC]?.let {
-                it.state == AdaptState.FOUND || AdaptAssistGate.isConclusiveMissing(it)
-            } == true
-            val speedSessionAttempted = wasConclusiveMissing(PlayerSpeedSessionLocator.DIAGNOSTIC)
-            val speedCalculatorAttempted = wasConclusiveMissing(PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC)
-            val weChatShareAttempted = wasConclusiveMissing(WeChatShareCompatAccess.DIAGNOSTIC)
-            val previouslyMissingStoryQuality = wasConclusiveMissing(StoryQualityLocator.DIAGNOSTIC)
-            val previouslyMissingFollow = wasConclusiveMissing(FollowFeedAdapter.DIAGNOSTIC)
-            val previouslyMissingBrand = wasConclusiveMissing(BrandSplashDecoderAdapter.DIAGNOSTIC)
-            val previouslyMissingBrandKntr = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC)
-            val previouslyMissingBrandKntrExit = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC_EXIT)
-            val previouslyMissingBrandKntrPage = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC_PAGE)
-            val previouslyMissingCommentQuickReply = wasConclusiveMissing(CommentQuickReplyAdapter.DIAGNOSTIC)
-            val previouslyMissingPauseCountdown = wasConclusiveMissing(PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN)
-            val previouslyMissingPauseApiEntry = wasConclusiveMissing(PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API)
-            val previouslyMissingHomeTabResource = wasConclusiveMissing(HomeTabResourceAdapter.DIAGNOSTIC)
-            val previouslyMissingCloudKeyContract = wasConclusiveMissing(CloudKeyFreezeAdapter.DIAGNOSTIC)
-            val previouslyMissingPrivacyIgnet = wasConclusiveMissing(PrivacyChannelAdapter.DIAGNOSTIC_IGNET)
-            val previouslyMissingPrivacyKNeuron = wasConclusiveMissing(PrivacyChannelAdapter.DIAGNOSTIC_KNEURON)
-            val previouslyMissingGuestPlayerCore = wasConclusiveMissing(GuestPlayerCoreAdapter.DIAGNOSTIC)
-            val previouslyMissingNormalAutoSwitch = wasConclusiveMissing(NormalQualityLocator.DIAGNOSTIC)
-            val previouslyMissingDetailSpecialTag = wasConclusiveMissing(DetailSpecialTagAdapter.DIAGNOSTIC)
-            val previouslyMissingCommentReplyOwners = wasConclusiveMissing(CommentReplyButtonAdapter.DIAGNOSTIC)
-            val previouslyMissingHomeEarlyLoadListener = wasConclusiveMissing(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC)
-            val previouslyMissingDefaultWords = wasConclusiveMissing(KotlinDefaultWordsLocator.DIAGNOSTIC)
-            val previouslyMissingSponsor = wasConclusiveMissing(SponsorPlayerLocator.DIAGNOSTIC)
-            val previouslyMissingClassic = wasConclusiveMissing(CommentClassicStyleLocator.DIAGNOSTIC)
             val previousPopup = history?.playerPopupPromotion
+            val prev = HistorySnapshot.of(
+                history = history,
+                previousPopup = previousPopup,
+                historyDiagnosticsById = historyDiagnosticsById,
+                isConclusiveMissing = AdaptAssistGate::isConclusiveMissing
+            )
             val assistHistory = AssistHistory.of(history)
-            val previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
-                wasConclusiveMissing(family.diagnostic)
-            }
-            val previouslyMissingSystemEnv = SystemEnvironmentAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
-                wasConclusiveMissing(family.diagnostic)
-            }
-            val previouslyMissingComposeMenu = wasConclusiveMissing(CommentComposeMenuAdapter.DIAGNOSTIC)
-            val previouslyMissingKmpGrpcWire = wasConclusiveMissing(KmpGrpcWireAdapter.DIAGNOSTIC)
-            val previouslyMissingAiPlaylistDirector = wasConclusiveMissing(AiPlaylistDirectorAdapter.DIAGNOSTIC)
-            val previouslyMissingFollowUp = wasConclusiveMissing(FollowUpRecommendAdapter.DIAGNOSTIC)
-            val previouslyMissingDetailRelateGame = wasConclusiveMissing(DetailRelateGameAdapter.DIAGNOSTIC)
-            val previouslyMissingLegacyStoryBind = wasConclusiveMissing(LegacyStoryDanmakuAdapter.DIAGNOSTIC)
-            val previouslyMissingTheseus2LongPress = wasConclusiveMissing(PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC)
             return adapt(
-                context, classLoader, kotlinDefaultWordsEnabled, sponsorBlockEnabled,
-                commentClassicStyleEnabled, playerPopupPromotionEnabled, previousPopup, previouslyMissingPopup,
-                brandSplashCustomEnabled, prev.brand, previouslyMissingBrand,
-                followFeedStyleEnabled, prev.follow, previouslyMissingFollow,
-                playerQualityEnabled, prev.storyQuality, previouslyMissingStoryQuality,
-                playerSpeedMenuEnabled, prev.speedMenu, speedMenuAttempted,
-                playerSpeedSessionEnabled, prev.speedSession, speedSessionAttempted,
-                playerSpeedCalculatorEnabled, prev.speedCalculator, speedCalculatorAttempted,
-                weChatShareEnabled, prev.weChatShare, weChatShareAttempted,
-                searchHomeRecommendEnabled, playerEndPageRecommendEnabled, prev.pages, pageAttempted,
-                homeChromeEnabled, prev.chrome, chromeAttempted, homeChromeIconOnly,
-                prev.chromeSemantics, semanticsAttempted, homeTopTabCenteringEnabled,
-                systemEnvironmentEnabled, prev.systemEnv, previouslyMissingSystemEnv,
-                blockUpdateEnabled, commentTopologyEnabled,
-                prev.composeMenu, previouslyMissingComposeMenu, kmpGrpcWireEnabled, prev.kmpGrpcWire, previouslyMissingKmpGrpcWire,
-                prev.brandKntr, previouslyMissingBrandKntr,
-                prev.brandKntrExit, previouslyMissingBrandKntrExit,
-                prev.brandKntrPage, previouslyMissingBrandKntrPage,
-                commentQuickReplyEnabled, previouslyMissingCommentQuickReply,
-                pausedAdEnabled, previouslyMissingPauseCountdown, previouslyMissingPauseApiEntry,
-                brandSplashSkipEnabled, previouslyMissingHomeTabResource,
-                cloudKeyFreezeEnabled, prev.cloudKeyContract, previouslyMissingCloudKeyContract,
-                incognitoPrivacyEnabled, prev.privacyIgnet, previouslyMissingPrivacyIgnet, prev.privacyKNeuron, previouslyMissingPrivacyKNeuron,
-                guestBrowsingEnabled, prev.guestPlayerCore, previouslyMissingGuestPlayerCore,
-                prev.normalAutoSwitch, previouslyMissingNormalAutoSwitch, detailSpecialTagEnabled, prev.detailSpecialTag, previouslyMissingDetailSpecialTag,
-                commentReplyButtonEnabled, prev.commentReplyOwners, previouslyMissingCommentReplyOwners,
-                homeRecommendEarlyLoadEnabled, prev.homeEarlyLoadListener, previouslyMissingHomeEarlyLoadListener,
-                prev.defaultWords, previouslyMissingDefaultWords,
-                prev.sponsor, previouslyMissingSponsor,
-                prev.classic, previouslyMissingClassic,
-                aiDeclaredVideoEnabled, prev.aiPlaylistDirector, previouslyMissingAiPlaylistDirector,
-                followUpRecommendEnabled, prev.followUpBodies, previouslyMissingFollowUp,
-                detailRelateGameEnabled, prev.detailRelateGame, previouslyMissingDetailRelateGame,
-                storyDanmakuToggleHidden, prev.legacyStoryBind, previouslyMissingLegacyStoryBind,
-                playerSpeedLongPressEnabled, prev.theseus2LongPress, previouslyMissingTheseus2LongPress,
-                assistHistory, adaptPlan, history, dexSource, vc, startup.identity.fingerprint,
-                splashAutoNightEnabled = splashAutoNightEnabled
+                context, classLoader, featureFlags, prev,
+                assistHistory, adaptPlan, history, dexSource, vc, startup.identity.fingerprint
             )
         }
         fun requiresFeatureRefresh(value: AdaptResult): Boolean =
@@ -2921,91 +2840,124 @@ object VersionAdapter {
      * 适配结果主要用于快路径签名（定位不到签名不影响运行期内置候选注册），
      * 避免「功能可用但报适配失败」的误导（8.90.2 实测）。
      */
-    private fun adapt(context: Context, loader: ClassLoader, kotlinDefaultWordsEnabled: Boolean, sponsorBlockEnabled: Boolean,
-                      commentClassicStyleEnabled: Boolean, playerPopupPromotionEnabled: Boolean,
-                      previousPopup: PlayerPopupPromotionPoints?, previouslyMissingPopup: Set<PlayerPopupPromotionAdapter.Family>,
-                      brandSplashCustomEnabled: Boolean, previousBrand: HookPoint?, previouslyMissingBrand: Boolean,
-                      followFeedStyleEnabled: Boolean, previousFollow: FollowFeedPoints?, previouslyMissingFollow: Boolean,
-                      playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean,
-                      playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean,
-                      playerSpeedSessionEnabled: Boolean, previousSpeedSession: PlayerSpeedSessionClasses?, speedSessionAttempted: Boolean,
-                      playerSpeedCalculatorEnabled: Boolean, previousSpeedCalculator: LongPressCalculatorPoint?, speedCalculatorAttempted: Boolean,
-                      weChatShareEnabled: Boolean, previousWeChatShare: WeChatShareClasses?, weChatShareAttempted: Boolean,
-                      searchHomeRecommendEnabled: Boolean, playerEndPageRecommendEnabled: Boolean,
-                      previousPages: PageBoundaryPoints?, pageAttempted: Set<DexAssistQuery>,
-                      homeChromeEnabled: Boolean, previousChrome: Map<String, HookPoint>,
-                      chromeAttempted: Set<DexAssistQuery>, homeChromeIconOnly: Boolean,
-                      previousChromeSemantics: HomeChromeSemanticsPoint?, semanticsAttempted: Boolean,
-                      homeTopTabCenteringEnabled: Boolean, systemEnvironmentEnabled: Boolean,
-                      previousSystemEnv: SystemEnvironmentPoints? = null,
-                      previouslyMissingSystemEnv: Set<SystemEnvironmentAdapter.Family> = emptySet(),
-                      blockUpdateEnabled: Boolean = false, commentTopologyEnabled: Boolean = false,
-                      previousComposeMenu: CommentComposeMenuPoints? = null,
-                      previouslyMissingComposeMenu: Boolean = false,
-                      kmpGrpcWireEnabled: Boolean = false,
-                      previousKmpGrpcWire: HookPoint? = null,
-                      previouslyMissingKmpGrpcWire: Boolean = false,
-                      previousBrandKntr: String? = null,
-                      previouslyMissingBrandKntr: Boolean = false,
-                      previousBrandKntrExit: String? = null,
-                      previouslyMissingBrandKntrExit: Boolean = false,
-                      previousBrandKntrPage: HookPoint? = null,
-                      previouslyMissingBrandKntrPage: Boolean = false,
-                      commentQuickReplyEnabled: Boolean = false,
-                      previouslyMissingCommentQuickReply: Boolean = false,
-                      pausedAdEnabled: Boolean = false,
-                      previouslyMissingPauseCountdown: Boolean = false,
-                      previouslyMissingPauseApiEntry: Boolean = false,
-                      brandSplashSkipEnabled: Boolean = false,
-                      previouslyMissingHomeTabResource: Boolean = false,
-                      cloudKeyFreezeEnabled: Boolean = false,
-                      previousCloudKeyContract: String? = null,
-                      previouslyMissingCloudKeyContract: Boolean = false,
-                      incognitoPrivacyEnabled: Boolean = false,
-                      previousPrivacyIgnet: HookPoint? = null,
-                      previouslyMissingPrivacyIgnet: Boolean = false,
-                      previousPrivacyKNeuron: String? = null,
-                      previouslyMissingPrivacyKNeuron: Boolean = false,
-                      guestBrowsingEnabled: Boolean = false,
-                      previousGuestPlayerCore: String? = null,
-                      previouslyMissingGuestPlayerCore: Boolean = false,
-                      previousNormalAutoSwitch: HookPoint? = null,
-                      previouslyMissingNormalAutoSwitch: Boolean = false,
-                      detailSpecialTagEnabled: Boolean = false,
-                      previousDetailSpecialTag: HookPoint? = null,
-                      previouslyMissingDetailSpecialTag: Boolean = false,
-                      commentReplyButtonEnabled: Boolean = false,
-                      previousCommentReplyOwners: Map<String, String> = emptyMap(),
-                      previouslyMissingCommentReplyOwners: Boolean = false,
-                      homeRecommendEarlyLoadEnabled: Boolean = false,
-                      previousHomeEarlyLoadListener: String? = null,
-                      previouslyMissingHomeEarlyLoadListener: Boolean = false,
-                      previousDefaultWords: HookPoint? = null,
-                      previouslyMissingDefaultWords: Boolean = false,
-                      previousSponsor: SponsorPlayerClasses? = null,
-                      previouslyMissingSponsor: Boolean = false,
-                      previousClassic: CommentClassicStylePoints? = null,
-                      previouslyMissingClassic: Boolean = false,
-                      aiDeclaredVideoEnabled: Boolean = false,
-                      previousAiPlaylistDirector: String? = null,
-                      previouslyMissingAiPlaylistDirector: Boolean = false,
-                      followUpRecommendEnabled: Boolean = false,
-                      previousFollowUpBodies: Map<String, String> = emptyMap(),
-                      previouslyMissingFollowUp: Boolean = false,
-                      detailRelateGameEnabled: Boolean = false,
-                      previousDetailRelateGame: String? = null,
-                      previouslyMissingDetailRelateGame: Boolean = false,
-                      storyDanmakuToggleHidden: Boolean = false,
-                      previousLegacyStoryBind: HookPoint? = null,
-                      previouslyMissingLegacyStoryBind: Boolean = false,
-                      playerSpeedLongPressEnabled: Boolean = false,
-                      previousTheseus2LongPress: Theseus2LongPressPoint? = null,
-                      previouslyMissingTheseus2LongPress: Boolean = false,
-                      assistHistory: AssistHistory = AssistHistory.EMPTY,
-                      plan: AdaptPlan = AdaptPlan.full(), previous: AdaptResult? = null,
-                      dexSource: DexSourceFingerprint.Result?, vc: Int,
-                      hostFingerprint: String? = null,
-                      splashAutoNightEnabled: Boolean = false): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
+    private fun adapt(
+        context: Context,
+        loader: ClassLoader,
+        flags: DexFeatureFlags = DexFeatureFlags(),
+        historySnapshot: HistorySnapshot = HistorySnapshot.EMPTY,
+        assistHistory: AssistHistory = AssistHistory.EMPTY,
+        plan: AdaptPlan = AdaptPlan.full(),
+        previous: AdaptResult? = null,
+        dexSource: DexSourceFingerprint.Result? = null,
+        vc: Int = 0,
+        hostFingerprint: String? = null
+    ): AdaptResult? = KavaMemberLookup.withLookupBatch(loader) {
+        val kotlinDefaultWordsEnabled = flags.kotlinDefaultWordsEnabled
+        val sponsorBlockEnabled = flags.sponsorBlockEnabled
+        val commentClassicStyleEnabled = flags.commentClassicStyleEnabled
+        val playerPopupPromotionEnabled = flags.playerPopupPromotionEnabled
+        val brandSplashCustomEnabled = flags.brandSplashCustomEnabled
+        val followFeedStyleEnabled = flags.followFeedStyleEnabled
+        val playerQualityEnabled = flags.playerQualityEnabled
+        val playerSpeedMenuEnabled = flags.playerSpeedMenuEnabled
+        val playerSpeedSessionEnabled = flags.playerSpeedSessionEnabled
+        val playerSpeedCalculatorEnabled = flags.playerSpeedCalculatorEnabled
+        val weChatShareEnabled = flags.weChatShareEnabled
+        val searchHomeRecommendEnabled = flags.searchHomeRecommendEnabled
+        val playerEndPageRecommendEnabled = flags.playerEndPageRecommendEnabled
+        val homeChromeEnabled = flags.homeChromeEnabled
+        val homeChromeIconOnly = flags.homeChromeIconOnly
+        val homeTopTabCenteringEnabled = flags.homeTopTabCenteringEnabled
+        val systemEnvironmentEnabled = flags.systemEnvironmentEnabled
+        val blockUpdateEnabled = flags.blockUpdateEnabled
+        val commentTopologyEnabled = flags.commentTopologyEnabled
+        val kmpGrpcWireEnabled = flags.kmpGrpcWireEnabled
+        val cloudKeyFreezeEnabled = flags.cloudKeyFreezeEnabled
+        val incognitoPrivacyEnabled = flags.incognitoPrivacyEnabled
+        val detailSpecialTagEnabled = flags.detailSpecialTagEnabled
+        val commentReplyButtonEnabled = flags.commentReplyButtonEnabled
+        val guestBrowsingEnabled = flags.guestBrowsingEnabled
+        val homeRecommendEarlyLoadEnabled = flags.homeRecommendEarlyLoadEnabled
+        val commentQuickReplyEnabled = flags.commentQuickReplyEnabled
+        val pausedAdEnabled = flags.pausedAdEnabled
+        val brandSplashSkipEnabled = flags.brandSplashSkipEnabled
+        val aiDeclaredVideoEnabled = flags.aiDeclaredVideoEnabled
+        val followUpRecommendEnabled = flags.followUpRecommendEnabled
+        val detailRelateGameEnabled = flags.detailRelateGameEnabled
+        val storyDanmakuToggleHidden = flags.storyDanmakuToggleHidden
+        val playerSpeedLongPressEnabled = flags.playerSpeedLongPressEnabled
+        val splashAutoNightEnabled = flags.splashAutoNightEnabled
+
+        val previousPopup: PlayerPopupPromotionPoints? = historySnapshot.popup
+        val previouslyMissingPopup = historySnapshot.previouslyMissingPopup
+        val previousBrand = historySnapshot.brand
+        val previouslyMissingBrand = historySnapshot.previouslyMissingBrand
+        val previousFollow = historySnapshot.follow
+        val previouslyMissingFollow = historySnapshot.previouslyMissingFollow
+        val previousStoryQuality = historySnapshot.storyQuality
+        val previouslyMissingStoryQuality = historySnapshot.previouslyMissingStoryQuality
+        val previousSpeedMenu = historySnapshot.speedMenu
+        val speedMenuAttempted = historySnapshot.speedMenuAttempted
+        val previousSpeedSession = historySnapshot.speedSession
+        val speedSessionAttempted = historySnapshot.speedSessionAttempted
+        val previousSpeedCalculator = historySnapshot.speedCalculator
+        val speedCalculatorAttempted = historySnapshot.speedCalculatorAttempted
+        val previousWeChatShare = historySnapshot.weChatShare
+        val weChatShareAttempted = historySnapshot.weChatShareAttempted
+        val previousPages = historySnapshot.pages
+        val pageAttempted = historySnapshot.pageAttempted
+        val previousChrome = historySnapshot.chrome
+        val chromeAttempted = historySnapshot.chromeAttempted
+        val previousChromeSemantics = historySnapshot.chromeSemantics
+        val semanticsAttempted = historySnapshot.semanticsAttempted
+        val previousSystemEnv = historySnapshot.systemEnv
+        val previouslyMissingSystemEnv = historySnapshot.previouslyMissingSystemEnv
+        val previousComposeMenu = historySnapshot.composeMenu
+        val previouslyMissingComposeMenu = historySnapshot.previouslyMissingComposeMenu
+        val previousKmpGrpcWire = historySnapshot.kmpGrpcWire
+        val previouslyMissingKmpGrpcWire = historySnapshot.previouslyMissingKmpGrpcWire
+        val previousBrandKntr = historySnapshot.brandKntr
+        val previouslyMissingBrandKntr = historySnapshot.previouslyMissingBrandKntr
+        val previousBrandKntrExit = historySnapshot.brandKntrExit
+        val previouslyMissingBrandKntrExit = historySnapshot.previouslyMissingBrandKntrExit
+        val previousBrandKntrPage = historySnapshot.brandKntrPage
+        val previouslyMissingBrandKntrPage = historySnapshot.previouslyMissingBrandKntrPage
+        val previouslyMissingCommentQuickReply = historySnapshot.previouslyMissingCommentQuickReply
+        val previouslyMissingPauseCountdown = historySnapshot.previouslyMissingPauseCountdown
+        val previouslyMissingPauseApiEntry = historySnapshot.previouslyMissingPauseApiEntry
+        val previouslyMissingHomeTabResource = historySnapshot.previouslyMissingHomeTabResource
+        val previousCloudKeyContract = historySnapshot.cloudKeyContract
+        val previouslyMissingCloudKeyContract = historySnapshot.previouslyMissingCloudKeyContract
+        val previousPrivacyIgnet = historySnapshot.privacyIgnet
+        val previouslyMissingPrivacyIgnet = historySnapshot.previouslyMissingPrivacyIgnet
+        val previousPrivacyKNeuron = historySnapshot.privacyKNeuron
+        val previouslyMissingPrivacyKNeuron = historySnapshot.previouslyMissingPrivacyKNeuron
+        val previousGuestPlayerCore = historySnapshot.guestPlayerCore
+        val previouslyMissingGuestPlayerCore = historySnapshot.previouslyMissingGuestPlayerCore
+        val previousNormalAutoSwitch = historySnapshot.normalAutoSwitch
+        val previouslyMissingNormalAutoSwitch = historySnapshot.previouslyMissingNormalAutoSwitch
+        val previousDetailSpecialTag = historySnapshot.detailSpecialTag
+        val previouslyMissingDetailSpecialTag = historySnapshot.previouslyMissingDetailSpecialTag
+        val previousCommentReplyOwners = historySnapshot.commentReplyOwners
+        val previouslyMissingCommentReplyOwners = historySnapshot.previouslyMissingCommentReplyOwners
+        val previousHomeEarlyLoadListener = historySnapshot.homeEarlyLoadListener
+        val previouslyMissingHomeEarlyLoadListener = historySnapshot.previouslyMissingHomeEarlyLoadListener
+        val previousDefaultWords = historySnapshot.defaultWords
+        val previouslyMissingDefaultWords = historySnapshot.previouslyMissingDefaultWords
+        val previousSponsor = historySnapshot.sponsor
+        val previouslyMissingSponsor = historySnapshot.previouslyMissingSponsor
+        val previousClassic = historySnapshot.classic
+        val previouslyMissingClassic = historySnapshot.previouslyMissingClassic
+        val previousAiPlaylistDirector = historySnapshot.aiPlaylistDirector
+        val previouslyMissingAiPlaylistDirector = historySnapshot.previouslyMissingAiPlaylistDirector
+        val previousFollowUpBodies = historySnapshot.followUpBodies
+        val previouslyMissingFollowUp = historySnapshot.previouslyMissingFollowUp
+        val previousDetailRelateGame = historySnapshot.detailRelateGame
+        val previouslyMissingDetailRelateGame = historySnapshot.previouslyMissingDetailRelateGame
+        val previousLegacyStoryBind = historySnapshot.legacyStoryBind
+        val previouslyMissingLegacyStoryBind = historySnapshot.previouslyMissingLegacyStoryBind
+        val previousTheseus2LongPress = historySnapshot.theseus2LongPress
+        val previouslyMissingTheseus2LongPress = historySnapshot.previouslyMissingTheseus2LongPress
         val resolvedHostFingerprint = hostFingerprint ?: buildHostFingerprint(context)
         ModernHookLog.info("[BIL] DEX source count=${dexSource?.dexEntryCount ?: 0}, " +
             "isolated=${dexSource?.codePaths?.all { File(it).parentFile?.name == "bil-host-dex" } == true}")
@@ -4813,13 +4765,58 @@ object VersionAdapter {
         val followUpBodies: Map<String, String> = emptyMap(),
         val detailRelateGame: String? = null,
         val legacyStoryBind: HookPoint? = null,
-        val theseus2LongPress: Theseus2LongPressPoint? = null
+        val theseus2LongPress: Theseus2LongPressPoint? = null,
+        val popup: PlayerPopupPromotionPoints? = null,
+        val previouslyMissingPopup: Set<PlayerPopupPromotionAdapter.Family> = emptySet(),
+        val previouslyMissingSystemEnv: Set<SystemEnvironmentAdapter.Family> = emptySet(),
+        val pageAttempted: Set<DexAssistQuery> = emptySet(),
+        val chromeAttempted: Set<DexAssistQuery> = emptySet(),
+        val semanticsAttempted: Boolean = false,
+        val speedMenuAttempted: Boolean = false,
+        val speedSessionAttempted: Boolean = false,
+        val speedCalculatorAttempted: Boolean = false,
+        val weChatShareAttempted: Boolean = false,
+        val previouslyMissingStoryQuality: Boolean = false,
+        val previouslyMissingFollow: Boolean = false,
+        val previouslyMissingBrand: Boolean = false,
+        val previouslyMissingBrandKntr: Boolean = false,
+        val previouslyMissingBrandKntrExit: Boolean = false,
+        val previouslyMissingBrandKntrPage: Boolean = false,
+        val previouslyMissingCommentQuickReply: Boolean = false,
+        val previouslyMissingPauseCountdown: Boolean = false,
+        val previouslyMissingPauseApiEntry: Boolean = false,
+        val previouslyMissingHomeTabResource: Boolean = false,
+        val previouslyMissingCloudKeyContract: Boolean = false,
+        val previouslyMissingPrivacyIgnet: Boolean = false,
+        val previouslyMissingPrivacyKNeuron: Boolean = false,
+        val previouslyMissingGuestPlayerCore: Boolean = false,
+        val previouslyMissingNormalAutoSwitch: Boolean = false,
+        val previouslyMissingDetailSpecialTag: Boolean = false,
+        val previouslyMissingCommentReplyOwners: Boolean = false,
+        val previouslyMissingHomeEarlyLoadListener: Boolean = false,
+        val previouslyMissingDefaultWords: Boolean = false,
+        val previouslyMissingSponsor: Boolean = false,
+        val previouslyMissingClassic: Boolean = false,
+        val previouslyMissingComposeMenu: Boolean = false,
+        val previouslyMissingKmpGrpcWire: Boolean = false,
+        val previouslyMissingAiPlaylistDirector: Boolean = false,
+        val previouslyMissingFollowUp: Boolean = false,
+        val previouslyMissingDetailRelateGame: Boolean = false,
+        val previouslyMissingLegacyStoryBind: Boolean = false,
+        val previouslyMissingTheseus2LongPress: Boolean = false
     ) {
         companion object {
             val EMPTY = HistorySnapshot()
-            fun of(history: AdaptResult?): HistorySnapshot = if (history == null) {
+            fun of(
+                history: AdaptResult?,
+                previousPopup: PlayerPopupPromotionPoints? = history?.playerPopupPromotion,
+                historyDiagnosticsById: Map<String, AdaptDiagnostic> = history?.diagnosticsById.orEmpty(),
+                isConclusiveMissing: (AdaptDiagnostic) -> Boolean = AdaptAssistGate::isConclusiveMissing
+            ): HistorySnapshot = if (history == null) {
                 EMPTY
             } else {
+                fun wasConclusiveMissing(id: String): Boolean =
+                    historyDiagnosticsById[id]?.let(isConclusiveMissing) == true
                 HistorySnapshot(
                     pages = history.pageBoundaries,
                     chrome = history.homeChrome,
@@ -4852,7 +4849,57 @@ object VersionAdapter {
                     followUpBodies = history.followUpRecommendBodies,
                     detailRelateGame = history.detailRelateGameComponent,
                     legacyStoryBind = history.legacyStoryDanmakuBind,
-                    theseus2LongPress = history.playerSpeedTheseus2LongPress
+                    theseus2LongPress = history.playerSpeedTheseus2LongPress,
+                    popup = previousPopup,
+                    previouslyMissingPopup = PlayerPopupPromotionAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
+                        wasConclusiveMissing(family.diagnostic)
+                    },
+                    previouslyMissingSystemEnv = SystemEnvironmentAdapter.Family.entries.filterTo(linkedSetOf()) { family ->
+                        wasConclusiveMissing(family.diagnostic)
+                    },
+                    pageAttempted = PageBoundaryAdapter.queries.filterTo(linkedSetOf()) { query ->
+                        historyDiagnosticsById[PageBoundaryAdapter.diagnostic(query)]?.let {
+                            it.state == AdaptState.FOUND || isConclusiveMissing(it)
+                        } == true
+                    },
+                    chromeAttempted = HomeChromeAdapter.families.keys.filterTo(linkedSetOf()) { query ->
+                        wasConclusiveMissing(HomeChromeAdapter.diagnostic(query))
+                    },
+                    semanticsAttempted = wasConclusiveMissing(HomeChromeAdapter.SEMANTICS_DIAGNOSTIC),
+                    speedMenuAttempted = historyDiagnosticsById[PlayerSpeedMenuAdapter.DIAGNOSTIC]?.let {
+                        it.state == AdaptState.FOUND || isConclusiveMissing(it)
+                    } == true,
+                    speedSessionAttempted = wasConclusiveMissing(PlayerSpeedSessionLocator.DIAGNOSTIC),
+                    speedCalculatorAttempted = wasConclusiveMissing(PlayerSpeedLocator.CALCULATOR_DIAGNOSTIC),
+                    weChatShareAttempted = wasConclusiveMissing(WeChatShareCompatAccess.DIAGNOSTIC),
+                    previouslyMissingStoryQuality = wasConclusiveMissing(StoryQualityLocator.DIAGNOSTIC),
+                    previouslyMissingFollow = wasConclusiveMissing(FollowFeedAdapter.DIAGNOSTIC),
+                    previouslyMissingBrand = wasConclusiveMissing(BrandSplashDecoderAdapter.DIAGNOSTIC),
+                    previouslyMissingBrandKntr = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC),
+                    previouslyMissingBrandKntrExit = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC_EXIT),
+                    previouslyMissingBrandKntrPage = wasConclusiveMissing(BrandSplashKntrAdapter.DIAGNOSTIC_PAGE),
+                    previouslyMissingCommentQuickReply = wasConclusiveMissing(CommentQuickReplyAdapter.DIAGNOSTIC),
+                    previouslyMissingPauseCountdown = wasConclusiveMissing(PausedAdDexAdapter.DIAGNOSTIC_COUNTDOWN),
+                    previouslyMissingPauseApiEntry = wasConclusiveMissing(PausedAdDexAdapter.DIAGNOSTIC_REQUEST_API),
+                    previouslyMissingHomeTabResource = wasConclusiveMissing(HomeTabResourceAdapter.DIAGNOSTIC),
+                    previouslyMissingCloudKeyContract = wasConclusiveMissing(CloudKeyFreezeAdapter.DIAGNOSTIC),
+                    previouslyMissingPrivacyIgnet = wasConclusiveMissing(PrivacyChannelAdapter.DIAGNOSTIC_IGNET),
+                    previouslyMissingPrivacyKNeuron = wasConclusiveMissing(PrivacyChannelAdapter.DIAGNOSTIC_KNEURON),
+                    previouslyMissingGuestPlayerCore = wasConclusiveMissing(GuestPlayerCoreAdapter.DIAGNOSTIC),
+                    previouslyMissingNormalAutoSwitch = wasConclusiveMissing(NormalQualityLocator.DIAGNOSTIC),
+                    previouslyMissingDetailSpecialTag = wasConclusiveMissing(DetailSpecialTagAdapter.DIAGNOSTIC),
+                    previouslyMissingCommentReplyOwners = wasConclusiveMissing(CommentReplyButtonAdapter.DIAGNOSTIC),
+                    previouslyMissingHomeEarlyLoadListener = wasConclusiveMissing(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC),
+                    previouslyMissingDefaultWords = wasConclusiveMissing(KotlinDefaultWordsLocator.DIAGNOSTIC),
+                    previouslyMissingSponsor = wasConclusiveMissing(SponsorPlayerLocator.DIAGNOSTIC),
+                    previouslyMissingClassic = wasConclusiveMissing(CommentClassicStyleLocator.DIAGNOSTIC),
+                    previouslyMissingComposeMenu = wasConclusiveMissing(CommentComposeMenuAdapter.DIAGNOSTIC),
+                    previouslyMissingKmpGrpcWire = wasConclusiveMissing(KmpGrpcWireAdapter.DIAGNOSTIC),
+                    previouslyMissingAiPlaylistDirector = wasConclusiveMissing(AiPlaylistDirectorAdapter.DIAGNOSTIC),
+                    previouslyMissingFollowUp = wasConclusiveMissing(FollowUpRecommendAdapter.DIAGNOSTIC),
+                    previouslyMissingDetailRelateGame = wasConclusiveMissing(DetailRelateGameAdapter.DIAGNOSTIC),
+                    previouslyMissingLegacyStoryBind = wasConclusiveMissing(LegacyStoryDanmakuAdapter.DIAGNOSTIC),
+                    previouslyMissingTheseus2LongPress = wasConclusiveMissing(PlayerSpeedLocator.THESEUS2_LONG_PRESS_DIAGNOSTIC)
                 )
             }
         }
