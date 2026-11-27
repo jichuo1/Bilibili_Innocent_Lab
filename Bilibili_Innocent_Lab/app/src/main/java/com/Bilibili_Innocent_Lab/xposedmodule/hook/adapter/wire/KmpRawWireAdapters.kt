@@ -21,23 +21,24 @@ internal data class ReplyWireSchema(
     val replyOidField: Int = 3,
     val replyTypeField: Int = 4,
     val replyMidField: Int = 5,
-    val replyMemberField: Int = 11,
+    val replyMemberField: Int = 13,
     val replyContentField: Int = 12,
-    val replyMemberV2Field: Int = 19,
+    val replyMemberV2Field: Int = 15,
     val contentMessageField: Int = 1,
     val memberMidField: Int = 1,
     val memberNameField: Int = 2,
     val memberLevelField: Int = 5,
-    val memberLevelInfoField: Int = 6,
+    /** 旧 schema 曾误配为 6（Member#6 实为 int official_verify_type_）；0 表示默认关闭嵌套读取。 */
+    val memberLevelInfoField: Int = 0,
     val levelInfoCurrentField: Int = 1,
     val memberV2BasicField: Int = 1,
     val memberV2BasicMidField: Int = 1,
     val memberV2BasicNameField: Int = 2,
-    val memberV2BasicLevelField: Int = 6
+    val memberV2BasicLevelField: Int = 5
 ) {
     companion object {
         val DEFAULT_REPLY_LIST_FIELDS = setOf(2, 14) // replies(2), top_replies(14)
-        val DEFAULT_SINGLE_REPLY_FIELDS = setOf(3, 4, 5) // up_top(3), admin_top(4), vote_top(5)
+        val DEFAULT_SINGLE_REPLY_FIELDS = setOf(4, 5, 6) // up_top(4), admin_top(5), vote_top(6)
         val DEFAULT = ReplyWireSchema()
     }
 }
@@ -268,7 +269,8 @@ internal object ReplyMainListWireAdapter {
                 slice.fieldNumber == schema.memberLevelField &&
                     slice.wireType == ProtobufWireCodec.WIRE_TYPE_VARINT ->
                     level = slice.varintValue.toInt()
-                slice.fieldNumber == schema.memberLevelInfoField &&
+                schema.memberLevelInfoField > 0 &&
+                    slice.fieldNumber == schema.memberLevelInfoField &&
                     slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED -> {
                     extractLevelInfo(bytes, slice.payloadStart, slice.payloadEnd, schema)?.let {
                         if (level == null) level = it
@@ -357,16 +359,19 @@ internal data class DynWireSchema(
     val itemModulesField: Int = 3,
     val itemExtendField: Int = 4,
     val extendDynIdStrField: Int = 1,
-    val extendOrigDescField: Int = 3,
-    val extendOrigNameField: Int = 5,
-    val extendUidField: Int = 6,
+    val extendOrigDescField: Int = 6,
+    val extendOrigNameField: Int = 4,
+    val extendUidField: Int = 14,
+    val extendDescField: Int = 7,
     val moduleTypeField: Int = 1,
     val moduleAuthorField: Int = 2,
-    val moduleDynamicField: Int = 3,
+    val moduleDynamicField: Int = 5,
     val moduleDescField: Int = 4,
     val descriptionTextField: Int = 1,
     val moduleDescTextField: Int = 1,
-    val authorUserField: Int = 1,
+    val moduleDescPlainTextField: Int = 3,
+    val authorDirectMidField: Int = 1,
+    val authorUserField: Int = 3,
     val authorMidField: Int = 1,
     val authorNameField: Int = 2
 ) {
@@ -476,7 +481,8 @@ internal object DynListWireAdapter {
                                     )?.toLongOrNull()?.let { authorUid = it }
                                 }
                             }
-                            extSlice.fieldNumber == schema.extendOrigDescField &&
+                            (extSlice.fieldNumber == schema.extendOrigDescField ||
+                                (schema.extendDescField > 0 && extSlice.fieldNumber == schema.extendDescField)) &&
                                 extSlice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED -> {
                                 extractDescriptionText(bytes, extSlice.payloadStart, extSlice.payloadEnd, schema)
                                     ?.let(texts::add)
@@ -569,6 +575,8 @@ internal object DynListWireAdapter {
                 }
                 slice.fieldNumber == schema.moduleDescField &&
                     slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED -> {
+                    var extractedDesc = false
+                    var plainFallback: String? = null
                     ProtobufWireCodec.forEachField(bytes, slice.payloadStart, slice.payloadLength) { descContainer ->
                         if (descContainer.fieldNumber == schema.moduleDescTextField &&
                             descContainer.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
@@ -578,9 +586,25 @@ internal object DynListWireAdapter {
                                 descContainer.payloadStart,
                                 descContainer.payloadEnd,
                                 schema
-                            )?.let(texts::add)
+                            )?.let {
+                                texts.add(it)
+                                extractedDesc = true
+                            }
+                        } else if (!extractedDesc &&
+                            schema.moduleDescPlainTextField > 0 &&
+                            descContainer.fieldNumber == schema.moduleDescPlainTextField &&
+                            descContainer.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
+                        ) {
+                            plainFallback = ProtobufWireCodec.decodeUtf8OrNull(
+                                bytes,
+                                descContainer.payloadStart,
+                                descContainer.payloadEnd
+                            )
                         }
                         true
+                    }
+                    if (!extractedDesc) {
+                        plainFallback?.let(texts::add)
                     }
                 }
                 slice.fieldNumber == schema.moduleDynamicField &&
@@ -611,29 +635,36 @@ internal object DynListWireAdapter {
     ) {
         var name: String? = null
         var uid: Long? = null
+        var directMid: Long? = null
         ProtobufWireCodec.forEachField(bytes, start, end - start) { slice ->
-            if (slice.fieldNumber == schema.authorUserField &&
-                slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
-            ) {
-                ProtobufWireCodec.forEachField(bytes, slice.payloadStart, slice.payloadLength) { userSlice ->
-                    when {
-                        userSlice.fieldNumber == schema.authorMidField &&
-                            userSlice.wireType == ProtobufWireCodec.WIRE_TYPE_VARINT ->
-                            uid = userSlice.varintValue
-                        userSlice.fieldNumber == schema.authorNameField &&
-                            userSlice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
-                            name = ProtobufWireCodec.decodeUtf8OrNull(
-                                bytes,
-                                userSlice.payloadStart,
-                                userSlice.payloadEnd
-                            ) ?: name
+            when {
+                schema.authorDirectMidField > 0 &&
+                    slice.fieldNumber == schema.authorDirectMidField &&
+                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_VARINT -> {
+                    directMid = slice.varintValue
+                }
+                slice.fieldNumber == schema.authorUserField &&
+                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED -> {
+                    ProtobufWireCodec.forEachField(bytes, slice.payloadStart, slice.payloadLength) { userSlice ->
+                        when {
+                            userSlice.fieldNumber == schema.authorMidField &&
+                                userSlice.wireType == ProtobufWireCodec.WIRE_TYPE_VARINT ->
+                                uid = userSlice.varintValue
+                            userSlice.fieldNumber == schema.authorNameField &&
+                                userSlice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
+                                name = ProtobufWireCodec.decodeUtf8OrNull(
+                                    bytes,
+                                    userSlice.payloadStart,
+                                    userSlice.payloadEnd
+                                ) ?: name
+                        }
+                        true
                     }
-                    true
                 }
             }
             true
         }
-        onAuthor(name, uid)
+        onAuthor(name, uid ?: directMid)
     }
 
     private fun extractDescriptionText(
@@ -662,13 +693,13 @@ internal object DynListWireAdapter {
 internal data class ViewUniteWireSchema(
     val viewBaseField: Int = 1,
     val arcField: Int = 2,
-    val ownerField: Int = 3,
-    val tabField: Int = 4,
-    val ecodeField: Int = 5,
-    val ecodeConfigField: Int = 6,
-    val supplementField: Int = 8,
+    val ownerField: Int = 4,
+    val tabField: Int = 5,
+    val ecodeField: Int = 8,
+    val ecodeConfigField: Int = 9,
+    val supplementField: Int = 6,
     val tabModuleListField: Int = 1,
-    val tabModuleIntroductionField: Int = 4,
+    val tabModuleIntroductionField: Int = 2,
     val introductionModulesField: Int = 2,
     val moduleTypeField: Int = 1,
     val playVodInfoField: Int = 1,
@@ -695,7 +726,8 @@ internal object ViewUniteWireAdapter {
 
     fun extractSummary(
         bytes: ByteArray,
-        schema: ViewUniteWireSchema = ViewUniteWireSchema.DEFAULT
+        schema: ViewUniteWireSchema = ViewUniteWireSchema.DEFAULT,
+        isPlayView: Boolean = false
     ): ViewUniteWireSummary? {
         val fieldNumbers = LinkedHashSet<Int>()
         var hasViewBase = false
@@ -709,37 +741,40 @@ internal object ViewUniteWireAdapter {
 
         val ok = ProtobufWireCodec.forEachField(bytes) { slice ->
             fieldNumbers.add(slice.fieldNumber)
-            when {
-                slice.fieldNumber == schema.viewBaseField &&
-                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
-                    hasViewBase = true
-                slice.fieldNumber == schema.arcField &&
-                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
-                    hasArc = true
-                slice.fieldNumber == schema.ownerField &&
-                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
-                    hasOwner = true
-                slice.fieldNumber == schema.tabField &&
-                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED -> {
-                    hasTab = true
-                    collectTabModuleTypes(bytes, slice.payloadStart, slice.payloadLength, schema, moduleTypes)
+            if (isPlayView) {
+                if (slice.fieldNumber == schema.playVodInfoField &&
+                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
+                ) {
+                    hasPlayVodInfo = true
                 }
-                slice.fieldNumber == schema.ecodeField &&
-                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_VARINT ->
-                    ecode = slice.varintValue
-                slice.fieldNumber == schema.supplementField &&
-                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
+                if (slice.fieldNumber == schema.playSupplementField &&
+                    slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
+                ) {
                     hasSupplement = true
-            }
-            if (slice.fieldNumber == schema.playVodInfoField &&
-                slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
-            ) {
-                hasPlayVodInfo = true
-            }
-            if (slice.fieldNumber == schema.playSupplementField &&
-                slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED
-            ) {
-                hasSupplement = true
+                }
+            } else {
+                when {
+                    slice.fieldNumber == schema.viewBaseField &&
+                        slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
+                        hasViewBase = true
+                    slice.fieldNumber == schema.arcField &&
+                        slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
+                        hasArc = true
+                    slice.fieldNumber == schema.ownerField &&
+                        slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
+                        hasOwner = true
+                    slice.fieldNumber == schema.tabField &&
+                        slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED -> {
+                        hasTab = true
+                        collectTabModuleTypes(bytes, slice.payloadStart, slice.payloadLength, schema, moduleTypes)
+                    }
+                    slice.fieldNumber == schema.ecodeField &&
+                        slice.wireType == ProtobufWireCodec.WIRE_TYPE_VARINT ->
+                        ecode = slice.varintValue
+                    slice.fieldNumber == schema.supplementField &&
+                        slice.wireType == ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED ->
+                        hasSupplement = true
+                }
             }
             true
         }
@@ -897,5 +932,235 @@ internal object ViewUniteWireAdapter {
             true
         }
         return type
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 4. KmpWireSchemaProber (运行期 *_FIELD_NUMBER 探针，fail-closed 回退已验真默认)
+// -----------------------------------------------------------------------------
+
+/**
+ * 在接入真实宿主 `com.bapis.*` 类时按静态 `*_FIELD_NUMBER` 常量校准纯 Wire Schema；
+ * 任一字段缺失、超出 Protobuf 合法范围 `[1, 2^29 - 1]` 或同消息内字段号碰撞时，整体回退到 [fallback]。
+ */
+internal object KmpWireSchemaProber {
+    private const val MAX_PROTO_FIELD_NUMBER = 536_870_911
+
+    fun probeReplySchema(
+        loader: ClassLoader,
+        fallback: ReplyWireSchema = ReplyWireSchema.DEFAULT
+    ): ReplyWireSchema = runCatching {
+        val mainList = loadClass(loader, "com.bapis.bilibili.main.community.reply.v1.MainListReply")
+        val replyInfo = loadClass(loader, "com.bapis.bilibili.main.community.reply.v1.ReplyInfo")
+        val content = loadClass(loader, "com.bapis.bilibili.main.community.reply.v1.Content")
+        val member = loadClass(loader, "com.bapis.bilibili.main.community.reply.v1.Member")
+        val memberV2 = loadClass(loader, "com.bapis.bilibili.main.community.reply.v1.MemberV2")
+        val memberV2Basic = loadClass(loader, "com.bapis.bilibili.main.community.reply.v1.MemberV2\$Basic")
+
+        val replies = probeField(mainList, "REPLIES_FIELD_NUMBER", 2) ?: return fallback
+        val topReplies = probeField(mainList, "TOP_REPLIES_FIELD_NUMBER", 14) ?: return fallback
+        val upTop = probeField(mainList, "UP_TOP_FIELD_NUMBER", 4) ?: return fallback
+        val adminTop = probeField(mainList, "ADMIN_TOP_FIELD_NUMBER", 5) ?: return fallback
+        val voteTop = probeField(mainList, "VOTE_TOP_FIELD_NUMBER", 6) ?: return fallback
+        if (!distinctPositive(replies, topReplies, upTop, adminTop, voteTop)) return fallback
+
+        val nestedReplies = probeField(replyInfo, "REPLIES_FIELD_NUMBER", fallback.nestedRepliesField) ?: return fallback
+        val replyId = probeField(replyInfo, "ID_FIELD_NUMBER", fallback.replyIdField) ?: return fallback
+        val replyOid = probeField(replyInfo, "OID_FIELD_NUMBER", fallback.replyOidField) ?: return fallback
+        val replyType = probeField(replyInfo, "TYPE_FIELD_NUMBER", fallback.replyTypeField) ?: return fallback
+        val replyMid = probeField(replyInfo, "MID_FIELD_NUMBER", fallback.replyMidField) ?: return fallback
+        val replyMember = probeField(replyInfo, "MEMBER_FIELD_NUMBER", fallback.replyMemberField) ?: return fallback
+        val replyContent = probeField(replyInfo, "CONTENT_FIELD_NUMBER", fallback.replyContentField) ?: return fallback
+        val replyMemberV2 = probeField(replyInfo, "MEMBER_V2_FIELD_NUMBER", fallback.replyMemberV2Field) ?: return fallback
+        if (!distinctPositive(nestedReplies, replyId, replyOid, replyType, replyMid, replyMember, replyContent, replyMemberV2)) {
+            return fallback
+        }
+
+        val contentMessage = probeField(content, "MESSAGE_FIELD_NUMBER", fallback.contentMessageField) ?: return fallback
+        val memberMid = probeField(member, "MID_FIELD_NUMBER", fallback.memberMidField) ?: return fallback
+        val memberName = probeField(member, "NAME_FIELD_NUMBER", fallback.memberNameField) ?: return fallback
+        val memberLevel = probeField(member, "LEVEL_FIELD_NUMBER", fallback.memberLevelField) ?: return fallback
+        if (!distinctPositive(memberMid, memberName, memberLevel)) return fallback
+        if (fallback.memberLevelInfoField > 0 && fallback.memberLevelInfoField in setOf(memberMid, memberName, memberLevel)) {
+            return fallback
+        }
+
+        val v2Basic = probeField(memberV2, "BASIC_FIELD_NUMBER", fallback.memberV2BasicField) ?: return fallback
+        val v2Mid = probeField(memberV2Basic, "MID_FIELD_NUMBER", fallback.memberV2BasicMidField) ?: return fallback
+        val v2Name = probeField(memberV2Basic, "NAME_FIELD_NUMBER", fallback.memberV2BasicNameField) ?: return fallback
+        val v2Level = probeField(memberV2Basic, "LEVEL_FIELD_NUMBER", fallback.memberV2BasicLevelField) ?: return fallback
+        if (!distinctPositive(v2Mid, v2Name, v2Level)) return fallback
+
+        fallback.copy(
+            replyListFields = setOf(replies, topReplies),
+            singleReplyFields = setOf(upTop, adminTop, voteTop),
+            nestedRepliesField = nestedReplies,
+            replyIdField = replyId,
+            replyOidField = replyOid,
+            replyTypeField = replyType,
+            replyMidField = replyMid,
+            replyMemberField = replyMember,
+            replyContentField = replyContent,
+            replyMemberV2Field = replyMemberV2,
+            contentMessageField = contentMessage,
+            memberMidField = memberMid,
+            memberNameField = memberName,
+            memberLevelField = memberLevel,
+            memberV2BasicField = v2Basic,
+            memberV2BasicMidField = v2Mid,
+            memberV2BasicNameField = v2Name,
+            memberV2BasicLevelField = v2Level
+        )
+    }.getOrElse { fallback }
+
+    fun probeDynSchema(
+        loader: ClassLoader,
+        fallback: DynWireSchema = DynWireSchema.DEFAULT
+    ): DynWireSchema = runCatching {
+        val dynAll = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.DynAllReply")
+        val dynList = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.DynamicList")
+        val dynItem = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.DynamicItem")
+        val extend = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.Extend")
+        val module = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.Module")
+        val moduleDesc = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.ModuleDesc")
+        val description = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.Description")
+        val moduleAuthor = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.ModuleAuthor")
+        val userInfo = loadClass(loader, "com.bapis.bilibili.app.dynamic.v2.UserInfo")
+
+        val dynamicList = probeField(dynAll, "DYNAMIC_LIST_FIELD_NUMBER", fallback.dynamicListField) ?: return fallback
+        val itemList = probeField(dynList, "LIST_FIELD_NUMBER", fallback.itemListField) ?: return fallback
+        val cardType = probeField(dynItem, "CARD_TYPE_FIELD_NUMBER", fallback.itemCardTypeField) ?: return fallback
+        val itemType = probeField(dynItem, "ITEM_TYPE_FIELD_NUMBER", fallback.itemItemTypeField) ?: return fallback
+        val modules = probeField(dynItem, "MODULES_FIELD_NUMBER", fallback.itemModulesField) ?: return fallback
+        val itemExtend = probeField(dynItem, "EXTEND_FIELD_NUMBER", fallback.itemExtendField) ?: return fallback
+        if (!distinctPositive(cardType, itemType, modules, itemExtend)) return fallback
+
+        val dynIdStr = probeField(extend, "DYN_ID_STR_FIELD_NUMBER", fallback.extendDynIdStrField) ?: return fallback
+        val origDesc = probeField(extend, "ORIG_DESC_FIELD_NUMBER", fallback.extendOrigDescField) ?: return fallback
+        val origName = probeField(extend, "ORIG_NAME_FIELD_NUMBER", fallback.extendOrigNameField) ?: return fallback
+        val uid = probeField(extend, "UID_FIELD_NUMBER", fallback.extendUidField) ?: return fallback
+        val extDesc = if (fallback.extendDescField > 0) {
+            probeField(extend, "DESC_FIELD_NUMBER", fallback.extendDescField) ?: return fallback
+        } else 0
+        if (!distinctPositive(dynIdStr, origDesc, origName, uid) ||
+            (extDesc > 0 && extDesc in setOf(dynIdStr, origDesc, origName, uid))
+        ) {
+            return fallback
+        }
+
+        val moduleType = probeField(module, "MODULE_TYPE_FIELD_NUMBER", fallback.moduleTypeField) ?: return fallback
+        val moduleAuthorField = probeField(module, "MODULE_AUTHOR_FIELD_NUMBER", fallback.moduleAuthorField) ?: return fallback
+        val moduleDynamicField = probeField(module, "MODULE_DYNAMIC_FIELD_NUMBER", fallback.moduleDynamicField) ?: return fallback
+        val moduleDescField = probeField(module, "MODULE_DESC_FIELD_NUMBER", fallback.moduleDescField) ?: return fallback
+        if (!distinctPositive(moduleType, moduleAuthorField, moduleDynamicField, moduleDescField)) return fallback
+
+        val descText = probeField(description, "TEXT_FIELD_NUMBER", fallback.descriptionTextField) ?: return fallback
+        val modDescItems = probeField(moduleDesc, "DESC_FIELD_NUMBER", fallback.moduleDescTextField) ?: return fallback
+        val modDescPlain = if (fallback.moduleDescPlainTextField > 0) {
+            probeField(moduleDesc, "TEXT_FIELD_NUMBER", fallback.moduleDescPlainTextField) ?: return fallback
+        } else 0
+        if (modDescPlain > 0 && modDescPlain == modDescItems) return fallback
+
+        val directMid = if (fallback.authorDirectMidField > 0) {
+            probeField(moduleAuthor, "MID_FIELD_NUMBER", fallback.authorDirectMidField) ?: return fallback
+        } else 0
+        val authorUser = probeField(moduleAuthor, "AUTHOR_FIELD_NUMBER", fallback.authorUserField) ?: return fallback
+        if (directMid > 0 && directMid == authorUser) return fallback
+
+        val userMid = probeField(userInfo, "MID_FIELD_NUMBER", fallback.authorMidField) ?: return fallback
+        val userName = probeField(userInfo, "NAME_FIELD_NUMBER", fallback.authorNameField) ?: return fallback
+        if (!distinctPositive(userMid, userName)) return fallback
+
+        fallback.copy(
+            dynamicListField = dynamicList,
+            itemListField = itemList,
+            itemCardTypeField = cardType,
+            itemItemTypeField = itemType,
+            itemModulesField = modules,
+            itemExtendField = itemExtend,
+            extendDynIdStrField = dynIdStr,
+            extendOrigDescField = origDesc,
+            extendOrigNameField = origName,
+            extendUidField = uid,
+            extendDescField = extDesc,
+            moduleTypeField = moduleType,
+            moduleAuthorField = moduleAuthorField,
+            moduleDynamicField = moduleDynamicField,
+            moduleDescField = moduleDescField,
+            descriptionTextField = descText,
+            moduleDescTextField = modDescItems,
+            moduleDescPlainTextField = modDescPlain,
+            authorDirectMidField = directMid,
+            authorUserField = authorUser,
+            authorMidField = userMid,
+            authorNameField = userName
+        )
+    }.getOrElse { fallback }
+
+    fun probeViewUniteSchema(
+        loader: ClassLoader,
+        fallback: ViewUniteWireSchema = ViewUniteWireSchema.DEFAULT
+    ): ViewUniteWireSchema = runCatching {
+        val viewReply = loadClass(loader, "com.bapis.bilibili.app.viewunite.v1.ViewReply")
+        val tab = loadClass(loader, "com.bapis.bilibili.app.viewunite.v1.Tab")
+        val tabModule = loadClass(loader, "com.bapis.bilibili.app.viewunite.v1.TabModule")
+        val introTab = loadClass(loader, "com.bapis.bilibili.app.viewunite.v1.IntroductionTab")
+        val commonModule = loadClass(loader, "com.bapis.bilibili.app.viewunite.common.Module")
+        val playView = loadClass(loader, "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply")
+
+        val viewBase = probeField(viewReply, "VIEW_BASE_FIELD_NUMBER", fallback.viewBaseField) ?: return fallback
+        val arc = probeField(viewReply, "ARC_FIELD_NUMBER", fallback.arcField) ?: return fallback
+        val owner = probeField(viewReply, "OWNER_FIELD_NUMBER", fallback.ownerField) ?: return fallback
+        val tabField = probeField(viewReply, "TAB_FIELD_NUMBER", fallback.tabField) ?: return fallback
+        val ecode = probeField(viewReply, "ECODE_FIELD_NUMBER", fallback.ecodeField) ?: return fallback
+        val ecodeConfig = probeField(viewReply, "ECODE_CONFIG_FIELD_NUMBER", fallback.ecodeConfigField) ?: return fallback
+        val supplement = probeField(viewReply, "SUPPLEMENT_FIELD_NUMBER", fallback.supplementField) ?: return fallback
+        if (!distinctPositive(viewBase, arc, owner, tabField, ecode, ecodeConfig, supplement)) return fallback
+
+        val tabModuleList = probeField(tab, "TAB_MODULE_FIELD_NUMBER", fallback.tabModuleListField) ?: return fallback
+        val introField = probeField(tabModule, "INTRODUCTION_FIELD_NUMBER", fallback.tabModuleIntroductionField) ?: return fallback
+        val introModules = probeField(introTab, "MODULES_FIELD_NUMBER", fallback.introductionModulesField) ?: return fallback
+        val modType = probeField(commonModule, "TYPE_FIELD_NUMBER", fallback.moduleTypeField) ?: return fallback
+        val playVod = probeField(playView, "VOD_INFO_FIELD_NUMBER", fallback.playVodInfoField) ?: return fallback
+        val playSupp = probeField(playView, "SUPPLEMENT_FIELD_NUMBER", fallback.playSupplementField) ?: return fallback
+        if (!distinctPositive(playVod, playSupp)) return fallback
+
+        fallback.copy(
+            viewBaseField = viewBase,
+            arcField = arc,
+            ownerField = owner,
+            tabField = tabField,
+            ecodeField = ecode,
+            ecodeConfigField = ecodeConfig,
+            supplementField = supplement,
+            tabModuleListField = tabModuleList,
+            tabModuleIntroductionField = introField,
+            introductionModulesField = introModules,
+            moduleTypeField = modType,
+            playVodInfoField = playVod,
+            playSupplementField = playSupp
+        )
+    }.getOrElse { fallback }
+
+    private fun loadClass(loader: ClassLoader, name: String): Class<*>? =
+        runCatching { loader.loadClass(name) }.getOrNull()
+
+    private fun probeField(owner: Class<*>?, fieldName: String, defaultValue: Int): Int? {
+        if (owner == null) return defaultValue
+        val field = runCatching { owner.getField(fieldName) }.getOrNull() ?: return defaultValue
+        val modifiers = field.modifiers
+        if (!java.lang.reflect.Modifier.isStatic(modifiers) ||
+            !java.lang.reflect.Modifier.isFinal(modifiers) ||
+            field.type != Int::class.javaPrimitiveType
+        ) {
+            return null
+        }
+        val value = runCatching { field.getInt(null) }.getOrNull() ?: return null
+        return value.takeIf { it in 1..MAX_PROTO_FIELD_NUMBER }
+    }
+
+    private fun distinctPositive(vararg values: Int): Boolean {
+        if (values.any { it !in 1..MAX_PROTO_FIELD_NUMBER }) return false
+        return values.distinct().size == values.size
     }
 }
