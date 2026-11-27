@@ -4,7 +4,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire
  * wire-format 扫描的纯 Kotlin 实现：native 不可用时的回退层，也是安装期自检与
  * 单测的**差分基准**（oracle）。语义与 `danmaku-wire/src/lib.rs` 逐条对齐：
  * 同字段重复取最后一次、命名字段 wire type 不符按未知字段跳过、解析层级的
- * group(3/4)/非法 wire type 拒绝、改色时彩字字段重复拒绝、其余字节逐字节保留。
+ * group(3/4)/非法 wire type 拒绝、改色时将所有 wt=0 彩字字段清零（确保 last-wins 解码见 0）、其余字节逐字节保留。
  * 两边任何不一致都会在安装期自检里暴露并停用 native。
  */
 internal object DanmakuWire {
@@ -377,12 +377,11 @@ internal object DanmakuWire {
         }
     }
 
-    /** 改色：只替换彩字字段的值字节（tag 原样保留）；彩字字段重复出现返回 null（非规范输入）。 */
+    /** 改色：将所有 wt=0 彩字字段的值字节清零（tag 原样保留），确保按 Protobuf last-wins 及任何读口径解码均见 0。 */
     private fun rewriteElem(
         buf: ByteArray, from: Int, to: Int, f: DanmakuWireFields, out: ByteArrayOutput,
     ): Boolean {
         val cur = Cursor(buf, from, to)
-        var colorfulSeen = 0
         while (cur.pos < to) {
             val start = cur.pos
             if (!cur.readTag()) return false
@@ -391,8 +390,6 @@ internal object DanmakuWire {
             val tagEnd = cur.pos
             if (field == f.colorfulField && wt == 0) {
                 if (!cur.readVarint()) return false
-                colorfulSeen++
-                if (colorfulSeen > 1) return false
                 out.write(buf, start, tagEnd - start)
                 out.write(0)
             } else {

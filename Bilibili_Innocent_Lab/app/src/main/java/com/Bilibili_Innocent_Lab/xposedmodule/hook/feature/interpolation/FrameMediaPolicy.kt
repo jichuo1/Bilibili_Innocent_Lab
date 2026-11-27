@@ -140,7 +140,7 @@ internal object FrameMediaPolicy {
     private val AUDIO_MIME = Regex("audio/[a-z0-9][a-z0-9.+-]*")
     private val CODEC_TOKEN = Regex("[a-z0-9][a-z0-9._-]*")
     private val DOLBY_PREFIXES = setOf("dvhe", "dvh1", "dvav", "dva1", "dav1")
-    private val CODEC_PREFIXES = DOLBY_PREFIXES + setOf("avc1", "avc3", "hvc1", "hev1", "vp08", "vp09", "av01", "mp4v")
+    private val CODEC_PREFIXES = DOLBY_PREFIXES + setOf("avc1", "avc3", "hvc1", "hev1", "vp08", "vp09", "vp8", "vp9", "av01", "mp4v")
 }
 
 /**

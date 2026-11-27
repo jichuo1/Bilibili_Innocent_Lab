@@ -32,6 +32,8 @@ internal class FrameCaptureBridge private constructor(
     private val source: FrameHostMediaSignals.Values,
     private val secureDecoder: Boolean,
     private val tunneled: Boolean,
+    private val protectedContent: Boolean,
+    private val configureFlags: Int,
     private val engine: FrameInterpolationEngineHolder,
     private val host: Host,
     private val isCurrent: () -> Boolean
@@ -261,15 +263,25 @@ internal class FrameCaptureBridge private constructor(
         val input = runCatching { codecReference.get()?.inputFormat }.getOrNull()?.let(::values)
         val source = input?.let(this.source::fillFrom) ?: this.source
         val decoded = runCatching { codecReference.get()?.outputFormat }.getOrNull()?.let(::values) ?: FrameHostMediaSignals.Values(source.mime)
-        // GPU 采样 OES 时由驱动按流色彩空间完成 YUV→RGB；只对已知的 SDR BT.601/709 声称捕获已验证。
-        val decodedSignal = FrameHostMediaSignals.signal(decoded.fillFrom(source), 8)
-        val capture = if (FrameHostMediaSignals.converterStandard(decodedSignal.standard) != null)
-            FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8 else FrameMediaPolicy.Capture.OTHER
+        val actualDecoded = decoded.fillFrom(source)
+        // GPU 采样 OES 时由驱动按流色彩空间完成 YUV→RGB；若显式上报 P010/10-bit 则保留真实位深，只对已知 8-bit SDR BT.601/709 声称捕获已验证。
+        val decodedSignal = FrameHostMediaSignals.signal(
+            actualDecoded,
+            FrameHostMediaSignals.decodedBitDepth(decoded, source)
+        )
+        val capture = if (FrameHostMediaSignals.converterStandard(decodedSignal.standard) != null &&
+            decodedSignal.bitDepth == 8) {
+            FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8
+        } else FrameMediaPolicy.Capture.OTHER
+        val mergedSource = source.fillFrom(decoded)
+        val isProtected = protectedContent || FrameHostMediaSignals.hasProtectedSignal(mergedSource, configureFlags)
+        val isSecure = secureDecoder || FrameHostMediaSignals.hasSecureSignal(mergedSource)
+        val isTunneled = tunneled || FrameHostMediaSignals.hasTunneledSignal(mergedSource)
         fun evidence(value: Boolean) = if (value) FrameMediaPolicy.Evidence.YES else FrameMediaPolicy.Evidence.NO
         val lease = gate.begin(epoch()).lease
         val resolution = gate.resolve(lease, FrameMediaPolicy.Snapshot(sourceWidth, sourceHeight,
-            FrameHostMediaSignals.signal(source.fillFrom(decoded)), decodedSignal, capture,
-            FrameMediaPolicy.Evidence.NO, evidence(secureDecoder), evidence(tunneled), host.audio()))
+            FrameHostMediaSignals.signal(mergedSource), decodedSignal, capture,
+            evidence(isProtected), evidence(isSecure), evidence(isTunneled), host.audio()))
         host.log("bridge.admit", resolution.decision.reason.name)
         if (resolution.permit == null) {
             returnToNative("media:${resolution.decision.reason}")
@@ -443,6 +455,8 @@ internal class FrameCaptureBridge private constructor(
         private const val TUNNELED = "tunneled-playback"
         /** MediaFormat.KEY_HDR10_PLUS_INFO（API 29），以字面量引用以兼容更低的 minSdk。 */
         private const val KEY_HDR10_PLUS_INFO = "hdr10-plus-info"
+        private const val KEY_CODECS_STRING_COMPAT = "codecs-string"
+        private const val KEY_COLOR_TRANSFER_REQUEST_COMPAT = "color-transfer-request"
 
         /**
          * 宿主 configure 前调用；返回 null 表示不接管（保持宿主原样）。只接管已在主播放器登记的显示 Surface、
@@ -451,7 +465,8 @@ internal class FrameCaptureBridge private constructor(
         fun create(config: Config, codec: MediaCodec, format: MediaFormat, display: Surface, crypto: Any?,
                    engine: FrameInterpolationEngineHolder, host: Host, requestedTargetFps: Int? = null,
                    attach: ((Surface) -> Boolean)? = null,
-                   isCurrent: () -> Boolean = { true }): FrameCaptureBridge? {
+                   isCurrent: () -> Boolean = { true },
+                   configureFlags: Int = 0): FrameCaptureBridge? {
             if (!engine.ready()) {
                 host.log("bridge.skip", "engine:${engine.state}")
                 host.onStatus(FrameStatus.Inactive(if (engine.state == FrameInterpolationEngineHolder.State.FAILED)
@@ -462,9 +477,11 @@ internal class FrameCaptureBridge private constructor(
                 ?: run { host.log("bridge.skip", "width_unknown"); host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.FORMAT)); return null }
             val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull()
                 ?: run { host.log("bridge.skip", "height_unknown"); host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.FORMAT)); return null }
-            if (width <= 0 || height <= 0 || width.toLong() * height > config.maxSourcePixels || crypto != null) {
-                host.log("bridge.skip", "format:${width}x$height:crypto=${crypto != null}")
-                host.onStatus(FrameStatus.Inactive(if (crypto != null) FrameStatus.Reason.MEDIA else FrameStatus.Reason.FORMAT))
+            val configuredValues = values(format)
+            val cryptoAsync = FrameHostMediaSignals.hasProtectedSignal(configuredValues, configureFlags)
+            if (width <= 0 || height <= 0 || width.toLong() * height > config.maxSourcePixels || crypto != null || cryptoAsync) {
+                host.log("bridge.skip", "format:${width}x$height:crypto=${crypto != null || cryptoAsync}")
+                host.onStatus(FrameStatus.Inactive(if (crypto != null || cryptoAsync) FrameStatus.Reason.MEDIA else FrameStatus.Reason.FORMAT))
                 return null
             }
             // 处理尺寸：不超过屏幕与本机实测能力；4K 源在捕获时一次缩到此尺寸。
@@ -477,8 +494,13 @@ internal class FrameCaptureBridge private constructor(
                 }
             host.log("bridge.size", "${width}x$height->${processing.width}x${processing.height} display=${displayLong}x$displayShort")
             val name = runCatching { codec.name }.getOrDefault("")
-            val tunneled = runCatching { format.getFeatureEnabled(TUNNELED) }.getOrDefault(false) ||
-                runCatching { format.containsKey(MediaFormat.KEY_AUDIO_SESSION_ID) }.getOrDefault(false)
+            val securePlayback = name.endsWith(".secure") || FrameHostMediaSignals.hasSecureSignal(configuredValues)
+            val tunneled = FrameHostMediaSignals.hasTunneledSignal(configuredValues)
+            if (securePlayback || tunneled) {
+                host.log("bridge.skip", "path:secure=$securePlayback:tunneled=$tunneled")
+                host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.MEDIA))
+                return null
+            }
             // 25 fps 源按 2 倍插到 50 fps（30/29.97 → 60）；目标随后由实测节奏复核，不符即回原生。
             val hint = sourceFpsHint(format)
             // 帧率上限自适应：用户上限、面板模式、此前实测的系统实际刷新与本机推理能力取最小，再取源帧率整数倍。
@@ -514,7 +536,7 @@ internal class FrameCaptureBridge private constructor(
                     measureVsync = config.measureVsync && requestedTargetFps == null,
                     sourceFps = hint)
                 FrameCaptureBridge(selected, codec, display, processing.width, processing.height, width, height,
-                    values(format), name.endsWith(".secure"), tunneled, engine, host, isCurrent)
+                    configuredValues, securePlayback, tunneled, cryptoAsync, configureFlags, engine, host, isCurrent)
             }.getOrNull() ?: run { host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE)); return null }
             if (!bridge.start(attach)) {
                 bridge.close()
@@ -565,11 +587,23 @@ internal class FrameCaptureBridge private constructor(
 
         internal fun values(format: MediaFormat): FrameHostMediaSignals.Values {
             fun integer(key: String) = runCatching { if (format.containsKey(key)) format.getInteger(key) else null }.getOrNull()
+            fun string(key: String) = runCatching { if (format.containsKey(key)) format.getString(key) else null }.getOrNull()
+            fun feature(key: String) = runCatching { format.getFeatureEnabled(key) }.getOrDefault(false)
             fun bytes(key: String): ByteArray? = runCatching {
                 if (format.containsKey(key)) format.getByteBuffer(key)?.let { buffer ->
                     ByteArray(buffer.remaining()).also { buffer.duplicate().get(it) }
                 } else null
             }.getOrNull()
+            val codecs = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                string(MediaFormat.KEY_CODECS_STRING)
+            } else {
+                string(KEY_CODECS_STRING_COMPAT)
+            }
+            val colorTransferRequest = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                integer(MediaFormat.KEY_COLOR_TRANSFER_REQUEST)
+            } else {
+                integer(KEY_COLOR_TRANSFER_REQUEST_COMPAT)
+            }
             return FrameHostMediaSignals.Values(
                 mime = runCatching { format.getString(MediaFormat.KEY_MIME) }.getOrNull(),
                 colorStandard = integer(MediaFormat.KEY_COLOR_STANDARD),
@@ -577,7 +611,13 @@ internal class FrameCaptureBridge private constructor(
                 colorRange = integer(MediaFormat.KEY_COLOR_RANGE),
                 hdrStaticInfo = FrameHostMediaSignals.hdrMetadataPresent(bytes(MediaFormat.KEY_HDR_STATIC_INFO)),
                 hdr10PlusInfo = FrameHostMediaSignals.hdrMetadataPresent(bytes(KEY_HDR10_PLUS_INFO)),
-                profile = integer(MediaFormat.KEY_PROFILE))
+                profile = integer(MediaFormat.KEY_PROFILE),
+                codecs = codecs,
+                colorFormat = integer(MediaFormat.KEY_COLOR_FORMAT),
+                colorTransferRequest = colorTransferRequest,
+                securePlayback = feature(android.media.MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback),
+                tunneledPlayback = feature(TUNNELED) || runCatching { format.containsKey(MediaFormat.KEY_AUDIO_SESSION_ID) }.getOrDefault(false)
+            )
         }
     }
 }

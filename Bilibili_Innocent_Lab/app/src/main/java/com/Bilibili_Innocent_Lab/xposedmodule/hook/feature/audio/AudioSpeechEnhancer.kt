@@ -55,11 +55,28 @@ internal class AudioSpeechEnhancer(
     var right = 0.0; private set
     private val spectrum = FloatArray(514)
     private val enhancedScratch = FloatArray(514)
-    val stateSize = 5 + ears.size * (drySize + TAPS + 512 + 256 + 256 + 16 + 256 + 16) + 16896 + 96 + 1056
+    private val reusableCacheSnapshot = FloatArray(CACHE_TOTAL)
+    val stateSize = 5 + ears.size * (drySize + TAPS + 512 + 256 + 256 + 16 + 256 + 16) + CACHE_TOTAL
 
     init { require(rate in 16000..192000 && channels in 1..2 && wet in 0.0..1.0) }
 
     private val down = downTable(rate)
+
+    fun saveCaches(target: FloatArray, offset: Int = 0) {
+        var at = offset
+        for (cache in caches) {
+            System.arraycopy(cache, 0, target, at, cache.size)
+            at += cache.size
+        }
+    }
+
+    fun restoreCaches(source: FloatArray, offset: Int = 0) {
+        var at = offset
+        for (cache in caches) {
+            System.arraycopy(source, at, cache, 0, cache.size)
+            at += cache.size
+        }
+    }
 
     fun save(target: DoubleArray, offset: Int) {
         var at = offset
@@ -67,16 +84,18 @@ internal class AudioSpeechEnhancer(
         target[at++] = hopAt.toDouble(); target[at++] = upAt.toDouble()
         target[at++] = dryAt.toDouble()
         for (ear in ears) {
-            ear.dry.copyInto(target, at); at += ear.dry.size
-            ear.input.copyInto(target, at); at += ear.input.size
-            ear.analysis.copyInto(target, at); at += ear.analysis.size
-            ear.overlap.copyInto(target, at); at += ear.overlap.size
-            ear.output.copyInto(target, at); at += ear.output.size
-            ear.upsample.copyInto(target, at); at += ear.upsample.size
-            ear.dryOutput.copyInto(target, at); at += ear.dryOutput.size
-            ear.dryUpsample.copyInto(target, at); at += ear.dryUpsample.size
+            System.arraycopy(ear.dry, 0, target, at, ear.dry.size); at += ear.dry.size
+            System.arraycopy(ear.input, 0, target, at, ear.input.size); at += ear.input.size
+            System.arraycopy(ear.analysis, 0, target, at, ear.analysis.size); at += ear.analysis.size
+            System.arraycopy(ear.overlap, 0, target, at, ear.overlap.size); at += ear.overlap.size
+            System.arraycopy(ear.output, 0, target, at, ear.output.size); at += ear.output.size
+            System.arraycopy(ear.upsample, 0, target, at, ear.upsample.size); at += ear.upsample.size
+            System.arraycopy(ear.dryOutput, 0, target, at, ear.dryOutput.size); at += ear.dryOutput.size
+            System.arraycopy(ear.dryUpsample, 0, target, at, ear.dryUpsample.size); at += ear.dryUpsample.size
         }
-        for (cache in caches) for (value in cache) target[at++] = value.toDouble()
+        val flatCaches = reusableCacheSnapshot
+        saveCaches(flatCaches, 0)
+        for (index in 0 until flatCaches.size) target[at++] = flatCaches[index].toDouble()
     }
 
     fun restore(source: DoubleArray, offset: Int) {
@@ -85,16 +104,18 @@ internal class AudioSpeechEnhancer(
         hopAt = source[at++].toInt(); upAt = source[at++].toInt()
         dryAt = source[at++].toInt()
         for (ear in ears) {
-            source.copyInto(ear.dry, 0, at, at + ear.dry.size); at += ear.dry.size
-            source.copyInto(ear.input, 0, at, at + ear.input.size); at += ear.input.size
-            source.copyInto(ear.analysis, 0, at, at + ear.analysis.size); at += ear.analysis.size
-            source.copyInto(ear.overlap, 0, at, at + ear.overlap.size); at += ear.overlap.size
-            source.copyInto(ear.output, 0, at, at + ear.output.size); at += ear.output.size
-            source.copyInto(ear.upsample, 0, at, at + ear.upsample.size); at += ear.upsample.size
-            source.copyInto(ear.dryOutput, 0, at, at + ear.dryOutput.size); at += ear.dryOutput.size
-            source.copyInto(ear.dryUpsample, 0, at, at + ear.dryUpsample.size); at += ear.dryUpsample.size
+            System.arraycopy(source, at, ear.dry, 0, ear.dry.size); at += ear.dry.size
+            System.arraycopy(source, at, ear.input, 0, ear.input.size); at += ear.input.size
+            System.arraycopy(source, at, ear.analysis, 0, ear.analysis.size); at += ear.analysis.size
+            System.arraycopy(source, at, ear.overlap, 0, ear.overlap.size); at += ear.overlap.size
+            System.arraycopy(source, at, ear.output, 0, ear.output.size); at += ear.output.size
+            System.arraycopy(source, at, ear.upsample, 0, ear.upsample.size); at += ear.upsample.size
+            System.arraycopy(source, at, ear.dryOutput, 0, ear.dryOutput.size); at += ear.dryOutput.size
+            System.arraycopy(source, at, ear.dryUpsample, 0, ear.dryUpsample.size); at += ear.dryUpsample.size
         }
-        for (cache in caches) for (index in cache.indices) cache[index] = source[at++].toFloat()
+        val flatCaches = reusableCacheSnapshot
+        for (index in 0 until flatCaches.size) flatCaches[index] = source[at++].toFloat()
+        restoreCaches(flatCaches, 0)
     }
 
     fun process(inputLeft: Double, inputRight: Double) {
@@ -122,18 +143,20 @@ internal class AudioSpeechEnhancer(
         }
         inputAt = (inputAt + 1) % TAPS
         val coefficients = UP[(phase.toLong() * 128 / rate).toInt().coerceIn(0, 127)]
-        fun sample(ear: Channel): Double {
-            var value = if (preserveTreble && fraction < 1e-9) ear.dry[(dryAt - dryLag + drySize) % drySize] else 0.0
-            if (preserveTreble && fraction >= 1e-9) for (tap in dryWeights.indices)
-                value += ear.dry[(dryAt - dryLag + 1 - tap + drySize) % drySize] * dryWeights[tap]
-            for (tap in 0 until 16) {
-                val at = (upAt - 1 - tap + 32) and 15
-                value += (ear.upsample[at] + if (preserveTreble) 0.0 else ear.dryUpsample[at]) * coefficients[tap]
-            }
-            return value
-        }
-        left = sample(ears[0]); right = if (ears.size == 2) sample(ears[1]) else left
+        left = sample(ears[0], coefficients)
+        right = if (ears.size == 2) sample(ears[1], coefficients) else left
         dryAt = (dryAt + 1) % drySize
+    }
+
+    private fun sample(ear: Channel, coefficients: DoubleArray): Double {
+        var value = if (preserveTreble && fraction < 1e-9) ear.dry[(dryAt - dryLag + drySize) % drySize] else 0.0
+        if (preserveTreble && fraction >= 1e-9) for (tap in dryWeights.indices)
+            value += ear.dry[(dryAt - dryLag + 1 - tap + drySize) % drySize] * dryWeights[tap]
+        for (tap in 0 until 16) {
+            val at = (upAt - 1 - tap + 32) and 15
+            value += (ear.upsample[at] + if (preserveTreble) 0.0 else ear.dryUpsample[at]) * coefficients[tap]
+        }
+        return value
     }
 
     private fun enhanceHop() {
@@ -185,7 +208,7 @@ internal class AudioSpeechEnhancer(
                 if (!preserveTreble) ear.dryOutput[i] = ear.analysis[i]
                 ear.overlap[i] = ear.real[256 + i] * WINDOW[256 + i]
             }
-            ear.analysis.copyInto(ear.analysis, 0, 256, 512)
+            System.arraycopy(ear.analysis, 256, ear.analysis, 0, 256)
         }
     }
 
@@ -193,6 +216,7 @@ internal class AudioSpeechEnhancer(
         const val VOICE_WET = .7
         const val NOISE_WET = .75
         private const val TAPS = 48
+        private const val CACHE_TOTAL = 16896 + 96 + 1056
         private val WINDOW = DoubleArray(512) { sqrt(.5 - .5 * cos(2 * PI * it / 512)) }
         private val UP = Array(128) { fraction -> coefficients(16, .45, -fraction / 128.0) }
         private val DOWN_CACHE = object : LinkedHashMap<Int, Array<DoubleArray>>(16, 0.75f, true) {

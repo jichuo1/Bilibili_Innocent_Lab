@@ -289,17 +289,25 @@ internal class DanmakuPurifyFeatureInstaller(
             raw@{ bytes ->
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                 val live = liveRules?.invoke() ?: LiveDanmakuRules(minimumWeight, removeVipColorful)
-                val updated = purifyWireBytes(plan, environment, bytes, members, live)?.bytes ?: run {
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
-                    if (wireRawErrorLogged.compareAndSet(false, true)) {
-                        environment.logError("danmaku_purify_wire_raw", "[BIL] 弹幕线格式直改失败，保留原分片")
+                val wireResult = purifyWireBytes(plan, environment, bytes, members, live)
+                if (wireResult != null) {
+                    if (wireResult.bytes !== bytes) {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                     }
-                    return@raw bytes
+                    return@raw wireResult.bytes
                 }
-                if (updated !== bytes) {
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                val fallback = purifyRawFallback(plan, environment, bytes, members, defaultReply, live)
+                if (fallback != null) {
+                    if (fallback !== bytes) {
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+                    }
+                    return@raw fallback
                 }
-                updated
+                environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
+                if (wireRawErrorLogged.compareAndSet(false, true)) {
+                    environment.logError("danmaku_purify_wire_raw", "[BIL] 弹幕线格式直改及反射回退失败，保留原分片")
+                }
+                bytes
             }
         }
         for (rpc in ASYNC_METHOD_NAMES) {
@@ -404,32 +412,61 @@ internal class DanmakuPurifyFeatureInstaller(
         members.wire?.let { plan ->
             purifyViaWire(plan, environment, reply, members, live)?.let { return it }
         }
-        return runCatching {
-            val weighted = purifyElems(environment, reply, members, live.minimum)
-            val colorful = purifyColorfulSrc(reply, members, live.colorful)
-            // 删了渐变样式定义，就必须同时把引用它的弹幕改回普通色：弹幕分段整包交给原生引擎
-            // （libchronos）解析，不能留"条目引用一个已不存在的样式"这种半截数据。
-            val recolored = neutralizeVipColorful(reply, members, weighted, live.colorful) ?: weighted
-            val semanticElems = semanticFilter(environment, reply, members, recolored) ?: recolored
-            val elems = applyPluginBatchFilters(reply, members, semanticElems) ?: semanticElems
-            if (elems == null && colorful == null) return@runCatching reply
-            val updated = members.builder.edit(reply) { builder ->
-                if (elems != null) {
-                    members.elemList!!.clearElems.invoke(builder)
-                    members.elemList.addAllElems.invoke(builder, elems)
-                }
-                if (colorful != null) {
-                    members.colorful!!.clear.invoke(builder)
-                    members.colorful.addAll.invoke(builder, colorful)
-                }
+        return purifyByReflection(environment, reply, members, live, reportApplied = true) ?: reply
+    }
+
+    private fun purifyRawFallback(
+        plan: DanmakuWirePlan,
+        environment: HookEnvironment,
+        bytes: ByteArray,
+        members: ReplyMembers,
+        defaultReply: Any?,
+        live: LiveDanmakuRules
+    ): ByteArray? {
+        val parsed = plan.parse(bytes) ?: return null
+        if (!members.replyClass.isInstance(parsed)) return null
+        if (defaultReply != null && parsed === defaultReply) return bytes
+        val updated = purifyByReflection(environment, parsed, members, live, reportApplied = false)
+            ?: return null
+        if (updated === parsed) return bytes
+        return plan.serialize(updated)
+    }
+
+    private fun purifyByReflection(
+        environment: HookEnvironment,
+        reply: Any,
+        members: ReplyMembers,
+        live: LiveDanmakuRules,
+        reportApplied: Boolean
+    ): Any? = runCatching {
+        val weighted = purifyElems(environment, reply, members, live.minimum)
+        val colorful = purifyColorfulSrc(reply, members, live.colorful)
+        // 删了渐变样式定义，就必须同时把引用它的弹幕改回普通色：弹幕分段整包交给原生引擎
+        // （libchronos）解析，不能留"条目引用一个已不存在的样式"这种半截数据。
+        val recolored = neutralizeVipColorful(reply, members, weighted, live.colorful) ?: weighted
+        val semanticElems = semanticFilter(environment, reply, members, recolored) ?: recolored
+        val elems = applyPluginBatchFilters(reply, members, semanticElems) ?: semanticElems
+        if (elems == null && colorful == null) return@runCatching reply
+        val updated = members.builder.edit(reply) { builder ->
+            if (elems != null) {
+                members.elemList!!.clearElems.invoke(builder)
+                members.elemList.addAllElems.invoke(builder, elems)
             }
+            if (colorful != null) {
+                members.colorful!!.clear.invoke(builder)
+                members.colorful.addAll.invoke(builder, colorful)
+            }
+        }
+        if (reportApplied) {
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-            updated
-        }.getOrElse {
+        }
+        updated
+    }.getOrElse {
+        if (reportApplied) {
             environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
             environment.logError("danmaku_purify_writeback", "[BIL] 弹幕净化副本构建失败，保留原响应: $it")
-            reply
         }
+        null
     }
 
     private fun purifyElems(
@@ -661,13 +698,15 @@ internal class DanmakuPurifyFeatureInstaller(
         }.getOrNull()
     }
 
-    /** native 可用即用（差分自检已在安装期把关），否则 JVM 基准；native 拒绝不重试 JVM。 */
-    private fun engineScan(bytes: ByteArray, fields: DanmakuWireFields): DanmakuWire.FlatScan? =
+    /** native 可用即用（差分自检已在安装期把关），否则 JVM 基准；若运行期 panic 停用 native 则无缝回退 JVM。 */
+    private fun engineScan(bytes: ByteArray, fields: DanmakuWireFields): DanmakuWire.FlatScan? {
         if (DanmakuWireNative.isAvailable) {
-            DanmakuWireNative.scan(bytes, fields)?.let(DanmakuWire::flatScanFrom)
-        } else {
-            DanmakuWire.scanFlat(bytes, fields)
+            val native = DanmakuWireNative.scan(bytes, fields)?.let(DanmakuWire::flatScanFrom)
+            if (native != null) return native
+            if (DanmakuWireNative.isAvailable) return null
         }
+        return DanmakuWire.scanFlat(bytes, fields)
+    }
 
     private fun engineRewrite(
         bytes: ByteArray,
@@ -675,12 +714,14 @@ internal class DanmakuPurifyFeatureInstaller(
         keep: BooleanArray,
         recolor: BooleanArray,
         keepSrc: BooleanArray,
-    ): ByteArray? =
+    ): ByteArray? {
         if (DanmakuWireNative.isAvailable) {
-            DanmakuWireNative.rewrite(bytes, fields, keep, recolor, keepSrc)
-        } else {
-            DanmakuWire.rewrite(bytes, fields, keep, recolor, keepSrc)
+            val native = DanmakuWireNative.rewrite(bytes, fields, keep, recolor, keepSrc)
+            if (native != null) return native
+            if (DanmakuWireNative.isAvailable) return null
         }
+        return DanmakuWire.rewrite(bytes, fields, keep, recolor, keepSrc)
+    }
 
     /** 与反射路径同口径：无正文字段按空串处理，归一化交给 [TextNormalizer.forSemantic]。 */
     private fun wireText(bytes: ByteArray, scan: DanmakuWire.FlatScan, index: Int): String =

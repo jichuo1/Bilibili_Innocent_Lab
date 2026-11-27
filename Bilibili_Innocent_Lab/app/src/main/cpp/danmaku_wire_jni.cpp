@@ -2,6 +2,7 @@
 // JNI 调用在当前线程完成。Rust 入口用 catch_unwind 捕获 panic，并向 Java 返回 null。
 // NewIntArray/NewByteArray 分配失败时 JVM 会保留 OOM，调用方用 runCatching 处理。
 #include <jni.h>
+#include <atomic>
 #include <cstdint>
 #include <cstddef>
 
@@ -32,6 +33,11 @@ namespace {
 constexpr jsize kMaxReplyBytes = 16 * 1024 * 1024;
 constexpr jsize kMaxElems = 65536;
 constexpr jsize kMaxSrcs = 65536;
+constexpr int32_t kDwOk = 0;
+constexpr int32_t kDwErrPanic = 2;
+
+// 一旦 Rust 侧捕获 panic，记录进程级不可信标志，由 Java 侧调用 markUntrusted() 永久回退。
+std::atomic<bool> g_panic_observed{false};
 
 // protobuf 字段号合法区间（1..2^29-1）；越界直接拒绝，不进 Rust。
 bool validField(jint field) {
@@ -61,6 +67,12 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     return static_cast<jint>(dw_abi_version());
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWireNative_nativeHasPanicked(
+    JNIEnv*, jobject) {
+    return g_panic_observed.load(std::memory_order_acquire) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWireNative_nativeScan(
     JNIEnv* env, jobject, jbyteArray reply, jint elemsField, jint weightField, jint colorfulField,
@@ -82,7 +94,10 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     const int32_t code = dw_scan(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(replyLen),
                                  &fields, &scanOut, &scanLen, &scanCap);
     env->ReleaseByteArrayElements(reply, bytes, JNI_ABORT);
-    if (code != 0 || scanLen == 0 || scanLen > static_cast<size_t>(INT32_MAX)) {
+    if (code == kDwErrPanic) {
+        g_panic_observed.store(true, std::memory_order_release);
+    }
+    if (code != kDwOk || scanLen == 0 || scanLen > static_cast<size_t>(INT32_MAX)) {
         if (scanOut != nullptr) dw_free_i32(scanOut, scanLen, scanCap);
         return nullptr;
     }
@@ -167,7 +182,10 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_danmakuwire_DanmakuWi
     env->ReleaseBooleanArrayElements(keepElem, keepRaw, JNI_ABORT);
     env->ReleaseBooleanArrayElements(recolorElem, recolorRaw, JNI_ABORT);
     env->ReleaseBooleanArrayElements(keepSrc, keepSrcRaw, JNI_ABORT);
-    if (code == 0 && rewriteLen <= static_cast<size_t>(INT32_MAX)) {
+    if (code == kDwErrPanic) {
+        g_panic_observed.store(true, std::memory_order_release);
+    }
+    if (code == kDwOk && rewriteLen <= static_cast<size_t>(INT32_MAX)) {
         // 空输出（rewriteOut==null && len==0）对空输入是合法结果。
         result = env->NewByteArray(static_cast<jsize>(rewriteLen));
         if (result == nullptr) {

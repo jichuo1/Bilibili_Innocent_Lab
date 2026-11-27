@@ -29,6 +29,9 @@ internal class FrameQcomBridge private constructor(
     private val mode: FrameStatus.Backend,
     private val bypassFrameBudget: Boolean,
     private val initialStandard: FrameMediaPolicy.Standard,
+    private val protectedContent: Boolean,
+    private val secureDecoder: Boolean,
+    private val tunneled: Boolean,
     private var rifeFactory: ((Int, Int) -> WindowBackend?)?,
     private var playback: Playback?
 ) : FramePlaybackBridge {
@@ -458,7 +461,11 @@ internal class FrameQcomBridge private constructor(
             audio = host.audio(),
             outputWidth = extent(MediaFormat.KEY_WIDTH, "crop-left", "crop-right", sourceWidth),
             outputHeight = extent(MediaFormat.KEY_HEIGHT, "crop-top", "crop-bottom", sourceHeight),
-            initialStandard = initialStandard
+            initialStandard = initialStandard,
+            protectedContent = protectedContent,
+            secureDecoder = secureDecoder,
+            tunneled = tunneled,
+            codecName = runCatching { codec.name }.getOrNull()
         )
     }
 
@@ -653,16 +660,29 @@ internal class FrameQcomBridge private constructor(
             audio: FrameMediaPolicy.Audio,
             outputWidth: Int,
             outputHeight: Int,
-            initialStandard: FrameMediaPolicy.Standard
+            initialStandard: FrameMediaPolicy.Standard,
+            protectedContent: Boolean = false,
+            secureDecoder: Boolean = false,
+            tunneled: Boolean = false,
+            codecName: String? = null
         ): RuntimeEligibility {
             val currentSource = input?.let(configuredSource::fillFrom) ?: configuredSource
             val actual = output.fillFrom(currentSource)
-            val signal = FrameHostMediaSignals.signal(currentSource.fillFrom(actual))
-            val decoded = FrameHostMediaSignals.signal(actual, 8)
+            val merged = currentSource.fillFrom(actual)
+            val signal = FrameHostMediaSignals.signal(merged)
+            val decoded = FrameHostMediaSignals.signal(
+                actual,
+                FrameHostMediaSignals.decodedBitDepth(output, currentSource)
+            )
+            fun evidence(value: Boolean) = if (value) FrameMediaPolicy.Evidence.YES else FrameMediaPolicy.Evidence.NO
+            val isProtected = protectedContent || FrameHostMediaSignals.hasProtectedSignal(merged)
+            val isSecure = secureDecoder || (codecName?.endsWith(".secure") == true) ||
+                FrameHostMediaSignals.hasSecureSignal(merged)
+            val isTunneled = tunneled || FrameHostMediaSignals.hasTunneledSignal(merged)
             val decision = FrameMediaPolicy.evaluate(FrameMediaPolicy.Snapshot(
                 sourceWidth, sourceHeight, signal, decoded,
-                FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8, FrameMediaPolicy.Evidence.NO,
-                FrameMediaPolicy.Evidence.NO, FrameMediaPolicy.Evidence.NO, audio
+                FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8, evidence(isProtected),
+                evidence(isSecure), evidence(isTunneled), audio
             ))
             if (!decision.eligible) return RuntimeEligibility.MediaRejected(decision.reason)
             if (mode == FrameStatus.Backend.QCOM) {
@@ -711,12 +731,21 @@ internal class FrameQcomBridge private constructor(
                        FrameHostMediaSignals.Values(colorStandard = initialColorStandard)
                    ).standard,
                    bypassFrameBudget: Boolean = false,
+                   protectedContent: Boolean = false,
+                   secureDecoder: Boolean = false,
+                   tunneled: Boolean = false,
                    onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
-            if (qcomUnavailable.get() || !validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
+            val isProtected = protectedContent || FrameHostMediaSignals.hasProtectedSignal(source)
+            val isSecure = secureDecoder || runCatching { codec.name.endsWith(".secure") }.getOrDefault(false) ||
+                FrameHostMediaSignals.hasSecureSignal(source)
+            val isTunneled = tunneled || FrameHostMediaSignals.hasTunneledSignal(source)
+            if (qcomUnavailable.get() || isProtected || isSecure || isTunneled || !validExtent(width, height) ||
+                !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || !supportsQcomColorStandard(initialColorStandard) ||
                 !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.QCOM,
-                bypassFrameBudget, initialStandard, null, Playback(display, host, isCurrent, attach, onBackendFailed))
+                bypassFrameBudget, initialStandard, isProtected, isSecure, isTunneled, null,
+                Playback(display, host, isCurrent, attach, onBackendFailed))
             return if (bridge.start()) bridge else null
         }
 
@@ -726,11 +755,20 @@ internal class FrameQcomBridge private constructor(
                        openBackend: (Int, Int) -> WindowBackend?,
                        initialStandard: FrameMediaPolicy.Standard = FrameHostMediaSignals.signal(source).standard,
                        bypassFrameBudget: Boolean = false,
+                       protectedContent: Boolean = false,
+                       secureDecoder: Boolean = false,
+                       tunneled: Boolean = false,
                        onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
-            if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
+            val isProtected = protectedContent || FrameHostMediaSignals.hasProtectedSignal(source)
+            val isSecure = secureDecoder || runCatching { codec.name.endsWith(".secure") }.getOrDefault(false) ||
+                FrameHostMediaSignals.hasSecureSignal(source)
+            val isTunneled = tunneled || FrameHostMediaSignals.hasTunneledSignal(source)
+            if (isProtected || isSecure || isTunneled || !validExtent(width, height) || !display.isValid ||
+                !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.RIFE,
-                bypassFrameBudget, initialStandard, openBackend, Playback(display, host, isCurrent, attach, onBackendFailed))
+                bypassFrameBudget, initialStandard, isProtected, isSecure, isTunneled, openBackend,
+                Playback(display, host, isCurrent, attach, onBackendFailed))
             return if (bridge.start()) bridge else null
         }
     }

@@ -80,6 +80,7 @@ pub enum WireError {
     TooManyElems,
     TooManySrcs,
     TooLarge,
+    #[allow(dead_code)]
     NonCanonical,
     MaskLength,
     Fields,
@@ -301,11 +302,10 @@ fn put_tag(out: &mut Vec<u8>, field: u32, wt: u8) -> Result<(), WireError> {
     put_varint(out, ((field as u64) << 3) | wt as u64)
 }
 
-/// 重写一条弹幕：除彩字字段的**值字节**换成 varint(0)（tag 字节原样保留）外逐字节复制；
-/// 彩字字段出现多次则拒绝（宿主 toByteArray 不会产生，此为非规范输入防线）。
+/// 重写一条弹幕：把所有 `wt=0` 彩字字段的**值字节**换成 varint(0)（tag 字节原样保留），
+/// 确保按 Protobuf last-wins 及任何读取口径解码都为 0；其余字段逐字节原样复制。
 fn rewrite_elem(body: &[u8], fields: &WireFields, out: &mut Vec<u8>) -> Result<(), WireError> {
     let mut cur = Cursor::new(body);
-    let mut colorful_seen = 0usize;
     while cur.remaining() > 0 {
         let start = cur.pos;
         let (field, wt) = cur.tag().ok_or(WireError::Truncated)?;
@@ -313,10 +313,6 @@ fn rewrite_elem(body: &[u8], fields: &WireFields, out: &mut Vec<u8>) -> Result<(
         let tag_end = cur.pos;
         if field == fields.colorful_field && wt == 0 {
             let _ = cur.varint().ok_or(WireError::Truncated)?;
-            colorful_seen += 1;
-            if colorful_seen > 1 {
-                return Err(WireError::NonCanonical);
-            }
             // 原始 tag 字节 + 规范编码的 varint(0)；值长度变化由外层的新长度前缀吸收。
             out.try_reserve(cur.pos - start + 1).map_err(|_| WireError::TooLarge)?;
             out.extend_from_slice(&body[start..tag_end]);
@@ -909,19 +905,10 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_rejects_duplicate_colorful_and_mask_mismatch() {
-        // 同一 elem 里彩字字段出现两次：读侧取最后，改写侧拒绝。
-        let mut body = Vec::new();
-        body.extend(varint_field(F.colorful_field, 60001));
-        body.extend(varint_field(F.colorful_field, 60001));
-        let reply = bytes_field(F.elems_field, &body);
+    fn rewrite_rejects_mask_mismatch() {
+        let reply = elem(Some(5), Some(60001), None);
         let keep = [1u8];
-        let recolor = [1u8];
         let src = [0u8; 0];
-        assert!(matches!(
-            rewrite(&reply, &F, &RewriteMask { keep_elem: &keep, recolor_elem: &recolor, keep_src: &src }),
-            Err(WireError::NonCanonical)
-        ));
         // keep 位图过短。
         let no_recolor = [0u8];
         let keep_short = [1u8, 1];
@@ -935,6 +922,47 @@ mod tests {
             rewrite(&reply, &F, &RewriteMask { keep_elem: &keep, recolor_elem: &recolor_long, keep_src: &src }),
             Err(WireError::MaskLength)
         ));
+    }
+
+    #[test]
+    fn rewrite_clears_duplicate_colorful_and_preserves_unknown_fields() {
+        let mut body = Vec::new();
+        body.extend(varint_field(F.weight_field, 7));
+        body.extend(varint_field(F.colorful_field, 123));
+        body.extend(bytes_field(99, b"elem-unknown-mid"));
+        body.extend(varint_field(F.colorful_field, 60001));
+        body.extend(bytes_field(F.content_field, b"dup-color"));
+
+        let mut reply = Vec::new();
+        reply.extend(bytes_field(88, b"\xca\xfe\xba\xbe"));
+        reply.extend(bytes_field(F.elems_field, &body));
+        reply.extend(varint_field(7, 999));
+
+        let initial = scan(&reply, &F).unwrap();
+        assert_eq!(initial.elems[0].colorful, Some(60001));
+
+        let keep = [1u8];
+        let recolor = [1u8];
+        let src = [0u8; 0];
+        let rewritten = rewrite(
+            &reply,
+            &F,
+            &RewriteMask { keep_elem: &keep, recolor_elem: &recolor, keep_src: &src },
+        )
+        .unwrap();
+
+        let rescan = scan(&rewritten, &F).unwrap();
+        assert_eq!(rescan.elems.len(), 1);
+        assert_eq!(rescan.elems[0].weight, Some(7));
+        assert_eq!(rescan.elems[0].colorful, Some(0));
+        assert!(rescan.elems[0].has_content);
+        let c_start = rescan.elems[0].content_start;
+        let c_len = rescan.elems[0].content_len;
+        assert_eq!(&rewritten[c_start..c_start + c_len], b"dup-color");
+        assert!(rewritten.windows(16).any(|w| w == b"elem-unknown-mid"));
+        assert!(rewritten.windows(4).any(|w| w == b"\xca\xfe\xba\xbe"));
+        let tail = varint_field(7, 999);
+        assert_eq!(&rewritten[rewritten.len() - tail.len()..], &tail[..]);
     }
 
     #[test]

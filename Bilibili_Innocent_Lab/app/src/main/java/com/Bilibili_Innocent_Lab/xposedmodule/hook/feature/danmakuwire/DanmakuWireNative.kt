@@ -21,16 +21,26 @@ internal object DanmakuWireNative {
     @Volatile
     private var state = NOT_TRIED
 
-    /** 自检发现 native 结果与 JVM 基准不一致时置位：本进程内永久停用，回退 JVM 扫描。 */
+    /** 自检或运行期发现 native panic/结果不可信时置位：本进程内永久停用，回退 JVM 扫描。 */
     @Volatile
     private var untrusted = false
 
     val isAvailable: Boolean
         get() = !untrusted && ensureLoaded()
 
-    /** 只允许安装期自检调用；运行期一律通过 [DanmakuWireEngine]。 */
+    /** 只允许安装期自检或运行期 panic 检出调用；外部不得强行重置为可信。 */
     fun markUntrusted() {
         untrusted = true
+    }
+
+    internal fun setAvailableForTest(available: Boolean) {
+        untrusted = false
+        state = if (available) AVAILABLE else UNAVAILABLE
+    }
+
+    internal fun resetForTest() {
+        untrusted = false
+        state = NOT_TRIED
     }
 
     private fun ensureLoaded(): Boolean {
@@ -39,7 +49,11 @@ internal object DanmakuWireNative {
                 if (state == NOT_TRIED) {
                     state = try {
                         ModuleNativeLoader.load("innocent_danmaku_wire")
-                        if (nativeAbiVersion() == EXPECTED_ABI_VERSION) AVAILABLE else UNAVAILABLE
+                        if (nativeAbiVersion() == EXPECTED_ABI_VERSION && !nativeHasPanicked()) {
+                            AVAILABLE
+                        } else {
+                            UNAVAILABLE
+                        }
                     } catch (_: Throwable) {
                         UNAVAILABLE
                     }
@@ -49,14 +63,12 @@ internal object DanmakuWireNative {
         return state == AVAILABLE
     }
 
-    /** 扫描结果布局见 `danmaku-wire/src/lib.rs` 的 `flatten`；拒绝/失败返回 null。 */
-    fun scan(reply: ByteArray, fields: DanmakuWireFields): IntArray? {
-        if (!isAvailable) return null
-        return runCatching {
+    /** 扫描结果布局见 `danmaku-wire/src/lib.rs` 的 `flatten`；拒绝/失败返回 null，若底层 panic 则置 untrusted。 */
+    fun scan(reply: ByteArray, fields: DanmakuWireFields): IntArray? =
+        executeNative(::nativeHasPanicked) {
             nativeScan(reply, fields.elemsField, fields.weightField, fields.colorfulField,
                 fields.contentField, fields.colorfulSrcField, fields.colorfulTypeField)
-        }.getOrNull()
-    }
+        }
 
     fun rewrite(
         reply: ByteArray,
@@ -64,16 +76,62 @@ internal object DanmakuWireNative {
         keepElem: BooleanArray,
         recolorElem: BooleanArray,
         keepSrc: BooleanArray,
-    ): ByteArray? {
-        if (!isAvailable) return null
-        return runCatching {
+    ): ByteArray? =
+        executeNative(::nativeHasPanicked) {
             nativeRewrite(reply, fields.elemsField, fields.weightField, fields.colorfulField,
                 fields.contentField, fields.colorfulSrcField, fields.colorfulTypeField,
                 keepElem, recolorElem, keepSrc)
-        }.getOrNull()
+        }
+
+    internal fun scanWith(
+        reply: ByteArray,
+        fields: DanmakuWireFields,
+        invokeScan: (ByteArray, DanmakuWireFields) -> IntArray?,
+        hasPanicked: () -> Boolean,
+    ): IntArray? = executeNative(hasPanicked) { invokeScan(reply, fields) }
+
+    internal fun rewriteWith(
+        reply: ByteArray,
+        fields: DanmakuWireFields,
+        keepElem: BooleanArray,
+        recolorElem: BooleanArray,
+        keepSrc: BooleanArray,
+        invokeRewrite: (ByteArray, DanmakuWireFields, BooleanArray, BooleanArray, BooleanArray) -> ByteArray?,
+        hasPanicked: () -> Boolean,
+    ): ByteArray? = executeNative(hasPanicked) { invokeRewrite(reply, fields, keepElem, recolorElem, keepSrc) }
+
+    private inline fun <T> executeNative(
+        hasPanicked: () -> Boolean,
+        block: () -> T?
+    ): T? {
+        if (!isAvailable) return null
+        val result = try {
+            block()
+        } catch (_: LinkageError) {
+            markUntrusted()
+            return null
+        } catch (_: Throwable) {
+            if (runCatching { hasPanicked() }.getOrDefault(false)) {
+                markUntrusted()
+            }
+            return null
+        }
+        if (result == null) {
+            val panicked = try {
+                hasPanicked()
+            } catch (_: LinkageError) {
+                true
+            } catch (_: Throwable) {
+                false
+            }
+            if (panicked) markUntrusted()
+        }
+        return result
     }
 
     private external fun nativeAbiVersion(): Int
+
+    private external fun nativeHasPanicked(): Boolean
 
     private external fun nativeScan(
         reply: ByteArray, elemsField: Int, weightField: Int, colorfulField: Int,

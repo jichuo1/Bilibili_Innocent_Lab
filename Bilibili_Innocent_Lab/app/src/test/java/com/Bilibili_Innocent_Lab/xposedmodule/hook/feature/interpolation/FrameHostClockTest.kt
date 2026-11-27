@@ -952,6 +952,36 @@ private class FrameModelCacheCases {
         } finally { pool.shutdownNow() }
     }
 
+    fun `provider fallback materializes and verifies when remote opener is unavailable`() {
+        val payload = "provider-verified-model".toByteArray()
+        val part = FrameModelSpec.Part("provider.bin", payload.size, sha256(payload))
+        var providerCalls = 0
+        val ready = FrameModelCache.materialize(
+            hostPrivateRoot = root,
+            parts = listOf(part),
+            openProvider = { providerCalls++; ByteArrayInputStream(payload) },
+            openRemote = { null }
+        )
+        assertTrue(ready is FrameModelCache.Result.Ready)
+        assertEquals(1, providerCalls)
+        val cached = FrameModelCache.materialize(
+            hostPrivateRoot = root,
+            parts = listOf(part),
+            openProvider = { error("must reuse verified cache") },
+            openRemote = { error("must reuse verified cache") }
+        )
+        assertTrue(cached is FrameModelCache.Result.Ready)
+
+        val badPart = FrameModelSpec.Part("bad-provider.bin", payload.size, sha256("other".toByteArray()))
+        val invalid = FrameModelCache.materialize(
+            hostPrivateRoot = root,
+            parts = listOf(badPart),
+            openProvider = { ByteArrayInputStream(payload) },
+            openRemote = { null }
+        )
+        assertEquals(FrameModelCache.Result.Invalid(badPart.fileName), invalid)
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (FrameModelCacheCases) -> Unit) {
             val s = FrameModelCacheCases()
@@ -967,6 +997,7 @@ private class FrameModelCacheCases {
         runIsolated { s -> s.`corrupt remote file is rejected and leaves no partial copy`() }
         runIsolated { s -> s.`throwing opener counts as missing`() }
         runIsolated { s -> s.concurrentPlaybackProcessesPublishTheirOwnTemporaryFilesAndReuseACompleteCache() }
+        runIsolated { s -> s.`provider fallback materializes and verifies when remote opener is unavailable`() }
     }
 }
 
@@ -999,18 +1030,31 @@ private class FramePendingTakeoversCases {
 
     fun delayedMediaKeepsAdmissionOpenWithCappedProbesOnlyForMissingEvidence() {
         val attempt = FramePlaybackRoutes.Attempt()
-        val delays = List(32) {
-            assertTrue(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_AUDIO_PATH))
+        val reasons = listOf(
+            FrameMediaPolicy.Reason.UNKNOWN_AUDIO_PATH,
+            FrameMediaPolicy.Reason.UNKNOWN_COLOR,
+            FrameMediaPolicy.Reason.UNKNOWN_BIT_DEPTH
+        )
+        val delays = List(FramePlaybackRoutes.MAX_MEDIA_WAIT_ATTEMPTS) { index ->
+            assertTrue(attempt.waitForMedia(reasons[index % reasons.size]))
             attempt.mediaRetryDelayMs
         }
         assertEquals(150L, delays.first())
         assertEquals(3_000L, delays.last())
         assertTrue(delays.zipWithNext().all { (previous, next) -> next in previous..3_000L })
-        assertTrue(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_COLOR))
-        assertTrue(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_BIT_DEPTH))
-        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.HDR_PQ))
-        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.PROTECTED_CONTENT))
-        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.READY))
+        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_AUDIO_PATH))
+        assertFalse(attempt.waitForMedia(FrameMediaPolicy.Reason.UNKNOWN_COLOR))
+
+        val fresh = FramePlaybackRoutes.Attempt()
+        assertFalse(fresh.waitForMedia(FrameMediaPolicy.Reason.HDR_PQ))
+        assertFalse(fresh.waitForMedia(FrameMediaPolicy.Reason.PROTECTED_CONTENT))
+        assertFalse(fresh.waitForMedia(FrameMediaPolicy.Reason.READY))
+
+        fresh.limitDisplayHz(90f)
+        fresh.limitDisplayHz(60f)
+        assertEquals(60f, fresh.displayLimitHz)
+        fresh.resetDisplayLimit()
+        assertNull(fresh.displayLimitHz)
     }
 
     fun pendingRifeModelDoesNotHoldOtherQcomCandidates() {

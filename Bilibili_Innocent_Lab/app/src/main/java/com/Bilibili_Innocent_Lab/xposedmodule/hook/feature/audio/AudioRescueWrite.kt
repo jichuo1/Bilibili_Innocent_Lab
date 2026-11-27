@@ -21,19 +21,16 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         internal var postCheckpoint: DoubleArray?,
         internal val samplesPerUnit: Double
     )
-    private class Continuation(
-        val remainingInput: FloatArray,
-        val remainingOutput: FloatArray,
-        val postCheckpoint: DoubleArray
-    )
-
     private var reusableInput: FloatArray? = null
     private var reusableOutput: FloatArray? = null
     private var reusableShorts: ShortArray? = null
     private var reusableBytes: ByteArray? = null
     private var reusableBytesWrapper: ByteBuffer? = null
     private var reusableBuffer: ByteBuffer? = null
-    private var continuation: Continuation? = null
+    private var reusableContinuationInput: FloatArray? = null
+    private var reusableContinuationOutput: FloatArray? = null
+    private var continuationSamples = 0
+    private var continuationPostCheckpoint: DoubleArray? = null
     private val checkpointPool = arrayOfNulls<DoubleArray>(3)
 
     fun prepare(data: Any?, offset: Int, count: Int): Pending? {
@@ -46,10 +43,9 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
         when (data) {
             is ByteArray -> {
                 if (encoding == 4 || offset > data.size - count || count % (bytesPerSample * processor.channelCount) != 0) return null
-                val buffer = ByteBuffer.wrap(data, offset, count).slice().order(ByteOrder.nativeOrder())
                 sampleCount = count / bytesPerSample
                 input = acquireInput(sampleCount)
-                decodeInto(buffer, input, sampleCount)
+                decodeByteArrayInto(data, offset, input, sampleCount)
                 units = 1.0 / bytesPerSample
             }
             is ShortArray -> {
@@ -76,17 +72,26 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
             }
             else -> return null
         }
-        val cached = continuation
-        continuation = null
-        val checkpoint = acquireCheckpoint(exclude1 = cached?.postCheckpoint).also(processor::checkpointInto)
+        val activeContinuation = continuationPostCheckpoint
+        val activeContinuationSamples = continuationSamples
+        val activeContinuationInput = reusableContinuationInput
+        val activeContinuationOutput = reusableContinuationOutput
+        continuationPostCheckpoint = null
+        continuationSamples = 0
+        val checkpoint = acquireCheckpoint(exclude1 = activeContinuation).also(processor::checkpointInto)
         val output = acquireOutput(sampleCount)
         val postCheckpoint: DoubleArray?
-        if (cached != null && arraysEqualPrefix(input, sampleCount, cached.remainingInput)) {
-            cached.remainingOutput.copyInto(output)
-            processor.restore(cached.postCheckpoint)
-            postCheckpoint = cached.postCheckpoint
+        if (activeContinuation != null &&
+            activeContinuationSamples == sampleCount &&
+            activeContinuationInput != null &&
+            activeContinuationOutput != null &&
+            arraysEqualPrefix(input, sampleCount, activeContinuationInput)
+        ) {
+            System.arraycopy(activeContinuationOutput, 0, output, 0, sampleCount)
+            processor.restore(activeContinuation)
+            postCheckpoint = activeContinuation
         } else {
-            input.copyInto(output, 0, 0, sampleCount)
+            System.arraycopy(input, 0, output, 0, sampleCount)
             try {
                 processor.process(output)
             } catch (failure: Throwable) {
@@ -141,17 +146,23 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
             }
             processor.restore(pending.checkpoint)
             processor.process(pending.input, frames)
-            continuation = if (continuationCheckpoint != null) {
-                Continuation(
-                    remainingInput = pending.input.copyOfRange(alignedSamples, pending.sampleCount),
-                    remainingOutput = pending.output.copyOfRange(alignedSamples, pending.output.size),
-                    postCheckpoint = continuationCheckpoint
-                )
+            if (continuationCheckpoint != null) {
+                val remaining = pending.sampleCount - alignedSamples
+                val targetInput = reusableContinuationInput?.takeIf { it.size >= remaining }
+                    ?: FloatArray(remaining).also { reusableContinuationInput = it }
+                val targetOutput = reusableContinuationOutput?.takeIf { it.size >= remaining }
+                    ?: FloatArray(remaining).also { reusableContinuationOutput = it }
+                System.arraycopy(pending.input, alignedSamples, targetInput, 0, remaining)
+                System.arraycopy(pending.output, alignedSamples, targetOutput, 0, remaining)
+                continuationSamples = remaining
+                continuationPostCheckpoint = continuationCheckpoint
             } else {
-                null
+                continuationSamples = 0
+                continuationPostCheckpoint = null
             }
         } else {
-            continuation = null
+            continuationSamples = 0
+            continuationPostCheckpoint = null
         }
         if (valid) {
             pending.originalBuffer?.let { buffer ->
@@ -220,11 +231,31 @@ internal class AudioRescueWrite(private val processor: AudioRescueProcessor, pri
     }
 
     private fun arraysEqualPrefix(a: FloatArray, count: Int, b: FloatArray): Boolean {
-        if (b.size != count) return false
+        if (b.size < count) return false
         for (i in 0 until count) {
             if (a[i] != b[i]) return false
         }
         return true
+    }
+
+    private fun decodeByteArrayInto(data: ByteArray, offset: Int, target: FloatArray, size: Int) {
+        if (encoding == 3) {
+            for (i in 0 until size) {
+                target[i] = ((data[offset + i].toInt() and 0xFF) - 128) / 128f
+            }
+            return
+        }
+        val littleEndian = ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN
+        var at = offset
+        for (i in 0 until size) {
+            val sampleBits = if (littleEndian) {
+                (data[at].toInt() and 0xFF) or (data[at + 1].toInt() shl 8)
+            } else {
+                (data[at].toInt() shl 8) or (data[at + 1].toInt() and 0xFF)
+            }
+            target[i] = sampleBits.toShort() / 32768f
+            at += 2
+        }
     }
 
     private fun acquireInput(size: Int): FloatArray =

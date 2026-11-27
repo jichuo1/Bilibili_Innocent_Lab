@@ -280,6 +280,90 @@ class DanmakuWireTest {
             )
         )
     }
+
+    @Test
+    fun duplicateColorfulIsZeroedAcrossAllOccurrencesAndPreservesUnknownFields() {
+        val elemPayload = DanmakuWire.ByteArrayOutput().also {
+            writeBytesField(it, 99, "raw-ext".toByteArray())
+            writeVarintField(it, fields.colorfulField, 60001L)
+            writeVarintField(it, fields.weightField, 7L)
+            writeVarintField(it, fields.colorfulField, 60002L)
+        }.toByteArray()
+        val elemTop = DanmakuWire.ByteArrayOutput().also {
+            writeBytesField(it, fields.elemsField, elemPayload)
+        }.toByteArray()
+        val reply = concat(unknownTop(), elemTop)
+
+        val scan = DanmakuWire.scan(reply, fields)!!
+        assertEquals(1, scan.elems.size)
+        assertEquals(7, scan.elems[0].weight)
+        assertEquals(60002, scan.elems[0].colorful)
+
+        val unchanged = DanmakuWire.rewrite(
+            reply, fields, booleanArrayOf(true), booleanArrayOf(false), BooleanArray(0)
+        )!!
+        assertArrayEquals(reply, unchanged)
+
+        val rewritten = DanmakuWire.rewrite(
+            reply, fields, booleanArrayOf(true), booleanArrayOf(true), BooleanArray(0)
+        )!!
+        val rescan = DanmakuWire.scan(rewritten, fields)!!
+        assertEquals(1, rescan.elems.size)
+        assertEquals(7, rescan.elems[0].weight)
+        assertEquals(0, rescan.elems[0].colorful)
+
+        val innerMarker = "raw-ext".toByteArray()
+        val topMarker = byteArrayOf(0xde.toByte(), 0xad.toByte(), 0xbe.toByte(), 0xef.toByte())
+        fun containsBytes(haystack: ByteArray, needle: ByteArray): Boolean =
+            (0..haystack.size - needle.size).any { i ->
+                haystack.copyOfRange(i, i + needle.size).contentEquals(needle)
+            }
+        assertTrue(containsBytes(rewritten, innerMarker))
+        assertTrue(containsBytes(rewritten, topMarker))
+    }
+
+    @Test
+    fun nativePanicMarksUntrustedAndAvoidsFurtherNativeCalls() {
+        try {
+            DanmakuWireNative.setAvailableForTest(true)
+            var invocations = 0
+            // Non-panic decline keeps native trusted.
+            val declined = DanmakuWireNative.scanWith(
+                ByteArray(0),
+                fields,
+                invokeScan = { _, _ -> invocations++; null },
+                hasPanicked = { false },
+            )
+            assertNull(declined)
+            assertTrue(DanmakuWireNative.isAvailable)
+            assertEquals(1, invocations)
+
+            // DW_ERR_PANIC signal sets untrusted immediately and skips retries.
+            val panicked = DanmakuWireNative.rewriteWith(
+                ByteArray(0),
+                fields,
+                BooleanArray(0),
+                BooleanArray(0),
+                BooleanArray(0),
+                invokeRewrite = { _, _, _, _, _ -> invocations++; null },
+                hasPanicked = { true },
+            )
+            assertNull(panicked)
+            assertFalse(DanmakuWireNative.isAvailable)
+            assertEquals(2, invocations)
+
+            val skipped = DanmakuWireNative.scanWith(
+                ByteArray(0),
+                fields,
+                invokeScan = { _, _ -> invocations++; IntArray(0) },
+                hasPanicked = { false },
+            )
+            assertNull(skipped)
+            assertEquals(2, invocations)
+        } finally {
+            DanmakuWireNative.resetForTest()
+        }
+    }
 }
 
 /** 探针 + 端到端自检：在带真实 wire 编解码的 fixture 上过全链路（含宿主 parseFrom 核条数）。 */

@@ -80,8 +80,11 @@ internal class FrameInterpolationFeatureInstaller(
     private val displayProbes = WeakHashMap<Activity, AutoCloseable>()
     /** 已接管解码器的 configure 参数：实测系统刷新低于目标时按新上限重新接管。 */
     private val configured = Collections.synchronizedMap(WeakHashMap<MediaCodec, PendingDecoder>())
-    /** 本进程实测到的系统实际刷新上限（帧率上限自适应）；null 表示未发现限制。 */
+    /** 本进程实测到的系统实际刷新上限（帧率上限自适应）；会随新视频会话与显示模式变化重置，null 表示未发现限制。 */
     @Volatile private var displayLimit: Float? = null
+    private val displayListenerRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastObservedModeId: Int? = null
+    @Volatile private var lastObservedRefreshHz: Float = 0f
 
     /** Explicit debug opt-in, shared by the UI and dedicated decoder processes. */
     private fun verificationTarget(): Int? {
@@ -160,6 +163,7 @@ internal class FrameInterpolationFeatureInstaller(
                         }
                         window.attributes = attributes
                         if (android.os.Build.VERSION.SDK_INT >= 35) window.decorView.requestedFrameRate = target.toFloat()
+                        resetDisplayLimit("display.resume")
                         displayProbes.remove(activity)?.let { runCatching { it.close() } }
                         if (verificationAllowed) runCatching {
                             Class.forName("com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameHostDisplayProbe",
@@ -336,8 +340,9 @@ internal class FrameInterpolationFeatureInstaller(
                             previous = bridges.remove(codec); pending.remove(codec); configured.remove(codec)
                         }
                         previous?.let { audioDelayUs = 0L; it.close() }
+                        resetDisplayLimit("configure")
                         setObjectExtra(CONFIGURE_TICKET, ticket)
-                        val decoder = PendingDecoder(format, display, argOrNull(cryptoIndex), ticket)
+                        val decoder = PendingDecoder(format, display, argOrNull(cryptoIndex), ticket, configureFlags = flags)
                         decoderGeneration.commit(codec, ticket) { configured[codec] = decoder }
                     } catch (failure: Throwable) {
                         inConfigure.leave()
@@ -426,7 +431,7 @@ internal class FrameInterpolationFeatureInstaller(
         return FeatureInstallResult.Installed(hooks, complete = complete)
     }
 
-    /** ijk 经 J4A 用旧式 6 参构造创建 PCM 输出；现代播放器走 AudioAttributes 5 参构造，均纳入音画补偿。 */
+    /** ijk 经 J4A 用旧式 6 参构造创建 PCM 输出；现代播放器走 AudioAttributes 5 参构造或 AudioTrack.Builder.build()，均纳入音画补偿。 */
     private fun installAudio(registrar: com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar) {
         val int = Int::class.javaPrimitiveType!!
         val constructor = AudioTrack::class.java.getConstructor(int, int, int, int, int, int)
@@ -434,11 +439,10 @@ internal class FrameInterpolationFeatureInstaller(
             after {
                 if (hasThrowable) return@after
                 val track = instance as? AudioTrack ?: return@after
-                val bytes = when (argOrNull(3) as? Int) { 2 -> 2; 3 -> 1; 4 -> 4; else -> return@after }
+                val encoding = (argOrNull(3) as? Int) ?: return@after
                 val channels = Integer.bitCount((argOrNull(2) as? Int) ?: return@after)
                 val rate = (argOrNull(1) as? Int) ?: return@after
-                runCatching { FrameAudioDelay(rate, channels, bytes) }.getOrNull()?.let { audioTracks[track] = it }
-                audioRates[track] = rate
+                registerAudioTrackIfAbsent(track, rate, channels, encoding)
             }
         }
         runCatching {
@@ -453,19 +457,54 @@ internal class FrameInterpolationFeatureInstaller(
                     val track = instance as? AudioTrack ?: return@after
                     val attributes = argOrNull(0) as? android.media.AudioAttributes ?: return@after
                     val format = argOrNull(1) as? android.media.AudioFormat ?: return@after
-                    if (attributes.usage != android.media.AudioAttributes.USAGE_MEDIA) return@after
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
-                        track.isOffloadedPlayback) {
-                        return@after
-                    }
-                    val bytes = when (format.encoding) { 2 -> 2; 3 -> 1; 4 -> 4; else -> return@after }
-                    val channels = format.channelCount.takeIf { it in 1..2 } ?: return@after
-                    val rate = format.sampleRate.takeIf { it > 0 } ?: return@after
-                    runCatching { FrameAudioDelay(rate, channels, bytes) }.getOrNull()?.let { audioTracks[track] = it }
-                    audioRates[track] = rate
+                    val offloaded = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
+                        track.isOffloadedPlayback
+                    @Suppress("DEPRECATION")
+                    val streamType = track.streamType
+                    if (!canRegisterAudioTrack(
+                            initialized = track.state == AudioTrack.STATE_INITIALIZED,
+                            offloaded = offloaded,
+                            usage = attributes.usage,
+                            streamType = streamType,
+                            encoding = format.encoding,
+                            channels = format.channelCount,
+                            sampleRate = format.sampleRate
+                        )
+                    ) return@after
+                    registerAudioTrackIfAbsent(track, format.sampleRate, format.channelCount, format.encoding)
                 }
             }
         }.onFailure { log("hook.missing", "audio.ctor.attrs") }
+        runCatching {
+            registrar.exact("$ID.audio.builder", AudioTrack.Builder::class.java, "build") {
+                after {
+                    if (hasThrowable) return@after
+                    val track = result as? AudioTrack ?: return@after
+                    val offloaded = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
+                        track.isOffloadedPlayback
+                    val usage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        runCatching { track.audioAttributes.usage }.getOrNull()
+                    } else null
+                    @Suppress("DEPRECATION")
+                    val streamType = runCatching { track.streamType }.getOrDefault(android.media.AudioManager.STREAM_MUSIC)
+                    val format = runCatching { track.format }.getOrNull()
+                    val encoding = format?.encoding ?: track.audioFormat
+                    val channels = format?.channelCount ?: track.channelCount
+                    val rate = format?.sampleRate ?: track.sampleRate
+                    if (!canRegisterAudioTrack(
+                            initialized = track.state == AudioTrack.STATE_INITIALIZED,
+                            offloaded = offloaded,
+                            usage = usage,
+                            streamType = streamType,
+                            encoding = encoding,
+                            channels = channels,
+                            sampleRate = rate
+                        )
+                    ) return@after
+                    registerAudioTrackIfAbsent(track, rate, channels, encoding)
+                }
+            }
+        }.onFailure { log("hook.missing", "audio.builder") }
         installAudioClock(registrar)
         val bytes = ByteArray::class.java
         for (parameters in listOf(arrayOf(bytes, int, int), arrayOf(bytes, int, int, int))) {
@@ -562,7 +601,8 @@ internal class FrameInterpolationFeatureInstaller(
 
     private class PendingDecoder(val format: MediaFormat, val display: Surface, val crypto: Any?,
                                  val ticket: FrameDecoderGeneration.Ticket,
-                                 val attempt: FramePlaybackRoutes.Attempt = FramePlaybackRoutes.Attempt()) {
+                                 val attempt: FramePlaybackRoutes.Attempt = FramePlaybackRoutes.Attempt(),
+                                 val configureFlags: Int = 0) {
         @Volatile var started = false
         @Volatile var waitingForRife = false
         // Access under decoderGeneration's lock, including module-owned setOutputSurface calls.
@@ -613,10 +653,12 @@ internal class FrameInterpolationFeatureInstaller(
             val host = object : FrameCaptureBridge.Host by bridgeHost {
                 override fun onDisplayLimited(codec: MediaCodec, hz: Float) {
                     if (!ticket.isActive()) return
+                    decoder.attempt.limitDisplayHz(hz)
                     displayLimit = minOf(displayLimit ?: hz, hz)
                     reattach(codec, ticket, "limit=${hz.toInt()}Hz")
                 }
                 override fun onRebuild(codec: MediaCodec) = reattach(codec, ticket, "overload")
+                override fun displayLimitHz(): Float? = decoder.attempt.displayLimitHz ?: displayLimit
                 override fun setAudioDelayUs(delayUs: Long) {
                     if (ticket.isActive()) bridgeHost.setAudioDelayUs(delayUs)
                 }
@@ -628,6 +670,7 @@ internal class FrameInterpolationFeatureInstaller(
                 routes.attach(codec, decoder.format, decoder.display, decoder.crypto, host, decoder.attempt,
                     requestedTargetFps = verificationTarget(), isCurrent = ticket::isActive,
                     attach = { surface -> weakCodec.get()?.let { changeOutput(it, ticket, surface) } == true },
+                    configureFlags = decoder.configureFlags,
                     onWindowFailed = { backend -> weakCodec.get()?.let { reattach(it, ticket, "$backend-failed") } })
             } catch (failure: Exception) {
                 log("route.error", failure.javaClass.simpleName)
@@ -681,7 +724,8 @@ internal class FrameInterpolationFeatureInstaller(
                 old = bridges.remove(codec)
                 configured.remove(codec)
                 if (!overlapping && (playerProcess || mainSurfaces.contains(surface))) {
-                    val decoder = PendingDecoder(previous.format, surface, previous.crypto, ticket)
+                    val decoder = PendingDecoder(previous.format, surface, previous.crypto, ticket,
+                        configureFlags = previous.configureFlags)
                     decoder.started = previous.started
                     configured[codec] = decoder
                     if (decoder.started) awaitEngine(codec, decoder)
@@ -706,7 +750,8 @@ internal class FrameInterpolationFeatureInstaller(
     private fun reattach(codec: MediaCodec, ticket: FrameDecoderGeneration.Ticket, reason: String) {
         val previous = configured[codec]?.takeIf { it.ticket === ticket } ?: return
         decoderGeneration.replace(codec, ticket) { next ->
-            val replacement = PendingDecoder(previous.format, previous.display, previous.crypto, next, previous.attempt)
+            val replacement = PendingDecoder(previous.format, previous.display, previous.crypto, next,
+                previous.attempt, previous.configureFlags)
             replacement.started = true
             configured[codec] = replacement
             bridges.remove(codec)
@@ -756,6 +801,7 @@ internal class FrameInterpolationFeatureInstaller(
         synchronized(this) {
             if (active != null) return
             val host = ReflectAccess.currentApplication() ?: run { log("activate.wait", "application"); return }
+            ensureDisplayModeListener(host)
             val external = if (verificationAllowed) host.getExternalFilesDir(null) else null
             val verifying = verificationAllowed && external != null && File(external, "$VERIFY_DIR/enable").isFile
             val decided = enabled || verifying
@@ -902,6 +948,71 @@ internal class FrameInterpolationFeatureInstaller(
         return FeatureInstallResult.Skipped(reason)
     }
 
+    private fun registerAudioTrackIfAbsent(track: AudioTrack, rate: Int, channels: Int, encoding: Int) {
+        val bytes = when (encoding) {
+            2 -> 2
+            3 -> 1
+            4 -> 4
+            else -> return
+        }
+        if (channels !in 1..2 || rate <= 0) return
+        synchronized(audioTracks) {
+            if (!audioTracks.containsKey(track)) {
+                runCatching { FrameAudioDelay(rate, channels, bytes) }.getOrNull()?.let { audioTracks[track] = it }
+            }
+        }
+        synchronized(audioRates) {
+            if (!audioRates.containsKey(track)) audioRates[track] = rate
+        }
+    }
+
+    private fun resetDisplayLimit(reason: String) {
+        val previous = displayLimit
+        displayLimit = null
+        var clearedActive = false
+        synchronized(configured) {
+            for (decoder in configured.values) {
+                if (decoder.attempt.displayLimitHz != null) clearedActive = true
+                decoder.attempt.resetDisplayLimit()
+            }
+        }
+        if (previous != null || clearedActive) {
+            log("display.limit-reset", "reason=$reason prev=$previous")
+        }
+    }
+
+    private fun ensureDisplayModeListener(context: android.content.Context) {
+        if (!displayListenerRegistered.compareAndSet(false, true)) return
+        runCatching {
+            val manager = context.getSystemService(android.hardware.display.DisplayManager::class.java)
+                ?: return@runCatching
+            manager.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.mode?.let { mode ->
+                lastObservedModeId = mode.modeId
+                lastObservedRefreshHz = mode.refreshRate
+            }
+            val listener = object : android.hardware.display.DisplayManager.DisplayListener {
+                override fun onDisplayAdded(displayId: Int) = Unit
+                override fun onDisplayRemoved(displayId: Int) = Unit
+                override fun onDisplayChanged(displayId: Int) {
+                    if (displayId != android.view.Display.DEFAULT_DISPLAY) return
+                    val mode = runCatching {
+                        manager.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.mode
+                    }.getOrNull() ?: return
+                    val prevModeId = lastObservedModeId
+                    val prevHz = lastObservedRefreshHz
+                    if (prevModeId != mode.modeId || kotlin.math.abs(prevHz - mode.refreshRate) > 0.5f) {
+                        lastObservedModeId = mode.modeId
+                        lastObservedRefreshHz = mode.refreshRate
+                        resetDisplayLimit("display.mode:${mode.modeId}:${mode.refreshRate.toInt()}Hz")
+                    }
+                }
+            }
+            manager.registerDisplayListener(listener, android.os.Handler(android.os.Looper.getMainLooper()))
+        }.onFailure {
+            displayListenerRegistered.set(false)
+        }
+    }
+
     /** Releases the idle RIFE engine when no interpolation session is active. */
     internal fun releaseIfIdle(): Boolean = routes?.rife?.releaseIfIdle() == true
 
@@ -929,6 +1040,28 @@ internal class FrameInterpolationFeatureInstaller(
         private const val STOP_BRIDGE = "innocent.frame.stop.bridge"
         private const val DROPPED = "innocent.frame.audio.dropped"
         private const val STATUS_REPEAT_NS = 4_000_000_000L
+
+        internal fun canRegisterAudioTrack(
+            initialized: Boolean,
+            offloaded: Boolean,
+            usage: Int?,
+            streamType: Int,
+            encoding: Int,
+            channels: Int,
+            sampleRate: Int
+        ): Boolean {
+            if (!initialized || offloaded) return false
+            val usageAllowed = if (usage != null) {
+                usage == android.media.AudioAttributes.USAGE_MEDIA ||
+                    usage == android.media.AudioAttributes.USAGE_UNKNOWN
+            } else {
+                streamType == android.media.AudioManager.STREAM_MUSIC
+            }
+            if (!usageAllowed) return false
+            if (encoding !in setOf(2, 3, 4)) return false
+            if (channels !in 1..2 || sampleRate <= 0) return false
+            return true
+        }
 
         internal fun selectPreferredDisplayModeId(
             modes: List<DisplayModeCandidate>,

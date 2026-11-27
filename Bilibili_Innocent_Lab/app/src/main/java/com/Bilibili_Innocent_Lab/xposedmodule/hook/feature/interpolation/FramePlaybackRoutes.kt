@@ -52,15 +52,29 @@ internal class FramePlaybackRoutes(
             internal set
         @Volatile var rifeAhbTried = false
             private set
+        @Volatile var displayLimitHz: Float? = null
+            internal set
         private var consecutiveQcomResizes = 0
-        var mediaRetryDelayMs = 0L
+        private var mediaWaitAttempts = 0
+        @Volatile var mediaRetryDelayMs = 0L
             private set
 
-        fun waitForMedia(reason: FrameMediaPolicy.Reason): Boolean {
-            if (reason !in WAITABLE) return false
+        @Synchronized fun waitForMedia(reason: FrameMediaPolicy.Reason): Boolean {
+            if (reason !in WAITABLE || mediaWaitAttempts >= MAX_MEDIA_WAIT_ATTEMPTS) return false
+            mediaWaitAttempts++
             // Preloaded or paused decoders can expose their first output/PCM track much later.
             mediaRetryDelayMs = (mediaRetryDelayMs * 2).coerceIn(150L, 3_000L)
             return true
+        }
+
+        @Synchronized fun limitDisplayHz(hz: Float) {
+            if (hz.isFinite() && hz > 0f) {
+                displayLimitHz = minOf(displayLimitHz ?: hz, hz)
+            }
+        }
+
+        @Synchronized fun resetDisplayLimit() {
+            displayLimitHz = null
         }
 
         /**
@@ -93,14 +107,11 @@ internal class FramePlaybackRoutes(
 
     fun attach(codec: MediaCodec, format: MediaFormat, display: Surface, crypto: Any?, host: FrameCaptureBridge.Host,
                attempt: Attempt, requestedTargetFps: Int? = null, isCurrent: () -> Boolean,
-               attach: (Surface) -> Boolean, onWindowFailed: (String) -> Unit): Result {
+               attach: (Surface) -> Boolean, configureFlags: Int = 0, onWindowFailed: (String) -> Unit): Result {
         if (!isCurrent() || crypto != null || !display.isValid) return Result.Original
         val width = runCatching { format.getInteger(MediaFormat.KEY_WIDTH) }.getOrNull() ?: return Result.Original
         val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull() ?: return Result.Original
-        if (width !in 1..4096 || height !in 1..4096 || width.toLong() * height > 4096L * 2160 ||
-            runCatching { codec.name.endsWith(".secure") }.getOrDefault(true) ||
-            runCatching { format.getFeatureEnabled("tunneled-playback") }.getOrDefault(false) ||
-            format.containsKey(MediaFormat.KEY_AUDIO_SESSION_ID)) return Result.Original
+        if (width !in 1..4096 || height !in 1..4096 || width.toLong() * height > 4096L * 2160) return Result.Original
 
         val configured = FrameCaptureBridge.values(format)
         val input = runCatching { FrameCaptureBridge.values(codec.inputFormat) }.getOrNull()
@@ -108,11 +119,24 @@ internal class FramePlaybackRoutes(
         val output = runCatching { FrameCaptureBridge.values(codec.outputFormat) }.getOrNull()
         val decoded = output?.fillFrom(source) ?: source
         val merged = source.fillFrom(decoded)
+        val isProtected = FrameHostMediaSignals.hasProtectedSignal(merged, configureFlags)
+        val isSecureDecoder = runCatching { codec.name.endsWith(".secure") }.getOrDefault(true) ||
+            FrameHostMediaSignals.hasSecureSignal(merged)
+        val isTunneled = FrameHostMediaSignals.hasTunneledSignal(merged)
+        if (isProtected || isSecureDecoder || isTunneled) {
+            host.log("route.native", "media=protected=$isProtected:secure=$isSecureDecoder:tunneled=$isTunneled")
+            host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.MEDIA))
+            return Result.Original
+        }
+        fun evidence(value: Boolean) = if (value) FrameMediaPolicy.Evidence.YES else FrameMediaPolicy.Evidence.NO
         val signal = FrameHostMediaSignals.signal(merged)
-        val decodedSignal = FrameHostMediaSignals.signal(decoded, 8)
+        val decodedSignal = FrameHostMediaSignals.signal(
+            decoded,
+            FrameHostMediaSignals.decodedBitDepth(output ?: FrameHostMediaSignals.Values(), source)
+        )
         val decision = FrameMediaPolicy.evaluate(FrameMediaPolicy.Snapshot(width, height, signal, decodedSignal,
-            FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8, FrameMediaPolicy.Evidence.NO, FrameMediaPolicy.Evidence.NO,
-            FrameMediaPolicy.Evidence.NO, host.audio()))
+            FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8, evidence(isProtected), evidence(isSecureDecoder),
+            evidence(isTunneled), host.audio()))
         if (!decision.eligible) {
             if (attempt.waitForMedia(decision.reason)) return Result.WaitForMedia
             host.log("route.native", "media=${decision.reason}")
@@ -134,7 +158,8 @@ internal class FramePlaybackRoutes(
             if (target != null && qcomColor && isCurrent()) {
                 val qcom = FrameQcomBridge.create(codec, display, width, height, fps, target, source, host, isCurrent,
                     attach, initialColorStandard = merged.colorStandard, initialStandard = signal.standard,
-                    bypassFrameBudget = strategy.bypassFrameBudget) { reason, hadMidpoint ->
+                    bypassFrameBudget = strategy.bypassFrameBudget,
+                    protectedContent = isProtected, secureDecoder = isSecureDecoder, tunneled = isTunneled) { reason, hadMidpoint ->
                     val retryQcom = attempt.retireQcom(reason, hadMidpoint, allowRifeFallback = strategy.allowsRife)
                     if (retryQcom) onWindowFailed("qcom-resize")
                     else if (strategy.allowsRife) onWindowFailed("qcom")
@@ -168,7 +193,8 @@ internal class FramePlaybackRoutes(
                         FrameRifeAhbBackend.open(rife, width, height, outputWidth, outputHeight, fps, target, signal.standard,
                             isCurrent, androidColorStandard = merged.colorStandard ?: decoded.colorStandard,
                             bypassFrameBudget = strategy.bypassFrameBudget)
-                    }, initialStandard = signal.standard, bypassFrameBudget = strategy.bypassFrameBudget) { _, _ -> onWindowFailed("rife-ahb") }
+                    }, initialStandard = signal.standard, bypassFrameBudget = strategy.bypassFrameBudget,
+                    protectedContent = isProtected, secureDecoder = isSecureDecoder, tunneled = isTunneled) { _, _ -> onWindowFailed("rife-ahb") }
                 if (window != null) {
                     if (window.awaitingRetirement) {
                         host.log("route.retiring", "rife-ahb")
@@ -193,7 +219,7 @@ internal class FramePlaybackRoutes(
             }
         }
         val fallback = FrameCaptureBridge.create(FrameCaptureBridge.Config(bypassFrameBudget = strategy.bypassFrameBudget),
-            codec, format, display, crypto, rife, host, requestedTargetFps, attach, isCurrent) ?: return Result.Original
+            codec, format, display, crypto, rife, host, requestedTargetFps, attach, isCurrent, configureFlags) ?: return Result.Original
         host.log("route.selected", "rife")
         return Result.Attached(fallback, "rife")
     }
@@ -204,6 +230,7 @@ internal class FramePlaybackRoutes(
         (rife.state == FrameInterpolationEngineHolder.State.FAILED && !rife.recoveryPending()))
 
     companion object {
+        internal const val MAX_MEDIA_WAIT_ATTEMPTS = 8
         private const val MAX_ZERO_MIDPOINT_RESIZES = 2
         private val SDR_WINDOW_STANDARDS = setOf(FrameMediaPolicy.Standard.BT601, FrameMediaPolicy.Standard.BT709)
         private val WAITABLE = setOf(FrameMediaPolicy.Reason.UNKNOWN_COLOR, FrameMediaPolicy.Reason.UNKNOWN_BIT_DEPTH,

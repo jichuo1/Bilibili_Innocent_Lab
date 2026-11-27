@@ -1,10 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio
 
-import android.os.Build
-import android.os.Process
 import dalvik.system.PathClassLoader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.*
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
 import java.io.File
 import java.io.InputStream
 import java.lang.reflect.Constructor
@@ -52,10 +51,29 @@ internal object AudioRescueModel {
         return true
     }
 
+    internal fun selectModelAbi(runtimeAbi: String?): String? = when (runtimeAbi) {
+        "arm64-v8a", "armeabi-v7a" -> runtimeAbi
+        else -> null
+    }
+
+    internal fun <T> withVerifiedThenLoad(
+        verify: ((ByteBuffer) -> Unit) -> Unit,
+        markLoading: () -> Unit,
+        load: (ByteBuffer) -> T
+    ): T {
+        var loaded: T? = null
+        verify { bytes ->
+            markLoading()
+            loaded = load(bytes)
+        }
+        @Suppress("UNCHECKED_CAST")
+        return loaded as T
+    }
+
     fun prepare(moduleApk: File, hostCodeCache: File, openRemote: (String) -> InputStream?, log: (String, String) -> Unit) {
         if (!started.compareAndSet(false, true)) return
-        val abi = if (Process.is64Bit()) "arm64-v8a" else "armeabi-v7a"
-        if (abi !in Build.SUPPORTED_ABIS) { state = "unsupported_abi"; log("player_audio_rescue.model.abi", state); return }
+        val abi = selectModelAbi(ModuleNativeLoader.runtimeAbi())
+        if (abi == null) { state = "unsupported_abi"; log("player_audio_rescue.model.abi", state); return }
         val worker = ScheduledThreadPoolExecutor(1) { Thread(it, "bil-audio-model").apply { isDaemon = true } }
             .apply { removeOnCancelPolicy = true }
         fun report(code: String, attempt: Int, detail: String = "") {
@@ -73,21 +91,25 @@ internal object AudioRescueModel {
                         openRemote(part.remoteName) ?: throw AudioAssetFailure("remote_missing", part.name)
                     }
                 }
-                loading = true
-                report("loading", number)
-                // ORT calls loadLibrary. Search the verified native directory using a private
-                // loader, without mutating host/framework loaders or invoking hidden APIs.
-                // Reuse a succeeded ModelLoader so re-prepare after releaseIfIdle never loads ORT JNI twice.
-                val constructor = cachedConstructor ?: run {
-                    val loader = cachedLoader ?: ModelLoader(moduleApk.canonicalPath, store.directory.canonicalPath,
-                        checkNotNull(AudioRescueModel::class.java.classLoader)).also { cachedLoader = it }
-                    val type = checkNotNull(Lookup.classOrNull(loader, MODEL_CLASS))
-                    checkNotNull(Lookup.constructorOrNull(type, ByteBuffer::class.java)).also { cachedConstructor = it }
-                }
-                AudioModelInput.withVerified(store.file(AudioAssetSpec.model)) { bytes ->
-                    unpublished = constructor.newInstance(bytes) as AudioSpeechModel
-                }
-                val result = checkNotNull(unpublished)
+                val result = withVerifiedThenLoad(
+                    verify = { consume -> AudioModelInput.withVerified(store.file(AudioAssetSpec.model), consume) },
+                    markLoading = {
+                        loading = true
+                        report("loading", number)
+                    },
+                    load = { bytes ->
+                        // ORT calls loadLibrary. Search the verified native directory using a private
+                        // loader, without mutating host/framework loaders or invoking hidden APIs.
+                        // Reuse a succeeded ModelLoader so re-prepare after releaseIfIdle never loads ORT JNI twice.
+                        val constructor = cachedConstructor ?: run {
+                            val loader = cachedLoader ?: ModelLoader(moduleApk.canonicalPath, store.directory.canonicalPath,
+                                checkNotNull(AudioRescueModel::class.java.classLoader)).also { cachedLoader = it }
+                            val type = checkNotNull(Lookup.classOrNull(loader, MODEL_CLASS))
+                            checkNotNull(Lookup.constructorOrNull(type, ByteBuffer::class.java)).also { cachedConstructor = it }
+                        }
+                        (constructor.newInstance(bytes) as AudioSpeechModel).also { unpublished = it }
+                    }
+                )
                 report("warming", number)
                 result.infer(FloatArray(514), arrayOf(FloatArray(16896), FloatArray(96), FloatArray(1056)))
                 val warm = AudioSpeechEnhancer(48000, 2, result)
@@ -106,10 +128,20 @@ internal object AudioRescueModel {
                 // Native initialisation may poison a classloader; retry preparation failures only.
                 val delay = AudioPreparationRetry.delay(number, loading)
                 if (delay != null) worker.schedule({ attempt(number + 1) }, delay, TimeUnit.MILLISECONDS)
-                else { report("fallback", number, "reason=$code restart_required=true"); worker.shutdown() }
+                else {
+                    if (!loading) started.set(false)
+                    report("fallback", number, "reason=$code restart_required=$loading")
+                    worker.shutdown()
+                }
             }
         }
-        worker.execute { attempt(0) }
+        try {
+            worker.execute { attempt(0) }
+        } catch (rejected: Throwable) {
+            started.set(false)
+            worker.shutdownNow()
+            throw rejected
+        }
     }
 
     private const val MODEL_CLASS = "com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.GtcrnSpeechModel"

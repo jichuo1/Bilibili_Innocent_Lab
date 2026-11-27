@@ -230,6 +230,97 @@ class FrameMediaPolicyTest {
         assertEquals(Reason.STALE_LEASE, gate.resolve(first, media()).decision.reason)
     }
 
+    fun `KEY_CODECS_STRING carries Dolby Vision and valid vp9 without dropping codec signals`() {
+        val dvValues = FrameHostMediaSignals.Values(
+            mime = "video/hevc", colorStandard = 1, colorTransfer = 3, colorRange = 2, profile = 1,
+            codecs = "dvhe.05.06"
+        )
+        val dvSignal = FrameHostMediaSignals.signal(dvValues)
+        assertEquals("dvhe.05.06", dvSignal.codecs)
+        assertEquals(Reason.DOLBY_VISION, reason(media().copy(source = dvSignal)))
+
+        val vp9Values = FrameHostMediaSignals.Values(
+            mime = "video/x-vnd.on2.vp9", colorStandard = 1, colorTransfer = 3, colorRange = 2, profile = 1,
+            codecs = "vp9"
+        )
+        val vp9Signal = FrameHostMediaSignals.signal(vp9Values)
+        assertEquals("vp9", vp9Signal.codecs)
+        assertEquals(Reason.READY, reason(media().copy(source = vp9Signal, decoded = vp9Signal)))
+    }
+
+    fun `COLOR_FormatYUVP010 and 10-bit formats stop decodedBitDepth from defaulting to 8`() {
+        val source = FrameHostMediaSignals.Values(
+            mime = "video/hevc", colorStandard = 1, colorTransfer = 3, colorRange = 2, profile = 1
+        )
+        val p010 = source.copy(colorFormat = 54)
+        val abgr2101010 = source.copy(colorFormat = 0x7F00AAA0)
+        assertEquals(10, FrameHostMediaSignals.decodedBitDepth(p010, source))
+        assertEquals(10, FrameHostMediaSignals.decodedBitDepth(abgr2101010, source))
+        assertEquals(10, FrameHostMediaSignals.signal(p010).bitDepth)
+        assertEquals(
+            Reason.UNSUPPORTED_BIT_DEPTH,
+            reason(media().copy(source = FrameHostMediaSignals.signal(source), decoded = FrameHostMediaSignals.signal(p010)))
+        )
+
+        val elig = FrameQcomBridge.evaluateRuntimeEligibility(
+            mode = FrameStatus.Backend.QCOM,
+            sourceWidth = 1920,
+            sourceHeight = 1080,
+            configuredSource = source,
+            input = null,
+            output = p010,
+            audio = Audio("audio/mp4a-latm", AudioOutput.PCM, Evidence.NO, Evidence.NO),
+            outputWidth = 1920,
+            outputHeight = 1080,
+            initialStandard = Standard.BT709
+        )
+        assertEquals(FrameQcomBridge.RuntimeEligibility.MediaRejected(Reason.UNSUPPORTED_BIT_DEPTH), elig)
+    }
+
+    fun `KEY_COLOR_TRANSFER_REQUEST overrides SDR when HDR transfer is requested`() {
+        val pqReq = FrameHostMediaSignals.Values(
+            mime = "video/hevc", colorStandard = 1, colorTransfer = 3, colorRange = 2, profile = 1,
+            colorTransferRequest = 6
+        )
+        val hlgReq = pqReq.copy(colorTransferRequest = 7)
+        val sdrReq = pqReq.copy(colorTransferRequest = 3)
+        assertEquals(Transfer.PQ, FrameHostMediaSignals.signal(pqReq).transfer)
+        assertEquals(Transfer.HLG, FrameHostMediaSignals.signal(hlgReq).transfer)
+        assertEquals(Transfer.SDR, FrameHostMediaSignals.signal(sdrReq).transfer)
+        assertEquals(Reason.HDR_PQ, reason(media().copy(source = FrameHostMediaSignals.signal(pqReq))))
+        assertEquals(Reason.HDR_HLG, reason(media().copy(source = FrameHostMediaSignals.signal(hlgReq))))
+    }
+
+    fun `FEATURE_SecurePlayback, tunneled playback and CRYPTO_ASYNC propagate to runtime eligibility`() {
+        val base = FrameHostMediaSignals.Values(
+            mime = "video/avc", colorStandard = 1, colorTransfer = 3, colorRange = 2
+        )
+        assertTrue(FrameHostMediaSignals.isCryptoAsyncFlag(FrameHostMediaSignals.CRYPTO_ASYNC_FLAG))
+        assertTrue(FrameHostMediaSignals.hasProtectedSignal(base, FrameHostMediaSignals.CRYPTO_ASYNC_FLAG))
+        assertTrue(FrameHostMediaSignals.hasProtectedSignal(base.copy(cryptoAsync = true)))
+        assertTrue(FrameHostMediaSignals.hasSecureSignal(base.copy(securePlayback = true)))
+        assertTrue(FrameHostMediaSignals.hasTunneledSignal(base.copy(tunneledPlayback = true)))
+
+        val audio = Audio("audio/mp4a-latm", AudioOutput.PCM, Evidence.NO, Evidence.NO)
+        val sec = FrameQcomBridge.evaluateRuntimeEligibility(
+            FrameStatus.Backend.QCOM, 1920, 1080, base, null, base, audio, 1920, 1080, Standard.BT709,
+            secureDecoder = true
+        )
+        assertEquals(FrameQcomBridge.RuntimeEligibility.MediaRejected(Reason.SECURE_DECODER), sec)
+
+        val tun = FrameQcomBridge.evaluateRuntimeEligibility(
+            FrameStatus.Backend.RIFE, 1920, 1080, base, null, base, audio, 1920, 1080, Standard.BT709,
+            tunneled = true
+        )
+        assertEquals(FrameQcomBridge.RuntimeEligibility.MediaRejected(Reason.VIDEO_TUNNELED), tun)
+
+        val prot = FrameQcomBridge.evaluateRuntimeEligibility(
+            FrameStatus.Backend.QCOM, 1920, 1080, base, null, base, audio, 1920, 1080, Standard.BT709,
+            protectedContent = true
+        )
+        assertEquals(FrameQcomBridge.RuntimeEligibility.MediaRejected(Reason.PROTECTED_CONTENT), prot)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (FrameMediaPolicyTest) -> Unit) {
@@ -253,6 +344,10 @@ class FrameMediaPolicyTest {
         runIsolated { s -> s.`stale close and foreign gate permits cannot revoke the current format`() }
         runIsolated { s -> s.`late old format result cannot mint a new permit after an HDR observation`() }
         runIsolated { s -> s.`a single format observation cannot resolve twice even with identical epoch values`() }
+        runIsolated { s -> s.`KEY_CODECS_STRING carries Dolby Vision and valid vp9 without dropping codec signals`() }
+        runIsolated { s -> s.`COLOR_FormatYUVP010 and 10-bit formats stop decodedBitDepth from defaulting to 8`() }
+        runIsolated { s -> s.`KEY_COLOR_TRANSFER_REQUEST overrides SDR when HDR transfer is requested`() }
+        runIsolated { s -> s.`FEATURE_SecurePlayback, tunneled playback and CRYPTO_ASYNC propagate to runtime eligibility`() }
     
         FramePipelinePressureCases().`150 and 200 ms pipelines fit the bounded pool with pulldown and inference jitter`()
         FramePlayerClockProbeCases().verifyAllCases()

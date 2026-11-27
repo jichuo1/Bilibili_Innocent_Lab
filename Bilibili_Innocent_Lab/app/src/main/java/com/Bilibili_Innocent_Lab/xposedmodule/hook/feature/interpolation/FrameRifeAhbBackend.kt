@@ -132,7 +132,7 @@ internal object FrameRifeAhbBackend {
                         transferred = FrameGenerationSession.openQualified(profile, fresh, live, null)
                         if (transferred != null) {
                             (context ?: ReflectAccess.currentApplication())?.let { appContext ->
-                                runCatching { live.setAdpfExperimentEnabled(appContext, targetFrameNanos, true) }
+                                runCatching { live.setAdpfExperimentEnabled(appContext, period, true) }
                             }
                             owned = null
                             holder.reportWindowProbe("selected path=${fresh.rifePath} size=${fresh.rifeWidth}x${fresh.rifeHeight} flow=${fresh.flowScale} p95Ns=${fresh.pairToDrawP95Ns}")
