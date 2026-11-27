@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.*
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsDecision
 import org.json.JSONArray
@@ -36,6 +38,50 @@ class HostAdmissionContractTest {
         assertNotEquals(RemoteHookConfigContract.contentFingerprint(a),RemoteHookConfigContract.contentFingerprint(denied))
     }
 
+    fun staleProtocolDetectionAllowsDirectFallbackWithoutAcceptingTamperedConfigs() {
+        val currentRaw = document()
+        assertFalse(HookEntry.isStaleRemoteProtocol(currentRaw))
+        assertTrue(HookEntry.isStaleRemoteProtocol(currentRaw + (RemoteHookConfigContract.KEY_SCHEMA_VERSION to 4)))
+        if (BuildConfig.VERSION_CODE > 1) {
+            assertTrue(HookEntry.isStaleRemoteProtocol(
+                currentRaw + (RemoteHookConfigContract.KEY_MODULE_VERSION_CODE to BuildConfig.VERSION_CODE.toLong() - 1L)
+            ))
+        }
+        if (SettingsCatalog.CATALOG_VERSION > 1) {
+            assertTrue(HookEntry.isStaleRemoteProtocol(
+                currentRaw + (RemoteHookConfigContract.KEY_CATALOG_VERSION to SettingsCatalog.CATALOG_VERSION - 1)
+            ))
+        }
+        // 伪造或超前版本号不能被误判成旧协议。
+        assertFalse(HookEntry.isStaleRemoteProtocol(
+            currentRaw + (RemoteHookConfigContract.KEY_SCHEMA_VERSION to RemoteHookConfigContract.SCHEMA_VERSION + 1)
+        ))
+        assertFalse(HookEntry.isStaleRemoteProtocol(
+            currentRaw + (RemoteHookConfigContract.KEY_MODULE_VERSION_CODE to BuildConfig.VERSION_CODE.toLong() + 1L)
+        ))
+        // remote_stale_protocol 仍禁止把过期 Remote Preferences 当作回退，而允许直达握手。
+        assertFalse(
+            HostAdmissionRouteClassifier.allowRemoteConfigFallback(
+                sawDenied = false,
+                normalFailure = "remote_stale_protocol",
+                authorized = true,
+                moduleVersionMatches = true,
+                generation = 1L
+            )
+        )
+        assertEquals(
+            HostAdmissionContract.DIRECT,
+            HostAdmissionSourcePolicy.select(
+                noRootSelected = false,
+                normalNoRootRevision = 0L,
+                expectedFingerprint = "fp",
+                normalFingerprint = null,
+                allowDirect = true,
+                directEnabled = true
+            )
+        )
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HostAdmissionContractTest) -> Unit) {
@@ -46,5 +92,6 @@ class HostAdmissionContractTest {
         runIsolated { s -> s.truncatedOrDuplicateOrUnknownKeysAreRejected() }
         runIsolated { s -> s.claimedTypesDoNotCoerceStringsOrFloatingPointNumbers() }
         runIsolated { s -> s.contentIdentityDoesNotOrderIndependentManagerGenerations() }
+        runIsolated { s -> s.staleProtocolDetectionAllowsDirectFallbackWithoutAcceptingTamperedConfigs() }
     }
 }

@@ -47,7 +47,7 @@ class AgentSessionService : Service() {
         if (ownerTaskId != current) { notificationPolicy.reset(); ownerTaskId = current; synchronizeLogOwner(current) }
         val delay = notificationPolicy.offer(it, SystemClock.elapsedRealtime())
         main.removeCallbacks(update)
-        if (!it.running) stopForeground(STOP_FOREGROUND_REMOVE) else delay?.let { wait -> main.postDelayed(update, wait) }
+        if (!it.running) runCatching { stopForeground(STOP_FOREGROUND_REMOVE) } else delay?.let { wait -> main.postDelayed(update, wait) }
     }
     private val logObserver: (AgentLogSnapshot) -> Unit = {
         val task = ownerTaskId
@@ -57,7 +57,7 @@ class AgentSessionService : Service() {
             delay?.let { wait -> main.postDelayed(update, wait) }
         }
     }
-    private fun promoteForeground(task: String) {
+    private fun promoteForeground(task: String): Boolean = runForegroundSafely {
         val notification = AgentTaskNotification.create(this, task, AgentController.state, logMode.showing(task))
         if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         else startForeground(AgentTaskNotification.ID, notification)
@@ -69,8 +69,6 @@ class AgentSessionService : Service() {
         AgentExecutionLogStore.initialize(applicationContext)
         val task = ownerTaskId
         if (task == null) {
-            promoteForeground("")
-            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
@@ -102,8 +100,11 @@ class AgentSessionService : Service() {
         if (ownerTaskId != current) { ownerTaskId = current; synchronizeLogOwner(current) }
         val task = ownerTaskId
         if (!AgentController.state.running || task == null) {
-            promoteForeground(task.orEmpty())
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            runForegroundSafely {
+                if (promoteForeground(task.orEmpty())) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                }
+            }
             stopSelf(startId)
         } else {
             promoteForeground(task)
@@ -142,7 +143,7 @@ class AgentSessionService : Service() {
         island?.close(); island = null
         AgentController.removeObserver(observer)
         main.removeCallbacks(update)
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         AgentExecutionLogStore.flush()
         ownerTaskId?.takeIf(AgentController::owns)?.let {
             AgentController.cancel(this, "service_stopped")
@@ -152,5 +153,35 @@ class AgentSessionService : Service() {
     companion object {
         private var activeService = WeakReference<AgentSessionService>(null)
         internal fun toggleNotificationLogs(task: String) { activeService.get()?.toggleLogs(task) }
+    }
+}
+
+internal fun runForegroundSafely(
+    block: () -> Unit
+): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    Api31ForegroundGuard.run(block)
+} else {
+    try {
+        block()
+        true
+    } catch (_: SecurityException) {
+        false
+    } catch (_: IllegalStateException) {
+        false
+    }
+}
+
+@androidx.annotation.RequiresApi(31)
+private object Api31ForegroundGuard {
+    @androidx.annotation.DoNotInline
+    fun run(block: () -> Unit): Boolean = try {
+        block()
+        true
+    } catch (_: android.app.ForegroundServiceStartNotAllowedException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    } catch (_: IllegalStateException) {
+        false
     }
 }

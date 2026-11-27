@@ -649,6 +649,26 @@ private class RemoteHookConfigContractCases {
         }, "key-set")
     }
 
+    fun `v4 snapshot missing v5 keys fails with schema before key-set`() {
+        val encoded = encode(generation = 8L)
+        val v4Incomplete = encoded.toMutableMap().apply {
+            put(RemoteHookConfigContract.KEY_SCHEMA_VERSION, 4)
+            remove(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST)
+        }
+        assertInvalid(v4Incomplete, "schema")
+        assertInvalid(encoded.toMutableMap().apply {
+            put(RemoteHookConfigContract.KEY_SCHEMA_VERSION, "5")
+            remove(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST)
+        }, "schema")
+        assertInvalid(encoded.toMutableMap().apply {
+            put(RemoteHookConfigContract.KEY_CATALOG_VERSION, SettingsCatalog.CATALOG_VERSION - 1)
+            remove(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST)
+        }, "catalog")
+        // v5 协议版本完整但缺失功能键或包含未知键时仍精准命中 key-set 校验。
+        assertInvalid(encoded - FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, "key-set")
+        assertInvalid(encoded + ("unexpected_v5_key" to 1), "key-set")
+    }
+
     fun `encoder rejects incomplete values and nonpositive generations`() {
         val incomplete = defaultValues().toMutableMap().apply {
             remove(HookEntry.PREF_FREE_COPY_ENABLED)
@@ -822,6 +842,7 @@ private class RemoteHookConfigContractCases {
         runIsolated { s -> s.`jev api key is a signed runtime credential outside the backup catalog`() }
         runIsolated { s -> s.`source resolution rejects arbitrary keys and repairs invalid values`() }
         runIsolated { s -> s.`terms and tamper validation fail closed`() }
+        runIsolated { s -> s.`v4 snapshot missing v5 keys fails with schema before key-set`() }
         runIsolated { s -> s.`encoder rejects incomplete values and nonpositive generations`() }
         runIsolated { s -> s.`module version and delivery metadata fail closed`() }
         runIsolated { s -> s.`insight tuning keys are clamped signed runtime integers outside the backup catalog`() }

@@ -11,7 +11,9 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
+import java.io.InputStream
 import kotlin.math.max
 
 /** 通过模块私有权威 SharedPreferences 访问设置；不会读取任意未知键，也不会 clear。 */
@@ -208,19 +210,19 @@ internal class SettingsImportApplier(
     }
 }
 
-private data class PendingFreeCopyMirror(
+internal data class PendingFreeCopyMirror(
     val commentEnabled: Boolean,
     val descriptionEnabled: Boolean,
     val revision: Long
 )
 
-private sealed interface FreeCopyJournalRead {
+internal sealed interface FreeCopyJournalRead {
     data object Missing : FreeCopyJournalRead
     data object Unreadable : FreeCopyJournalRead
     data class Ready(val pending: PendingFreeCopyMirror) : FreeCopyJournalRead
 }
 
-private object FreeCopyImportJournal {
+internal object FreeCopyImportJournal {
     private const val FILE_NAME = "settings_import_free_copy_journal.bin"
     private const val MAGIC = 0x42494C4A // BILJ
     private const val VERSION = 1
@@ -244,13 +246,26 @@ private object FreeCopyImportJournal {
         }
     }
 
-    fun exists(context: Context): Boolean = atomicFile(context).baseFile.isFile
+    fun exists(context: Context): Boolean = hasAtomicFile(atomicFile(context).baseFile)
+
+    internal fun hasAtomicFile(baseFile: File): Boolean =
+        baseFile.isFile || File("${baseFile.path}.bak").isFile
 
     fun read(context: Context): FreeCopyJournalRead {
         val file = AtomicFile(File(context.filesDir, FILE_NAME))
-        if (!file.baseFile.isFile) return FreeCopyJournalRead.Missing
+        return readFrom(file.baseFile, { file.openRead() }) { delete(context) }
+    }
+
+    internal fun readFrom(
+        baseFile: File,
+        openRead: () -> InputStream,
+        onCorrupt: () -> Unit = {}
+    ): FreeCopyJournalRead {
         val input = try {
-            file.openRead()
+            openRead()
+        } catch (_: FileNotFoundException) {
+            return if (hasAtomicFile(baseFile)) FreeCopyJournalRead.Unreadable
+            else FreeCopyJournalRead.Missing
         } catch (_: IOException) {
             return FreeCopyJournalRead.Unreadable
         } catch (_: SecurityException) {
@@ -273,7 +288,7 @@ private object FreeCopyImportJournal {
             return FreeCopyJournalRead.Unreadable
         }
         return if (pending == null) {
-            delete(context)
+            onCorrupt()
             FreeCopyJournalRead.Missing
         } else {
             FreeCopyJournalRead.Ready(pending)

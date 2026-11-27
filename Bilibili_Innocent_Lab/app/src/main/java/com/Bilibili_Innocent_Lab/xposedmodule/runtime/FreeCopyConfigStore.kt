@@ -5,6 +5,8 @@ import android.util.AtomicFile
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.FileNotFoundException
+import java.io.InputStream
 
 /**
  * 自由复制开关的跨进程权威镜像。
@@ -29,16 +31,21 @@ object FreeCopyConfigStore {
 
     fun read(context: Context): Snapshot? = synchronized(ioLock) {
         val atomicFile = AtomicFile(File(context.filesDir, FILE_NAME))
-        if (!atomicFile.baseFile.isFile) return@synchronized null
-        runCatching {
-            DataInputStream(atomicFile.openRead().buffered()).use { input ->
-                if (input.readInt() != MAGIC || input.readInt() != FORMAT_VERSION) return@runCatching null
-                val revision = input.readLong()
-                val commentEnabled = input.readBoolean()
-                val descriptionEnabled = input.readBoolean()
-                if (revision <= 0L) null else Snapshot(commentEnabled, descriptionEnabled, revision)
-            }
-        }.getOrNull()
+        readFrom { atomicFile.openRead() }
+    }
+
+    internal fun readFrom(openRead: () -> InputStream): Snapshot? = try {
+        DataInputStream(openRead().buffered()).use { input ->
+            if (input.readInt() != MAGIC || input.readInt() != FORMAT_VERSION) return null
+            val revision = input.readLong()
+            val commentEnabled = input.readBoolean()
+            val descriptionEnabled = input.readBoolean()
+            if (revision <= 0L) null else Snapshot(commentEnabled, descriptionEnabled, revision)
+        }
+    } catch (_: FileNotFoundException) {
+        null
+    } catch (_: Throwable) {
+        null
     }
 
     fun write(

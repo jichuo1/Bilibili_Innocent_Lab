@@ -36,6 +36,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchProcessState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootTargetConfigBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomainCatalog
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LocateTimings
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
@@ -309,6 +310,31 @@ class HookEntry : XposedModule() {
             finally { call.cancel(false) }
         }
 
+        internal fun isStaleRemoteProtocol(raw: Map<String, *>): Boolean {
+            val oldCatalog = raw[RemoteHookConfigContract.KEY_CATALOG_VERSION] as? Int
+            if (oldCatalog != null && oldCatalog in 1 until com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog.CATALOG_VERSION) {
+                return true
+            }
+            val oldSchema = raw[RemoteHookConfigContract.KEY_SCHEMA_VERSION] as? Int
+            if (oldSchema != null && oldSchema in 1 until RemoteHookConfigContract.SCHEMA_VERSION) {
+                return true
+            }
+            val oldModule = raw[RemoteHookConfigContract.KEY_MODULE_VERSION_CODE] as? Long
+            if (oldModule != null && oldModule in 1L until BuildConfig.VERSION_CODE.toLong()) {
+                return true
+            }
+            return false
+        }
+
+        internal fun isWarmCacheFreshForPlan(
+            cached: VersionAdapter.AdaptResult,
+            plan: AdaptPlan
+        ): Boolean {
+            val staleDomains = AdaptDomainCatalog.staleDomains(cached.domainRuleVersions)
+            if (staleDomains.isEmpty()) return true
+            return plan.required.none { family -> AdaptDomainCatalog.domainOf(family) in staleDomains }
+        }
+
         private fun readRemoteHookConfig(): RemoteHookConfigQueryOutcome {
             return runCatching<RemoteHookConfigQueryOutcome> {
                 val preferences = moduleInstance?.getRemotePreferences(RemoteHookConfigContract.GROUP)
@@ -317,8 +343,7 @@ class HookEntry : XposedModule() {
                     )
                 val raw = preferences.all
                 if (raw.isEmpty()) return@runCatching RemoteHookConfigQueryOutcome.Rejected("remote_group_missing")
-                val oldCatalog = raw[RemoteHookConfigContract.KEY_CATALOG_VERSION] as? Int
-                if (oldCatalog != null && oldCatalog in 1 until com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog.CATALOG_VERSION) {
+                if (isStaleRemoteProtocol(raw)) {
                     return@runCatching RemoteHookConfigQueryOutcome.Rejected("remote_stale_protocol")
                 }
                 when (val decoded = RemoteHookConfigContract.decode(raw)) {
@@ -878,15 +903,11 @@ class HookEntry : XposedModule() {
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
                 val excluded = StartupAdapterPlan.excludedForProcess(hookConfig, processName, nPatchStartup.get())
                 val hostVersionCode = startupCache.identity.versionCode
-                val warmCache = if (excluded.isEmpty()) {
-                    startupCache.usableCache(highCandidateExists = true, plan = adaptPlan)?.takeIf {
-                        AdaptDomainCatalog.staleDomains(it.domainRuleVersions).isEmpty()
-                    }
-                } else {
-                    null
+                val warmCache = startupCache.usableCache(highCandidateExists = true, plan = adaptPlan)?.takeIf {
+                    isWarmCacheFreshForPlan(it, adaptPlan)
                 }
                 if (warmCache != null) {
-                    // 热缓存命中且完整覆盖当前计划、无过期规则域时，跳过主线程同步 quickLocate 与结构指纹枚举。
+                    // 热缓存命中且完整覆盖当前计划、同步域规则未过期时，跳过主线程同步 quickLocate 与结构指纹枚举。
                     StartupTrace.measure("adapter.merge") {
                         VersionAdapter.mergeRuntimeWithCached(runtime = null, cached = warmCache)
                     }

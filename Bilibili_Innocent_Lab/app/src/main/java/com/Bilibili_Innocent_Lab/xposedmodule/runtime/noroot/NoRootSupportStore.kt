@@ -11,6 +11,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStor
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import java.io.File
+import java.io.FileNotFoundException
+import java.io.InputStream
 import kotlin.math.max
 
 /** 模块 App 私有的免 Root 用户意图、同步状态与宿主回执。 */
@@ -463,15 +465,20 @@ internal object NoRootSupportStore {
 
     private fun readSnapshotLocked(context: Context, currentVersionOnly: Boolean = true): NoRootConfigSnapshot? {
         val atomicFile = AtomicFile(File(context.filesDir, SNAPSHOT_FILE))
-        if (!atomicFile.baseFile.isFile) return null
-        val payload = runCatching {
-            atomicFile.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
-        }.getOrNull() ?: return null
+        val payload = readAtomicSnapshotPayload { atomicFile.openRead() } ?: return null
         return NoRootConfigSnapshotCodec.decode(
             payload,
             expectedModulePackage = BuildConfig.APPLICATION_ID,
             expectedModuleVersionCode = if (currentVersionOnly) BuildConfig.VERSION_CODE.toLong() else null
         )
+    }
+
+    internal fun readAtomicSnapshotPayload(openRead: () -> InputStream): String? = try {
+        openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+    } catch (_: FileNotFoundException) {
+        null
+    } catch (_: Throwable) {
+        null
     }
 
     private fun writeSnapshotLocked(context: Context, snapshot: NoRootConfigSnapshot): Boolean {

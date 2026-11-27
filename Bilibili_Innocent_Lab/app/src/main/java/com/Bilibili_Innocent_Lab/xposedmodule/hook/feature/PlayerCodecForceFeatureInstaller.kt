@@ -62,7 +62,7 @@ internal class PlayerCodecForceFeatureInstaller(
                 "[BIL] AV1 与强制软解不可同时使用，编码偏好已降级为 H.264"
             )
         }
-        val wireSurface = kmpGrpcWireEngine?.let { KmpGrpcWireAdapter.resolve(loader, it) }
+        val wireSurface = KmpGrpcWireAdapter.resolve(loader, kmpGrpcWireEngine)
         val requestCapability = if (stripAv1Only) DECODE_CAPABILITY else CODEC_CAPABILITY
         val requestCoverage = if (requestPreference != PlayerCodecPreference.FOLLOW_HOST || stripAv1Only) {
             listOf(

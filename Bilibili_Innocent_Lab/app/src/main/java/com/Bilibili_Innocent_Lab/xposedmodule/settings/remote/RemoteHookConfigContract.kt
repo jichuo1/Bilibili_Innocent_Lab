@@ -226,17 +226,17 @@ internal object RemoteHookConfigContract {
     }
 
     fun decode(raw: Map<String, *>): RemoteHookConfigDecodeResult {
-        if (raw.keys != persistedKeys) {
-            return RemoteHookConfigDecodeResult.Invalid(
-                "key-set(expected=${persistedKeys.size}, actual=${raw.keys.size})"
-            )
-        }
         if (raw[KEY_READY] != true) return RemoteHookConfigDecodeResult.Invalid("not-ready")
         if (raw[KEY_SCHEMA_VERSION] != SCHEMA_VERSION) {
             return RemoteHookConfigDecodeResult.Invalid("schema")
         }
         if (raw[KEY_CATALOG_VERSION] != SettingsCatalog.CATALOG_VERSION) {
             return RemoteHookConfigDecodeResult.Invalid("catalog")
+        }
+        if (raw.keys != persistedKeys) {
+            return RemoteHookConfigDecodeResult.Invalid(
+                "key-set(expected=${persistedKeys.size}, actual=${raw.keys.size})"
+            )
         }
         if (raw[KEY_TERMS_VERSION] != UserTermsConsentStore.CURRENT_TERMS_VERSION) {
             return RemoteHookConfigDecodeResult.Invalid("terms-version")

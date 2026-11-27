@@ -43,6 +43,9 @@ internal fun agentHostFailureStopsTask(operation: String, error: String, nativeA
     error in setOf("host_not_foreground", "device_locked") ||
         error == "accessibility_not_connected" && !(nativeActive && operation == "get_ui_state")
 
+internal fun agentTaskUsesAccessibility(uiOnly: Boolean, usedAccessibility: Boolean): Boolean =
+    uiOnly || usedAccessibility
+
 /** 所有模型请求在模块进程串行执行。状态与对话只在内存，进程回收后不会自动恢复或重放动作。 */
 internal object AgentController {
     private class Task(val context: Application, val goal: String, val sources: List<AgentModelSource>, val route: AgentRoutePolicy,
@@ -54,6 +57,7 @@ internal object AgentController {
         val cancelled = AtomicBoolean()
         val closing = AtomicBoolean()
         val accessibility = AgentAccessibilityService.connected()
+        val usedAccessibility = AtomicBoolean()
         val backend = AgentNativeRoutingPolicy()
         val goalEvidence = AgentGoalEvidence(goal)
         val navigation = AgentNavigationEvidence()
@@ -95,7 +99,10 @@ internal object AgentController {
     fun observe(observer: (AgentTaskState) -> Unit) { observers += observer; observer(state) }
     fun removeObserver(observer: (AgentTaskState) -> Unit) { observers -= observer }
     fun currentTaskId(): String? = active?.id
-    fun usesAccessibility(): Boolean = active?.accessibility == true
+    internal fun taskUsesAccessibility(uiOnly: Boolean, usedAccessibility: Boolean): Boolean =
+        agentTaskUsesAccessibility(uiOnly, usedAccessibility)
+    fun usesAccessibility(): Boolean =
+        active?.let { taskUsesAccessibility(it.backend.uiOnly, it.usedAccessibility.get()) } == true
     fun actionAuthorized(taskId: String): Boolean = active?.let { it.id == taskId && owns(taskId) && authorized(it) } == true
     fun owns(taskId: String): Boolean = active?.let { it.id == taskId && !it.cancelled.get() && !it.closing.get() &&
         !it.limits.timeExceeded(it.startedAt, SystemClock.elapsedRealtime()) } == true
@@ -375,8 +382,11 @@ internal object AgentController {
             operation in AgentToolCatalog.personalReads && task.backend.accountRefusal != null -> failure(checkNotNull(task.backend.accountRefusal))
             operation in AgentToolCatalog.nativeReads && task.backend.nativeActive && task.backend.supported(operation) == false -> failure("use_ui_tools", operation)
             useAccessibility && !task.accessibility -> failure("accessibility_not_connected")
-            useAccessibility -> AgentAccessibilityService.request(task.id, operation, args, task::stopped).also {
-                it.optJSONObject("data")?.put("native_session_active", task.backend.nativeActive)
+            useAccessibility -> {
+                task.usedAccessibility.set(true)
+                AgentAccessibilityService.request(task.id, operation, args, task::stopped).also {
+                    it.optJSONObject("data")?.put("native_session_active", task.backend.nativeActive)
+                }
             }
             else -> AgentHostClient.request(task.id, task.sequence.incrementAndGet(), task.deadline(AgentWire.IPC_TIMEOUT_MS), operation, args, task::stopped)
         }
