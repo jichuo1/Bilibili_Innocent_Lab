@@ -25,7 +25,8 @@ internal class AgentCooperation(
     health: AgentHealthRegistry = AgentModelRuntime.health,
     private val requestEvent: (AgentRequestUpdate) -> Unit = {},
     private val wallClock: () -> Long = System::currentTimeMillis,
-    private val capabilityChanged: (AgentModelSource, AgentModelCapabilities) -> Unit = { _, _ -> }
+    private val capabilityChanged: (AgentModelSource, AgentModelCapabilities) -> Unit = { _, _ -> },
+    private val pluginTools: List<AgentPluginToolDescriptor> = emptyList()
 ) {
     private val caps = caps.toMutableMap()
     private val textPlanner = AgentTextPlanner(chat, wallClock)
@@ -57,7 +58,7 @@ internal class AgentCooperation(
         decisionPlanned = false
         try { return request(AgentModelRole.PLANNER, chatRoute,
             accept = { turn -> turn.toolCalls.isEmpty() || turn.toolCalls.size == 1 &&
-                AgentToolCatalog.valid(turn.toolCalls.single().name, turn.toolCalls.single().arguments, vision) },
+                AgentToolCatalog.valid(turn.toolCalls.single().name, turn.toolCalls.single().arguments, vision, pluginTools) },
             retainUncertain = false) { source, timeout ->
             plannerFingerprint = source.fingerprint
             normalizePlan(plan(source, conversation, timeout))
@@ -89,7 +90,13 @@ internal class AgentCooperation(
             if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
             if (it <= 0) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
         }
-        try { return chat.generate(source, history, AgentToolCatalog.tools(vision), false, remaining(), cancelled) }
+        try {
+            return if (pluginTools.isEmpty()) {
+                chat.generate(source, history, AgentToolCatalog.tools(vision), false, remaining(), cancelled)
+            } else {
+                chat.generate(source, history, AgentToolCatalog.tools(vision, pluginTools), false, remaining(), cancelled)
+            }
+        }
         catch (error: AgentModelException) {
             if (error.reason != AgentModelException.Reason.TOOLS_UNSUPPORTED) throw error
             // 明确拒绝 tools 才降级；认证、限流、网络故障不会被误当成协议缺失。

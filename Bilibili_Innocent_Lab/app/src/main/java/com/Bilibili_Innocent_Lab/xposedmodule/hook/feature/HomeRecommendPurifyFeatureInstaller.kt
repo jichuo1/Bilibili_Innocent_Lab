@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveHomeRules
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline
+import com.bilab.plugin.api.spi.FeedCardView
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.time.Instant
@@ -72,7 +74,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
     isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
     private val liveRules: (() -> LiveHomeRules)? = null,
     /** 删卡后重新凑组读取的宿主类名；生产始终用默认值，测试替换为同形状替身。 */
-    private val smallCardNames: HomeFeedSmallCards.HostNames = HomeFeedSmallCards.HostNames()
+    private val smallCardNames: HomeFeedSmallCards.HostNames = HomeFeedSmallCards.HostNames(),
+    private val pluginPipeline: ContentFilterPipeline? = null
 ) : FeatureInstaller {
 
     private val semantic = SemanticTitleFilter(semanticJudge, semanticLogDir, isMainThread, "home")
@@ -142,7 +145,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val hasContentFilter = removeAds || removeCmV2 || removeBanner || removePictures || removeGamePromotions ||
             titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
             removeLarge || removePgc || removeSpecialCards || removeComic || tagDimensionEnabled ||
-            authorDimensionEnabled || removeAiDeclared || semantic.enabled
+            authorDimensionEnabled || removeAiDeclared || semantic.enabled || pluginPipeline != null
         if (durationRange.isConfigured && !durationRange.isValid) {
             environment.logError(
                 "home_recommend_duration_invalid",
@@ -306,6 +309,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
         if (smallCards == null) {
             environment.logInfo("home_recommend_regroup_unavailable", "[BIL] 首页推荐小卡凑组读取不可用，删卡后不重排")
         }
+        val pluginExtra = if (pluginPipeline != null) {
+            val resolvedDuration = accessors.duration ?: resolveDuration(environment, adapted, force = true)
+            PluginExtraAccessors(
+                tid = accessors.tid ?: resolveTid(environment, adapted, force = true),
+                author = accessors.author ?: resolveAuthor(environment, adapted, force = true),
+                duration = resolvedDuration,
+                playCountGate = accessors.playCountGate
+                    ?: resolvedDuration?.playerArgsGetter
+                    ?: resolvePlayCountGate(environment, adapted, force = true)
+            )
+        } else {
+            null
+        }
 
         var installed = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
@@ -340,24 +356,32 @@ internal class HomeRecommendPurifyFeatureInstaller(
                             null
                         }
                         publishProbeEnvironment = environment
+                        val pluginActive = pluginPipeline != null && pluginPipeline.hasContentFilters()
                         val filtered = CopyOnFilter.list(source) { item ->
                             if (semanticVerdicts?.get(item) == SemanticVerdict.BLOCK) return@list true
-                            val signals = signals(item, accessors, advertisements, publishContext)
-                            probeTag(signals, environment)
-                            val isBanner = removeBanner && isHomeBanner(signals)
+                            val signals = if (itemRemovalEnabled || removeBanner || removePgc || removeSpecialCards || removeComic || tagDimensionEnabled) {
+                                signals(item, accessors, advertisements, publishContext).also { probeTag(it, environment) }
+                            } else {
+                                null
+                            }
+                            val isBanner = signals != null && removeBanner && isHomeBanner(signals)
                             if (isBanner) removedBanners += 1
-                            val kind = if (removePgc || removeSpecialCards) HomeExtraCardPolicy.classify(
+                            val kind = if (signals != null && (removePgc || removeSpecialCards)) HomeExtraCardPolicy.classify(
                                 signals.cardType, signals.cardGoto, signals.goTo, signals.uri
                             ) else HomeExtraCardPolicy.Kind.UNKNOWN
                             val pgc = removePgc && kind == HomeExtraCardPolicy.Kind.PGC
                             val special = removeSpecialCards && kind == HomeExtraCardPolicy.Kind.SPECIAL
-                            val comic = removeComic && HomeExtraCardPolicy.isComic(
+                            val comic = signals != null && removeComic && HomeExtraCardPolicy.isComic(
                                 signals.cardType, signals.cardGoto, signals.goTo, signals.uri
                             )
                             if (pgc) { removedPgc++; environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.OBSERVED) }
                             if (special) { removedSpecial++; environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.OBSERVED) }
                             if (comic) removedComics += 1
-                            pgc || special || comic || isBanner || shouldRemove(signals, advertisements)
+                            val builtInDrop = pgc || special || comic || isBanner || (signals != null && shouldRemove(signals, advertisements))
+                            if (builtInDrop) return@list true
+                            pluginActive && pluginPipeline!!.shouldDropFeedCard(
+                                HostFeedCardView(item, accessors, pluginExtra, signals)
+                            )
                         }
                         // 只有宿主已开始对这份响应凑组时才知道组大小；之前的读取为 null，不重排。
                         val groupSize = if (filtered === source) null else smallCards?.groupSizeFor(thisObject)
@@ -518,7 +542,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
         if (tagDimensionEnabled) SectionPickSession.current else null,
         if (authorDimensionEnabled) AuthorPickSession.current else null,
         if (removeAiDeclared) AiDeclaredVideoRegistry.current else null,
-        liveRules?.invoke()
+        liveRules?.invoke(),
+        if (pluginPipeline != null) pluginPipeline.contentFilterCount() else null
     )
 
     private val publishTimeProbe = PublishTimeParseProbe()
@@ -755,9 +780,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
     /** 名单为空时**不解析**，免得在热路径上白做两次反射查找。 */
     private fun resolveTid(
         environment: HookEnvironment,
-        points: VersionAdapter.HomeRecommendFeedPoints
+        points: VersionAdapter.HomeRecommendFeedPoints,
+        force: Boolean = false
     ): TidAccessor? {
-        if (!tagDimensionEnabled) return null
+        if (!force && !tagDimensionEnabled) return null
         val argsPoint = points.argsGetter ?: return null
         val tidPoint = points.argsTidGetter ?: return null
         val argsGetter = resolve(environment, "args", argsPoint) ?: return null
@@ -793,9 +819,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
     /** 名单为空且没开面板劫持时**不解析**，免得在热路径上白做反射查找。 */
     private fun resolveAuthor(
         environment: HookEnvironment,
-        points: VersionAdapter.HomeRecommendFeedPoints
+        points: VersionAdapter.HomeRecommendFeedPoints,
+        force: Boolean = false
     ): AuthorAccessor? {
-        if (!authorDimensionEnabled) return null
+        if (!force && !authorDimensionEnabled) return null
         val argsPoint = points.argsGetter ?: return null
         val namePoint = points.argsUpNameGetter ?: return null
         val argsGetter = resolve(environment, "args", argsPoint) ?: return null
@@ -818,9 +845,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private fun resolveDuration(
         environment: HookEnvironment,
-        points: VersionAdapter.HomeRecommendFeedPoints
+        points: VersionAdapter.HomeRecommendFeedPoints,
+        force: Boolean = false
     ): DurationAccessor? {
-        if (!durationRange.isEnabled) return null
+        if (!force && !durationRange.isEnabled) return null
         val getterPoint = points.playerArgsGetter ?: return null
         val getter = resolve(environment, "player_args", getterPoint) ?: return null
         val durationGetter = points.playerArgsDurationGetter?.let { point ->
@@ -839,9 +867,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private fun resolvePlayCountGate(
         environment: HookEnvironment,
-        points: VersionAdapter.HomeRecommendFeedPoints
+        points: VersionAdapter.HomeRecommendFeedPoints,
+        force: Boolean = false
     ): Method? {
-        if (!playCountRange.isEnabled) return null
+        if (!force && !playCountRange.isEnabled) return null
         val getterPoint = points.playerArgsGetter ?: return null
         return resolve(environment, "player_args_play_count", getterPoint)
     }
@@ -1004,6 +1033,98 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val durationGetter: Method?,
         val durationField: Field?
     )
+
+    private class PluginExtraAccessors(
+        val tid: TidAccessor?,
+        val author: AuthorAccessor?,
+        val duration: DurationAccessor?,
+        val playCountGate: Method?
+    )
+
+    private inner class HostFeedCardView(
+        private val item: Any,
+        private val accessors: Accessors,
+        private val extra: PluginExtraAccessors?,
+        private val signals: Signals?
+    ) : FeedCardView {
+        override val cardType: String
+            get() = signals?.cardType
+                ?: signals?.holderType
+                ?: invokeString(accessors.cardType, item)
+                ?: invokeString(accessors.holderType, item)
+                ?: ""
+
+        override val title: String
+            get() = signals?.title ?: invokeString(accessors.title, item).orEmpty()
+
+        override val authorName: String
+            get() {
+                signals?.upName?.let { return it }
+                val author = extra?.author ?: return ""
+                val args = invokeCompatible(author.argsGetter, item) ?: return ""
+                return (invokeCompatible(author.upNameGetter, args) as? String).orEmpty()
+            }
+
+        override val authorId: Long
+            get() {
+                signals?.upId?.toLongOrNull()?.let { return it }
+                val getter = extra?.author?.upIdGetter ?: return 0L
+                val args = invokeCompatible(extra.author.argsGetter, item) ?: return 0L
+                return (invokeCompatible(getter, args) as? Number)?.toLong()?.takeIf { it > 0L } ?: 0L
+            }
+
+        override val durationSeconds: Int
+            get() {
+                signals?.durationSeconds?.let { return it.toInt() }
+                val duration = extra?.duration ?: return 0
+                return VideoDurationReader.fromContainer(
+                    item,
+                    duration.playerArgsGetter,
+                    duration.durationGetter,
+                    duration.durationField
+                )?.toInt() ?: 0
+            }
+
+        override val playCount: Long
+            get() {
+                signals?.playCount?.let { return it }
+                val gate = extra?.playCountGate ?: return 0L
+                if (!VideoPlayCountReader.isHomeAvVod(item, gate)) return 0L
+                return VideoPlayCountReader.coverPlayCount(item) ?: 0L
+            }
+
+        override val tid: Int
+            get() {
+                signals?.tid?.let { return it.toInt() }
+                val accessor = extra?.tid ?: return 0
+                val args = invokeCompatible(accessor.argsGetter, item) ?: return 0
+                return (invokeCompatible(accessor.tidGetter, args) as? Number)?.toInt() ?: 0
+            }
+
+        override val reasonText: String
+            get() = signals?.desc
+                ?: signals?.subtitle
+                ?: invokeString(accessors.desc, item)
+                ?: invokeString(accessors.subtitle, item)
+                ?: ""
+
+        override val isAd: Boolean
+            get() = if (signals != null && (removeAds || removeGamePromotions)) {
+                signals.hasAdInfo || isAdvertisement(signals)
+            } else {
+                readAdInfo(accessors.adInfo, item, null) ||
+                    invokeString(accessors.bizType, item) == "AD"
+            }
+
+        override val isAiDeclared: Boolean
+            get() = if (removeAiDeclared && signals != null) {
+                signals.aiDeclared
+            } else {
+                val aid = AiDeclaredVideoPolicy.aidFromParam(invokeString(accessors.param, item))
+                AiDeclaredVideoRegistry.contains(aid) ||
+                    AiDeclaredVideoPolicy.feedUriDeclaresAigc(invokeString(accessors.uri, item))
+            }
+    }
 
     companion object {
         const val CAPABILITY_SEMANTIC = "home_recommend_semantic_filter_enabled"

@@ -14,6 +14,11 @@ import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentWire
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentTaskCache
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.PluginRuntimeHolder
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.SandboxedPluginAgentTools
+import com.bilab.core.agent.protocol.UntrustedPluginOutputCodec
+import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ThreadPoolExecutor
@@ -236,6 +241,22 @@ internal object HostAgentRuntime {
                         JSONObject().put("video_id", id).put("navigation", "requested").put("observed", false)
                     }
                     "inspect_screen" -> windows.capture(lease)
+                    "list_plugin_tools" -> HostAgentPluginToolBridge.listToolsJson(
+                        PluginRuntimeHolder.currentAgentTools()
+                    ).also { stamp(it) }
+                    "invoke_plugin_tool" -> {
+                        onMain(lease) { windows.requireTaskContext(lease) }
+                        val invoked = HostAgentPluginToolBridge.invokeToolJson(
+                            PluginRuntimeHolder.currentAgentTools(),
+                            args
+                        )
+                        if (!invoked.optBoolean("ok")) {
+                            throw HostAgentFailure(
+                                invoked.optString("error", "plugin_tool_failed").ifBlank { "plugin_tool_failed" }
+                            )
+                        }
+                        invoked.also { stamp(it) }
+                    }
                     else -> throw HostAgentFailure("unsupported_operation")
                 }
                 success(result)
@@ -523,7 +544,7 @@ internal object HostAgentRuntime {
         val permitted = when (operation) {
             "begin" -> setOf("allow_vision", "lease_until", "account_read_authorized", "seed_video_ids", "seed_user_ids")
             "renew" -> setOf("lease_until")
-            "capabilities", "get_capabilities", "get_regions", "get_host_state", "inspect_screen", "cancel", "finish" -> emptySet()
+            "capabilities", "get_capabilities", "get_regions", "get_host_state", "inspect_screen", "list_plugin_tools", "cancel", "finish" -> emptySet()
             "search_videos" -> setOf("query", "cursor")
             "get_video_details", "get_video_metrics", "open_video" -> setOf("video_id")
             "get_ranking" -> setOf("region_id", "cursor")
@@ -531,6 +552,7 @@ internal object HostAgentRuntime {
             "get_user_videos" -> setOf("user_id", "cursor")
             "get_live_status" -> setOf("user_id")
             "get_video_comments" -> setOf("video_id", "cursor")
+            "invoke_plugin_tool" -> setOf("tool_name", "arguments")
             else -> return false
         }
         if (args.keys().asSequence().any { it !in permitted }) return false
@@ -547,6 +569,7 @@ internal object HostAgentRuntime {
             "get_ranking" -> (!args.has("region_id") || args.opt("region_id") is String && args.getString("region_id").toIntOrNull()?.let { it >= 0 } == true) && validCursor(args)
             "get_popular", "get_history", "get_following_feed" -> validCursor(args)
             "get_video_comments" -> args.opt("video_id") is String && HostAgentNavigationPolicy.videoId(args.getString("video_id")) != null && validCursor(args)
+            "invoke_plugin_tool" -> HostAgentPluginToolBridge.validInvocationArgs(args)
             else -> true
         }
     }
@@ -568,4 +591,100 @@ internal object HostAgentRuntime {
     private fun executor(name: String, capacity: Int) = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS,
         ArrayBlockingQueue(capacity), { runnable -> Thread(runnable, name).apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy()).apply { allowCoreThreadTimeOut(true) }
+}
+
+internal object HostAgentPluginToolBridge {
+    private val PLUGIN_TOOL_NAME_REGEX = Regex("^plg_[A-Za-z0-9_-]{1,96}$")
+    private const val MAX_PLUGIN_ARGS = 16
+    private const val MAX_PLUGIN_ARG_KEY_LEN = 64
+    private const val MAX_PLUGIN_ARG_VALUE_LEN = 4096
+    private val RESERVED_HOST_ERRORS = setOf(
+        "task_inactive", "closed_task", "task_budget_exhausted", "host_disconnected",
+        "host_not_foreground", "device_locked", "accessibility_not_connected",
+        "not_authorized", "account_changed", "account_read_not_authorized",
+        "account_identity_unavailable", "expired", "not_logged_in"
+    )
+
+    fun validInvocationArgs(arguments: JSONObject): Boolean {
+        val toolName = (arguments.opt("tool_name") as? String)?.trim().orEmpty()
+        if (!PLUGIN_TOOL_NAME_REGEX.matches(toolName)) return false
+        return extractStringArguments(arguments) != null
+    }
+
+    fun listToolsJson(tools: SandboxedPluginAgentTools?): JSONObject {
+        val list = tools?.listTools().orEmpty()
+        val array = JSONArray()
+        for (entry in list) {
+            array.put(
+                JSONObject()
+                    .put("name", entry.qualifiedName)
+                    .put("plugin_id", entry.pluginId)
+                    .put("local_name", entry.localName)
+                    .put("description", entry.spec.description)
+                    .put("parameters", JSONArray(entry.spec.params.map { it.name }))
+            )
+        }
+        return JSONObject()
+            .put("tools", array)
+            .put("count", list.size)
+    }
+
+    fun invokeToolJson(tools: SandboxedPluginAgentTools?, arguments: JSONObject): JSONObject {
+        val toolName = (arguments.opt("tool_name") as? String)?.trim().orEmpty()
+        if (!PLUGIN_TOOL_NAME_REGEX.matches(toolName)) {
+            return failureResult(toolName, "invalid_plugin_tool_name")
+        }
+        val argMap = extractStringArguments(arguments)
+            ?: return failureResult(toolName, "invalid_plugin_tool_arguments")
+        if (tools == null) {
+            return failureResult(toolName, "plugin_runtime_unavailable")
+        }
+        val result = tools.invoke(toolName, argMap)
+        val sanitizedError = result.errorReason?.let { reason ->
+            if (reason in RESERVED_HOST_ERRORS) "plugin_tool_failed" else reason
+        }
+        return JSONObject()
+            .put("ok", result.success)
+            .put("tool_name", result.qualifiedName)
+            .put("output", result.wrappedOutput)
+            .apply {
+                if (sanitizedError != null) put("error", sanitizedError)
+            }
+    }
+
+    private fun extractStringArguments(arguments: JSONObject): Map<String, String>? {
+        if (!arguments.has("arguments") || arguments.isNull("arguments")) {
+            return Collections.emptyMap()
+        }
+        val rawArgsObj = arguments.opt("arguments") as? JSONObject ?: return null
+        if (rawArgsObj.length() > MAX_PLUGIN_ARGS) return null
+        val out = LinkedHashMap<String, String>(rawArgsObj.length())
+        val keys = rawArgsObj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (key.isBlank() || key.length > MAX_PLUGIN_ARG_KEY_LEN || key.any(Char::isISOControl)) {
+                return null
+            }
+            val value = rawArgsObj.opt(key) as? String ?: return null
+            if (value.length > MAX_PLUGIN_ARG_VALUE_LEN) return null
+            out[key] = value
+        }
+        return out
+    }
+
+    private fun failureResult(toolName: String, errorReason: String): JSONObject {
+        val safeName = toolName.take(64).ifBlank { "unknown" }
+        return JSONObject()
+            .put("ok", false)
+            .put("tool_name", safeName)
+            .put(
+                "output",
+                UntrustedPluginOutputCodec.wrapUntrustedPluginOutput(
+                    pluginId = "host",
+                    toolName = safeName,
+                    rawPayload = "TOOL_ERROR: $errorReason"
+                )
+            )
+            .put("error", errorReason)
+    }
 }

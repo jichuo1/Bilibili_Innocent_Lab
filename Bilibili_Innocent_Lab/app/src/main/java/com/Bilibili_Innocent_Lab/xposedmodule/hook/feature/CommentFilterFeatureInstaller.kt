@@ -4,8 +4,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.bilab.plugin.api.spi.CommentView
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
@@ -44,7 +46,8 @@ internal class CommentFilterFeatureInstaller(
     /** 主线程上不做同步联网；单测可替换。 */
     private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
     private val fishVideoMetadata: FishVideoMetadata? = if (fishFilter.enabled) FishVideoMetadata() else null,
-    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+    private val pluginPipeline: ContentFilterPipeline? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -77,7 +80,7 @@ internal class CommentFilterFeatureInstaller(
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (keywords.isEmpty() && minimumLevel == null && !removeAtOnly && userRules.isEmpty() &&
-            semanticJudge == null && fishPlan == null
+            semanticJudge == null && fishPlan == null && pluginPipeline == null
         ) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
@@ -114,7 +117,8 @@ internal class CommentFilterFeatureInstaller(
             memberV2Mid = adapted.memberV2MidGetter?.let {
                 resolve(environment, "member_v2_mid", it)
             },
-            readReplyMid = fishPlan != null
+            readReplyMid = fishPlan != null || pluginPipeline != null,
+            readPluginFields = pluginPipeline != null
         )
 
         // 判据可用性只算一次：热路径只做布尔判断，不再重复检查 Method 是否为 null。
@@ -128,7 +132,8 @@ internal class CommentFilterFeatureInstaller(
                 ?.takeIf { fish ->
                     // 白名单读不到的那一半无法保护任何人：宁可整条判据不装，也不在保护失效时静默删。
                     fish.whitelist.available(accessors.hasAuthorNamePath, accessors.hasAuthorMidPath) == fish.whitelist
-                }
+                },
+            pluginEnabled = pluginPipeline != null
         )
         if (!plan.hasAnyJudgement) return missing(environment, "missing-judgement-getter")
         val replyClass = accessors.content?.declaringClass
@@ -160,7 +165,8 @@ internal class CommentFilterFeatureInstaller(
                         }
                         val filtered = filterComments(source) { reply ->
                             semantic?.get(reply) == SemanticVerdict.BLOCK ||
-                                (rules?.get(reply) ?: shouldRemove(readSignals(reply, accessors, plan), plan))
+                                (rules?.get(reply) ?: shouldRemove(readSignals(reply, accessors, plan), plan)) ||
+                                shouldDropByPlugin(reply, accessors, isPinned = false)
                         }
                         if (filtered !== source) {
                             result = filtered
@@ -201,7 +207,7 @@ internal class CommentFilterFeatureInstaller(
                             if (semanticBlocked || shouldRemove(readSignals(
                                     reply, accessors, plan, videoIdentity = videoIdentity, peerSource = peerSource,
                                     snapshots = if (plan.fish != null) fishSnapshots() else null
-                                ), plan)
+                                ), plan) || shouldDropByPlugin(reply, accessors, isPinned = true)
                             ) {
                                 result = defaultReply
                                 environment.reportRuntimeEvidence(
@@ -608,10 +614,12 @@ internal class CommentFilterFeatureInstaller(
         // 整份响应已在 [prewarmSemantic] 里判过，这里只取缓存结论（未命中投后台，不阻塞）。
         val semantic = judge?.evaluate(replies.map { reply -> messageOf(reply, accessors) }, SemanticMode.PREFETCH)
         val root = if (plan.fish != null) rootEchoOf(owner, accessors) else null
+        val checkPlugin = pluginPipeline != null && pluginPipeline.hasContentFilters()
         val drop = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
         replies.forEachIndexed { index, reply ->
             if (semantic?.getOrNull(index) == SemanticVerdict.BLOCK ||
-                shouldRemove(readSignals(reply, accessors, plan, root, videoIdentity, peerSource, snapshots), plan)
+                shouldRemove(readSignals(reply, accessors, plan, root, videoIdentity, peerSource, snapshots), plan) ||
+                (checkPlugin && shouldDropByPlugin(reply, accessors, isPinned = false))
             ) drop += reply
         }
         return drop
@@ -744,6 +752,20 @@ internal class CommentFilterFeatureInstaller(
         )
     }
 
+    private fun shouldDropByPlugin(reply: Any, accessors: Accessors, isPinned: Boolean): Boolean {
+        val pipeline = pluginPipeline ?: return false
+        if (!pipeline.hasContentFilters()) return false
+        return pipeline.shouldDropComment(HostCommentView(reply, accessors, isPinned, this))
+    }
+
+    private fun authorLevelOf(reply: Any, accessors: Accessors): Int? {
+        val member = invokeCompatible(accessors.member, reply)
+        val direct = (invokeCompatible(accessors.level, member) as? Number)?.toInt()
+        if (direct != null) return direct
+        val basic = invokeCompatible(accessors.memberV2Basic, invokeCompatible(accessors.memberV2, reply))
+        return (invokeCompatible(accessors.memberV2Level, basic) as? Number)?.toInt()
+    }
+
     private fun memberMidOf(reply: Any, accessors: Accessors): Long? {
         val member = invokeCompatible(accessors.member, reply)
         val mid = (invokeCompatible(accessors.memberMid, member) as? Number)?.toLong()?.takeIf { it > 0L }
@@ -818,14 +840,15 @@ internal class CommentFilterFeatureInstaller(
         /** 智能过滤：语义结论由 getter 层单独读正文取得，不走 [needsMessage]。 */
         val semanticEnabled: Boolean = false,
         /** 屏蔽 AI 评论与回复：null = 未启用，或读取路径 / 白名单保护不可用。 */
-        val fish: FishScorePolicy.Plan? = null
+        val fish: FishScorePolicy.Plan? = null,
+        val pluginEnabled: Boolean = false
     ) {
         val needsMessage: Boolean
             get() = keywords.isNotEmpty() || removeAtOnly || fish != null
 
         val hasAnyJudgement: Boolean
             get() = keywords.isNotEmpty() || minimumLevel != null || removeAtOnly ||
-                !userRules.isEmpty() || semanticEnabled || fish != null
+                !userRules.isEmpty() || semanticEnabled || fish != null || pluginEnabled
 
         fun describe(): String = buildList {
             if (keywords.isNotEmpty()) add("keyword=${keywords.size}")
@@ -836,7 +859,32 @@ internal class CommentFilterFeatureInstaller(
             }
             if (semanticEnabled) add("semantic")
             fish?.let { add(it.describe()) }
+            if (pluginEnabled) add("plugin")
         }.joinToString("/")
+    }
+
+    private class HostCommentView(
+        private val reply: Any,
+        private val accessors: Accessors,
+        override val isPinned: Boolean,
+        private val owner: CommentFilterFeatureInstaller
+    ) : CommentView {
+        override val commentId: Long
+            get() = (owner.invokeCompatible(accessors.replyId, reply) as? Number)?.toLong() ?: 0L
+        override val authorName: String
+            get() = owner.authorNameOf(reply, accessors).orEmpty()
+        override val authorId: Long
+            get() = (owner.invokeCompatible(accessors.replyMid, reply) as? Number)?.toLong()?.takeIf { it > 0L }
+                ?: owner.memberMidOf(reply, accessors) ?: 0L
+        override val authorLevel: Int
+            get() = owner.authorLevelOf(reply, accessors) ?: 0
+        override val message: String
+            get() = owner.messageOf(reply, accessors)
+        override val hasImage: Boolean
+            get() {
+                val content = owner.invokeCompatible(accessors.content, reply) ?: return false
+                return ((owner.invokeCompatible(accessors.picturesCount, content) as? Number)?.toInt() ?: 0) > 0
+            }
     }
 
     private class VideoIdentity(private val type: Method, private val oid: Method) {
@@ -907,11 +955,20 @@ internal class CommentFilterFeatureInstaller(
         val memberMid: Method?,
         val memberV2Name: Method?,
         val memberV2Mid: Method?,
-        val readReplyMid: Boolean
+        val readReplyMid: Boolean,
+        val readPluginFields: Boolean = false
     ) {
-        val replyMid: Method? = content?.declaringClass?.takeIf { readReplyMid }
+        private val replyClass: Class<*>? =
+            content?.declaringClass ?: member?.declaringClass ?: memberV2?.declaringClass
+        val replyMid: Method? = replyClass?.takeIf { readReplyMid }
             ?.let { KavaMemberLookup.methodOrNull(it, "getMid") }
             ?.takeIf { !it.isStatic && it.returnType == classOf<Long>() }
+        val replyId: Method? = replyClass?.takeIf { readPluginFields }
+            ?.let { KavaMemberLookup.methodOrNull(it, "getId") }
+            ?.takeIf { !it.isStatic && it.returnType == classOf<Long>() }
+        val picturesCount: Method? = content?.returnType?.takeIf { readPluginFields }
+            ?.let { KavaMemberLookup.methodOrNull(it, "getPicturesCount") }
+            ?.takeIf { !it.isStatic && it.returnType == Integer.TYPE }
         val hasMessagePath: Boolean get() = content != null && message != null
         val hasLevelPath: Boolean
             get() = (member != null && level != null) ||

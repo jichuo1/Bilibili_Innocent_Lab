@@ -199,19 +199,9 @@ internal object AgentController {
                 task.backend.began()
             } else { check(task.accessibility) { "host_unavailable_restart" }; task.backend.noNative() }
             val history = AgentConversation(AgentToolCatalog.SYSTEM, task.goal).also { conversation = it }
-            val models = AgentCooperation(task.sources, capabilities, task.route, task.goal, canSee,
-                checkpoint = { renew(task); (task.deadline(30_000) - SystemClock.elapsedRealtime()).coerceIn(1, 30_000).toInt() },
-                cancelled = task::stopped, sourceChanged = { index -> publish(task, AgentTaskState(true, "thinking", steps, index,
-                    observations = observed, maximumSteps = task.limits.maximumSteps)) }, elapsed = SystemClock::elapsedRealtime,
-                capabilityChanged = { source, updated -> if (authorized(task)) AgentPreferences.saveCapabilities(context, source, updated) },
-                requestEvent = { update ->
-                    if (active === task && !task.cancelled.get()) {
-                        if (update.status == AgentRequestStatus.STARTED) publish(task, AgentTaskState(true,
-                            when (update.role) { AgentModelRole.PLANNER -> "waiting_response"; AgentModelRole.VISION -> "analyzing_image"; AgentModelRole.DECISION -> "reviewing" },
-                            steps, update.source, observations = observed, role = update.role), recordLog = false)
-                        AgentTaskLog.model(task.id, update, steps, observed)
-                    }
-                }).also { cooperation = it }
+            var modelsReady = false
+            lateinit var models: AgentCooperation
+            val pendingModelRecords = mutableListOf<Pair<AgentModelToolCall, JSONObject>>()
             fun initialRead(operation: String, arguments: JSONObject = JSONObject(), countStep: Boolean = true): JSONObject {
                 if (countStep) {
                     check(task.limits.allowsStep(steps)) { "task_budget_exhausted" }
@@ -229,7 +219,11 @@ internal object AgentController {
                 task.lastOperationSucceeded = result.optBoolean("ok")
                 task.lastOperationStep = steps
                 publish(task, state, recordLog = false)
-                models.record(call, result)
+                if (modelsReady) {
+                    models.record(call, result)
+                } else {
+                    pendingModelRecords += call to result
+                }
                 history.append(initialTurn(call), result)
                 check(!agentHostFailureStopsTask(operation, result.optString("error"), task.backend.nativeActive) &&
                     !(operation in AgentToolCatalog.personalReads && AgentNativeRoutingPolicy.accountFailure(result.optString("error")))) {
@@ -243,6 +237,24 @@ internal object AgentController {
             task.backend.capabilities(nativeCapabilities.optJSONObject("data") ?: JSONObject())
             if (task.goalEvidence.required.any { it in AgentToolCatalog.personalReads })
                 task.backend.accountRefusal?.let { throw IllegalStateException(it) }
+            val discoveredPluginTools = if (nativeReady) discoverPluginTools(task) else emptyList()
+            models = AgentCooperation(task.sources, capabilities, task.route, task.goal, canSee,
+                checkpoint = { renew(task); (task.deadline(30_000) - SystemClock.elapsedRealtime()).coerceIn(1, 30_000).toInt() },
+                cancelled = task::stopped, sourceChanged = { index -> publish(task, AgentTaskState(true, "thinking", steps, index,
+                    observations = observed, maximumSteps = task.limits.maximumSteps)) }, elapsed = SystemClock::elapsedRealtime,
+                capabilityChanged = { source, updated -> if (authorized(task)) AgentPreferences.saveCapabilities(context, source, updated) },
+                requestEvent = { update ->
+                    if (active === task && !task.cancelled.get()) {
+                        if (update.status == AgentRequestStatus.STARTED) publish(task, AgentTaskState(true,
+                            when (update.role) { AgentModelRole.PLANNER -> "waiting_response"; AgentModelRole.VISION -> "analyzing_image"; AgentModelRole.DECISION -> "reviewing" },
+                            steps, update.source, observations = observed, role = update.role), recordLog = false)
+                        AgentTaskLog.model(task.id, update, steps, observed)
+                    }
+                },
+                pluginTools = discoveredPluginTools).also { cooperation = it }
+            modelsReady = true
+            pendingModelRecords.forEach { (call, result) -> models.record(call, result) }
+            pendingModelRecords.clear()
             var previousOperation = ""
             var repeatedFailures = 0
             while (!task.stopped() && task.limits.allowsStep(steps)) {
@@ -272,7 +284,7 @@ internal object AgentController {
                 check(turn.toolCalls.size == 1) { "parallel_tools_rejected" }
                 val call = turn.toolCalls.single()
                 check(history.acceptCallId(call.id)) { "duplicate_tool_call" }
-                check(AgentToolCatalog.valid(call.name, call.arguments, canSee)) { "invalid_tool_arguments" }
+                check(AgentToolCatalog.valid(call.name, call.arguments, canSee, discoveredPluginTools)) { "invalid_tool_arguments" }
                 steps++
                 val planner = task.sources.firstOrNull { it.fingerprint == models.plannerFingerprint }
                 publish(task, AgentTaskState(true, call.name, steps, source = planner?.index ?: 0, observations = observed,
@@ -373,12 +385,15 @@ internal object AgentController {
             if (missing != null) return failure("native_evidence_required", missing)
             transferToUi(task)
         }
+        val isPluginTool = operation.startsWith("plg_")
+        val isPluginDiscovery = operation == "list_plugin_tools"
         val useAccessibility = operation == "get_ui_state" || operation in AgentToolCatalog.uiActions ||
-            task.backend.uiOnly && operation != "get_capabilities"
+            (task.backend.uiOnly && operation != "get_capabilities" && !isPluginTool && !isPluginDiscovery)
         val response = when {
             operation == "get_capabilities" && task.backend.uiOnly -> JSONObject().put("ok", true).put("data", JSONObject()
                 .put("native_available", false).put("backend", "accessibility").put("account_read_state", "native_unavailable")
                 .apply { AgentToolCatalog.nativeReads.forEach { put(it, false) }; put("get_ui_state", task.accessibility) })
+            isPluginTool && task.backend.uiOnly -> failure("use_ui_tools", operation)
             operation in AgentToolCatalog.personalReads && task.backend.accountRefusal != null -> failure(checkNotNull(task.backend.accountRefusal))
             operation in AgentToolCatalog.nativeReads && task.backend.nativeActive && task.backend.supported(operation) == false -> failure("use_ui_tools", operation)
             useAccessibility && !task.accessibility -> failure("accessibility_not_connected")
@@ -388,6 +403,14 @@ internal object AgentController {
                     it.optJSONObject("data")?.put("native_session_active", task.backend.nativeActive)
                 }
             }
+            isPluginTool -> AgentHostClient.request(
+                task.id,
+                task.sequence.incrementAndGet(),
+                task.deadline(AgentWire.IPC_TIMEOUT_MS),
+                "invoke_plugin_tool",
+                JSONObject().put("tool_name", operation).put("arguments", args),
+                task::stopped
+            )
             else -> AgentHostClient.request(task.id, task.sequence.incrementAndGet(), task.deadline(AgentWire.IPC_TIMEOUT_MS), operation, args, task::stopped)
         }
         if (operation == "get_capabilities" && response.optBoolean("ok")) task.backend.capabilities(response.optJSONObject("data") ?: JSONObject())
@@ -458,6 +481,39 @@ internal object AgentController {
         notifyObservers()
     } }
     private fun notifyObservers() { if (observers.isNotEmpty() && notificationPending.compareAndSet(false, true)) main.post(notification) }
+
+    private fun discoverPluginTools(task: Task): List<AgentPluginToolDescriptor> {
+        if (task.stopped()) return emptyList()
+        val response = runCatching { host(task, "list_plugin_tools") }.getOrNull() ?: return emptyList()
+        if (!response.optBoolean("ok")) return emptyList()
+        val toolsArray = response.optJSONObject("data")?.optJSONArray("tools") ?: return emptyList()
+        val parsed = ArrayList<AgentPluginToolDescriptor>(toolsArray.length())
+        for (i in 0 until toolsArray.length()) {
+            val item = toolsArray.optJSONObject(i) ?: continue
+            val name = item.optString("name")
+            if (!name.startsWith("plg_")) continue
+            val description = item.optString("description")
+            val paramsJson = item.optJSONArray("parameters")
+            val params = ArrayList<String>(paramsJson?.length() ?: 0)
+            if (paramsJson != null) {
+                for (j in 0 until paramsJson.length()) {
+                    val rawParam = paramsJson.opt(j)
+                    val paramName = when (rawParam) {
+                        is String -> rawParam
+                        is JSONObject -> rawParam.optString("name")
+                        else -> ""
+                    }
+                    if (paramName.isNotBlank()) params += paramName
+                }
+            }
+            parsed += AgentPluginToolDescriptor(
+                name = name,
+                description = description,
+                parameters = params
+            )
+        }
+        return parsed
+    }
 }
 
 internal class AgentAuthorizationCacheEntry(

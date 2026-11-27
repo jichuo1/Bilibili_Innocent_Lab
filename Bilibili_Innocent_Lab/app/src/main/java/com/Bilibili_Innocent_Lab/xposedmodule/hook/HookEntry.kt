@@ -187,6 +187,19 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigSn
  *    且每次 key 只打印一次（logOnce 思路），降低频繁磁盘 I/O。
  *  - 重复的 hook 模板抽取为局部 hookMethod helper，减少样板代码、降低出错面。
  */
+internal object PluginRuntimeHolder {
+    val pipelineRef = java.util.concurrent.atomic.AtomicReference<
+        com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline?>(null)
+    val runtimeRef = java.util.concurrent.atomic.AtomicReference<
+        com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.TierCPluginRuntime?>(null)
+
+    fun currentPipeline(): com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline? =
+        pipelineRef.get()
+
+    fun currentAgentTools(): com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.SandboxedPluginAgentTools? =
+        runtimeRef.get()?.agentTools
+}
+
 class HookEntry : XposedModule() {
 
     private val modernRuntime = ModernHookRuntime(this)
@@ -535,9 +548,17 @@ class HookEntry : XposedModule() {
                 }.getOrElse {
                     com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.InMemoryBootLedgerStore()
                 }
-                val tierCRuntime = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.TierCPluginRuntime(
-                    bootLedger = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginBootLedger(ledgerStore)
+                val circuitBreaker = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginFaultCircuitBreaker()
+                val agentTools = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.SandboxedPluginAgentTools(
+                    onFault = { pluginId -> circuitBreaker.recordFault(pluginId) }
                 )
+                val tierCRuntime = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.TierCPluginRuntime(
+                    bootLedger = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginBootLedger(ledgerStore),
+                    circuitBreaker = circuitBreaker,
+                    agentTools = agentTools
+                )
+                PluginRuntimeHolder.pipelineRef.compareAndSet(null, activePipeline)
+                PluginRuntimeHolder.runtimeRef.set(tierCRuntime)
                 @Suppress("DEPRECATION")
                 val pkgInfo = runCatching {
                     appContext.packageManager.getPackageInfo(TARGET_PACKAGE, 0)
@@ -573,12 +594,12 @@ class HookEntry : XposedModule() {
                     val executable = member.executable as? java.lang.reflect.Executable
                     if (executable == null) {
                         return@PluginHookBridge object : com.bilab.plugin.api.spi.HookHandle {
-                            override val hookId: String = "${member.ownerClassName}#${member.memberName}"
+                            override val hookId: String = "${member.ownerClassName}#${member.memberName}${member.descriptor}"
                             override val isActive: Boolean = false
                             override fun close() = Unit
                         }
                     }
-                    val hookKey = "plugin.${member.pluginId}:${member.ownerClassName}#${member.memberName}"
+                    val hookKey = "plugin.${member.pluginId}:${member.ownerClassName}#${member.memberName}${member.descriptor}"
                     val closed = java.util.concurrent.atomic.AtomicBoolean(false)
                     val paramCount = executable.parameterCount
                     val modernHandle = modernRuntime.install(
@@ -599,18 +620,22 @@ class HookEntry : XposedModule() {
                             setObjectExtra(hookKey, ctx)
                             onBefore(ctx)
                             for (i in 0 until paramCount) {
-                                if (argArr[i] !== argOrNull(i)) {
+                                if (ctx.isArgModified(i)) {
                                     args[i] = argArr[i]
                                 }
                             }
-                            if (ctx.hasResult()) {
+                            if (ctx.wasResultAssignedByHook()) {
                                 result = ctx.resultOrNull()
                             }
                         }
                         after {
-                            val ctx = getObjectExtra(hookKey) as?
+                            val cachedCtx = getObjectExtra(hookKey) as?
                                 com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.HostHookCallbackContext
-                                ?: com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.HostHookCallbackContext(
+                            val ctx = if (cachedCtx != null) {
+                                cachedCtx.syncAfter(result, hasThrowable = hasThrowable)
+                                cachedCtx
+                            } else {
+                                com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.HostHookCallbackContext(
                                     member = member,
                                     thisObject = thisObject,
                                     args = Array(paramCount) { idx -> argOrNull(idx) },
@@ -618,8 +643,9 @@ class HookEntry : XposedModule() {
                                     initialHasResult = wasResultAssignedByHook(),
                                     hasFailure = hasThrowable
                                 )
+                            }
                             onAfter(ctx)
-                            if (ctx.hasResult()) {
+                            if (ctx.wasResultAssignedByHook()) {
                                 result = ctx.resultOrNull()
                             }
                         }
@@ -634,6 +660,16 @@ class HookEntry : XposedModule() {
                         }
                     }
                 }
+                val diagnosticsSink = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginDiagnosticSink { id, tier, status, reason, faults, hooks ->
+                    com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeDiagnostics.record(
+                        id, tier, status, reason, faults, hooks
+                    )
+                    if (status == com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeStatus.QUARANTINED ||
+                        status == com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeStatus.UNLOADED
+                    ) {
+                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptHost.publishPluginDiagnostics()
+                    }
+                }
                 val source = com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ProviderPluginPackageSource(appContext)
                 com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.PluginBootstrap.bootstrap(
                     pluginIndexDigest = pluginIndexDigest,
@@ -645,8 +681,10 @@ class HookEntry : XposedModule() {
                     tierBRuntime = tierBRuntime,
                     tierCRuntime = tierCRuntime,
                     hookBridge = hookBridge,
+                    diagnosticsSink = diagnosticsSink,
                     apkPaths = apkPaths
                 )
+                com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptHost.publishPluginDiagnostics()
             }
         }, "bil-plugin-bootstrap")
         thread.isDaemon = true
@@ -814,8 +852,7 @@ class HookEntry : XposedModule() {
                 java.util.concurrent.atomic.AtomicReference<FrameInterpolationFeatureInstaller?>(null)
             val freeCopyInstallerRef =
                 java.util.concurrent.atomic.AtomicReference<FreeCopyFeatureInstaller?>(null)
-            val pluginPipelineRef =
-                java.util.concurrent.atomic.AtomicReference<com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline?>(null)
+            val pluginPipelineRef = PluginRuntimeHolder.pipelineRef
             val pluginBootstrapStarted = java.util.concurrent.atomic.AtomicBoolean(false)
             val memoryPressureInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
             lateinit var scheduleAuthorizationRetry: (Context, android.app.Application?) -> Unit
@@ -1631,6 +1668,19 @@ class HookEntry : XposedModule() {
                 )
             )
 
+            val sharedPluginIndexDigest = prefs.getString(
+                RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST,
+                ""
+            ).orEmpty()
+            val sharedPluginPipeline: com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline? =
+                if (sharedPluginIndexDigest.isNotBlank()) {
+                    val created = com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline()
+                    pluginPipelineRef.compareAndSet(null, created)
+                    pluginPipelineRef.get()
+                } else {
+                    null
+                }
+
             featureInstallCoordinator.installAll(
                 listOf(
                     DynamicPurifyFeatureInstaller(
@@ -1674,7 +1724,8 @@ class HookEntry : XposedModule() {
                             SemanticSurface.DYNAMIC
                         ),
                         semanticLogDir = semanticLogDir,
-                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                        pluginPipeline = sharedPluginPipeline
                     ),
                     searchHomeInstaller,
                     SearchPurifyFeatureInstaller(
@@ -1835,7 +1886,8 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         semanticJudge = videoSemanticJudge,
-                        semanticLogDir = semanticLogDir
+                        semanticLogDir = semanticLogDir,
+                        pluginPipeline = sharedPluginPipeline
                     )
                 )
             )
@@ -2425,23 +2477,17 @@ class HookEntry : XposedModule() {
                             protectHighLevel = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_PROTECT_HIGH_LEVEL, true),
                             strongMode = prefs.getBoolean(FeaturePreferences.COMMENT_FISH_STRONG_MODE, false)
                         ),
-                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                        pluginPipeline = sharedPluginPipeline
                     )
                 )
             )
 
-            val pluginIndexDigest = prefs.getString(
-                RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST,
-                ""
-            ).orEmpty()
-            val pluginDanmakuEnabled = pluginIndexDigest.isNotBlank()
+            val pluginDanmakuEnabled = sharedPluginPipeline != null
             val pluginDanmakuFiltersProvider: () -> List<com.bilab.plugin.api.spi.DanmakuBatchFilter> =
-                if (pluginDanmakuEnabled) {
-                    val created = com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline()
-                    pluginPipelineRef.compareAndSet(null, created)
-                    val pipeline = checkNotNull(pluginPipelineRef.get())
+                if (sharedPluginPipeline != null) {
                     val provider: () -> List<com.bilab.plugin.api.spi.DanmakuBatchFilter> = {
-                        pipeline.danmakuFiltersSnapshot()
+                        sharedPluginPipeline.danmakuFiltersSnapshot()
                     }
                     provider
                 } else {
@@ -2474,7 +2520,8 @@ class HookEntry : XposedModule() {
                         semanticLogDir = semanticLogDir,
                         kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
                         pluginBatchFilters = pluginDanmakuFiltersProvider,
-                        pluginFiltersEnabled = pluginDanmakuEnabled
+                        pluginFiltersEnabled = pluginDanmakuEnabled,
+                        pluginPipeline = sharedPluginPipeline
                     ),
                     LiveRoomWidgetFeatureInstaller(
                         blockRoomSwitch = prefs.getBoolean(

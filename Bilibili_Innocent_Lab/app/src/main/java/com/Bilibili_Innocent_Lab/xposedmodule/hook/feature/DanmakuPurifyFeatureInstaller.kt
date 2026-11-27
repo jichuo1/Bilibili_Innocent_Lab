@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.bilab.plugin.api.spi.DanmakuBatchFilter
 import com.bilab.plugin.api.spi.DanmakuBatchView
@@ -60,7 +61,8 @@ internal class DanmakuPurifyFeatureInstaller(
     private val liveRules: (() -> LiveDanmakuRules)? = null,
     private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null,
     private val pluginBatchFilters: () -> List<DanmakuBatchFilter> = { emptyList() },
-    private val pluginFiltersEnabled: Boolean = false
+    private val pluginFiltersEnabled: Boolean = false,
+    private val pluginPipeline: ContentFilterPipeline? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -86,7 +88,7 @@ internal class DanmakuPurifyFeatureInstaller(
     private var wireLog: ((String, String) -> Unit)? = null
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        val hasPluginFilters = pluginFiltersEnabled || pluginBatchFilters().isNotEmpty()
+        val hasPluginFilters = pluginFiltersEnabled || pluginPipeline != null || pluginBatchFilters().isNotEmpty()
         if (minimumWeight == null && !removeVipColorful && semanticJudge == null && !hasPluginFilters) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
@@ -518,8 +520,9 @@ internal class DanmakuPurifyFeatureInstaller(
     ): Any? {
         val threshold = live.minimum
         val liveColorful = live.colorful
-        val activePluginFilters = pluginBatchFilters()
-        if (threshold == null && !liveColorful && semanticJudge == null && activePluginFilters.isEmpty()) return reply
+        val usePipeline = pluginPipeline != null && pluginPipeline.hasDanmakuFilters()
+        val activePluginFilters = if (usePipeline) emptyList() else pluginBatchFilters()
+        if (threshold == null && !liveColorful && semanticJudge == null && !usePipeline && activePluginFilters.isEmpty()) return reply
         return runCatching {
             val bytes = plan.serialize(reply) ?: return@runCatching null
             val purified = purifyWireBytes(plan, environment, bytes, members, live, activePluginFilters)
@@ -547,7 +550,9 @@ internal class DanmakuPurifyFeatureInstaller(
     ): WirePurifyResult? {
         val threshold = live.minimum
         val liveColorful = live.colorful
-        if (threshold == null && !liveColorful && semanticJudge == null && activePluginFilters.isEmpty()) {
+        val usePipeline = pluginPipeline != null && pluginPipeline.hasDanmakuFilters()
+        val resolvedPluginFilters = if (usePipeline) emptyList() else activePluginFilters
+        if (threshold == null && !liveColorful && semanticJudge == null && !usePipeline && resolvedPluginFilters.isEmpty()) {
             return WirePurifyResult(bytes, -1)
         }
         return runCatching {
@@ -630,10 +635,16 @@ internal class DanmakuPurifyFeatureInstaller(
             // ---- 位图：权重 × 语义 × 插件批量过滤 × 彩字改色（改色只作用于保留下来的条目，与反射路径组合一致）----
             val pluginActions: ByteArray?
             val pluginColors: IntArray?
-            if (activePluginFilters.isNotEmpty() && elemCount > 0) {
+            if ((usePipeline || resolvedPluginFilters.isNotEmpty()) && elemCount > 0) {
                 val actions = ByteArray(elemCount)
                 val colors = IntArray(elemCount)
-                if (runDanmakuBatchFilters(activePluginFilters, WireDanmakuBatchView(bytes, scan, elemCount), actions, colors)) {
+                val batchView = WireDanmakuBatchView(bytes, scan, elemCount)
+                val matched = if (usePipeline) {
+                    pluginPipeline!!.applyDanmakuBatchFilters(batchView, actions, colors)
+                } else {
+                    runDanmakuBatchFilters(resolvedPluginFilters, batchView, actions, colors)
+                }
+                if (matched) {
                     pluginActions = actions
                     pluginColors = colors
                 } else {
@@ -1012,15 +1023,21 @@ internal class DanmakuPurifyFeatureInstaller(
         members: ReplyMembers,
         base: List<Any>?
     ): List<Any>? {
-        val filters = pluginBatchFilters()
-        if (filters.isEmpty()) return null
+        val usePipeline = pluginPipeline != null && pluginPipeline.hasDanmakuFilters()
+        val filters = if (usePipeline) emptyList() else pluginBatchFilters()
+        if (!usePipeline && filters.isEmpty()) return null
         val sourceElems = base ?: invokeList(members.elemList!!.elemsGetter, reply)?.filterNotNull() ?: return null
         if (sourceElems.isEmpty()) return null
         val count = sourceElems.size
         val actions = ByteArray(count)
         val colors = IntArray(count)
         val view = ReflectionDanmakuBatchView(sourceElems, members)
-        if (!runDanmakuBatchFilters(filters, view, actions, colors)) return null
+        val matched = if (usePipeline) {
+            pluginPipeline!!.applyDanmakuBatchFilters(view, actions, colors)
+        } else {
+            runDanmakuBatchFilters(filters, view, actions, colors)
+        }
+        if (!matched) return null
 
         val out = ArrayList<Any>(count)
         var changed = false

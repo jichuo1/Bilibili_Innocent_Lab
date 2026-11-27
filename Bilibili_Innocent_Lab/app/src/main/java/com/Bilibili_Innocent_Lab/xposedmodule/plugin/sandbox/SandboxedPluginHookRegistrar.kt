@@ -57,7 +57,7 @@ internal fun interface PluginHookBridge {
     companion object {
         val NO_OP: PluginHookBridge = PluginHookBridge { member, _, _ ->
             object : HookHandle {
-                override val hookId: String = "${member.ownerClassName}#${member.memberName}"
+                override val hookId: String = "${member.ownerClassName}#${member.memberName}${member.descriptor}"
                 override val isActive: Boolean = false
                 override fun close() = Unit
             }
@@ -74,11 +74,17 @@ internal class HostHookCallbackContext(
     private val args: Array<Any?> = emptyArray(),
     initialResult: Any? = null,
     initialHasResult: Boolean = false,
-    override val hasFailure: Boolean = false
+    hasFailure: Boolean = false
 ) : HookCallbackContext {
     private var resultSet: Boolean = initialHasResult
+    private var hostResultAvailable: Boolean = initialHasResult
     private var resultValue: Any? = initialResult
+    private val dirtyArgs = BooleanArray(args.size)
+    private var throwablePresent: Boolean = hasFailure
     private var extras: HashMap<String, Any?>? = null
+
+    override val hasFailure: Boolean
+        get() = throwablePresent
 
     override val argCount: Int
         get() = args.size
@@ -88,10 +94,25 @@ internal class HostHookCallbackContext(
     override fun setArg(index: Int, value: Any?) {
         if (index in args.indices) {
             args[index] = value
+            dirtyArgs[index] = true
         }
     }
 
-    override fun hasResult(): Boolean = resultSet
+    internal fun isArgModified(index: Int): Boolean =
+        index in dirtyArgs.indices && dirtyArgs[index]
+
+    internal fun hasThrowable(): Boolean = throwablePresent
+
+    internal fun syncAfter(result: Any?, hasThrowable: Boolean) {
+        resultValue = result
+        resultSet = false
+        throwablePresent = hasThrowable
+        hostResultAvailable = !hasThrowable && result != null
+    }
+
+    internal fun wasResultAssignedByHook(): Boolean = resultSet
+
+    override fun hasResult(): Boolean = resultSet || hostResultAvailable
 
     override fun resultOrNull(): Any? = resultValue
 
@@ -357,7 +378,7 @@ internal class SandboxedPluginHookRegistrar(
     }
 
     companion object {
-        private fun buildDescriptor(executable: Executable): String = buildString {
+        internal fun buildDescriptor(executable: Executable): String = buildString {
             append('(')
             for (param in executable.parameterTypes) {
                 appendType(param)

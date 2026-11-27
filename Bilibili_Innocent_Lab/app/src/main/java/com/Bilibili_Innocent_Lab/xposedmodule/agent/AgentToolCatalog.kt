@@ -3,8 +3,19 @@ package com.Bilibili_Innocent_Lab.xposedmodule.agent
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal data class AgentPluginToolDescriptor(
+    val name: String,
+    val description: String,
+    val parameters: List<String> = emptyList()
+)
+
 /** 业务接口和可观测界面动作共享白名单；schema 不是授权机制。 */
 internal object AgentToolCatalog {
+    private const val MAX_TOTAL_TOOLS = 36
+    private const val MAX_PLUGIN_PARAMS = 16
+    private const val MAX_PLUGIN_ARG_KEY_LEN = 64
+    private const val MAX_PLUGIN_ARG_VALUE_LEN = 4096
+    private val PLUGIN_TOOL_NAME_REGEX = Regex("^plg_[A-Za-z0-9_-]{1,60}$")
     val uiActions = setOf("click_ui", "swipe_ui", "input_ui_text", "press_back", "tap_ui")
     val personalReads = setOf("get_history", "get_following_feed", "get_live_status")
     val nativeReads = setOf("get_capabilities", "get_host_state", "search_videos", "get_video_details", "get_video_metrics",
@@ -54,6 +65,31 @@ internal object AgentToolCatalog {
         }
     }
 
+    fun tools(vision: Boolean, pluginTools: List<AgentPluginToolDescriptor>): JSONArray {
+        val base = tools(vision)
+        if (pluginTools.isEmpty()) return base
+        val seen = HashSet<String>(base.length() + pluginTools.size)
+        for (i in 0 until base.length()) {
+            base.optJSONObject(i)?.optJSONObject("function")?.optString("name")?.let(seen::add)
+        }
+        for (descriptor in pluginTools) {
+            if (base.length() >= MAX_TOTAL_TOOLS) break
+            if (!PLUGIN_TOOL_NAME_REGEX.matches(descriptor.name)) continue
+            if (!seen.add(descriptor.name)) continue
+            val validParams = descriptor.parameters
+                .asSequence()
+                .filter { it.isNotBlank() && it.length <= MAX_PLUGIN_ARG_KEY_LEN && it.none(Char::isISOControl) }
+                .distinct()
+                .take(MAX_PLUGIN_PARAMS)
+                .toList()
+            val fields = LinkedHashMap<String, String>(validParams.size)
+            validParams.forEach { param -> fields[param] = "插件工具参数: $param" }
+            val desc = descriptor.description.trim().take(512).ifEmpty { "沙箱插件工具 ${descriptor.name}" }
+            base.put(tool(descriptor.name, "[插件工具] $desc", fields))
+        }
+        return base
+    }
+
     /** 只规范化有界整数槽；身份、正文和未知参数仍由原白名单严格校验。 */
     fun normalizeArguments(name: String, arguments: JSONObject): JSONObject = JSONObject(arguments.toString()).apply {
         val numbers = when (name) { "get_ui_state" -> setOf("offset"); "tap_ui" -> setOf("x", "y"); else -> emptySet() }
@@ -64,7 +100,30 @@ internal object AgentToolCatalog {
         }
     }
 
-    fun valid(name: String, arguments: JSONObject, vision: Boolean): Boolean {
+    fun valid(name: String, arguments: JSONObject, vision: Boolean): Boolean =
+        valid(name, arguments, vision, emptyList())
+
+    fun valid(
+        name: String,
+        arguments: JSONObject,
+        vision: Boolean,
+        pluginTools: List<AgentPluginToolDescriptor>
+    ): Boolean {
+        if (name.startsWith("plg_")) {
+            if (!PLUGIN_TOOL_NAME_REGEX.matches(name)) return false
+            val descriptor = pluginTools.firstOrNull { it.name == name } ?: return false
+            val keys = arguments.keys().asSequence().toSet()
+            if (keys.size > MAX_PLUGIN_PARAMS) return false
+            val declaredParams = descriptor.parameters
+                .asSequence()
+                .filter { it.isNotBlank() && it.length <= MAX_PLUGIN_ARG_KEY_LEN && it.none(Char::isISOControl) }
+                .toSet()
+            if (!declaredParams.containsAll(keys)) return false
+            return keys.all { key ->
+                val value = arguments.opt(key) as? String ?: return@all false
+                value.length <= MAX_PLUGIN_ARG_VALUE_LEN
+            }
+        }
         if (name !in names || (name in setOf("inspect_screen", "tap_ui") && !vision)) return false
         val keys = arguments.keys().asSequence().toSet()
         val allowed = when (name) {

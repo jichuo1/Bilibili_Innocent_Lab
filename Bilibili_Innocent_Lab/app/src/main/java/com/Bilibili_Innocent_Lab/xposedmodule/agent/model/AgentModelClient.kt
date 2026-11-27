@@ -178,7 +178,7 @@ internal class AgentModelClient(
     }
 
     private fun validateTools(tools: JSONArray): Set<String> {
-        requireRequest(tools.length() <= 24)
+        requireRequest(tools.length() <= 36)
         val names = linkedSetOf<String>()
         for (index in 0 until tools.length()) {
             val tool = tools.optJSONObject(index) ?: invalidRequest()

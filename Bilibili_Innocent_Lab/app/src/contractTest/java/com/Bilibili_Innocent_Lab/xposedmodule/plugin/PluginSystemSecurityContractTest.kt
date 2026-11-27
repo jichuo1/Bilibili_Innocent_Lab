@@ -47,6 +47,42 @@ class PluginSystemSecurityContractTest {
             code.contains("SecurityException")
         )
 
+        assertTrue(
+            "PluginPayloadProvider must declare PATH_SETTINGS = \"plugin_settings\"",
+            code.contains("PATH_SETTINGS") && code.contains("\"plugin_settings\"")
+        )
+
+        val queryFn = KotlinSourceScanner.function(
+            listOf(providerPath to raw),
+            "query",
+            "PluginPayloadProvider.query"
+        )
+        val queryCode = KotlinSourceScanner.code(queryFn)
+        val enforceFirstIdx = listOf(
+            queryCode.indexOf("enforceTrustedCaller("),
+            queryCode.indexOf("Binder.getCallingUid()")
+        ).filter { it >= 0 }.minOrNull() ?: -1
+        val pathSettingsIdx = queryCode.indexOf("PATH_SETTINGS")
+        assertTrue(
+            "PluginPayloadProvider.query must handle PATH_SETTINGS",
+            pathSettingsIdx >= 0
+        )
+        assertTrue(
+            "PluginPayloadProvider.query must enforce caller trust",
+            enforceFirstIdx >= 0
+        )
+        val enforceForSettings = enforceFirstIdx < pathSettingsIdx ||
+            queryCode.indexOf("enforceTrustedCaller(", startIndex = pathSettingsIdx) >= 0 ||
+            queryCode.indexOf("Binder.getCallingUid()", startIndex = pathSettingsIdx) >= 0
+        assertTrue(
+            "PluginPayloadProvider.query must enforce trusted caller for PATH_SETTINGS",
+            enforceForSettings
+        )
+        assertFalse(
+            "PluginPayloadProvider.query must stay strictly read-only",
+            queryCode.contains("MODE_WRITE_ONLY") || queryCode.contains("MODE_READ_WRITE")
+        )
+
         val openFile = KotlinSourceScanner.function(
             listOf(providerPath to raw),
             "openFile",
@@ -95,6 +131,13 @@ class PluginSystemSecurityContractTest {
         val path = "plugin/sandbox/PluginApiBridgeClassLoader.kt"
         val raw = SourceContract.read(path)
         val code = KotlinSourceScanner.code(raw)
+
+        val headerEnd = code.indexOf("override fun loadClass").let { if (it > 0) it else code.length }
+        assertTrue(
+            "PluginApiBridgeClassLoader must pass ClassLoader(null) for dual-parent zero-leakage firewall",
+            Regex("""class\s+PluginApiBridgeClassLoader\b[\s\S]*?:\s*ClassLoader\s*\(\s*null\s*\)""")
+                .containsMatchIn(code.substring(0, headerEnd))
+        )
 
         for (blockedPrefix in listOf(
             "com.Bilibili_Innocent_Lab.",

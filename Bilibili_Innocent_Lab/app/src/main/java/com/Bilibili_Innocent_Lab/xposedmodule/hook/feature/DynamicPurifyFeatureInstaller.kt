@@ -2,10 +2,12 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
+import com.bilab.plugin.api.spi.DynamicItemView
 import android.os.Looper
 import java.io.File
 import java.lang.reflect.Method
@@ -59,7 +61,8 @@ internal class DynamicPurifyFeatureInstaller(
     private val semanticLogDir: File? = null,
     /** 主线程上只查缓存、绝不联网；单测可替换。 */
     private val isMainThread: () -> Boolean = { Looper.myLooper() == Looper.getMainLooper() },
-    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null
+    private val kmpGrpcWireEngine: VersionAdapter.HookPoint? = null,
+    private val pluginPipeline: ContentFilterPipeline? = null
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -91,7 +94,7 @@ internal class DynamicPurifyFeatureInstaller(
     private val anyRequested: Boolean
         get() = keywords.isNotEmpty() || authorRules.isNotEmpty() || removePromotion ||
             removeLockedChargeOnly || hideTopicList || removeLiveUpEntries || hideFrequentVisits ||
-            semanticJudge != null
+            semanticJudge != null || pluginPipeline != null
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!anyRequested) {
@@ -110,7 +113,8 @@ internal class DynamicPurifyFeatureInstaller(
         }
 
         val itemMembers = if (hideFrequentVisits && keywords.isEmpty() && authorRules.isEmpty() &&
-            !removePromotion && !removeLockedChargeOnly && semanticJudge == null) null else resolveItemMembers(loader)
+            !removePromotion && !removeLockedChargeOnly && semanticJudge == null && pluginPipeline == null
+        ) null else resolveItemMembers(loader)
         val plan = DynamicPurifyPolicy.Plan(
             keywords = if (itemMembers?.hasTextSource == true) keywords else emptySet(),
             authorRules = authorRules.available(itemMembers?.hasAuthorSource == true && itemMembers.author?.origName != null,
@@ -138,9 +142,10 @@ internal class DynamicPurifyFeatureInstaller(
         } else emptyList()
         val topicOnly = hideTopicList && keywords.isEmpty() && authorRules.isEmpty() &&
             !removePromotion && !removeLockedChargeOnly && semanticJudge == null &&
-            !removeLiveUpEntries && !hideFrequentVisits
+            !removeLiveUpEntries && !hideFrequentVisits && pluginPipeline == null
+        val itemFilteringRequested = plan.hasAnyItemJudgement || pluginPipeline != null
         val mainSpecs = if (topicOnly) topicSpecs else FEED_METHODS
-        val rootApplicable = plan.hasAnyItemJudgement && ROOT_FEED_METHODS.any { spec ->
+        val rootApplicable = itemFilteringRequested && ROOT_FEED_METHODS.any { spec ->
             KavaMemberLookup.classOrNull(loader, spec.replyClassName) != null || spec.asyncName in kotlinNames
         }
         val specs = mainSpecs + if (rootApplicable) ROOT_FEED_METHODS else emptyList()
@@ -149,7 +154,7 @@ internal class DynamicPurifyFeatureInstaller(
         val feeds = specs.mapNotNull { spec ->
             resolveFeedForChannel(loader, mossClass, spec, allowKotlinOnly = wireSurface != null || spec.asyncName in kotlinNames)
         }.filter { feed ->
-            (plan.hasAnyItemJudgement && feed.listBuilder != null) ||
+            (itemFilteringRequested && feed.listBuilder != null) ||
                 (hideTopicList && feed.clearTopicList != null) || (removeLiveUpEntries && feed.upList != null) ||
                 (hideFrequentVisits && feed.wholeUpList != null)
         }
@@ -559,7 +564,8 @@ internal class DynamicPurifyFeatureInstaller(
         itemMembers: ItemMembers?,
         plan: DynamicPurifyPolicy.Plan
     ): Any? {
-        if (itemMembers == null || !plan.hasAnyItemJudgement) return null
+        val pipeline = pluginPipeline?.takeIf { it.hasContentFilters() }
+        if (itemMembers == null || (!plan.hasAnyItemJudgement && pipeline == null)) return null
         val listBuilder = feed.listBuilder ?: return null
         val clearList = feed.clearList ?: return null
         val addAllList = feed.addAllList ?: return null
@@ -569,7 +575,9 @@ internal class DynamicPurifyFeatureInstaller(
         val semantic = if (plan.semanticEnabled) semanticVerdicts(items, itemMembers) else null
         val retained = ProtobufListRetention.retainOrNull(items) { item ->
             val semanticBlocked = semantic?.get(item) == SemanticVerdict.BLOCK
-            !DynamicPurifyPolicy.shouldRemove(readSignals(item, itemMembers, plan, semanticBlocked), plan)
+            val builtInDrop = plan.hasAnyItemJudgement &&
+                DynamicPurifyPolicy.shouldRemove(readSignals(item, itemMembers, plan, semanticBlocked), plan)
+            !(builtInDrop || (pipeline != null && pipeline.shouldDropDynamic(HostDynamicItemView(item, itemMembers, this))))
         } ?: return null
         val removed = items.size - retained.size
         if (removed <= 0) return null
@@ -967,13 +975,20 @@ internal class DynamicPurifyFeatureInstaller(
             }
         }
 
+        val dynIdStrGetter = if (pluginPipeline != null) extendGetter?.returnType?.let { stringNoArg(it, "getDynIdStr") } else null
+        val cardTypeGetter = if (pluginPipeline != null) {
+            objectGetter(itemClass, "getCardType") ?: intNoArg(itemClass, "getCardTypeValue")
+        } else null
+
         return ItemMembers(
             extendGetter = extendGetter,
             modulesGetter = modulesGetter,
             text = text,
             author = author,
             promotion = promotion,
-            chargeOnly = chargeOnly
+            chargeOnly = chargeOnly,
+            dynIdStrGetter = dynIdStrGetter,
+            cardTypeGetter = cardTypeGetter
         )
     }
 
@@ -1084,13 +1099,48 @@ internal class DynamicPurifyFeatureInstaller(
         val setPos: Method
     )
 
+    private class HostDynamicItemView(
+        private val item: Any,
+        private val members: ItemMembers,
+        private val owner: DynamicPurifyFeatureInstaller
+    ) : DynamicItemView {
+        private val extend: Any? by lazy(LazyThreadSafetyMode.NONE) {
+            members.extendGetter?.let { owner.invoke(it, item) }
+        }
+        private val modules: List<*>? by lazy(LazyThreadSafetyMode.NONE) {
+            members.modulesGetter?.let { owner.invoke(it, item) as? List<*> }
+        }
+        override val dynamicId: String
+            get() = extend?.let { owner.invoke(members.dynIdStrGetter, it) as? String }.orEmpty()
+        override val cardType: String
+            get() = members.cardTypeGetter?.let { owner.invoke(it, item)?.toString() }.orEmpty()
+        override val authorName: String
+            get() = extend?.let { owner.invoke(members.author?.origName, it) as? String }.orEmpty()
+        override val authorId: Long
+            get() = extend?.let {
+                (owner.invoke(members.author?.uid, it) as? Number)?.toLong()?.takeIf { id -> id > 0L }
+            } ?: 0L
+        override val text: String
+            get() = owner.semanticText(item, members)
+        override val isPromoted: Boolean
+            get() = modules != null && members.promotion?.let { promo ->
+                modules?.any { owner.isPromotionModule(it, promo) }
+            } == true
+        override val isChargeOnly: Boolean
+            get() = extend != null && members.chargeOnly?.let {
+                owner.isLockedChargeOnly(extend!!, it)
+            } == true
+    }
+
     private class ItemMembers(
         val extendGetter: Method?,
         val modulesGetter: Method?,
         val text: TextMembers?,
         val author: AuthorMembers?,
         val promotion: PromotionMembers?,
-        val chargeOnly: ChargeOnlyMembers?
+        val chargeOnly: ChargeOnlyMembers?,
+        val dynIdStrGetter: Method? = null,
+        val cardTypeGetter: Method? = null
     ) {
         val hasTextSource: Boolean get() = text != null
         val hasAuthorSource: Boolean get() = extendGetter != null && author != null
