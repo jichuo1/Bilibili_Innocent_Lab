@@ -13,13 +13,28 @@ import java.util.Enumeration
  * standard Java/Kotlin runtime packages, Android platform framework classes, and optional
  * sanitized host target package prefixes.
  */
-internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
-    private val hostApiParent: ClassLoader = PluginApiBridgeClassLoader::class.java.classLoader
+internal class PluginApiBridgeClassLoader(
+    private val moduleApiParent: ClassLoader = PluginApiBridgeClassLoader::class.java.classLoader
         ?: ClassLoader.getSystemClassLoader(),
+    private val hostClassLoader: ClassLoader? = null,
     hostPackagePrefix: String? = null,
     additionalAllowedPrefixes: Set<String> = emptySet()
-) : ClassLoader(hostApiParent) {
+) : ClassLoader(null) {
 
+    @JvmOverloads
+    constructor(
+        hostApiParent: ClassLoader,
+        hostPackagePrefix: String? = null,
+        additionalAllowedPrefixes: Set<String> = emptySet()
+    ) : this(
+        moduleApiParent = hostApiParent,
+        hostClassLoader = null,
+        hostPackagePrefix = hostPackagePrefix,
+        additionalAllowedPrefixes = additionalAllowedPrefixes
+    )
+
+    private val extraHostClassPrefixes: List<String>
+    private val extraHostResourcePrefixes: List<String>
     private val allowedClassPrefixes: List<String>
     private val allowedResourcePrefixes: List<String>
 
@@ -31,11 +46,10 @@ internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
         for (raw in additionalAllowedPrefixes) {
             normalizeAllowedClassPrefix(raw)?.let { extraClassPrefixes += it }
         }
-        allowedClassPrefixes = (DEFAULT_ALLOWED_CLASS_PREFIXES + extraClassPrefixes).toList()
-        allowedResourcePrefixes = (
-            DEFAULT_ALLOWED_RESOURCE_PREFIXES +
-                extraClassPrefixes.map { it.replace('.', '/') }
-            ).toList()
+        extraHostClassPrefixes = extraClassPrefixes.toList()
+        extraHostResourcePrefixes = extraClassPrefixes.map { it.replace('.', '/') }
+        allowedClassPrefixes = (DEFAULT_ALLOWED_CLASS_PREFIXES + extraHostClassPrefixes).toList()
+        allowedResourcePrefixes = (DEFAULT_ALLOWED_RESOURCE_PREFIXES + extraHostResourcePrefixes).toList()
     }
 
     fun isClassAllowed(name: String): Boolean {
@@ -52,20 +66,41 @@ internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
 
     override fun loadClass(name: String, resolve: Boolean): Class<*> {
         synchronized(loadLock) {
+            val unwrapped = unwrapClassName(name)
+                ?: throw ClassNotFoundException("Blocked malformed class name: $name")
+            if (isBlockedClassName(unwrapped)) {
+                throw ClassNotFoundException("Access denied by PluginApiBridgeClassLoader: $name")
+            }
             findLoadedClass(name)?.let { existing ->
                 if (resolve) resolveClass(existing)
                 return existing
             }
-            val unwrapped = unwrapClassName(name)
-                ?: throw ClassNotFoundException("Blocked malformed class name: $name")
-            if (isBlockedClassName(unwrapped) || !matchesAnyPrefix(unwrapped, allowedClassPrefixes)) {
-                throw ClassNotFoundException("Access denied by PluginApiBridgeClassLoader: $name")
+            val loaded = when {
+                unwrapped.startsWith(PLUGIN_API_CLASS_PREFIX) -> {
+                    moduleApiParent.loadClass(name)
+                }
+                matchesAnyPrefix(unwrapped, BOOT_AND_RUNTIME_ALLOWED_CLASS_PREFIXES) -> {
+                    loadBootOrModuleApiClass(name)
+                }
+                matchesAnyPrefix(unwrapped, extraHostClassPrefixes) -> {
+                    (hostClassLoader ?: moduleApiParent).loadClass(name)
+                }
+                else -> {
+                    throw ClassNotFoundException("Access denied by PluginApiBridgeClassLoader: $name")
+                }
             }
-            val loaded = hostApiParent.loadClass(name)
             if (resolve) {
                 resolveClass(loaded)
             }
             return loaded
+        }
+    }
+
+    private fun loadBootOrModuleApiClass(name: String): Class<*> {
+        return try {
+            super.loadClass(name, false)
+        } catch (_: ClassNotFoundException) {
+            moduleApiParent.loadClass(name)
         }
     }
 
@@ -75,18 +110,41 @@ internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
 
     override fun getResource(name: String): URL? {
         val normalized = normalizeResourceName(name) ?: return null
-        if (isBlockedResourceName(normalized) || !matchesAnyPrefix(normalized, allowedResourcePrefixes)) {
+        if (isBlockedResourceName(normalized)) {
             return null
         }
-        return hostApiParent.getResource(normalized)
+        return when {
+            normalized.startsWith(PLUGIN_API_RESOURCE_PREFIX) -> {
+                moduleApiParent.getResource(normalized)
+            }
+            matchesAnyPrefix(normalized, DEFAULT_ALLOWED_RESOURCE_PREFIXES) -> {
+                super.getResource(normalized) ?: moduleApiParent.getResource(normalized)
+            }
+            matchesAnyPrefix(normalized, extraHostResourcePrefixes) -> {
+                (hostClassLoader ?: moduleApiParent).getResource(normalized)
+            }
+            else -> null
+        }
     }
 
     override fun getResources(name: String): Enumeration<URL> {
         val normalized = normalizeResourceName(name) ?: return Collections.emptyEnumeration()
-        if (isBlockedResourceName(normalized) || !matchesAnyPrefix(normalized, allowedResourcePrefixes)) {
+        if (isBlockedResourceName(normalized)) {
             return Collections.emptyEnumeration()
         }
-        return hostApiParent.getResources(normalized)
+        return when {
+            normalized.startsWith(PLUGIN_API_RESOURCE_PREFIX) -> {
+                moduleApiParent.getResources(normalized)
+            }
+            matchesAnyPrefix(normalized, DEFAULT_ALLOWED_RESOURCE_PREFIXES) -> {
+                val bootResources = super.getResources(normalized)
+                if (bootResources.hasMoreElements()) bootResources else moduleApiParent.getResources(normalized)
+            }
+            matchesAnyPrefix(normalized, extraHostResourcePrefixes) -> {
+                (hostClassLoader ?: moduleApiParent).getResources(normalized)
+            }
+            else -> Collections.emptyEnumeration()
+        }
     }
 
     override fun getResourceAsStream(name: String): InputStream? {
@@ -116,8 +174,9 @@ internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
             "io.github.jichuo1"
         )
 
-        private val DEFAULT_ALLOWED_CLASS_PREFIXES = listOf(
-            "com.bilab.plugin.api.",
+        private const val PLUGIN_API_CLASS_PREFIX = "com.bilab.plugin.api."
+
+        private val BOOT_AND_RUNTIME_ALLOWED_CLASS_PREFIXES = listOf(
             "java.",
             "javax.",
             "kotlin.",
@@ -129,6 +188,9 @@ internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
             "org.xml.",
             "org.xmlpull."
         )
+
+        private val DEFAULT_ALLOWED_CLASS_PREFIXES = listOf(PLUGIN_API_CLASS_PREFIX) +
+            BOOT_AND_RUNTIME_ALLOWED_CLASS_PREFIXES
 
         private val BLOCKED_RESOURCE_PREFIXES = listOf(
             "META-INF/",
@@ -146,8 +208,10 @@ internal class PluginApiBridgeClassLoader @JvmOverloads constructor(
             "AndroidManifest.xml"
         )
 
+        private const val PLUGIN_API_RESOURCE_PREFIX = "com/bilab/plugin/api/"
+
         private val DEFAULT_ALLOWED_RESOURCE_PREFIXES = listOf(
-            "com/bilab/plugin/api/",
+            PLUGIN_API_RESOURCE_PREFIX,
             "java/",
             "javax/",
             "kotlin/"

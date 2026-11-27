@@ -4,6 +4,8 @@ import com.bilab.plugin.api.model.PluginQuarantineReason
 import org.json.JSONObject
 import java.security.KeyFactory
 import java.security.MessageDigest
+import java.security.NoSuchAlgorithmException
+import java.security.NoSuchProviderException
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.Signature
@@ -41,9 +43,14 @@ internal sealed interface SignatureVerifyResult {
  *
  * 默认构造携带内建根公钥锚；传入自定义列表（含空列表）时仅信任显式传入的集合，确保测试与策略严格隔离。
  */
-internal class TrustedSignerRegistry(
-    signers: List<TrustedSigner> = DEFAULT_TRUSTED_SIGNERS
+internal class TrustedSignerRegistry @JvmOverloads constructor(
+    signers: List<TrustedSigner> = DEFAULT_TRUSTED_SIGNERS,
+    revokedKeyIds: Set<String> = DEFAULT_REVOKED_KEY_IDS
 ) {
+    private val revokedKeyIdSet: Set<String> = revokedKeyIds
+        .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+        .toSet()
+
     private val signersByKeyId: Map<String, TrustedSigner> = buildMap {
         for (signer in signers) {
             if (signer.keyId.isNotBlank() &&
@@ -55,9 +62,13 @@ internal class TrustedSignerRegistry(
         }
     }
 
-    fun findSigner(keyId: String): TrustedSigner? = signersByKeyId[keyId]
+    fun isKeyRevoked(keyId: String): Boolean = keyId.trim() in revokedKeyIdSet
 
-    fun registeredKeyIds(): Set<String> = signersByKeyId.keys.toSet()
+    fun findSigner(keyId: String): TrustedSigner? =
+        if (isKeyRevoked(keyId)) null else signersByKeyId[keyId]
+
+    fun registeredKeyIds(): Set<String> =
+        signersByKeyId.keys.filterNot { it in revokedKeyIdSet }.toSet()
 
     fun verifySignature(
         payloadSha256: String,
@@ -69,13 +80,15 @@ internal class TrustedSignerRegistry(
     )
 
     companion object {
-        const val ALGORITHM_ED25519 = "Ed25519"
         const val ALGORITHM_ECDSA_SHA256 = "SHA256withECDSA"
+        const val ALGORITHM_ED25519 = "Ed25519"
 
-        val SUPPORTED_ALGORITHMS: Set<String> = setOf(
-            ALGORITHM_ED25519,
-            ALGORITHM_ECDSA_SHA256
+        val SUPPORTED_ALGORITHMS: Set<String> = linkedSetOf(
+            ALGORITHM_ECDSA_SHA256,
+            ALGORITHM_ED25519
         )
+
+        val DEFAULT_REVOKED_KEY_IDS: Set<String> = emptySet()
 
         private val SHA256_HEX_REGEX = Regex("[0-9a-f]{64}")
 
@@ -84,16 +97,16 @@ internal class TrustedSignerRegistry(
          */
         val DEFAULT_TRUSTED_SIGNERS: List<TrustedSigner> = listOf(
             TrustedSigner(
-                keyId = "bilab-root-ed25519-v1",
-                algorithm = ALGORITHM_ED25519,
-                publicKeyBase64 = "MCowBQYDK2VwAyEAVi7PK4H/DHt0olNmamI+jpNVz0GTgUurgT7OtU9biVY=",
-                publicKeySha256 = "27e1686107f5baab148dc1aa2820870d869d93646f96308098f0916fa9843185"
-            ),
-            TrustedSigner(
                 keyId = "bilab-root-ecdsa-p256-v1",
                 algorithm = ALGORITHM_ECDSA_SHA256,
                 publicKeyBase64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFP0MXkkbENVTKnmgO0FV2XN2XvWavlJowPDhPTta2Ekf+4zNvyTMV4c6En7uVbeHHjSnppe8YMnIe9oFu+x4pA==",
                 publicKeySha256 = "e0093a71d3a76f1ba7d9c484dcca48fbf6e222f8df16ef325b732b78d84c4af5"
+            ),
+            TrustedSigner(
+                keyId = "bilab-root-ed25519-v1",
+                algorithm = ALGORITHM_ED25519,
+                publicKeyBase64 = "MCowBQYDK2VwAyEAVi7PK4H/DHt0olNmamI+jpNVz0GTgUurgT7OtU9biVY=",
+                publicKeySha256 = "27e1686107f5baab148dc1aa2820870d869d93646f96308098f0916fa9843185"
             )
         )
     }
@@ -108,6 +121,10 @@ internal object PluginSignatureVerifier {
     const val MAX_ENVELOPE_BYTES = 16 * 1024
 
     private val SHA256_HEX_REGEX = Regex("[0-9a-f]{64}")
+    private val ED25519_SPKI_PREFIX = byteArrayOf(
+        0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00
+    )
+    private const val ED25519_SPKI_BYTES = 44
     private val HEX_DIGITS = charArrayOf(
         '0', '1', '2', '3', '4', '5', '6', '7',
         '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
@@ -211,6 +228,9 @@ internal object PluginSignatureVerifier {
             }
         }
 
+        if (registry.isKeyRevoked(keyId)) {
+            return rejected("revoked_signer")
+        }
         val trusted = registry.findSigner(keyId)
             ?: return rejected("untrusted_signer")
         if (trusted.algorithm != algorithm || algorithm !in TrustedSignerRegistry.SUPPORTED_ALGORITHMS) {
@@ -242,15 +262,30 @@ internal object PluginSignatureVerifier {
             ?.takeIf { it.isNotEmpty() }
             ?: return rejected("invalid_signature_base64")
 
-        val publicKey = decodePublicKey(algorithm, publicKeyBytes)
-            ?: return rejected("public_key_parse_failed")
-
-        val verified = runCatching {
-            val verifier = Signature.getInstance(algorithm)
-            verifier.initVerify(publicKey)
-            verifier.update(canonicalSigningPayload(payloadSha256))
-            verifier.verify(signatureBytes)
-        }.getOrDefault(false)
+        val signingInput = canonicalSigningPayload(payloadSha256)
+        val verified = when (algorithm) {
+            TrustedSignerRegistry.ALGORITHM_ECDSA_SHA256 -> {
+                val publicKey = decodePublicKey(algorithm, publicKeyBytes)
+                    ?: return rejected("public_key_parse_failed")
+                runCatching {
+                    val verifier = Signature.getInstance(algorithm)
+                    verifier.initVerify(publicKey)
+                    verifier.update(signingInput)
+                    verifier.verify(signatureBytes)
+                }.getOrDefault(false)
+            }
+            TrustedSignerRegistry.ALGORITHM_ED25519 -> {
+                val rawPublicKey = extractRawEd25519PublicKey(publicKeyBytes)
+                    ?: return rejected("public_key_parse_failed")
+                verifyEd25519WithJcaOrPureFallback(
+                    spkiBytes = publicKeyBytes,
+                    rawPublicKey32 = rawPublicKey,
+                    message = signingInput,
+                    signatureBytes = signatureBytes
+                )
+            }
+            else -> return rejected("algorithm_mismatch")
+        }
 
         return if (verified) {
             SignatureVerifyResult.Verified(
@@ -260,6 +295,54 @@ internal object PluginSignatureVerifier {
         } else {
             rejected("signature_verification_failed")
         }
+    }
+
+    private fun verifyEd25519WithJcaOrPureFallback(
+        spkiBytes: ByteArray,
+        rawPublicKey32: ByteArray,
+        message: ByteArray,
+        signatureBytes: ByteArray
+    ): Boolean {
+        val publicKey = decodePublicKey(TrustedSignerRegistry.ALGORITHM_ED25519, spkiBytes)
+        if (publicKey != null) {
+            for (sigAlg in listOf("Ed25519", "EdDSA")) {
+                val jcaVerifier = try {
+                    Signature.getInstance(sigAlg)
+                } catch (_: NoSuchAlgorithmException) {
+                    null
+                } catch (_: NoSuchProviderException) {
+                    null
+                }
+                if (jcaVerifier != null) {
+                    try {
+                        jcaVerifier.initVerify(publicKey)
+                    } catch (_: NoSuchAlgorithmException) {
+                        continue
+                    } catch (_: java.security.InvalidKeyException) {
+                        continue
+                    } catch (_: java.security.ProviderException) {
+                        continue
+                    }
+                    return try {
+                        jcaVerifier.update(message)
+                        jcaVerifier.verify(signatureBytes)
+                    } catch (_: java.security.SignatureException) {
+                        false
+                    } catch (_: Throwable) {
+                        Ed25519PureVerifier.verify(rawPublicKey32, message, signatureBytes)
+                    }
+                }
+            }
+        }
+        return Ed25519PureVerifier.verify(rawPublicKey32, message, signatureBytes)
+    }
+
+    private fun extractRawEd25519PublicKey(spkiBytes: ByteArray): ByteArray? {
+        if (spkiBytes.size != ED25519_SPKI_BYTES) return null
+        for (i in ED25519_SPKI_PREFIX.indices) {
+            if (spkiBytes[i] != ED25519_SPKI_PREFIX[i]) return null
+        }
+        return spkiBytes.copyOfRange(ED25519_SPKI_PREFIX.size, spkiBytes.size)
     }
 
     private fun decodePublicKey(algorithm: String, encoded: ByteArray): PublicKey? {

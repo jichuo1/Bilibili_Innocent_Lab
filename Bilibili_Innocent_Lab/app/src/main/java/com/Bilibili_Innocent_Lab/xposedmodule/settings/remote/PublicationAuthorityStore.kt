@@ -109,15 +109,28 @@ internal object PublicationAuthorityStore {
             val noRootSelected = com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore.isDesiredEnabled(appContext)
             val bridge = appContext.modulePreferences()
             val raw = bridge.all
+            val decision = consent.requestedRemoteDecision
+            val pluginIndexDigest = if (decision.isAuthorized) {
+                NoRootSupportStore.resolveCurrentPluginDigest(appContext)
+            } else {
+                ""
+            }
             // 本地权威记录不等待 Manager；在同一授权锁内构造当前快照，关闭/条款变化会使租约失效。
             val noRootSnapshot = if (noRootSelected) NoRootSupportStore.upsertEnabledSnapshot(appContext, bridge)
                 ?: return@withAuthorityLock null else null
-            val values = if (noRootSnapshot != null) NPatchRemoteGateway.resolveRemoteValues(noRootSnapshot, raw)
-                else RemoteHookConfigContract.resolveSourceValues(raw)
-            val decision = consent.requestedRemoteDecision
+            val values = if (noRootSnapshot != null) {
+                NPatchRemoteGateway.resolveRemoteValues(noRootSnapshot, raw, pluginIndexDigest)
+            } else {
+                RemoteHookConfigContract.resolveSourceValues(
+                    HashMap<String, Any>().apply {
+                        raw.forEach { (key, value) -> if (value != null) put(key, value) }
+                        put(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST, pluginIndexDigest)
+                    }
+                )
+            }
             val fingerprint = RemoteHookConfigContract.contentFingerprint(BuildConfig.VERSION_CODE.toLong(), decision, values)
             val direct = CommunicationCompatibilityStore.isEnabled(appContext)
-            val policyInput = "${consent.consentRevision}:${CommunicationCompatibilityStore.epoch(appContext)}:$direct:$noRootSelected:${noRootSnapshot?.revision ?: 0L}"
+            val policyInput = "${consent.consentRevision}:${CommunicationCompatibilityStore.epoch(appContext)}:$direct:$noRootSelected:${noRootSnapshot?.revision ?: 0L}:$pluginIndexDigest"
             val prefs = appContext.getSharedPreferences(UserTermsConsentStore.PREF_FILE, Context.MODE_PRIVATE)
             val incarnation = prefs.getString(INCARNATION, null) ?: UUID.randomUUID().toString()
             var revision = prefs.getLong(REVISION, 0L)

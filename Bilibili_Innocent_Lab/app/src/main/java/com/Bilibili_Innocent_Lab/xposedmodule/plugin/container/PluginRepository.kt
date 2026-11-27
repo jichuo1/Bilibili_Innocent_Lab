@@ -8,8 +8,16 @@ import com.bilab.plugin.api.model.PluginQuarantineReason
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.nio.channels.FileChannel
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption.CREATE
+import java.nio.file.StandardOpenOption.WRITE
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * 模块进程侧安全 `.bilp` 插件仓储：
@@ -21,9 +29,13 @@ internal class PluginRepository(
     private val signerRegistry: TrustedSignerRegistry = TrustedSignerRegistry(),
     private val enforcePosixPermissions: Boolean = true
 ) {
-    private val lock = Any()
+    private val canonicalRootPath: Path = resolveCanonicalPath(rootDir)
+    private val repoLock: ReentrantLock = LOCKS_BY_CANONICAL_ROOT.computeIfAbsent(
+        canonicalRootPath.toString()
+    ) { ReentrantLock() }
+    private val activeFileLockDepth = ThreadLocal.withInitial { 0 }
 
-    fun packagesDirectory(): File = synchronized(lock) {
+    fun packagesDirectory(): File = withRepoLock(createLockDir = true) {
         ensurePackagesDir()
     }
 
@@ -61,9 +73,11 @@ internal class PluginRepository(
         bundle: VerifiedBilpBundle,
         enableOnInstall: Boolean,
         streamOpener: () -> InputStream
-    ): VerifiedBilpBundle = synchronized(lock) {
+    ): VerifiedBilpBundle = withRepoLock(createLockDir = true) {
         val packagesDir = ensurePackagesDir()
-        val fileName = packageFileName(bundle.manifest.id)
+        val pkgFile = resolveSafePackageFileLocked(packagesDir, bundle.manifest.id)
+            ?: throw SecurityException("Unsafe package destination path for '${bundle.manifest.id}'")
+        val fileName = pkgFile.name
         val expectedSize = streamOpener().use { input ->
             SecurePayloadStore.digestStream(input, maxBytes = BilpPackageVerifier.MAX_PACKAGE_FILE_BYTES).size
         }
@@ -101,12 +115,12 @@ internal class PluginRepository(
         bundle
     }
 
-    fun uninstall(pluginId: String): Boolean = synchronized(lock) {
-        if (!isValidPluginId(pluginId)) return@synchronized false
+    fun uninstall(pluginId: String): Boolean = withRepoLock(createLockDir = true) {
+        if (!isValidPluginId(pluginId)) return@withRepoLock false
         val current = readIndexDocumentLocked()
         val removedFromIndex = current.entries.any { it.pluginId == pluginId }
         val packagesDir = ensurePackagesDir()
-        val pkgFile = File(packagesDir, packageFileName(pluginId))
+        val pkgFile = resolveSafePackageFileLocked(packagesDir, pluginId) ?: return@withRepoLock false
         val deletedFile = if (SecurePayloadStore.isSafeRegularFile(pkgFile)) {
             runCatching { Files.deleteIfExists(pkgFile.toPath()) }.getOrDefault(false)
         } else {
@@ -124,14 +138,14 @@ internal class PluginRepository(
         removedFromIndex || deletedFile
     }
 
-    fun setEnabled(pluginId: String, enabled: Boolean): Boolean = synchronized(lock) {
-        if (!isValidPluginId(pluginId)) return@synchronized false
+    fun setEnabled(pluginId: String, enabled: Boolean): Boolean = withRepoLock(createLockDir = true) {
+        if (!isValidPluginId(pluginId)) return@withRepoLock false
         val current = readIndexDocumentLocked()
-        val target = current.entries.firstOrNull { it.pluginId == pluginId } ?: return@synchronized false
+        val target = current.entries.firstOrNull { it.pluginId == pluginId } ?: return@withRepoLock false
         if (enabled && target.quarantineReason != null) {
-            return@synchronized false
+            return@withRepoLock false
         }
-        if (target.enabled == enabled) return@synchronized true
+        if (target.enabled == enabled) return@withRepoLock true
         val updated = current.entries.map { entry ->
             if (entry.pluginId == pluginId) entry.copy(enabled = enabled) else entry
         }
@@ -145,10 +159,10 @@ internal class PluginRepository(
         true
     }
 
-    fun markQuarantined(pluginId: String, reason: PluginQuarantineReason): Boolean = synchronized(lock) {
-        if (!isValidPluginId(pluginId)) return@synchronized false
+    fun markQuarantined(pluginId: String, reason: PluginQuarantineReason): Boolean = withRepoLock(createLockDir = true) {
+        if (!isValidPluginId(pluginId)) return@withRepoLock false
         val current = readIndexDocumentLocked()
-        if (current.entries.none { it.pluginId == pluginId }) return@synchronized false
+        if (current.entries.none { it.pluginId == pluginId }) return@withRepoLock false
         val updated = current.entries.map { entry ->
             if (entry.pluginId == pluginId) {
                 entry.copy(enabled = false, quarantineReason = reason)
@@ -166,7 +180,7 @@ internal class PluginRepository(
         true
     }
 
-    fun exportIndexDocument(): PluginIndexDocument = synchronized(lock) {
+    fun exportIndexDocument(): PluginIndexDocument = withRepoLock(createLockDir = false) {
         readIndexDocumentLocked()
     }
 
@@ -174,37 +188,104 @@ internal class PluginRepository(
 
     fun currentRemoteDigest(): String = PluginIndexCodec.expectedRemoteDigest(exportIndexDocument())
 
-    fun verifiedPackageFile(pluginId: String): File? = synchronized(lock) {
-        if (!isValidPluginId(pluginId)) return@synchronized null
+    fun verifiedPackageFile(pluginId: String): File? = withRepoLock(createLockDir = false) {
+        if (!isValidPluginId(pluginId)) return@withRepoLock null
         val doc = readIndexDocumentLocked()
-        val entry = doc.entries.firstOrNull { it.pluginId == pluginId } ?: return@synchronized null
-        if (!entry.enabled || entry.quarantineReason != null) return@synchronized null
+        val entry = doc.entries.firstOrNull { it.pluginId == pluginId } ?: return@withRepoLock null
+        if (!entry.enabled || entry.quarantineReason != null) return@withRepoLock null
 
-        val packagesDir = ensurePackagesDir()
-        val target = File(packagesDir, packageFileName(pluginId))
-        if (!SecurePayloadStore.isSafeRegularFile(target)) return@synchronized null
-        val canonicalDir = packagesDir.canonicalFile.toPath()
-        val canonicalTarget = target.canonicalFile.toPath()
-        if (canonicalTarget.parent != canonicalDir) return@synchronized null
+        val baseDir = existingSafeBaseDirLocked() ?: return@withRepoLock null
+        val packagesDir = File(baseDir, PACKAGES_DIR_NAME)
+        if (!SecurePayloadStore.isSafeDirectory(packagesDir)) return@withRepoLock null
+        val target = resolveSafePackageFileLocked(packagesDir, pluginId) ?: return@withRepoLock null
+        if (!SecurePayloadStore.isSafeRegularFile(target)) return@withRepoLock null
 
         val actual = runCatching {
             Files.newInputStream(target.toPath(), NOFOLLOW_LINKS).use { input ->
                 SecurePayloadStore.digestStream(input, maxBytes = BilpPackageVerifier.MAX_PACKAGE_FILE_BYTES)
             }
-        }.getOrNull() ?: return@synchronized null
-        if (actual.sha256 != entry.packageSha256) return@synchronized null
+        }.getOrNull() ?: return@withRepoLock null
+        if (actual.sha256 != entry.packageSha256) return@withRepoLock null
         target
     }
 
-    fun openVerifiedPackageStream(pluginId: String): InputStream? = synchronized(lock) {
-        val file = verifiedPackageFile(pluginId) ?: return@synchronized null
+    fun openVerifiedPackageStream(pluginId: String): InputStream? = withRepoLock(createLockDir = false) {
+        val file = verifiedPackageFile(pluginId) ?: return@withRepoLock null
         runCatching { Files.newInputStream(file.toPath(), NOFOLLOW_LINKS) }.getOrNull()
     }
 
+    private inline fun <T> withRepoLock(createLockDir: Boolean, block: () -> T): T = repoLock.withLock {
+        val depth = activeFileLockDepth.get() ?: 0
+        if (depth > 0) {
+            return@withLock block()
+        }
+        val lockDir = if (createLockDir) {
+            runCatching { ensureBaseDir() }.getOrNull()
+        } else {
+            existingSafeBaseDirLocked()
+        }
+        val lockFile = lockDir?.let { File(it, REPO_LOCK_FILE_NAME) }
+        var fileChannel: FileChannel? = null
+        var fileLock: java.nio.channels.FileLock? = null
+        if (lockFile != null && !Files.isSymbolicLink(lockFile.toPath())) {
+            val canonicalLockParent = runCatching { lockFile.canonicalFile.toPath().parent }.getOrNull()
+            val canonicalLockDir = runCatching { lockDir.canonicalFile.toPath() }.getOrNull()
+            if (canonicalLockParent != null && canonicalLockParent == canonicalLockDir) {
+                runCatching {
+                    fileChannel = FileChannel.open(lockFile.toPath(), CREATE, WRITE)
+                    fileLock = fileChannel?.lock()
+                }.onFailure { err ->
+                    if (err !is OverlappingFileLockException) {
+                        runCatching { fileChannel?.close() }
+                        fileChannel = null
+                        fileLock = null
+                    }
+                }
+            }
+        }
+        activeFileLockDepth.set(depth + 1)
+        try {
+            block()
+        } finally {
+            activeFileLockDepth.set(depth)
+            runCatching { fileLock?.release() }
+            runCatching { fileChannel?.close() }
+        }
+    }
+
+    private fun existingSafeBaseDirLocked(): File? {
+        val baseDir = File(rootDir, REPO_DIR_NAME)
+        val basePath = baseDir.toPath()
+        if (!Files.exists(basePath, NOFOLLOW_LINKS)) return null
+        if (!SecurePayloadStore.isSafeDirectory(baseDir)) return null
+        val canonicalBase = runCatching { baseDir.canonicalFile.toPath() }.getOrNull() ?: return null
+        if (canonicalBase.parent != canonicalRootPath) return null
+        return baseDir
+    }
+
+    private fun resolveSafePackageFileLocked(packagesDir: File, pluginId: String): File? {
+        if (!isValidPluginId(pluginId)) return null
+        if (!SecurePayloadStore.isSafeDirectory(packagesDir)) return null
+        val canonicalDir = runCatching { packagesDir.canonicalFile.toPath() }.getOrNull() ?: return null
+        val target = File(packagesDir, packageFileName(pluginId))
+        val targetPath = target.toPath()
+        if (Files.isSymbolicLink(targetPath)) return null
+        val canonicalTarget = runCatching { target.canonicalFile.toPath() }.getOrNull() ?: return null
+        if (canonicalTarget.parent != canonicalDir) return null
+        return target
+    }
+
     private fun readIndexDocumentLocked(): PluginIndexDocument {
-        val baseDir = ensureBaseDir()
+        val baseDir = existingSafeBaseDirLocked()
+            ?: return PluginIndexDocument(revision = 0L, entries = emptyList())
+        val canonicalBase = runCatching { baseDir.canonicalFile.toPath() }.getOrNull()
+            ?: return PluginIndexDocument(revision = 0L, entries = emptyList())
         val indexFile = File(baseDir, INDEX_FILE_NAME)
         if (!Files.exists(indexFile.toPath(), NOFOLLOW_LINKS)) {
+            return PluginIndexDocument(revision = 0L, entries = emptyList())
+        }
+        val canonicalIndexParent = runCatching { indexFile.canonicalFile.toPath().parent }.getOrNull()
+        if (canonicalIndexParent != canonicalBase) {
             return PluginIndexDocument(revision = 0L, entries = emptyList())
         }
         if (!SecurePayloadStore.isSafeRegularFile(indexFile)) {
@@ -235,17 +316,32 @@ internal class PluginRepository(
         ).getOrThrow()
     }
 
-    private fun ensureBaseDir(): File = SecurePayloadStore.prepareDirectory(
-        root = rootDir,
-        relativePath = REPO_DIR_NAME,
-        enforcePermissions = enforcePosixPermissions
-    ).getOrThrow()
+    private fun ensureBaseDir(): File {
+        val baseDir = SecurePayloadStore.prepareDirectory(
+            root = rootDir,
+            relativePath = REPO_DIR_NAME,
+            enforcePermissions = enforcePosixPermissions
+        ).getOrThrow()
+        val canonicalBase = baseDir.canonicalFile.toPath()
+        check(canonicalBase.parent == canonicalRootPath) {
+            "Unsafe plugin repository base directory"
+        }
+        return baseDir
+    }
 
-    private fun ensurePackagesDir(): File = SecurePayloadStore.prepareDirectory(
-        root = rootDir,
-        relativePath = "$REPO_DIR_NAME/$PACKAGES_DIR_NAME",
-        enforcePermissions = enforcePosixPermissions
-    ).getOrThrow()
+    private fun ensurePackagesDir(): File {
+        val packagesDir = SecurePayloadStore.prepareDirectory(
+            root = rootDir,
+            relativePath = "$REPO_DIR_NAME/$PACKAGES_DIR_NAME",
+            enforcePermissions = enforcePosixPermissions
+        ).getOrThrow()
+        val canonicalPackages = packagesDir.canonicalFile.toPath()
+        val canonicalBase = ensureBaseDir().canonicalFile.toPath()
+        check(canonicalPackages.parent == canonicalBase) {
+            "Unsafe plugin repository packages directory"
+        }
+        return packagesDir
+    }
 
     private fun packageFileName(pluginId: String): String {
         require(isValidPluginId(pluginId)) { "Invalid pluginId '$pluginId'" }
@@ -262,12 +358,21 @@ internal class PluginRepository(
         private const val REPO_DIR_NAME = "store"
         private const val PACKAGES_DIR_NAME = "packages"
         private const val INDEX_FILE_NAME = "plugin_index.json"
+        private const val REPO_LOCK_FILE_NAME = ".repo.lock"
+        private val LOCKS_BY_CANONICAL_ROOT = ConcurrentHashMap<String, ReentrantLock>()
+
+        private fun resolveCanonicalPath(file: File): Path = runCatching {
+            file.canonicalFile.toPath()
+        }.getOrElse {
+            file.toPath().toAbsolutePath().normalize()
+        }
 
         fun fromContext(
             context: Context,
             signerRegistry: TrustedSignerRegistry = TrustedSignerRegistry()
         ): PluginRepository {
-            val base = File(context.noBackupFilesDir, "bilab_plugins")
+            val baseRoot = context.noBackupFilesDir ?: context.filesDir
+            val base = File(baseRoot, "bilab_plugins")
             return PluginRepository(base, signerRegistry)
         }
     }

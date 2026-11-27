@@ -23,6 +23,7 @@ import com.bilab.plugin.api.model.SemanticTemplateRule
 import com.bilab.plugin.api.model.ThemeRecipe
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -31,6 +32,7 @@ import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 /**
  * 经过完整容器校验、验签与载荷解析的 `.bilp` 插件包快照。
@@ -79,7 +81,22 @@ internal object BilpPackageVerifier {
     const val MAX_REGEX_PATTERN_LENGTH = 512
 
     private val SHA256_HEX_REGEX = Regex("[0-9a-f]{64}")
-    private val ARM64_SO_PREFIX = "lib/arm64-v8a/"
+    private const val ARM64_SO_PREFIX = "lib/arm64-v8a/"
+    private const val ARMEABI_V7A_SO_PREFIX = "lib/armeabi-v7a/"
+    private const val ELF_CLASS_32 = 1
+    private const val ELF_CLASS_64 = 2
+    private const val ELF_MACHINE_ARM = 40
+    private const val ELF_MACHINE_AARCH64 = 183
+    private const val MIN_COMPRESSION_RATIO_CHECK_BYTES = 262_144L
+    private val JSON_ENTRY_NAMES = setOf(
+        ENTRY_MANIFEST,
+        ENTRY_SETTINGS_SCHEMA,
+        ENTRY_FILTER_RULES,
+        ENTRY_ADAPT_PATCHES,
+        ENTRY_DEX_QUERIES,
+        ENTRY_SEMANTIC_TEMPLATES,
+        ENTRY_THEME_RECIPE
+    )
     private val TIER_B_FORBIDDEN_EXTENSIONS = setOf(".dex", ".so", ".jar", ".apk")
     private val SIGNED_CODE_ZIP_LIMITS = ZipLimits(
         maxEntries = 256,
@@ -106,18 +123,15 @@ internal object BilpPackageVerifier {
             )
         }
         val packageSha256 = sha256Hex(MessageDigest.getInstance("SHA-256").digest(packageBytes))
-        val tempFile = Files.createTempFile("bilp-verify-", ".bilp")
-        return try {
-            Files.write(tempFile, packageBytes)
-            verifyInternal(
-                packageFile = tempFile.toFile(),
-                packageSha256 = packageSha256,
-                hostVersionCode = hostVersionCode,
-                signerRegistry = signerRegistry,
-                apiLevel = apiLevel
-            )
-        } finally {
-            runCatching { Files.deleteIfExists(tempFile) }
+        val (verifiedEntries, capturedBytes) = verifyZipBytesInMemory(packageBytes, SIGNED_CODE_ZIP_LIMITS)
+        return verifyResolvedEntries(
+            verifiedEntries = verifiedEntries,
+            packageSha256 = packageSha256,
+            hostVersionCode = hostVersionCode,
+            signerRegistry = signerRegistry,
+            apiLevel = apiLevel
+        ) { meta, maxBytes ->
+            readCapturedEntryBytes(capturedBytes, meta, maxBytes)
         }
     }
 
@@ -147,13 +161,30 @@ internal object BilpPackageVerifier {
         if (streamDigest.size <= 0L) {
             throw BilpVerifyException(PluginQuarantineReason.INVALID_PACKAGE, "Package file is empty")
         }
-        return verifyInternal(
-            packageFile = packageFile,
-            packageSha256 = streamDigest.sha256,
-            hostVersionCode = hostVersionCode,
-            signerRegistry = signerRegistry,
-            apiLevel = apiLevel
-        )
+        val verifiedEntries = ArchiveVerifier.verifyZip(packageFile, SIGNED_CODE_ZIP_LIMITS).getOrElse { err ->
+            throw BilpVerifyException(
+                PluginQuarantineReason.INVALID_PACKAGE,
+                "Archive verification failed: ${err.message}",
+                err
+            )
+        }
+        return ZipFile(packageFile).use { zip ->
+            verifyResolvedEntries(
+                verifiedEntries = verifiedEntries,
+                packageSha256 = streamDigest.sha256,
+                hostVersionCode = hostVersionCode,
+                signerRegistry = signerRegistry,
+                apiLevel = apiLevel
+            ) { meta, maxBytes ->
+                if (meta.size > maxBytes.toLong()) {
+                    throw BilpVerifyException(
+                        PluginQuarantineReason.INVALID_PACKAGE,
+                        "Entry '${meta.name}' exceeds max size $maxBytes"
+                    )
+                }
+                readEntryBytes(zip, meta)
+            }
+        }
     }
 
     /**
@@ -188,101 +219,252 @@ internal object BilpPackageVerifier {
                 }
         )
 
-    private fun verifyInternal(
-        packageFile: File,
+    private fun verifyResolvedEntries(
+        verifiedEntries: List<VerifiedZipEntry>,
         packageSha256: String,
         hostVersionCode: Long,
         signerRegistry: TrustedSignerRegistry,
-        apiLevel: Int
+        apiLevel: Int,
+        readBytesBounded: (VerifiedZipEntry, Int) -> ByteArray
     ): VerifiedBilpBundle {
-        val verifiedEntries = ArchiveVerifier.verifyZip(packageFile, SIGNED_CODE_ZIP_LIMITS).getOrElse { err ->
+        val entryByName = verifiedEntries.associateBy { it.name }
+        val manifestMeta = entryByName[ENTRY_MANIFEST]
+            ?: throw BilpVerifyException(PluginQuarantineReason.INVALID_PACKAGE, "Missing $ENTRY_MANIFEST")
+
+        val manifestJson = String(readBytesBounded(manifestMeta, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8)
+        val manifest = parseManifest(manifestJson)
+        validateManifestStrict(manifest)
+
+        when (manifest.tier) {
+            PluginTier.DECLARATIVE_BUNDLE -> verifyDeclarativeBoundaries(
+                verifiedEntries = verifiedEntries,
+                entryByName = entryByName,
+                manifest = manifest,
+                signerRegistry = signerRegistry,
+                readBytesBounded = readBytesBounded
+            )
+            PluginTier.SIGNED_CODE -> verifySignedCodeBoundaries(
+                verifiedEntries = verifiedEntries,
+                entryByName = entryByName,
+                manifest = manifest,
+                signerRegistry = signerRegistry,
+                readBytesBounded = readBytesBounded
+            )
+        }
+
+        if (apiLevel !in manifest.minApiLevel..manifest.maxApiLevel) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.API_LEVEL_INCOMPATIBLE,
+                "Plugin '${manifest.id}' requires API level ${manifest.minApiLevel}..${manifest.maxApiLevel}, current=$apiLevel"
+            )
+        }
+        if (hostVersionCode !in manifest.minHostVersionCode..manifest.maxHostVersionCode) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.HOST_VERSION_INCOMPATIBLE,
+                "Plugin '${manifest.id}' requires host version ${manifest.minHostVersionCode}..${manifest.maxHostVersionCode}, current=$hostVersionCode"
+            )
+        }
+
+        val nativeLibs = if (manifest.tier == PluginTier.SIGNED_CODE) {
+            verifyAndCollectNativeLibs(verifiedEntries, manifest, readBytesBounded)
+        } else {
+            emptyMap()
+        }
+
+        val hasDexCode = verifiedEntries.any {
+            it.name.lowercase(Locale.ROOT).endsWith(".dex")
+        }
+
+        val settingsSchema = entryByName[ENTRY_SETTINGS_SCHEMA]?.let {
+            parseSettingsSchema(String(readBytesBounded(it, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8), manifest.id)
+        }
+        val filterRules = entryByName[ENTRY_FILTER_RULES]?.let {
+            parseFilterRules(String(readBytesBounded(it, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8))
+        }
+        val adaptPatches = entryByName[ENTRY_ADAPT_PATCHES]?.let {
+            parseAdaptPatches(String(readBytesBounded(it, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8))
+        }
+        val dexQueries = entryByName[ENTRY_DEX_QUERIES]?.let {
+            parseDexQueries(String(readBytesBounded(it, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8))
+        }.orEmpty()
+        val semanticTemplates = entryByName[ENTRY_SEMANTIC_TEMPLATES]?.let {
+            parseSemanticTemplates(String(readBytesBounded(it, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8))
+        }.orEmpty()
+        val themeRecipe = entryByName[ENTRY_THEME_RECIPE]?.let {
+            parseThemeRecipe(String(readBytesBounded(it, MAX_JSON_ENTRY_BYTES), Charsets.UTF_8))
+        }
+
+        return VerifiedBilpBundle(
+            manifest = manifest,
+            packageSha256 = packageSha256,
+            settingsSchema = settingsSchema,
+            filterRules = filterRules,
+            adaptPatches = adaptPatches,
+            dexQueries = dexQueries,
+            semanticTemplates = semanticTemplates,
+            themeRecipe = themeRecipe,
+            verifiedNativeLibs = nativeLibs,
+            hasDexCode = hasDexCode
+        )
+    }
+
+    private fun verifyZipBytesInMemory(
+        packageBytes: ByteArray,
+        limits: ZipLimits
+    ): Pair<List<VerifiedZipEntry>, Map<String, ByteArray>> {
+        if (packageBytes.size < 4 ||
+            packageBytes[0] != 0x50.toByte() ||
+            packageBytes[1] != 0x4B.toByte() ||
+            !((packageBytes[2] == 0x03.toByte() && packageBytes[3] == 0x04.toByte()) ||
+                (packageBytes[2] == 0x05.toByte() && packageBytes[3] == 0x06.toByte()))
+        ) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.INVALID_PACKAGE,
+                "Archive verification failed: invalid ZIP header"
+            )
+        }
+        val archiveLength = packageBytes.size.toLong()
+        val verified = ArrayList<VerifiedZipEntry>()
+        val capturedBytes = HashMap<String, ByteArray>()
+        val seenNames = HashSet<String>()
+        val buffer = ByteArray(64 * 1024)
+        val digest = MessageDigest.getInstance("SHA-256")
+        var entryCount = 0
+        var totalBytes = 0L
+
+        try {
+            ZipInputStream(ByteArrayInputStream(packageBytes)).use { zis ->
+                while (true) {
+                    val entry = zis.nextEntry ?: break
+                    entryCount++
+                    require(entryCount <= limits.maxEntries) {
+                        "Zip entry count exceeds limit ${limits.maxEntries}"
+                    }
+                    val name = entry.name
+                    require(seenNames.add(name)) { "Duplicate zip entry: $name" }
+
+                    if (entry.isDirectory) {
+                        require(name.endsWith("/")) { "Invalid zip directory entry: $name" }
+                        val trimmed = name.dropLast(1)
+                        require(trimmed.isNotEmpty() && ArchiveVerifier.isSafeRelativePath(trimmed)) {
+                            "Unsafe zip directory path: $name"
+                        }
+                        zis.closeEntry()
+                        continue
+                    }
+
+                    require(ArchiveVerifier.isSafeRelativePath(name)) { "Unsafe zip entry path: $name" }
+                    val declaredSize = entry.size
+                    if (declaredSize >= 0L) {
+                        require(declaredSize <= limits.maxEntryBytes) {
+                            "Zip entry $name declared size $declaredSize exceeds ${limits.maxEntryBytes}"
+                        }
+                    }
+
+                    val captureLimit = captureMaxBytesForEntry(name)
+                    val captureOut = if (captureLimit > 0) ByteArrayOutputStream() else null
+                    digest.reset()
+                    var entryBytes = 0L
+                    while (true) {
+                        val remainingEntry = limits.maxEntryBytes - entryBytes
+                        val remainingTotal = limits.maxTotalBytes - totalBytes
+                        val remaining = minOf(remainingEntry, remainingTotal)
+                        val maxRead = if (remaining < buffer.size.toLong()) (remaining + 1L).toInt() else buffer.size
+                        val count = zis.read(buffer, 0, maxRead)
+                        if (count < 0) break
+                        if (count == 0) continue
+                        entryBytes += count.toLong()
+                        totalBytes += count.toLong()
+                        require(entryBytes <= limits.maxEntryBytes) {
+                            "Zip entry $name exceeds maxEntryBytes=${limits.maxEntryBytes}"
+                        }
+                        require(totalBytes <= limits.maxTotalBytes) {
+                            "Zip archive exceeds maxTotalBytes=${limits.maxTotalBytes}"
+                        }
+                        digest.update(buffer, 0, count)
+                        if (captureOut != null) {
+                            require(entryBytes <= captureLimit.toLong()) {
+                                "Entry '$name' exceeds max size $captureLimit"
+                            }
+                            captureOut.write(buffer, 0, count)
+                        }
+                    }
+                    zis.closeEntry()
+
+                    val resolvedDeclaredSize = entry.size
+                    if (resolvedDeclaredSize >= 0L) {
+                        require(entryBytes == resolvedDeclaredSize) {
+                            "Zip entry $name size mismatch: actual=$entryBytes declared=$resolvedDeclaredSize"
+                        }
+                    }
+                    val compressedSize = entry.compressedSize
+                    if (compressedSize >= 0L) {
+                        require(compressedSize <= archiveLength) {
+                            "Invalid compressed size for $name: $compressedSize"
+                        }
+                        if (entryBytes > 0L) {
+                            require(compressedSize > 0L) {
+                                "Zip entry $name has non-empty payload with compressedSize=$compressedSize"
+                            }
+                            if (entryBytes >= MIN_COMPRESSION_RATIO_CHECK_BYTES) {
+                                val ratio = entryBytes.toDouble() / compressedSize.toDouble()
+                                require(ratio <= limits.maxCompressionRatio) {
+                                    "Zip entry $name compression ratio $ratio exceeds ${limits.maxCompressionRatio}"
+                                }
+                            }
+                        }
+                    }
+                    val entrySha = sha256Hex(digest.digest())
+                    verified += VerifiedZipEntry(
+                        name = name,
+                        size = entryBytes,
+                        compressedSize = compressedSize.coerceAtLeast(0L),
+                        sha256 = entrySha
+                    )
+                    if (captureOut != null) {
+                        capturedBytes[name] = captureOut.toByteArray()
+                    }
+                }
+            }
+        } catch (ex: BilpVerifyException) {
+            throw ex
+        } catch (err: Throwable) {
             throw BilpVerifyException(
                 PluginQuarantineReason.INVALID_PACKAGE,
                 "Archive verification failed: ${err.message}",
                 err
             )
         }
-        val entryByName = verifiedEntries.associateBy { it.name }
-        val manifestMeta = entryByName[ENTRY_MANIFEST]
-            ?: throw BilpVerifyException(PluginQuarantineReason.INVALID_PACKAGE, "Missing $ENTRY_MANIFEST")
+        return verified to capturedBytes
+    }
 
-        return ZipFile(packageFile).use { zip ->
-            val manifestJson = readEntryUtf8(zip, manifestMeta, MAX_JSON_ENTRY_BYTES)
-            val manifest = parseManifest(manifestJson)
-            validateManifestStrict(manifest)
+    private fun captureMaxBytesForEntry(name: String): Int = when {
+        name == ENTRY_SIGNATURE -> PluginSignatureVerifier.MAX_ENVELOPE_BYTES
+        name in JSON_ENTRY_NAMES -> MAX_JSON_ENTRY_BYTES
+        name.lowercase(Locale.ROOT).endsWith(".so") -> SIGNED_CODE_ZIP_LIMITS.maxEntryBytes.toInt()
+        else -> 0
+    }
 
-            when (manifest.tier) {
-                PluginTier.DECLARATIVE_BUNDLE -> verifyDeclarativeBoundaries(
-                    verifiedEntries = verifiedEntries,
-                    entryByName = entryByName,
-                    manifest = manifest,
-                    zip = zip,
-                    signerRegistry = signerRegistry
-                )
-                PluginTier.SIGNED_CODE -> verifySignedCodeBoundaries(
-                    verifiedEntries = verifiedEntries,
-                    entryByName = entryByName,
-                    manifest = manifest,
-                    zip = zip,
-                    signerRegistry = signerRegistry
-                )
-            }
-
-            if (apiLevel !in manifest.minApiLevel..manifest.maxApiLevel) {
-                throw BilpVerifyException(
-                    PluginQuarantineReason.API_LEVEL_INCOMPATIBLE,
-                    "Plugin '${manifest.id}' requires API level ${manifest.minApiLevel}..${manifest.maxApiLevel}, current=$apiLevel"
-                )
-            }
-            if (hostVersionCode !in manifest.minHostVersionCode..manifest.maxHostVersionCode) {
-                throw BilpVerifyException(
-                    PluginQuarantineReason.HOST_VERSION_INCOMPATIBLE,
-                    "Plugin '${manifest.id}' requires host version ${manifest.minHostVersionCode}..${manifest.maxHostVersionCode}, current=$hostVersionCode"
-                )
-            }
-
-            val nativeLibs = if (manifest.tier == PluginTier.SIGNED_CODE) {
-                verifyAndCollectNativeLibs(verifiedEntries, manifest, zip)
-            } else {
-                emptyMap()
-            }
-
-            val hasDexCode = verifiedEntries.any {
-                it.name.lowercase(Locale.ROOT).endsWith(".dex")
-            }
-
-            val settingsSchema = entryByName[ENTRY_SETTINGS_SCHEMA]?.let {
-                parseSettingsSchema(readEntryUtf8(zip, it, MAX_JSON_ENTRY_BYTES), manifest.id)
-            }
-            val filterRules = entryByName[ENTRY_FILTER_RULES]?.let {
-                parseFilterRules(readEntryUtf8(zip, it, MAX_JSON_ENTRY_BYTES))
-            }
-            val adaptPatches = entryByName[ENTRY_ADAPT_PATCHES]?.let {
-                parseAdaptPatches(readEntryUtf8(zip, it, MAX_JSON_ENTRY_BYTES))
-            }
-            val dexQueries = entryByName[ENTRY_DEX_QUERIES]?.let {
-                parseDexQueries(readEntryUtf8(zip, it, MAX_JSON_ENTRY_BYTES))
-            }.orEmpty()
-            val semanticTemplates = entryByName[ENTRY_SEMANTIC_TEMPLATES]?.let {
-                parseSemanticTemplates(readEntryUtf8(zip, it, MAX_JSON_ENTRY_BYTES))
-            }.orEmpty()
-            val themeRecipe = entryByName[ENTRY_THEME_RECIPE]?.let {
-                parseThemeRecipe(readEntryUtf8(zip, it, MAX_JSON_ENTRY_BYTES))
-            }
-
-            VerifiedBilpBundle(
-                manifest = manifest,
-                packageSha256 = packageSha256,
-                settingsSchema = settingsSchema,
-                filterRules = filterRules,
-                adaptPatches = adaptPatches,
-                dexQueries = dexQueries,
-                semanticTemplates = semanticTemplates,
-                themeRecipe = themeRecipe,
-                verifiedNativeLibs = nativeLibs,
-                hasDexCode = hasDexCode
+    private fun readCapturedEntryBytes(
+        capturedBytes: Map<String, ByteArray>,
+        meta: VerifiedZipEntry,
+        maxBytes: Int
+    ): ByteArray {
+        if (meta.size > maxBytes.toLong()) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.INVALID_PACKAGE,
+                "Entry '${meta.name}' exceeds max size $maxBytes"
             )
         }
+        val bytes = capturedBytes[meta.name]
+            ?: throw BilpVerifyException(PluginQuarantineReason.INVALID_PACKAGE, "Missing entry ${meta.name}")
+        if (bytes.size.toLong() != meta.size) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.INVALID_PACKAGE,
+                "Entry '${meta.name}' size mismatch"
+            )
+        }
+        return bytes
     }
 
     private fun validateManifestStrict(manifest: PluginManifest) {
@@ -307,8 +489,8 @@ internal object BilpPackageVerifier {
         verifiedEntries: List<VerifiedZipEntry>,
         entryByName: Map<String, VerifiedZipEntry>,
         manifest: PluginManifest,
-        zip: ZipFile,
-        signerRegistry: TrustedSignerRegistry
+        signerRegistry: TrustedSignerRegistry,
+        readBytesBounded: (VerifiedZipEntry, Int) -> ByteArray
     ) {
         if (manifest.entryClass != null) {
             throw BilpVerifyException(
@@ -348,7 +530,7 @@ internal object BilpPackageVerifier {
         }
         val sigEntry = entryByName[ENTRY_SIGNATURE]
         if (sigEntry != null || manifest.publicKeySha256 != null) {
-            verifySignatureBinding(verifiedEntries, sigEntry, manifest, zip, signerRegistry)
+            verifySignatureBinding(verifiedEntries, sigEntry, manifest, signerRegistry, readBytesBounded)
         }
         verifyOptionalContentDigest(verifiedEntries, manifest)
     }
@@ -357,15 +539,15 @@ internal object BilpPackageVerifier {
         verifiedEntries: List<VerifiedZipEntry>,
         entryByName: Map<String, VerifiedZipEntry>,
         manifest: PluginManifest,
-        zip: ZipFile,
-        signerRegistry: TrustedSignerRegistry
+        signerRegistry: TrustedSignerRegistry,
+        readBytesBounded: (VerifiedZipEntry, Int) -> ByteArray
     ) {
         val sigEntry = entryByName[ENTRY_SIGNATURE]
             ?: throw BilpVerifyException(
                 PluginQuarantineReason.SIGNATURE_MISMATCH,
                 "SIGNED_CODE plugin '${manifest.id}' missing $ENTRY_SIGNATURE"
             )
-        verifySignatureBinding(verifiedEntries, sigEntry, manifest, zip, signerRegistry)
+        verifySignatureBinding(verifiedEntries, sigEntry, manifest, signerRegistry, readBytesBounded)
         verifyOptionalContentDigest(verifiedEntries, manifest)
         for (entry in verifiedEntries) {
             val lower = entry.name.lowercase(Locale.ROOT)
@@ -382,8 +564,8 @@ internal object BilpPackageVerifier {
         verifiedEntries: List<VerifiedZipEntry>,
         sigEntry: VerifiedZipEntry?,
         manifest: PluginManifest,
-        zip: ZipFile,
-        signerRegistry: TrustedSignerRegistry
+        signerRegistry: TrustedSignerRegistry,
+        readBytesBounded: (VerifiedZipEntry, Int) -> ByteArray
     ) {
         if (sigEntry == null) {
             throw BilpVerifyException(
@@ -391,7 +573,7 @@ internal object BilpPackageVerifier {
                 "Missing $ENTRY_SIGNATURE for '${manifest.id}'"
             )
         }
-        val sigJson = readEntryUtf8(zip, sigEntry, PluginSignatureVerifier.MAX_ENVELOPE_BYTES)
+        val sigJson = String(readBytesBounded(sigEntry, PluginSignatureVerifier.MAX_ENVELOPE_BYTES), Charsets.UTF_8)
         val signableDigest = computeEntriesDigest(
             verifiedEntries
                 .filter { it.name != ENTRY_SIGNATURE }
@@ -404,9 +586,10 @@ internal object BilpPackageVerifier {
             )
             is SignatureVerifyResult.Verified -> {
                 val expectedKeySha = manifest.publicKeySha256?.lowercase(Locale.ROOT)
+                val actualKeySha = result.publicKeySha256.lowercase(Locale.ROOT)
                 if (expectedKeySha != null &&
                     !MessageDigest.isEqual(
-                        result.publicKeySha256.toByteArray(Charsets.US_ASCII),
+                        actualKeySha.toByteArray(Charsets.US_ASCII),
                         expectedKeySha.toByteArray(Charsets.US_ASCII)
                     )
                 ) {
@@ -444,29 +627,41 @@ internal object BilpPackageVerifier {
     private fun verifyAndCollectNativeLibs(
         verifiedEntries: List<VerifiedZipEntry>,
         manifest: PluginManifest,
-        zip: ZipFile
+        readBytesBounded: (VerifiedZipEntry, Int) -> ByteArray
     ): Map<String, ByteArray> {
         val soEntries = verifiedEntries.filter { it.name.lowercase(Locale.ROOT).endsWith(".so") }
         if (soEntries.isEmpty()) return emptyMap()
 
+        val maxSoBytes = SIGNED_CODE_ZIP_LIMITS.maxEntryBytes.toInt()
         val result = linkedMapOf<String, ByteArray>()
         for (entry in soEntries) {
-            val validPath = entry.name.startsWith(ARM64_SO_PREFIX) &&
-                entry.name.length > ARM64_SO_PREFIX.length &&
-                !entry.name.substring(ARM64_SO_PREFIX.length).contains('/')
-            if (!validPath) {
+            val isArm64 = isSingleLibEntryUnder(entry.name, ARM64_SO_PREFIX)
+            val isArmeabiV7a = isSingleLibEntryUnder(entry.name, ARMEABI_V7A_SO_PREFIX)
+            if (!isArm64 && !isArmeabiV7a) {
                 throw BilpVerifyException(
                     PluginQuarantineReason.INVALID_PACKAGE,
-                    "Unsupported native library path '${entry.name}'; expected $ARM64_SO_PREFIX<name>.so"
+                    "Unsupported native library path '${entry.name}'; expected $ARM64_SO_PREFIX<name>.so or $ARMEABI_V7A_SO_PREFIX<name>.so"
                 )
             }
-            val bytes = readEntryBytes(zip, entry)
-            Elf16KbVerifier.verifyElf64PageAlignment(bytes, entry.name).getOrElse { err ->
-                throw BilpVerifyException(
-                    PluginQuarantineReason.ELF_ALIGNMENT_INVALID,
-                    "Native library '${entry.name}' failed 16KB ELF64 alignment check: ${err.message}",
-                    err
-                )
+            val bytes = readBytesBounded(entry, maxSoBytes)
+            if (isArm64) {
+                Elf16KbVerifier.verifyElf64PageAlignment(bytes, entry.name).getOrElse { err ->
+                    throw BilpVerifyException(
+                        PluginQuarantineReason.ELF_ALIGNMENT_INVALID,
+                        "Native library '${entry.name}' failed 16KB ELF64 alignment check: ${err.message}",
+                        err
+                    )
+                }
+                verifyElfClassAndMachine(bytes, ELF_CLASS_64, ELF_MACHINE_AARCH64, entry.name)
+            } else {
+                Elf16KbVerifier.verifyElf32PageAlignment(bytes, entry.name).getOrElse { err ->
+                    throw BilpVerifyException(
+                        PluginQuarantineReason.ELF_ALIGNMENT_INVALID,
+                        "Native library '${entry.name}' failed 4KB ELF32 alignment check: ${err.message}",
+                        err
+                    )
+                }
+                verifyElfClassAndMachine(bytes, ELF_CLASS_32, ELF_MACHINE_ARM, entry.name)
             }
             result[entry.name] = bytes
         }
@@ -478,6 +673,33 @@ internal object BilpPackageVerifier {
             )
         }
         return result.toMap()
+    }
+
+    private fun isSingleLibEntryUnder(name: String, prefix: String): Boolean =
+        name.startsWith(prefix) &&
+            name.length > prefix.length &&
+            !name.substring(prefix.length).contains('/')
+
+    private fun verifyElfClassAndMachine(
+        bytes: ByteArray,
+        expectedClass: Int,
+        expectedMachine: Int,
+        entryName: String
+    ) {
+        if (bytes.size < 20) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.ELF_ALIGNMENT_INVALID,
+                "Native library '$entryName' truncated before ELF e_machine"
+            )
+        }
+        val eiClass = bytes[4].toInt() and 0xFF
+        val eMachine = (bytes[18].toInt() and 0xFF) or ((bytes[19].toInt() and 0xFF) shl 8)
+        if (eiClass != expectedClass || eMachine != expectedMachine) {
+            throw BilpVerifyException(
+                PluginQuarantineReason.ELF_ALIGNMENT_INVALID,
+                "Native library '$entryName' ELF architecture mismatch (EI_CLASS=$eiClass, e_machine=$eMachine)"
+            )
+        }
     }
 
     private fun readEntryBytes(zip: ZipFile, meta: VerifiedZipEntry): ByteArray {
@@ -518,16 +740,6 @@ internal object BilpPackageVerifier {
             )
         }
         return bytes
-    }
-
-    private fun readEntryUtf8(zip: ZipFile, meta: VerifiedZipEntry, maxBytes: Int): String {
-        if (meta.size > maxBytes.toLong()) {
-            throw BilpVerifyException(
-                PluginQuarantineReason.INVALID_PACKAGE,
-                "JSON entry '${meta.name}' exceeds max size $maxBytes"
-            )
-        }
-        return String(readEntryBytes(zip, meta), Charsets.UTF_8)
     }
 
     private fun parseManifest(json: String): PluginManifest = invalidOnError("manifest.json") {

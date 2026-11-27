@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime
 
+import android.content.ContentProviderClient
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -21,6 +22,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.TierCExtensionSink
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.TierCPluginRuntime
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.PluginPayloadProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.DualChannelFdOpener
+import com.bilab.core.settings.PluginSettingKeySpace
+import com.bilab.plugin.api.model.AdaptPatchEntry
+import com.bilab.plugin.api.model.DexQuerySpec
 import com.bilab.plugin.api.model.HostAppInfo
 import com.bilab.plugin.api.model.HostThemeSnapshot
 import com.bilab.plugin.api.model.PluginApiVersion
@@ -28,8 +33,11 @@ import com.bilab.plugin.api.model.PluginQuarantineReason
 import com.bilab.plugin.api.model.PluginTier
 import com.bilab.plugin.api.spi.ContentFilterExtension
 import com.bilab.plugin.api.spi.DanmakuBatchFilter
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.lang.reflect.Executable
 import java.lang.reflect.Field
 import java.lang.reflect.Member
@@ -40,41 +48,80 @@ import java.util.Locale
 internal interface PluginPackageSource {
     fun fetchIndexJson(): String?
     fun fetchPackageBytes(entry: PluginIndexEntry): ByteArray?
+    fun fetchSettingsJson(): String? = null
 }
 
 /**
  * Host-side read-only [PluginPackageSource] backed by [PluginPayloadProvider].
- * Only touches [Context.getContentResolver] when actually queried on non-empty plugin digests.
+ * Uses unstable [ContentProviderClient] channels so provider restarts or crashes never tear down the host.
  */
 internal class ProviderPluginPackageSource(
     private val context: Context
 ) : PluginPackageSource {
 
-    override fun fetchIndexJson(): String? {
-        val resolver = context.contentResolver ?: return null
-        val cursor = runCatching {
-            resolver.query(
-                PluginPayloadProvider.INDEX_URI,
-                arrayOf(PluginPayloadProvider.COLUMN_INDEX_JSON),
-                null,
-                null,
-                null
-            )
-        }.getOrNull() ?: return null
-        return cursor.use { c ->
-            if (!c.moveToFirst()) return@use null
-            val idx = c.getColumnIndex(PluginPayloadProvider.COLUMN_INDEX_JSON)
-            if (idx < 0) null else c.getString(idx)
+    private class ClientBackedInputStream(
+        delegate: InputStream,
+        private val client: ContentProviderClient
+    ) : FilterInputStream(delegate) {
+        override fun close() {
+            try {
+                super.close()
+            } finally {
+                runCatching { client.close() }
+            }
         }
     }
+
+    override fun fetchIndexJson(): String? =
+        querySingleStringColumn(
+            uri = PluginPayloadProvider.INDEX_URI,
+            columnName = PluginPayloadProvider.COLUMN_INDEX_JSON
+        )
+
+    override fun fetchSettingsJson(): String? =
+        querySingleStringColumn(
+            uri = PluginPayloadProvider.SETTINGS_URI,
+            columnName = PluginPayloadProvider.COLUMN_SETTINGS_JSON
+        )
 
     override fun fetchPackageBytes(entry: PluginIndexEntry): ByteArray? {
         val resolver = context.contentResolver ?: return null
         val uri = PluginPayloadProvider.PACKAGE_URI.buildUpon()
             .appendQueryParameter(PluginPayloadProvider.PARAM_PLUGIN_ID, entry.pluginId)
             .build()
-        val pfd = runCatching { resolver.openFileDescriptor(uri, "r") }.getOrNull() ?: return null
-        return ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
+        val unstableClient = runCatching {
+            resolver.acquireUnstableContentProviderClient(PluginPayloadProvider.AUTHORITY)
+        }.getOrNull()
+        val stream = DualChannelFdOpener.openReadOnly(
+            openRemote = {
+                val client = unstableClient ?: return@openReadOnly null
+                try {
+                    val pfd = client.openFile(uri, "r")
+                    if (pfd != null) {
+                        ClientBackedInputStream(ParcelFileDescriptor.AutoCloseInputStream(pfd), client)
+                    } else {
+                        runCatching { client.close() }
+                        null
+                    }
+                } catch (_: Throwable) {
+                    runCatching { client.close() }
+                    null
+                }
+            },
+            openProvider = {
+                // Only fall back to ContentResolver when acquireUnstableContentProviderClient is unavailable
+                // (e.g., Robolectric/mock resolvers) so a crashed remote provider never kills the host.
+                if (unstableClient != null) {
+                    null
+                } else {
+                    resolver.openFileDescriptor(uri, "r")?.let { pfd ->
+                        ParcelFileDescriptor.AutoCloseInputStream(pfd)
+                    }
+                }
+            }
+        ) ?: return null
+
+        return stream.use { input ->
             val maxBytes = BilpPackageVerifier.MAX_PACKAGE_FILE_BYTES.toInt()
             val out = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
@@ -88,6 +135,33 @@ internal class ProviderPluginPackageSource(
                 out.write(buffer, 0, read)
             }
             out.toByteArray()
+        }
+    }
+
+    private fun querySingleStringColumn(uri: Uri, columnName: String): String? {
+        val resolver = context.contentResolver ?: return null
+        val unstableClient = runCatching {
+            resolver.acquireUnstableContentProviderClient(PluginPayloadProvider.AUTHORITY)
+        }.getOrNull()
+        val cursor = if (unstableClient != null) {
+            try {
+                unstableClient.query(uri, arrayOf(columnName), null, null, null)
+            } catch (_: Throwable) {
+                null
+            }
+        } else {
+            runCatching {
+                resolver.query(uri, arrayOf(columnName), null, null, null)
+            }.getOrNull()
+        }
+        return try {
+            cursor?.use { c ->
+                if (!c.moveToFirst()) return@use null
+                val idx = c.getColumnIndex(columnName)
+                if (idx < 0) null else c.getString(idx)
+            }
+        } finally {
+            runCatching { unstableClient?.close() }
         }
     }
 }
@@ -130,6 +204,12 @@ internal object PluginBootstrap {
     private val DEFAULT_DIAGNOSTIC_SINK = PluginDiagnosticSink { id, tier, status, reason, faults, hooks ->
         PluginRuntimeDiagnostics.record(id, tier, status, reason, faults, hooks)
     }
+
+    private class PendingTierCPlugin(
+        val entry: PluginIndexEntry,
+        val bundle: VerifiedBilpBundle,
+        val packageBytes: ByteArray
+    )
 
     fun bootstrap(
         pluginIndexDigest: String,
@@ -180,11 +260,17 @@ internal object PluginBootstrap {
             )
         }
 
+        val settingsJson = HostThreadGuard.call("plugin.bootstrap.fetch_settings", null) {
+            source.fetchSettingsJson()
+        }
+        val settingsSnapshot = decodePluginSettingsSnapshot(settingsJson)
+
         val activeTierB = ArrayList<String>()
         val activeTierC = ArrayList<String>()
         val quarantined = LinkedHashMap<String, PluginQuarantineReason>()
-        val activeQueryMap = LinkedHashMap<String, List<com.bilab.plugin.api.model.DexQuerySpec>>()
-        val activePatchEntries = ArrayList<com.bilab.plugin.api.model.AdaptPatchEntry>()
+        val activeQueryMap = LinkedHashMap<String, List<DexQuerySpec>>()
+        val activePatchEntries = ArrayList<AdaptPatchEntry>()
+        val pendingTierC = ArrayList<PendingTierCPlugin>()
 
         for (entry in indexDoc.entries) {
             if (entry.quarantineReason != null) {
@@ -294,37 +380,20 @@ internal object PluginBootstrap {
                             )
                             continue
                         }
-                        val resolvedMembers = resolveMembersForSignedBundle(
+                        if (bundle.dexQueries.isNotEmpty()) {
+                            activeQueryMap[entry.pluginId] = bundle.dexQueries
+                        }
+                        val patches = bundle.adaptPatches?.entries.orEmpty()
+                        for (patch in patches) {
+                            if (PluginAdaptIntegration.isEntryActiveForHost(patch, hostVersionCode)) {
+                                activePatchEntries += patch
+                            }
+                        }
+                        pendingTierC += PendingTierCPlugin(
+                            entry = entry,
                             bundle = bundle,
-                            apkPaths = apkPaths,
-                            hostVersionCode = hostVersionCode,
-                            hostClassLoader = hostClassLoader
+                            packageBytes = packageBytes
                         )
-                        val extensionSink = BootstrapTierCExtensionSink(
-                            pipeline = tierBRuntime.contentFilterPipeline,
-                            circuitBreaker = tierCRuntime.circuitBreaker,
-                            resolvedMembersByPlugin = mapOf(entry.pluginId to resolvedMembers)
-                        )
-                        val loaded = HostThreadGuard.call("plugin.tierc.${entry.pluginId}", null) {
-                            tierCRuntime.activate(
-                                bundle = bundle,
-                                packageBytes = packageBytes,
-                                hostAppInfo = hostAppInfo,
-                                themeSnapshot = themeSnapshot,
-                                hostClassLoader = hostClassLoader,
-                                hookBridge = hookBridge,
-                                settingsReader = settingsReader,
-                                diagnosticsSink = diagnosticsSink,
-                                extensionSink = extensionSink
-                            )
-                        }
-                        if (loaded == null) {
-                            val ledgerReason = tierCRuntime.bootLedger.quarantineReason(entry.pluginId)
-                                ?: PluginQuarantineReason.INVALID_PACKAGE
-                            quarantined[entry.pluginId] = ledgerReason
-                        } else {
-                            activeTierC += entry.pluginId
-                        }
                     }
                 }
             } catch (ex: BilpVerifyException) {
@@ -343,6 +412,77 @@ internal object PluginBootstrap {
             adaptPatches = activePatchEntries
         )
 
+        if (tierCRuntime != null && pendingTierC.isNotEmpty()) {
+            val acceptedQueryIdsByPlugin = LinkedHashMap<String, MutableSet<String>>()
+            for (qualified in adaptResolution.plan.accepted) {
+                acceptedQueryIdsByPlugin
+                    .getOrPut(qualified.pluginId) { LinkedHashSet() }
+                    .add(qualified.spec.queryId)
+            }
+
+            for (pending in pendingTierC) {
+                val entry = pending.entry
+                try {
+                    val pluginId = entry.pluginId
+                    val resolvedMembers = LinkedHashMap<String, Member>()
+                    val pluginQueryIds = acceptedQueryIdsByPlugin[pluginId].orEmpty()
+                    for (queryId in pluginQueryIds) {
+                        adaptResolution.resolvedMethods[queryId]?.let { member ->
+                            resolvedMembers[queryId] = member
+                        }
+                    }
+                    val pluginPatches = pending.bundle.adaptPatches?.entries.orEmpty()
+                    if (pluginPatches.isNotEmpty()) {
+                        val patchResolved = PluginAdaptIntegration.resolveAdaptPatchEntries(
+                            entries = pluginPatches,
+                            hostVersionCode = hostVersionCode,
+                            hostClassLoader = hostClassLoader
+                        )
+                        for ((key, member) in patchResolved) {
+                            if (member != null) {
+                                resolvedMembers[key] = member
+                            }
+                        }
+                    }
+
+                    val extensionSink = BootstrapTierCExtensionSink(
+                        pipeline = tierBRuntime.contentFilterPipeline,
+                        circuitBreaker = tierCRuntime.circuitBreaker,
+                        resolvedMembersByPlugin = mapOf(pluginId to resolvedMembers)
+                    )
+                    val pluginSettingsReader = buildPluginSettingsReader(
+                        pluginId = pluginId,
+                        snapshot = settingsSnapshot,
+                        fallback = settingsReader
+                    )
+                    val loaded = HostThreadGuard.call("plugin.tierc.$pluginId", null) {
+                        tierCRuntime.activate(
+                            bundle = pending.bundle,
+                            packageBytes = pending.packageBytes,
+                            hostAppInfo = hostAppInfo,
+                            themeSnapshot = themeSnapshot,
+                            hostClassLoader = hostClassLoader,
+                            hookBridge = hookBridge,
+                            settingsReader = pluginSettingsReader,
+                            diagnosticsSink = diagnosticsSink,
+                            extensionSink = extensionSink
+                        )
+                    }
+                    if (loaded == null) {
+                        val ledgerReason = runCatching {
+                            tierCRuntime.bootLedger.quarantineReason(pluginId)
+                        }.getOrNull() ?: PluginQuarantineReason.INVALID_PACKAGE
+                        quarantined[pluginId] = ledgerReason
+                    } else {
+                        activeTierC += pluginId
+                    }
+                } catch (throwable: Throwable) {
+                    HostThreadGuard.report("plugin.bootstrap.${entry.pluginId}", throwable)
+                    quarantineEntry(entry, PluginQuarantineReason.INVALID_PACKAGE, quarantined, diagnosticsSink)
+                }
+            }
+        }
+
         val finalStatus = if (quarantined.isEmpty()) {
             PluginBootstrapStatus.SUCCEEDED
         } else {
@@ -358,29 +498,55 @@ internal object PluginBootstrap {
         )
     }
 
-    private fun resolveMembersForSignedBundle(
-        bundle: VerifiedBilpBundle,
-        apkPaths: List<File>,
-        hostVersionCode: Long,
-        hostClassLoader: ClassLoader?
-    ): Map<String, Member> {
-        val patches = bundle.adaptPatches?.entries.orEmpty()
-        if (bundle.dexQueries.isEmpty() && patches.isEmpty()) return emptyMap()
-        val resolution = PluginAdaptIntegration.resolveAll(
-            apkPaths = apkPaths,
-            hostVersionCode = hostVersionCode,
-            hostClassLoader = hostClassLoader,
-            pluginQueries = if (bundle.dexQueries.isEmpty()) emptyMap() else mapOf(bundle.manifest.id to bundle.dexQueries),
-            adaptPatches = patches
-        )
-        val merged = LinkedHashMap<String, Member>()
-        for ((key, member) in resolution.resolvedAdaptMembers) {
-            if (member != null) merged[key] = member
+    internal fun decodePluginSettingsSnapshot(rawJson: String?): Map<String, Any> {
+        if (rawJson.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val json = JSONObject(rawJson)
+            val result = LinkedHashMap<String, Any>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next() ?: continue
+                if (!PluginSettingKeySpace.isPluginKey(key)) continue
+                when (val value = json.opt(key)) {
+                    is Boolean, is Int, is String -> result[key] = value
+                    is Long -> if (value in Int.MIN_VALUE..Int.MAX_VALUE) {
+                        result[key] = value.toInt()
+                    }
+                }
+            }
+            Collections.unmodifiableMap(result)
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun buildPluginSettingsReader(
+        pluginId: String,
+        snapshot: Map<String, Any>,
+        fallback: PluginSettingsReader
+    ): PluginSettingsReader {
+        val hasPluginKeys = snapshot.keys.any { PluginSettingKeySpace.belongsToPlugin(it, pluginId) }
+        if (!hasPluginKeys) return fallback
+        return object : PluginSettingsReader {
+            override fun getBoolean(key: String, defaultValue: Boolean): Boolean {
+                if (!PluginSettingKeySpace.belongsToPlugin(key, pluginId)) {
+                    return fallback.getBoolean(key, defaultValue)
+                }
+                return snapshot[key] as? Boolean ?: fallback.getBoolean(key, defaultValue)
+            }
+
+            override fun getInt(key: String, defaultValue: Int): Int {
+                if (!PluginSettingKeySpace.belongsToPlugin(key, pluginId)) {
+                    return fallback.getInt(key, defaultValue)
+                }
+                return snapshot[key] as? Int ?: fallback.getInt(key, defaultValue)
+            }
+
+            override fun getString(key: String, defaultValue: String): String {
+                if (!PluginSettingKeySpace.belongsToPlugin(key, pluginId)) {
+                    return fallback.getString(key, defaultValue)
+                }
+                return snapshot[key] as? String ?: fallback.getString(key, defaultValue)
+            }
         }
-        for ((queryId, method) in resolution.resolvedMethods) {
-            if (method != null) merged[queryId] = method
-        }
-        return merged
     }
 
     private fun matchesIndexEntry(entry: PluginIndexEntry, bundle: VerifiedBilpBundle): Boolean {
@@ -440,6 +606,9 @@ internal object PluginBootstrap {
         private val circuitBreaker: com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginFaultCircuitBreaker,
         private val resolvedMembersByPlugin: Map<String, Map<String, Member>>
     ) : TierCExtensionSink {
+        override fun handlesContentFilterFor(pipeline: ContentFilterPipeline): Boolean =
+            this.pipeline === pipeline
+
         override fun registerContentFilter(pluginId: String, extension: ContentFilterExtension): AutoCloseable =
             pipeline.registerContentFilter(pluginId, extension) {
                 circuitBreaker.recordFault(pluginId)

@@ -14,8 +14,11 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.container.PluginIndexCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.container.PluginIndexDocument
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.container.PluginRepository
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallerIdentityVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
+import com.bilab.core.settings.PluginSettingKeySpace
 import com.bilab.plugin.api.model.PluginManifest
+import org.json.JSONObject
 import java.io.FileNotFoundException
 
 /**
@@ -30,14 +33,18 @@ class PluginPayloadProvider : ContentProvider() {
         const val AUTHORITY = "${BuildConfig.APPLICATION_ID}.plugin.payload"
         const val PATH_INDEX = "plugin_index"
         const val PATH_PACKAGE = "plugin_package"
+        const val PATH_SETTINGS = "plugin_settings"
         const val PARAM_PLUGIN_ID = "id"
 
         const val COLUMN_INDEX_JSON = "index_json"
         const val COLUMN_INDEX_DIGEST = "index_digest"
         const val COLUMN_REVISION = "revision"
+        const val COLUMN_SETTINGS_JSON = "settings_json"
+        const val SETTINGS_PREFS_NAME = "plugin_settings"
 
         val INDEX_URI: Uri = "content://$AUTHORITY/$PATH_INDEX".toUri()
         val PACKAGE_URI: Uri = "content://$AUTHORITY/$PATH_PACKAGE".toUri()
+        val SETTINGS_URI: Uri = "content://$AUTHORITY/$PATH_SETTINGS".toUri()
     }
 
     override fun onCreate(): Boolean = true
@@ -49,10 +56,30 @@ class PluginPayloadProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor? {
-        if (uri.authority != AUTHORITY || uri.pathSegments != listOf(PATH_INDEX)) return null
+        if (uri.authority != AUTHORITY) return null
         enforceTrustedCaller()
+        val pathSegments = uri.pathSegments
+        val isIndexQuery = pathSegments == listOf(PATH_INDEX)
+        val isSettingsQuery = pathSegments == listOf(PATH_SETTINGS)
+        if (!isIndexQuery && !isSettingsQuery) return null
+
         val providerContext = context ?: return null
         val authorized = isHookAuthorized()
+
+        if (isSettingsQuery) {
+            val rawPluginId = uri.getQueryParameter(PARAM_PLUGIN_ID)
+            val validRequestedId = rawPluginId
+                ?.takeIf { PluginManifest.ID_REGEX.matches(it) && !it.contains("..") }
+            val json = if (authorized && (rawPluginId == null || validRequestedId != null)) {
+                buildSettingsSnapshotJson(providerContext, validRequestedId)
+            } else {
+                "{}"
+            }
+            return MatrixCursor(arrayOf(COLUMN_SETTINGS_JSON)).apply {
+                addRow(arrayOf<Any?>(json))
+            }
+        }
+
         val doc = if (authorized) {
             runCatching { PluginRepository.fromContext(providerContext).exportIndexDocument() }
                 .getOrElse { PluginIndexDocument() }
@@ -71,6 +98,7 @@ class PluginPayloadProvider : ContentProvider() {
     override fun getType(uri: Uri): String? = when {
         uri.authority != AUTHORITY -> null
         uri.pathSegments == listOf(PATH_INDEX) -> "application/json"
+        uri.pathSegments == listOf(PATH_SETTINGS) -> "application/json"
         uri.pathSegments == listOf(PATH_PACKAGE) -> "application/octet-stream"
         else -> null
     }
@@ -115,10 +143,43 @@ class PluginPayloadProvider : ContentProvider() {
             callerUid == Process.SYSTEM_UID ||
             callerUid == Process.SHELL_UID
         ) return
-        val callerPackages = context?.packageManager?.getPackagesForUid(callerUid).orEmpty()
-        if (callerPackages.any { it == HookEntry.TARGET_PACKAGE }) return
-        throw SecurityException("Caller uid $callerUid is not allowed to query $AUTHORITY")
+        val providerContext = context
+            ?: throw SecurityException("Caller uid $callerUid is not allowed to query $AUTHORITY")
+        val verification = HostCallerIdentityVerifier.verifyProviderCaller(
+            context = providerContext,
+            callerUid = callerUid,
+            expectedPackage = HookEntry.TARGET_PACKAGE,
+            allowSelf = true,
+            allowPrivilegedShell = true,
+            allowPackageListFallbackWhenPrimaryMissing = true,
+            auditTag = "PluginPayloadProvider"
+        )
+        if (verification.allowed) return
+        throw SecurityException(
+            "Caller uid $callerUid is not allowed to query $AUTHORITY (${verification.reason})"
+        )
     }
+
+    private fun buildSettingsSnapshotJson(
+        providerContext: android.content.Context,
+        pluginIdFilter: String?
+    ): String = runCatching {
+        val prefs = providerContext.getSharedPreferences(
+            SETTINGS_PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
+        val json = JSONObject()
+        for ((key, value) in prefs.all) {
+            if (!PluginSettingKeySpace.isPluginKey(key)) continue
+            if (pluginIdFilter != null && !PluginSettingKeySpace.belongsToPlugin(key, pluginIdFilter)) {
+                continue
+            }
+            when (value) {
+                is Boolean, is Int, is String -> json.put(key, value)
+            }
+        }
+        json.toString()
+    }.getOrDefault("{}")
 
     private fun isHookAuthorized(): Boolean = context?.let { providerContext ->
         runCatching {

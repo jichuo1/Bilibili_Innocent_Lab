@@ -160,7 +160,12 @@ internal object NPatchRemoteGateway {
                     if (value != null) put(key, value)
                 }
             }
-            val values = resolveRemoteValues(snapshot, rawSource)
+            val pluginIndexDigest = if (snapshot.enabled && decision.isAuthorized) {
+                NoRootSupportStore.resolveCurrentPluginDigest(context)
+            } else {
+                ""
+            }
+            val values = resolveRemoteValues(snapshot, rawSource, pluginIndexDigest)
 
             runRemoteWriteWithTimeout(
                 context = context,
@@ -715,9 +720,11 @@ internal object NPatchRemoteGateway {
     internal fun acceptsServiceDescriptor(descriptor: String?): Boolean =
         descriptor == SERVICE_DESCRIPTOR
 
+    @JvmOverloads
     internal fun resolveRemoteValues(
         snapshot: NoRootConfigSnapshot,
-        rawSource: Map<String, *>
+        rawSource: Map<String, *>,
+        pluginIndexDigest: String? = null
     ): Map<String, Any> = RemoteHookConfigContract.resolveSourceValues(
         HashMap<String, Any>().apply {
             rawSource.forEach { (key, value) ->
@@ -728,6 +735,12 @@ internal object NPatchRemoteGateway {
                 RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP,
                 snapshot.adapterResetRevision
             )
+            if (pluginIndexDigest != null) {
+                put(
+                    RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST,
+                    pluginIndexDigest
+                )
+            }
         }
     )
 

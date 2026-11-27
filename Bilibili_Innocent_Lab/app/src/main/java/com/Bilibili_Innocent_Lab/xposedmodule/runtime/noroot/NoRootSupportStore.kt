@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.util.AtomicFile
 import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.container.PluginRepository
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.ModuleSettingsStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
@@ -22,6 +23,7 @@ internal object NoRootSupportStore {
 
     private const val KEY_DESIRED_ENABLED = "desired_enabled"
     private const val KEY_ADAPTER_RESET_REVISION = "adapter_reset_revision"
+    private const val KEY_SNAPSHOT_PLUGIN_DIGEST = "snapshot_plugin_digest"
     private const val KEY_SYNC_STATE = "sync_state"
     private const val KEY_SYNC_DETAIL = "sync_detail"
     private const val KEY_SYNC_REVISION = "sync_revision"
@@ -93,6 +95,7 @@ internal object NoRootSupportStore {
             prefs(context).edit()
                 .putBoolean(KEY_DESIRED_ENABLED, enabled)
                 .remove(KEY_ADAPTER_RESET_REVISION)
+                .remove(KEY_SNAPSHOT_PLUGIN_DIGEST)
                 .remove(KEY_SYNC_STATE)
                 .remove(KEY_SYNC_DETAIL)
                 .remove(KEY_SYNC_REVISION)
@@ -153,6 +156,7 @@ internal object NoRootSupportStore {
             )
             .putLong(KEY_SYNC_REVISION, tombstone.revision)
             .putBoolean(KEY_DISABLE_WAS_ACTIVE, wasVerifiedActive)
+            .remove(KEY_SNAPSHOT_PLUGIN_DIGEST)
             .remove(KEY_REMOTE_SYNCED_REVISION)
             .remove(KEY_SYNC_DETAIL)
             .remove(KEY_HEARTBEAT_REVISION)
@@ -344,7 +348,11 @@ internal object NoRootSupportStore {
         !snapshot.enabled && revision > 0L && snapshot.revision == revision &&
             snapshot.moduleVersionCode == moduleVersion
 
-    /** 从当前 70 项白名单构造完整快照；内容未变化时保留 revision。 */
+    internal fun resolveCurrentPluginDigest(context: Context): String = runCatching {
+        PluginRepository.fromContext(context).currentRemoteDigest()
+    }.getOrDefault("")
+
+    /** 从当前 70 项白名单构造完整快照；内容与插件摘要未变化时保留 revision。 */
     fun upsertEnabledSnapshot(
         context: Context,
         bridge: SharedPreferences
@@ -352,6 +360,12 @@ internal object NoRootSupportStore {
         if (!isDesiredEnabled(context)) return@synchronized null
         val values = snapshotValues(bridge)
         val previous = readSnapshotLocked(context)
+        val currentPluginDigest = resolveCurrentPluginDigest(context)
+        val storedPrefs = prefs(context)
+        val previousPluginDigest = storedPrefs.getString(KEY_SNAPSHOT_PLUGIN_DIGEST, null)
+        val pluginDigestChanged = previousPluginDigest != null &&
+            previousPluginDigest != currentPluginDigest
+        val pluginDigestInitialized = previousPluginDigest == null && currentPluginDigest.isNotEmpty()
         val draft = NoRootConfigSnapshot(
             schemaVersion = NoRootConfigSnapshotCodec.CURRENT_SCHEMA_VERSION,
             catalogVersion = SettingsCatalog.CATALOG_VERSION,
@@ -363,13 +377,19 @@ internal object NoRootSupportStore {
             values = values
         )
         if (!isDesiredEnabled(context)) return@synchronized null
-        if (previous != null && draft.hasSameContent(previous)) {
+        if (previous != null && draft.hasSameContent(previous) && !pluginDigestChanged && !pluginDigestInitialized) {
+            if (previousPluginDigest == null) {
+                storedPrefs.edit { putString(KEY_SNAPSHOT_PLUGIN_DIGEST, "") }
+            }
             return@synchronized previous
         }
         val resolved = draft.copy(revision = nextRevision(previous?.revision ?: 0L))
         if (!writeSnapshotLocked(context, resolved)) return@synchronized null
         clearHeartbeat(context)
-        prefs(context).edit { remove(KEY_REMOTE_SYNCED_REVISION) }
+        storedPrefs.edit {
+            remove(KEY_REMOTE_SYNCED_REVISION)
+            putString(KEY_SNAPSHOT_PLUGIN_DIGEST, currentPluginDigest)
+        }
         resolved
     }
 
@@ -451,6 +471,7 @@ internal object NoRootSupportStore {
             .putString(KEY_SYNC_STATE, SyncState.DISABLE_RESTART_REQUIRED.name)
             .putLong(KEY_SYNC_REVISION, tombstone.revision)
             .remove(KEY_SYNC_DETAIL)
+            .remove(KEY_SNAPSHOT_PLUGIN_DIGEST)
             .remove(KEY_REMOTE_SYNCED_REVISION)
             .remove(KEY_HEARTBEAT_REVISION)
             .remove(KEY_HEARTBEAT_MODULE_VERSION)

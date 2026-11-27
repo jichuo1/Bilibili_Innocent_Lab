@@ -1,12 +1,16 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox
 
+import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostResourceRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTrimSeverity
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.container.VerifiedBilpBundle
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeStatus
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline
 import com.Bilibili_Innocent_Lab.xposedmodule.plugin.settings.PluginSettingsStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.Elf16KbVerifier
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.SecurePayloadStore
 import com.bilab.core.settings.PluginSettingKeySpace
 import com.bilab.plugin.api.model.HostAppInfo
 import com.bilab.plugin.api.model.HostThemeSnapshot
@@ -28,11 +32,14 @@ import com.bilab.plugin.api.spi.ResolvedMemberRef
 import com.bilab.plugin.api.spi.WireExtension
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.lang.ref.WeakReference
 import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.LinkedHashSet
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -84,6 +91,8 @@ internal interface TierCExtensionSink {
 
     fun registerAgentToolExtension(pluginId: String, extension: AgentToolExtension): AutoCloseable =
         AutoCloseable { }
+
+    fun handlesContentFilterFor(pipeline: ContentFilterPipeline): Boolean = false
 
     fun resolveMember(
         pluginId: String,
@@ -272,14 +281,24 @@ internal class PluginHostContextImpl(
 
     override fun registerContentFilter(extension: ContentFilterExtension): AutoCloseable {
         requirePermission(PluginPermission.L1_CONTENT_FILTER, "registerContentFilter")
-        val pipelineHandle = filterPipeline?.registerContentFilter(pluginId, extension) { err ->
-            onPluginFault(err)
-        }
-        val sinkHandle = try {
-            extensionSink.registerContentFilter(pluginId, extension)
-        } catch (throwable: Throwable) {
-            runCatching { pipelineHandle?.close() }
-            throw throwable
+        val pipeline = filterPipeline
+        val beforeCount = pipeline?.contentFilterCount() ?: 0
+        val sinkHandle = extensionSink.registerContentFilter(pluginId, extension)
+        val registeredBySink = pipeline != null && (
+            extensionSink.handlesContentFilterFor(pipeline) ||
+                pipeline.contentFilterCount() > beforeCount
+            )
+        val pipelineHandle = if (pipeline != null && !registeredBySink) {
+            try {
+                pipeline.registerContentFilter(pluginId, extension) { err ->
+                    onPluginFault(err)
+                }
+            } catch (throwable: Throwable) {
+                runCatching { sinkHandle.close() }
+                throw throwable
+            }
+        } else {
+            null
         }
         val combined = AutoCloseable {
             runCatching { sinkHandle.close() }
@@ -290,14 +309,24 @@ internal class PluginHostContextImpl(
 
     override fun registerDanmakuBatchFilter(filter: DanmakuBatchFilter): AutoCloseable {
         requirePermission(PluginPermission.L1_CONTENT_FILTER, "registerDanmakuBatchFilter")
-        val pipelineHandle = filterPipeline?.registerDanmakuBatchFilter(pluginId, filter) { err ->
-            onPluginFault(err)
-        }
-        val sinkHandle = try {
-            extensionSink.registerDanmakuBatchFilter(pluginId, filter)
-        } catch (throwable: Throwable) {
-            runCatching { pipelineHandle?.close() }
-            throw throwable
+        val pipeline = filterPipeline
+        val beforeCount = pipeline?.danmakuFilterCount() ?: 0
+        val sinkHandle = extensionSink.registerDanmakuBatchFilter(pluginId, filter)
+        val registeredBySink = pipeline != null && (
+            extensionSink.handlesContentFilterFor(pipeline) ||
+                pipeline.danmakuFilterCount() > beforeCount
+            )
+        val pipelineHandle = if (pipeline != null && !registeredBySink) {
+            try {
+                pipeline.registerDanmakuBatchFilter(pluginId, filter) { err ->
+                    onPluginFault(err)
+                }
+            } catch (throwable: Throwable) {
+                runCatching { sinkHandle.close() }
+                throw throwable
+            }
+        } else {
+            null
         }
         val combined = AutoCloseable {
             runCatching { sinkHandle.close() }
@@ -409,9 +438,10 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
         manifest: PluginManifest,
         packageBytes: ByteArray,
         bridgeParent: PluginApiBridgeClassLoader
-    ) -> ClassLoader = ::defaultTierCClassLoader,
+    ) -> ClassLoader = DEFAULT_CLASS_LOADER_FACTORY,
     private val logSink: (isError: Boolean, pluginId: String, tag: String, message: String) -> Unit =
-        ::defaultLogSink
+        ::defaultLogSink,
+    private val nativeLibRootDir: File? = null
 ) {
     private class ActiveRecord(
         val pluginId: String,
@@ -441,6 +471,7 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
 
     private val lifecycleLock = Any()
     private val activeRecords = ConcurrentHashMap<String, ActiveRecord>()
+    private val fallbackQuarantines = ConcurrentHashMap<String, PluginQuarantineReason>()
 
     fun activate(
         bundle: VerifiedBilpBundle,
@@ -542,7 +573,7 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
         }
 
         if (circuitBreaker.isTripped(pluginId)) {
-            bootLedger.quarantine(pluginId, PluginQuarantineReason.CALLBACK_FAULT_STORM)
+            safeQuarantine(pluginId, PluginQuarantineReason.CALLBACK_FAULT_STORM)
             reportDiagnostic(
                 diagnosticsSink,
                 pluginId,
@@ -555,13 +586,13 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
             return null
         }
 
-        if (bootLedger.isQuarantined(pluginId)) {
+        if (safeIsQuarantined(pluginId)) {
             reportDiagnostic(
                 diagnosticsSink,
                 pluginId,
                 manifest.tier,
                 PluginRuntimeStatus.QUARANTINED,
-                bootLedger.quarantineReason(pluginId),
+                safeQuarantineReason(pluginId),
                 faultCount = circuitBreaker.faultCount(pluginId),
                 hookCount = 0
             )
@@ -572,23 +603,24 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
             unload(pluginId)
         }
 
-        if (!bootLedger.recordAttempt(pluginId, manifest.versionCode)) {
+        if (!safeRecordAttempt(pluginId, manifest.versionCode)) {
             reportDiagnostic(
                 diagnosticsSink,
                 pluginId,
                 manifest.tier,
                 PluginRuntimeStatus.QUARANTINED,
-                bootLedger.quarantineReason(pluginId) ?: PluginQuarantineReason.BOOT_CRASH_LOOP,
+                safeQuarantineReason(pluginId) ?: PluginQuarantineReason.BOOT_CRASH_LOOP,
                 faultCount = circuitBreaker.faultCount(pluginId),
                 hookCount = 0
             )
             return null
         }
 
-        val apiParent = hostClassLoader ?: TierCPluginRuntime::class.java.classLoader
+        val moduleApiParent = TierCPluginRuntime::class.java.classLoader
             ?: ClassLoader.getSystemClassLoader()
         val bridgeParent = PluginApiBridgeClassLoader(
-            hostApiParent = apiParent,
+            moduleApiParent = moduleApiParent,
+            hostClassLoader = hostClassLoader,
             hostPackagePrefix = hostPackagePrefix
         )
         val resourceScope = TierCPluginResourceScope(pluginId)
@@ -641,7 +673,24 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
         var breakerListener: AutoCloseable? = null
 
         return try {
-            val loader = classLoaderFactory(manifest, packageBytes, bridgeParent)
+            val nativeSearchPath = resolveEffectiveNativeRootDir()?.let { rootDir ->
+                extractVerifiedNativeLibraries(
+                    manifest = manifest,
+                    packageBytes = packageBytes,
+                    nativeRootDir = rootDir,
+                    preferredAbi = hostAppInfo.abi
+                )
+            }
+            val loader = if (classLoaderFactory === DEFAULT_CLASS_LOADER_FACTORY) {
+                defaultTierCClassLoader(
+                    manifest = manifest,
+                    packageBytes = packageBytes,
+                    bridgeParent = bridgeParent,
+                    librarySearchPath = nativeSearchPath
+                )
+            } else {
+                classLoaderFactory(manifest, packageBytes, bridgeParent)
+            }
             require(
                 loader !== hostClassLoader &&
                     loader !== TierCPluginRuntime::class.java.classLoader
@@ -698,7 +747,7 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
                 activeRecords[pluginId] = record
             }
 
-            bootLedger.markSucceeded(pluginId, manifest.versionCode)
+            safeMarkSucceeded(pluginId, manifest.versionCode)
 
             if (circuitBreaker.isTripped(pluginId)) {
                 handleCircuitBreakerTrip(pluginId)
@@ -729,8 +778,8 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
             pluginInstance = null
             session = null
 
-            bootLedger.markFailed(pluginId, manifest.versionCode)
-            val quarantine = bootLedger.quarantineReason(pluginId)
+            safeMarkFailed(pluginId, manifest.versionCode)
+            val quarantine = safeQuarantineReason(pluginId)
             val status = if (quarantine != null) PluginRuntimeStatus.QUARANTINED else PluginRuntimeStatus.UNLOADED
             reportDiagnostic(
                 diagnosticsSink,
@@ -805,8 +854,81 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
         activeRecords[pluginId]?.hookRegistrar?.activeHookCount ?: 0
 
     private fun handleCircuitBreakerTrip(pluginId: String) {
-        bootLedger.quarantine(pluginId, PluginQuarantineReason.CALLBACK_FAULT_STORM)
+        safeQuarantine(pluginId, PluginQuarantineReason.CALLBACK_FAULT_STORM)
         unload(pluginId, quarantineReason = PluginQuarantineReason.CALLBACK_FAULT_STORM)
+    }
+
+    private fun safeIsQuarantined(pluginId: String): Boolean {
+        if (fallbackQuarantines.containsKey(pluginId)) return true
+        return runCatching { bootLedger.isQuarantined(pluginId) }
+            .onFailure { err ->
+                runCatching {
+                    logSink(true, pluginId, "TierCPluginRuntime", "Boot ledger read error: ${err::class.java.simpleName}")
+                }
+            }
+            .getOrDefault(false)
+    }
+
+    private fun safeQuarantineReason(pluginId: String): PluginQuarantineReason? {
+        fallbackQuarantines[pluginId]?.let { return it }
+        return runCatching { bootLedger.quarantineReason(pluginId) }
+            .onFailure { err ->
+                runCatching {
+                    logSink(true, pluginId, "TierCPluginRuntime", "Boot ledger reason read error: ${err::class.java.simpleName}")
+                }
+            }
+            .getOrNull()
+    }
+
+    private fun safeQuarantine(pluginId: String, reason: PluginQuarantineReason) {
+        runCatching { bootLedger.quarantine(pluginId, reason) }
+            .onSuccess { fallbackQuarantines.remove(pluginId) }
+            .onFailure { err ->
+                fallbackQuarantines[pluginId] = reason
+                runCatching {
+                    logSink(true, pluginId, "TierCPluginRuntime", "Boot ledger quarantine error: ${err::class.java.simpleName}")
+                }
+            }
+    }
+
+    private fun safeRecordAttempt(pluginId: String, versionCode: Int): Boolean {
+        if (fallbackQuarantines.containsKey(pluginId)) return false
+        return runCatching { bootLedger.recordAttempt(pluginId, versionCode) }
+            .onFailure { err ->
+                runCatching {
+                    logSink(true, pluginId, "TierCPluginRuntime", "Boot ledger attempt error: ${err::class.java.simpleName}")
+                }
+            }
+            .getOrDefault(true)
+    }
+
+    private fun safeMarkSucceeded(pluginId: String, versionCode: Int) {
+        runCatching { bootLedger.markSucceeded(pluginId, versionCode) }
+            .onSuccess { fallbackQuarantines.remove(pluginId) }
+            .onFailure { err ->
+                runCatching {
+                    logSink(true, pluginId, "TierCPluginRuntime", "Boot ledger success error: ${err::class.java.simpleName}")
+                }
+            }
+    }
+
+    private fun safeMarkFailed(pluginId: String, versionCode: Int) {
+        runCatching { bootLedger.markFailed(pluginId, versionCode) }
+            .onFailure { err ->
+                fallbackQuarantines.putIfAbsent(pluginId, PluginQuarantineReason.BOOT_CRASH_LOOP)
+                runCatching {
+                    logSink(true, pluginId, "TierCPluginRuntime", "Boot ledger failure mark error: ${err::class.java.simpleName}")
+                }
+            }
+    }
+
+    private fun resolveEffectiveNativeRootDir(): File? {
+        if (nativeLibRootDir != null) return nativeLibRootDir
+        val app = ReflectAccess.currentApplication() ?: return null
+        val baseDir = runCatching { app.codeCacheDir }.getOrNull()
+            ?: runCatching { app.noBackupFilesDir }.getOrNull()
+            ?: return null
+        return File(baseDir, "bilab_plugin_native")
     }
 
     private fun reportDiagnostic(
@@ -826,6 +948,18 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
 
     companion object {
         private const val MAX_DEX_BYTES = 16 * 1024 * 1024
+        private const val MAX_NATIVE_SO_BYTES = 16 * 1024 * 1024
+        private const val MAX_TOTAL_NATIVE_BYTES = 32 * 1024 * 1024
+        private const val MODE_DIR_READONLY = 0x140
+        private val SUPPORTED_NATIVE_ABIS = setOf("arm64-v8a", "armeabi-v7a")
+
+        internal val DEFAULT_CLASS_LOADER_FACTORY: (
+            manifest: PluginManifest,
+            packageBytes: ByteArray,
+            bridgeParent: PluginApiBridgeClassLoader
+        ) -> ClassLoader = { manifest, packageBytes, bridgeParent ->
+            defaultTierCClassLoader(manifest, packageBytes, bridgeParent)
+        }
 
         private val DEFAULT_HOST_APP_INFO = HostAppInfo(
             packageName = "tv.danmaku.bili",
@@ -849,10 +983,12 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
             if (isError) ModernHookLog.error(formatted) else ModernHookLog.info(formatted)
         }
 
+        @JvmOverloads
         internal fun defaultTierCClassLoader(
             manifest: PluginManifest,
             packageBytes: ByteArray,
-            bridgeParent: PluginApiBridgeClassLoader
+            bridgeParent: PluginApiBridgeClassLoader,
+            librarySearchPath: String? = null
         ): ClassLoader {
             require(packageBytes.isNotEmpty()) {
                 "Empty package bytes for Tier-C plugin '${manifest.id}'"
@@ -861,11 +997,12 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
             require(dexBuffers.isNotEmpty()) {
                 "No classes*.dex entries found in Tier-C plugin '${manifest.id}'"
             }
-            return instantiateInMemoryDexClassLoader(dexBuffers, bridgeParent)
+            return instantiateInMemoryDexClassLoader(dexBuffers, bridgeParent, librarySearchPath)
         }
 
-        private fun extractDexBuffers(packageBytes: ByteArray): Array<ByteBuffer> {
-            val buffers = ArrayList<ByteBuffer>()
+        internal fun extractDexBuffers(packageBytes: ByteArray): Array<ByteBuffer> {
+            val dexEntries = ArrayList<Pair<String, ByteBuffer>>()
+            val seenNames = HashSet<String>()
             val scratch = ByteArray(16 * 1024)
             var totalBytes = 0
             ZipInputStream(ByteArrayInputStream(packageBytes)).use { zis ->
@@ -873,6 +1010,9 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
                     val entry = zis.nextEntry ?: break
                     val name = entry.name
                     if (!entry.isDirectory && isRootDexEntry(name)) {
+                        require(seenNames.add(name)) {
+                            "Duplicate root dex entry '$name'"
+                        }
                         val out = ByteArrayOutputStream()
                         while (true) {
                             val read = zis.read(scratch)
@@ -884,12 +1024,25 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
                             }
                             out.write(scratch, 0, read)
                         }
-                        buffers += ByteBuffer.wrap(out.toByteArray())
+                        dexEntries += name to ByteBuffer.wrap(out.toByteArray())
                     }
                     zis.closeEntry()
                 }
             }
-            return buffers.toTypedArray()
+            dexEntries.sortWith(
+                compareBy<Pair<String, ByteBuffer>>(
+                    { rootDexOrderIndex(it.first) ?: Int.MAX_VALUE },
+                    { it.first }
+                )
+            )
+            return Array(dexEntries.size) { index -> dexEntries[index].second }
+        }
+
+        internal fun rootDexOrderIndex(name: String): Int? {
+            if (!isRootDexEntry(name)) return null
+            if (name == "classes.dex") return 1
+            val suffix = name.substring("classes".length, name.length - ".dex".length)
+            return suffix.toIntOrNull()?.takeIf { it >= 1 } ?: Int.MAX_VALUE
         }
 
         private fun isRootDexEntry(name: String): Boolean {
@@ -898,18 +1051,240 @@ internal class TierCPluginRuntime @JvmOverloads constructor(
                 (name.startsWith("classes") && name.endsWith(".dex") && name.length > "classes.dex".length)
         }
 
+        internal fun extractVerifiedNativeLibraries(
+            manifest: PluginManifest,
+            packageBytes: ByteArray,
+            nativeRootDir: File,
+            preferredAbi: String?
+        ): String? {
+            val hasNativePrivilege = manifest.permissions.any {
+                it.includes(PluginPermission.L3_NATIVE_OR_PRIVILEGED)
+            }
+            if (!hasNativePrivilege) {
+                return null
+            }
+
+            val targetAbi = resolveTargetNativeAbi(preferredAbi)
+            val expectedPrefix = "lib/$targetAbi/"
+            val verifiedLibs = LinkedHashMap<String, Pair<ByteArray, String>>()
+            val scratch = ByteArray(16 * 1024)
+            var totalNativeBytes = 0
+
+            ZipInputStream(ByteArrayInputStream(packageBytes)).use { zis ->
+                while (true) {
+                    val entry = zis.nextEntry ?: break
+                    val name = entry.name
+                    if (!entry.isDirectory && name.startsWith(expectedPrefix) && name.endsWith(".so")) {
+                        val fileName = name.substring(expectedPrefix.length)
+                        require(
+                            fileName.isNotEmpty() &&
+                                fileName != "." &&
+                                fileName != ".." &&
+                                !fileName.contains('/') &&
+                                !fileName.contains('\\') &&
+                                fileName.indexOf('\u0000') < 0
+                        ) {
+                            "Invalid native library entry name: $name"
+                        }
+                        require(!verifiedLibs.containsKey(fileName)) {
+                            "Duplicate native library entry: $name"
+                        }
+                        val out = ByteArrayOutputStream()
+                        var entryBytes = 0
+                        while (true) {
+                            val read = zis.read(scratch)
+                            if (read < 0) break
+                            if (read == 0) continue
+                            entryBytes += read
+                            totalNativeBytes += read
+                            require(entryBytes <= MAX_NATIVE_SO_BYTES) {
+                                "Native library $name exceeds $MAX_NATIVE_SO_BYTES bytes"
+                            }
+                            require(totalNativeBytes <= MAX_TOTAL_NATIVE_BYTES) {
+                                "Total native libraries exceed $MAX_TOTAL_NATIVE_BYTES bytes"
+                            }
+                            out.write(scratch, 0, read)
+                        }
+                        val bytes = out.toByteArray()
+                        val sha256 = sha256Hex(bytes)
+                        verifyElfForAbi(targetAbi, name, bytes)
+                        verifiedLibs[fileName] = bytes to sha256
+                    }
+                    zis.closeEntry()
+                }
+            }
+
+            if (verifiedLibs.isEmpty()) {
+                return null
+            }
+
+            val safePluginSegment = sanitizePathSegment(manifest.id)
+            val relativeDir = "$safePluginSegment/v${manifest.versionCode}/$targetAbi"
+            val targetDir = SecurePayloadStore.prepareDirectory(
+                root = nativeRootDir,
+                relativePath = relativeDir,
+                mode = SecurePayloadStore.MODE_DIR_PRIVATE,
+                enforcePermissions = true
+            ).getOrThrow()
+
+            val expectedNames = verifiedLibs.keys
+            val cacheReady = verifiedLibs.all { (soName, pair) ->
+                val (bytes, sha256) = pair
+                SecurePayloadStore.verifyFile(File(targetDir, soName), bytes.size.toLong(), sha256)
+            } && targetDir.listFiles()?.none { child ->
+                child.isFile && !expectedNames.contains(child.name)
+            } == true
+
+            if (cacheReady) {
+                for (soName in expectedNames) {
+                    runCatching {
+                        SecurePayloadStore.enforcePosixMode(
+                            File(targetDir, soName).toPath(),
+                            SecurePayloadStore.MODE_FILE_READONLY
+                        )
+                    }
+                }
+                runCatching {
+                    SecurePayloadStore.enforcePosixMode(targetDir.toPath(), MODE_DIR_READONLY)
+                }
+                return targetDir.canonicalFile.absolutePath
+            }
+
+            runCatching {
+                SecurePayloadStore.enforcePosixMode(targetDir.toPath(), SecurePayloadStore.MODE_DIR_PRIVATE)
+            }
+            try {
+                targetDir.listFiles()?.forEach { child ->
+                    if (child.isFile && !expectedNames.contains(child.name)) {
+                        child.delete()
+                    }
+                }
+                for ((soName, pair) in verifiedLibs) {
+                    val (bytes, sha256) = pair
+                    SecurePayloadStore.installVerified(
+                        directory = targetDir,
+                        targetFileName = soName,
+                        expectedSize = bytes.size.toLong(),
+                        expectedSha256 = sha256,
+                        input = { ByteArrayInputStream(bytes) },
+                        enforcePermissions = true,
+                        fileMode = SecurePayloadStore.MODE_FILE_READONLY
+                    ).getOrThrow()
+                }
+            } finally {
+                runCatching {
+                    SecurePayloadStore.enforcePosixMode(targetDir.toPath(), MODE_DIR_READONLY)
+                }
+            }
+            return targetDir.canonicalFile.absolutePath
+        }
+
+        private fun resolveTargetNativeAbi(preferredAbi: String?): String {
+            val normalized = preferredAbi?.trim()
+            if (!normalized.isNullOrEmpty() && normalized in SUPPORTED_NATIVE_ABIS) {
+                return normalized
+            }
+            val deviceAbis = runCatching { Build.SUPPORTED_ABIS?.toList().orEmpty() }.getOrDefault(emptyList())
+            for (abi in deviceAbis) {
+                if (abi in SUPPORTED_NATIVE_ABIS) {
+                    return abi
+                }
+            }
+            return "arm64-v8a"
+        }
+
+        private fun verifyElfForAbi(abi: String, entryName: String, bytes: ByteArray) {
+            require(bytes.size >= 20) { "Native library too small: $entryName" }
+            require(
+                bytes[0] == 0x7F.toByte() &&
+                    bytes[1] == 'E'.code.toByte() &&
+                    bytes[2] == 'L'.code.toByte() &&
+                    bytes[3] == 'F'.code.toByte()
+            ) {
+                "Invalid ELF magic in $entryName"
+            }
+            require(bytes[5].toInt() == 1) {
+                "Unsupported non-little-endian ELF in $entryName"
+            }
+            val eMachine = (bytes[18].toInt() and 0xFF) or ((bytes[19].toInt() and 0xFF) shl 8)
+            when (abi) {
+                "arm64-v8a" -> {
+                    require(bytes[4].toInt() == 2) {
+                        "Expected ELF64 for arm64-v8a in $entryName"
+                    }
+                    require(eMachine == 183) {
+                        "Expected e_machine=183 (EM_AARCH64) in $entryName, got $eMachine"
+                    }
+                    Elf16KbVerifier.verifyElf64PageAlignment(bytes, entryName).getOrThrow()
+                }
+                "armeabi-v7a" -> {
+                    require(bytes[4].toInt() == 1) {
+                        "Expected ELF32 for armeabi-v7a in $entryName"
+                    }
+                    require(eMachine == 40) {
+                        "Expected e_machine=40 (EM_ARM) in $entryName, got $eMachine"
+                    }
+                    Elf16KbVerifier.verifyElf32PageAlignment(bytes, entryName).getOrThrow()
+                }
+                else -> error("Unsupported native ABI: $abi")
+            }
+        }
+
+        private fun sanitizePathSegment(raw: String): String {
+            val cleaned = raw.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                .trim('.')
+            return cleaned.ifEmpty { "plugin" }
+        }
+
+        private fun sha256Hex(bytes: ByteArray): String {
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+            val sb = StringBuilder(digest.size * 2)
+            for (b in digest) {
+                val v = b.toInt() and 0xFF
+                sb.append("0123456789abcdef"[v ushr 4])
+                sb.append("0123456789abcdef"[v and 0x0F])
+            }
+            return sb.toString()
+        }
+
         private fun instantiateInMemoryDexClassLoader(
             dexBuffers: Array<ByteBuffer>,
-            parent: ClassLoader
+            parent: ClassLoader,
+            librarySearchPath: String? = null
         ): ClassLoader {
             val cls = Class.forName("dalvik.system.InMemoryDexClassLoader")
-            if (dexBuffers.size == 1) {
-                val singleCtor = runCatching {
-                    cls.getConstructor(ByteBuffer::class.java, ClassLoader::class.java)
+            if (!librarySearchPath.isNullOrEmpty()) {
+                val threeArgCreated = runCatching {
+                    val threeArgCtor = cls.getConstructor(
+                        Array<ByteBuffer>::class.java,
+                        String::class.java,
+                        ClassLoader::class.java
+                    )
+                    threeArgCtor.newInstance(dexBuffers, librarySearchPath, parent) as ClassLoader
                 }.getOrNull()
-                if (singleCtor != null) {
-                    return singleCtor.newInstance(dexBuffers[0], parent) as ClassLoader
+                if (threeArgCreated != null) {
+                    return threeArgCreated
                 }
+            }
+            if (dexBuffers.size == 1 && librarySearchPath.isNullOrEmpty()) {
+                val singleCreated = runCatching {
+                    val singleCtor = cls.getConstructor(ByteBuffer::class.java, ClassLoader::class.java)
+                    singleCtor.newInstance(dexBuffers[0], parent) as ClassLoader
+                }.getOrNull()
+                if (singleCreated != null) {
+                    return singleCreated
+                }
+            }
+            val arrayCreated = runCatching {
+                val arrayCtor = cls.getConstructor(Array<ByteBuffer>::class.java, ClassLoader::class.java)
+                arrayCtor.newInstance(dexBuffers, parent) as ClassLoader
+            }.getOrNull()
+            if (arrayCreated != null) {
+                return arrayCreated
+            }
+            if (dexBuffers.size == 1) {
+                val singleCtor = cls.getConstructor(ByteBuffer::class.java, ClassLoader::class.java)
+                return singleCtor.newInstance(dexBuffers[0], parent) as ClassLoader
             }
             val arrayCtor = cls.getConstructor(Array<ByteBuffer>::class.java, ClassLoader::class.java)
             return arrayCtor.newInstance(dexBuffers, parent) as ClassLoader
