@@ -13,6 +13,7 @@ internal object HostReceiptWire {
     const val QUERY = IBinder.FIRST_CALL_TRANSACTION
     const val RESPONSE = IBinder.FIRST_CALL_TRANSACTION
     const val DIAGNOSTICS = "diagnostics"
+    const val PLUGIN_DIAGNOSTICS = "plugin_diagnostics"
     const val REGISTER = "register"
     const val TIMEOUT_MS = 750L
     const val MAX_PARCEL_BYTES = 768 * 1024

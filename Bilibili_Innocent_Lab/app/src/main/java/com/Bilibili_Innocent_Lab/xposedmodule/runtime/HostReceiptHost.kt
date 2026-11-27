@@ -11,6 +11,8 @@ import android.os.Parcel
 import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeDiagnostics
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeDiagnosticsCodec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -63,20 +65,24 @@ internal object HostReceiptHost {
                 val channel = data.readString().orEmpty()
                 val nonce = data.readString().orEmpty()
                 val response = data.readStrongBinder() ?: return@runCatching false
-                if (channel != HostReceiptWire.DIAGNOSTICS && channel !in MineComponentSnapshotCodec.ALLOWED_SURFACES)
+                val nonCore = channel != HostReceiptWire.DIAGNOSTICS && channel !in MineComponentSnapshotCodec.ALLOWED_SURFACES
+                if (nonCore && channel != HostReceiptWire.PLUGIN_DIAGNOSTICS)
                     return@runCatching false
                 if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return@runCatching false
                 queries.execute {
                     HostThreadGuard.run("receipt.response") {
-                        val value = if (channel == HostReceiptWire.DIAGNOSTICS)
-                            HostRuntimeDiagnosticsBridge.response(nonce)
-                        else MineComponentSnapshotHostBridge.response(channel, nonce)
+                        val value = when (channel) {
+                            HostReceiptWire.DIAGNOSTICS -> HostRuntimeDiagnosticsBridge.response(nonce)
+                            HostReceiptWire.PLUGIN_DIAGNOSTICS -> PluginRuntimeDiagnostics.response(nonce)
+                            else -> MineComponentSnapshotHostBridge.response(channel, nonce)
+                        }
                         if (value == null) return@run
                         val outgoing = Parcel.obtain()
                         try {
                             outgoing.writeInterfaceToken(HostReceiptWire.DESCRIPTOR)
                             outgoing.writeString(nonce)
                             outgoing.writeBundle(value)
+                            if (outgoing.dataSize() > HostReceiptWire.MAX_PARCEL_BYTES) return@run
                             response.transact(HostReceiptWire.RESPONSE, outgoing, null, IBinder.FLAG_ONEWAY)
                         } finally { outgoing.recycle() }
                     }
@@ -89,6 +95,7 @@ internal object HostReceiptHost {
     fun initialize(application: Context, processSource: HostRuntimeDiagnosticsSource) {
         context = application.applicationContext ?: application
         source = processSource
+        PluginRuntimeDiagnostics.updateHostSource(processSource)
         // attach.before 的 applicationContext 可能尚未建立，不能提前消耗监听的一次性标记。
         val app = context as? Application
         if (app != null && initialized.compareAndSet(false, true)) {
@@ -106,7 +113,15 @@ internal object HostReceiptHost {
     }
 
     fun publish(channel: String, payload: String, processSource: HostRuntimeDiagnosticsSource) {
-        if (channel != HostReceiptWire.DIAGNOSTICS && channel !in MineComponentSnapshotCodec.ALLOWED_SURFACES) return
+        val nonCore = channel != HostReceiptWire.DIAGNOSTICS && channel !in MineComponentSnapshotCodec.ALLOWED_SURFACES
+        if (nonCore && channel != HostReceiptWire.PLUGIN_DIAGNOSTICS) return
+        if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS &&
+            (payload.length > PluginRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS ||
+                payload.toByteArray(Charsets.UTF_8).size + 4096 > HostReceiptWire.MAX_PARCEL_BYTES)
+        ) return
+        if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS) {
+            PluginRuntimeDiagnostics.updateHostSource(processSource)
+        }
         val value = createPublication(channel, payload, processSource)
         latest[channel] = value
         scheduleBound(channel, value)
@@ -114,6 +129,13 @@ internal object HostReceiptHost {
             refreshThrottle.markDirty()
             ReceiptQueryLog.failure("publish_queue", ReceiptQueryFailure.SEND_FAILED)
         }
+    }
+
+    fun publishPluginDiagnostics() {
+        if (PluginRuntimeDiagnostics.isEmpty()) return
+        val currentSource = source ?: return
+        val payload = runCatching { PluginRuntimeDiagnostics.encodeSnapshot() }.getOrNull() ?: return
+        publish(HostReceiptWire.PLUGIN_DIAGNOSTICS, payload, currentSource)
     }
 
     /** 安装链完成时立即发首份诊断，不等待磁盘的 30 秒合并窗口。 */
@@ -212,11 +234,19 @@ internal object HostReceiptHost {
             when (channel) {
                 HostReceiptWire.DIAGNOSTICS ->
                     value.copy(payload = HostRuntimeDiagnosticsCodec.encode(HostRuntimeDiagnosticsBridge.snapshot()))
+                HostReceiptWire.PLUGIN_DIAGNOSTICS ->
+                    value.copy(payload = value.payload.ifEmpty { PluginRuntimeDiagnostics.encodeSnapshot() })
                 HostReceiptWire.REGISTER -> value
                 else -> latest[channel]?.let { EnvelopePayload(it.payload, it.source) } ?: value
             }
         }
         val outgoing = stamped.value
+        if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS &&
+            (outgoing.payload.length > PluginRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS ||
+                outgoing.payload.toByteArray(Charsets.UTF_8).size + 4096 > HostReceiptWire.MAX_PARCEL_BYTES)
+        ) {
+            return@runCatching null
+        }
         Bundle().apply {
             putInt("version", HostReceiptWire.VERSION)
             putLong("started", started)
@@ -261,6 +291,10 @@ internal object HostReceiptHost {
     private fun send(channel: String, value: Publication): Boolean = runCatching {
         val app = context ?: return@runCatching false
         val extras = value.packet.getOrBuild() ?: return@runCatching false
+        if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS) {
+            val payloadBytes = extras.getString("payload")?.toByteArray(Charsets.UTF_8)?.size ?: 0
+            if (payloadBytes + 4096 > HostReceiptWire.MAX_PARCEL_BYTES) return@runCatching false
+        }
         val accepted = runCatching {
             app.contentResolver.acquireUnstableContentProviderClient("${BuildConfig.APPLICATION_ID}.roaming")?.use {
                 it.call(HostReceiptWire.METHOD, null, extras)?.getBoolean("accepted") == true

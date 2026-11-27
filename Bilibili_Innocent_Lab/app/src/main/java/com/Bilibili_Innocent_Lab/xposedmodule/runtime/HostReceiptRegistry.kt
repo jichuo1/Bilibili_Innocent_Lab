@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.diagnostics.PluginRuntimeDiagnostics
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 
 /** 模块进程内的唯一宿主会话。磁盘内容从不用于建立会话或证明宿主在线。 */
@@ -50,7 +51,14 @@ internal object HostReceiptRegistry {
             val endpoint = extras.getBinder("endpoint") ?: return@runCatching false
             val channel = extras.getString("channel").orEmpty()
             val payload = extras.getString("payload").orEmpty()
-            if (channel != HostReceiptWire.REGISTER) {
+            if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS) {
+                val reason = PluginRuntimeDiagnostics.validateEnvelope(
+                    payload, extras.getString("digest").orEmpty(), source, currentSource)
+                if (reason != ReceiptQueryFailure.NONE) {
+                    failure = reason
+                    return@runCatching false
+                }
+            } else if (channel != HostReceiptWire.REGISTER) {
                 val reason = HostReceiptPayload.validate(channel, payload, extras.getString("digest").orEmpty(), source, currentSource)
                 if (reason != ReceiptQueryFailure.NONE) {
                     failure = reason
@@ -103,20 +111,26 @@ internal object HostReceiptRegistry {
                     ReceiptSessionGate.SequenceDecision.STORE -> Unit
                 }
                 failure = ReceiptQueryFailure.STORE_FAILED
-                val stored = if (channel == HostReceiptWire.DIAGNOSTICS) {
-                    // 仅留作历史数据；实时诊断必须经过 endpoint 的 nonce 响应。
-                    val prefs = context.getSharedPreferences("host_receipt_history", Context.MODE_PRIVATE)
-                    if (prefs.getString("payload", null) == payload &&
-                        prefs.getLong("target_version", 0) == source.targetVersionCode &&
-                        prefs.getLong("target_update", 0) == source.targetUpdateTime &&
-                        prefs.getLong("module_version", 0) == source.moduleVersionCode) true
-                    else prefs.edit()
-                        .putString("payload", payload).putLong("target_version", source.targetVersionCode)
-                        .putLong("target_update", source.targetUpdateTime).putLong("module_version", source.moduleVersionCode)
-                        .commit()
-                } else {
-                    MineComponentSnapshotStore.cache(context, payload, MineComponentSnapshotSource(
-                        source.targetVersionCode, source.targetUpdateTime, source.moduleVersionCode))
+                val stored = when (channel) {
+                    HostReceiptWire.DIAGNOSTICS -> {
+                        // 仅留作历史数据；实时诊断必须经过 endpoint 的 nonce 响应。
+                        val prefs = context.getSharedPreferences("host_receipt_history", Context.MODE_PRIVATE)
+                        if (prefs.getString("payload", null) == payload &&
+                            prefs.getLong("target_version", 0) == source.targetVersionCode &&
+                            prefs.getLong("target_update", 0) == source.targetUpdateTime &&
+                            prefs.getLong("module_version", 0) == source.moduleVersionCode) true
+                        else prefs.edit()
+                            .putString("payload", payload).putLong("target_version", source.targetVersionCode)
+                            .putLong("target_update", source.targetUpdateTime).putLong("module_version", source.moduleVersionCode)
+                            .commit()
+                    }
+                    HostReceiptWire.PLUGIN_DIAGNOSTICS -> {
+                        PluginRuntimeDiagnostics.receivePublished(context, payload, source)
+                    }
+                    else -> {
+                        MineComponentSnapshotStore.cache(context, payload, MineComponentSnapshotSource(
+                            source.targetVersionCode, source.targetUpdateTime, source.moduleVersionCode))
+                    }
                 }
                 if (stored) sequences[channel] = sequence
                 stored
@@ -124,5 +138,15 @@ internal object HostReceiptRegistry {
         }.getOrDefault(false)
         if (!accepted) ReceiptQueryLog.failure("push", failure)
         return Bundle().apply { putBoolean("accepted", accepted) }
+    }
+
+    fun receiveQueryResponse(
+        channel: String,
+        extras: Bundle?,
+        nonce: String,
+        currentSource: HostRuntimeDiagnosticsSource
+    ): Boolean {
+        if (channel != HostReceiptWire.PLUGIN_DIAGNOSTICS || extras == null) return false
+        return PluginRuntimeDiagnostics.receiveBundle(extras, nonce, currentSource) != null
     }
 }
