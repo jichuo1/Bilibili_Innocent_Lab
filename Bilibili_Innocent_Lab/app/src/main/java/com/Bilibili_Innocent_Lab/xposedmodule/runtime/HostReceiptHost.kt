@@ -6,7 +6,9 @@ import android.app.Application
 import android.content.Context
 import android.os.Binder
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.Parcel
 import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
@@ -19,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Provider 主动发布与反向 Binder 查询；所有 IPC 都在独立有界线程，不占用扫描/持久化线程。 */
 internal object HostReceiptHost {
     private const val RESUME_COOLDOWN_MS = 30_000L
+    private const val PROVIDER_FALLBACK_DELAY_MS = 1_500L
 
     private data class EnvelopePayload(val payload: String, val source: HostRuntimeDiagnosticsSource)
 
@@ -44,6 +47,7 @@ internal object HostReceiptHost {
     private val boundDirty = ConcurrentHashMap<String, Publication>()
     private val boundPreparing = AtomicBoolean(false)
     private val queries = HostReceiptWire.executor("bil-receipt-response")
+    private val fallbackHandler by lazy { Handler(Looper.getMainLooper()) }
     private val publications = LatestValuePublisher<String, Publication>(
         { worker.execute(it) }, { channel, value -> send(channel, value) })
     @Volatile private var context: Context? = null
@@ -82,7 +86,10 @@ internal object HostReceiptHost {
                             outgoing.writeInterfaceToken(HostReceiptWire.DESCRIPTOR)
                             outgoing.writeString(nonce)
                             outgoing.writeBundle(value)
-                            if (outgoing.dataSize() > HostReceiptWire.MAX_PARCEL_BYTES) return@run
+                            if (outgoing.dataSize() > HostReceiptWire.MAX_ONEWAY_PARCEL_BYTES) {
+                                ReceiptQueryLog.failure("oneway_response", ReceiptQueryFailure.MALFORMED_RESPONSE)
+                                return@run
+                            }
                             response.transact(HostReceiptWire.RESPONSE, outgoing, null, IBinder.FLAG_ONEWAY)
                         } finally { outgoing.recycle() }
                     }
@@ -119,13 +126,18 @@ internal object HostReceiptHost {
             (payload.length > PluginRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS ||
                 payload.toByteArray(Charsets.UTF_8).size + 4096 > HostReceiptWire.MAX_PARCEL_BYTES)
         ) return
+        val encoded = HostReceiptWire.encodePayload(payload)
+        if (!HostReceiptWire.withinOnewayBudget(encoded)) {
+            ReceiptQueryLog.failure("publish_budget", ReceiptQueryFailure.MALFORMED_RESPONSE)
+            return
+        }
         if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS) {
             PluginRuntimeDiagnostics.updateHostSource(processSource)
         }
         val value = createPublication(channel, payload, processSource)
         latest[channel] = value
-        scheduleBound(channel, value)
         if (!publications.submit(channel, value)) {
+            scheduleBound(channel, value)
             refreshThrottle.markDirty()
             ReceiptQueryLog.failure("publish_queue", ReceiptQueryFailure.SEND_FAILED)
         }
@@ -142,7 +154,6 @@ internal object HostReceiptHost {
     fun diagnosticsReady() {
         val currentSource = source ?: return
         val value = createPublication(HostReceiptWire.DIAGNOSTICS, "", currentSource)
-        scheduleBound(HostReceiptWire.DIAGNOSTICS, value)
         if (!diagnosticsScheduled.compareAndSet(false, true)) return
         runCatching { worker.execute {
             try {
@@ -150,7 +161,10 @@ internal object HostReceiptHost {
                     if (!send(HostReceiptWire.DIAGNOSTICS, value)) send(HostReceiptWire.DIAGNOSTICS, value)
                 }
             } finally { diagnosticsScheduled.set(false) }
-        } }.onFailure { diagnosticsScheduled.set(false) }
+        } }.onFailure {
+            diagnosticsScheduled.set(false)
+            scheduleBound(HostReceiptWire.DIAGNOSTICS, value)
+        }
     }
 
     /** 模块进程被回收后，在宿主下次前台事件重建会话；带脏标记与最小冷却节流，无轮询、无常驻服务。 */
@@ -181,7 +195,11 @@ internal object HostReceiptHost {
                     }
                 }
             }
-        } }.onFailure { refreshThrottle.cancelLaunch() }
+        } }.onFailure {
+            refreshThrottle.cancelLaunch()
+            scheduleBound(HostReceiptWire.REGISTER, initialPass.register)
+            initialPass.snapshots.forEach(::scheduleBound)
+        }
     }
 
     private fun prepareRefreshPass(currentSource: HostRuntimeDiagnosticsSource): RefreshPass {
@@ -192,8 +210,6 @@ internal object HostReceiptHost {
             putAll(latest)
             this[HostReceiptWire.DIAGNOSTICS] = diagPub
         }
-        scheduleBound(HostReceiptWire.REGISTER, registerPub)
-        snapshots.forEach(::scheduleBound)
         return RefreshPass(registerPub, snapshots)
     }
 
@@ -242,12 +258,11 @@ internal object HostReceiptHost {
         }
         val outgoing = stamped.value
         if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS &&
-            (outgoing.payload.length > PluginRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS ||
-                outgoing.payload.toByteArray(Charsets.UTF_8).size + 4096 > HostReceiptWire.MAX_PARCEL_BYTES)
+            outgoing.payload.length > PluginRuntimeDiagnosticsCodec.MAX_PAYLOAD_CHARS
         ) {
             return@runCatching null
         }
-        Bundle().apply {
+        val bundle = Bundle().apply {
             putInt("version", HostReceiptWire.VERSION)
             putLong("started", started)
             putLong("sequence", stamped.sequence)
@@ -256,15 +271,26 @@ internal object HostReceiptHost {
                 putBinder(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentWire.ENDPOINT_KEY, it)
             }
             putString("channel", channel)
-            putString("payload", outgoing.payload)
             putString("digest", HostRuntimeDiagnosticsQueryContract.sha256(outgoing.payload))
             putLong("target_version", outgoing.source.targetVersionCode)
             putLong("target_update", outgoing.source.targetUpdateTime)
             putLong("module_version", outgoing.source.moduleVersionCode)
         }
+        val encoded = HostReceiptWire.writePayloadToBundle(bundle, outgoing.payload)
+        if (!HostReceiptWire.withinOnewayBudget(encoded)) {
+            return@runCatching null
+        }
+        val parcelBytes = HostReceiptWire.measureParcelBytes(bundle)
+        if (parcelBytes > HostReceiptWire.MAX_ONEWAY_PARCEL_BYTES ||
+            parcelBytes > HostReceiptWire.MAX_PARCEL_BYTES
+        ) {
+            return@runCatching null
+        }
+        bundle
     }.getOrNull()
 
     private fun scheduleBound(channel: String, value: Publication) {
+        if (value.packet.isPrimaryDelivered()) return
         boundDirty[channel] = value
         drainBound()
     }
@@ -288,28 +314,42 @@ internal object HostReceiptHost {
     }
 
     @Suppress("DEPRECATION")
-    private fun send(channel: String, value: Publication): Boolean = runCatching {
-        val app = context ?: return@runCatching false
-        val extras = value.packet.getOrBuild() ?: return@runCatching false
-        if (channel == HostReceiptWire.PLUGIN_DIAGNOSTICS) {
-            val payloadBytes = extras.getString("payload")?.toByteArray(Charsets.UTF_8)?.size ?: 0
-            if (payloadBytes + 4096 > HostReceiptWire.MAX_PARCEL_BYTES) return@runCatching false
+    private fun send(channel: String, value: Publication): Boolean {
+        val app = context ?: return false
+        val extras = value.packet.getOrBuild() ?: return false
+        val parcelBytes = HostReceiptWire.measureParcelBytes(extras)
+        if (parcelBytes > HostReceiptWire.MAX_ONEWAY_PARCEL_BYTES ||
+            parcelBytes > HostReceiptWire.MAX_PARCEL_BYTES
+        ) {
+            ReceiptQueryLog.failure("provider_budget", ReceiptQueryFailure.MALFORMED_RESPONSE)
+            return false
         }
+        val delayedFallback = HostThreadGuard.runnable("receipt.bound_fallback") {
+            if (!value.packet.isPrimaryDelivered()) {
+                scheduleBound(channel, value)
+            }
+        }
+        val fallbackScheduled = runCatching {
+            fallbackHandler.postDelayed(delayedFallback, PROVIDER_FALLBACK_DELAY_MS)
+        }.getOrDefault(false)
         val accepted = runCatching {
             app.contentResolver.acquireUnstableContentProviderClient("${BuildConfig.APPLICATION_ID}.roaming")?.use {
                 it.call(HostReceiptWire.METHOD, null, extras)?.getBoolean("accepted") == true
             } == true
         }.getOrDefault(false)
+        if (fallbackScheduled) {
+            runCatching { fallbackHandler.removeCallbacks(delayedFallback) }
+        }
         if (accepted) {
             value.packet.markPrimaryDelivered()
             CompatibilityReceiptPublisher.acknowledge(channel, extras.getLong("sequence"))
-        }
-        accepted
-    }.getOrDefault(false).also {
-        if (!it) {
+        } else {
+            // 仅在主 Provider 通道失败（或延迟兜底）时触发 CompatibilityReceiptPublisher，避免正常冷启动重复 bindService。
+            scheduleBound(channel, value)
             refreshThrottle.markDirty()
             ReceiptQueryLog.failure("provider", ReceiptQueryFailure.SEND_FAILED)
         }
+        return accepted
     }
 }
 

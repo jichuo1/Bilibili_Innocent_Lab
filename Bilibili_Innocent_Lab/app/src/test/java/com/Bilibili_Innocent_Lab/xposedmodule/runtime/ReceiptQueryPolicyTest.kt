@@ -1,9 +1,17 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.BoundedPackageProfileCache
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HookRuntimeMode
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchMode
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.LspatchRuntimeProfiles
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchScopeProbe
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootRuntimeDetector
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.PackageProfileCacheKey
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assert.assertEquals
@@ -44,6 +52,7 @@ class ReceiptQueryPolicyTest {
         RoamingSettingsLaunchPolicyCases().verifyAllCases()
         ShellCommandRunnerCases().`returns child exit code after draining merged output`()
         StartupTraceCases().verifyAllCases()
+        NoRootDetectorAndCacheCases().verifyAllCases()
     }
 }
 
@@ -467,5 +476,88 @@ private class StartupTraceCases {
         runIsolated { s -> s.repeatedCallsAggregateAndCapacityIsBoundedPerAttempt() }
         runIsolated { s -> s.codecRejectsExtraFieldsTypesAndInvalidTotals() }
         runIsolated { s -> s.explicitRootsExcludeBusinessLookupsAndRestoreScopeAfterFailure() }
+    }
+}
+
+private class NoRootDetectorAndCacheCases {
+    fun legacyLspatchProfileIsClassifiedAsLspatchNotStandardXposed() {
+        val legacy = LspatchRuntimeProfiles.parseJson(
+            """{"useManager":false,"lspConfig":{"API_CODE":93,"VERSION_CODE":360}}"""
+        )
+        assertEquals(LspatchMode.EMBEDDED, legacy.mode)
+        assertEquals(93, legacy.loaderApi)
+        assertFalse("legacy loaderApi < 102 must not gain modern direct-config channel", legacy.modern)
+        assertTrue(legacy.isDetected)
+        assertTrue(legacy.legacy)
+
+        assertEquals(
+            HookRuntimeMode.LSPATCH,
+            NoRootRuntimeDetector.classify(
+                hasNpatchMarker = false,
+                frameworkFingerprint = "PathClassLoader",
+                moduleFingerprint = "DexClassLoader",
+                hasLspatchMarker = false,
+                lspatchProfile = legacy
+            )
+        )
+        assertEquals(
+            HookRuntimeMode.NPATCH_LEGACY,
+            NoRootRuntimeDetector.classify(
+                hasNpatchMarker = true,
+                frameworkFingerprint = "PathClassLoader",
+                moduleFingerprint = "DexClassLoader",
+                hasLspatchMarker = true,
+                lspatchProfile = legacy
+            )
+        )
+        assertEquals(
+            HookRuntimeMode.STANDARD_XPOSED,
+            NoRootRuntimeDetector.classify(
+                hasNpatchMarker = false,
+                frameworkFingerprint = "org.lsposed.lspd.core.Startup",
+                moduleFingerprint = "DexClassLoader",
+                hasLspatchMarker = true,
+                lspatchProfile = legacy
+            )
+        )
+        assertFalse(LspatchRuntimeProfiles.parseJson("invalid-json").isDetected)
+    }
+
+    fun boundedPackageProfileCacheKeysOnPackageLastUpdateTimeAndVersionCode() {
+        val cache = BoundedPackageProfileCache<String>(maxEntries = 4)
+        val loads = AtomicInteger(0)
+        val key1 = PackageProfileCacheKey("tv.danmaku.bili", lastUpdateTime = 1000L, versionCode = 8000L)
+        val first = cache.getOrLoadForKey(key1) { "v${loads.incrementAndGet()}" }
+        val second = cache.getOrLoadForKey(key1) { "v${loads.incrementAndGet()}" }
+        assertEquals("v1", first)
+        assertEquals("v1", second)
+        assertEquals(1, loads.get())
+
+        val keyUpdatedTime = key1.copy(lastUpdateTime = 2000L)
+        assertEquals("v2", cache.getOrLoadForKey(keyUpdatedTime) { "v${loads.incrementAndGet()}" })
+
+        val keyUpdatedVersion = keyUpdatedTime.copy(versionCode = 8001L)
+        assertEquals("v3", cache.getOrLoadForKey(keyUpdatedVersion) { "v${loads.incrementAndGet()}" })
+
+        val zeroKey = PackageProfileCacheKey("tv.danmaku.bili", lastUpdateTime = 0L, versionCode = 0L)
+        assertFalse(zeroKey.cacheable)
+        assertEquals("v4", cache.getOrLoadForKey(zeroKey) { "v${loads.incrementAndGet()}" })
+        assertEquals("v5", cache.getOrLoadForKey(zeroKey) { "v${loads.incrementAndGet()}" })
+    }
+
+    fun nPatchScopeProbeBoundedExecutorEnablesCoreThreadTimeout() {
+        val executor = NPatchScopeProbe.newBoundedExecutorForTest("BIL-Test-Probe")
+        try {
+            assertTrue(executor.allowsCoreThreadTimeOut())
+            assertTrue(executor.getKeepAliveTime(TimeUnit.SECONDS) >= 30L)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    fun verifyAllCases() {
+        legacyLspatchProfileIsClassifiedAsLspatchNotStandardXposed()
+        boundedPackageProfileCacheKeysOnPackageLastUpdateTimeAndVersionCode()
+        nPatchScopeProbeBoundedExecutorEnablesCoreThreadTimeout()
     }
 }

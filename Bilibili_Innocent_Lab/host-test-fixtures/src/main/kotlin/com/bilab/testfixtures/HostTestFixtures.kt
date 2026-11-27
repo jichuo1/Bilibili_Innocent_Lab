@@ -48,7 +48,7 @@ object TestZipBuilder {
         ZipOutputStream(out).use { zip ->
             zip.setLevel(compressionLevel)
             for ((name, payload) in entries) {
-                zip.putNextEntry(ZipEntry(name))
+                zip.putNextEntry(ZipEntry(name).apply { time = 315532800_000L })
                 zip.write(payload)
                 zip.closeEntry()
             }

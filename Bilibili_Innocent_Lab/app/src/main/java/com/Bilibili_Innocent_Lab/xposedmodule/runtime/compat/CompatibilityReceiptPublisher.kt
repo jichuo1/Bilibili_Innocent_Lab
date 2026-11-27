@@ -35,9 +35,9 @@ internal object CompatibilityReceiptPublisher {
         val app = context.applicationContext ?: context
         main.post(HostThreadGuard.runnable("compat_receipt.publish") {
             val channel = extras.getString("channel") ?: return@runnable
-            val estimate = 4096L + (extras.getString("payload")?.length ?: 0).toLong() * 2L
+            val estimate = HostReceiptWire.estimateBundleParcelBytes(extras)
             if (estimate > HostReceiptWire.MAX_PARCEL_BYTES) return@runnable
-            if (!pending.put(channel, extras.getLong("sequence"), estimate.toInt(), Bundle(extras))) return@runnable
+            if (!pending.put(channel, extras.getLong("sequence"), estimate, Bundle(extras))) return@runnable
             connect(app)
         })
     }

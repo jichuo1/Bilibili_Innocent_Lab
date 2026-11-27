@@ -9,6 +9,7 @@ import android.os.Binder
 import android.os.Process
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundImages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallerIdentityVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import java.io.FileNotFoundException
 
@@ -18,9 +19,15 @@ class HostBackgroundProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         val app = context ?: throw FileNotFoundException()
         val caller = Binder.getCallingUid()
-        val trusted = caller == Process.myUid() || runCatching {
-            app.packageManager.getApplicationInfo("tv.danmaku.bili", 0).uid == caller
-        }.getOrDefault(false)
+        val trusted = caller == Process.myUid() || HostCallerIdentityVerifier.verifyProviderCaller(
+            context = app,
+            callerUid = caller,
+            expectedPackage = "tv.danmaku.bili",
+            allowSelf = true,
+            allowPrivilegedShell = false,
+            allowPackageListFallbackWhenPrimaryMissing = false,
+            auditTag = "HostBackgroundProvider"
+        ).allowed
         if (!trusted) throw SecurityException("Host background image caller is not trusted")
         if (mode != "r" || uri.authority != HostBackgroundImages.AUTHORITY || uri.pathSegments.size != 2 ||
             uri.pathSegments[0] != "image" || !HostBackgroundConfig.validAsset(uri.pathSegments[1]) ||

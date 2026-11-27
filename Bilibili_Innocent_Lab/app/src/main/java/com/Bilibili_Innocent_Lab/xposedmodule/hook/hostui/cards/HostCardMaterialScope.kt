@@ -17,6 +17,7 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ContentRefreshCoalescer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
@@ -44,6 +45,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private val reuseGpuFrames: Boolean = HostUiPowerPolicy.current.retainsGpuFrames,
     private val optimizeCardRendering: Boolean = HostUiPowerPolicy.current.shortcutsCardRendering) : AutoCloseable,
     View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
+    private val theme = HostChromeTheme(context)
+    private var lastThemeDark = theme.read().dark
+    private var lastUiMode = context.resources.configuration?.uiMode ?: 0
+    private var nightCheckAt = 0L
+    private var scopeDensity = context.resources?.displayMetrics?.density ?: 1f
     private var palette = HostVideoCardSurface.palette(night, context)
     private val frameStrokeDp = if (materialKind == HostCardMaterial.ACRYLIC) .5f else 1f
     private var night = night
@@ -162,7 +168,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     override fun onPreDraw(): Boolean = HostThreadGuard.call("host.card.material.predraw", true) {
         if (closed) return@call true
         frame++
-        refresh(night)
+        refresh(resolveCurrentNight())
         if (visible != true) return@call true
         // 先更新一次共享节点，已有 View / Compose 显示列表可继续引用同一个节点。
         record(owner.isHardwareAccelerated)
@@ -177,8 +183,28 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         true
     }
 
+    private fun resolveCurrentNight(): Boolean {
+        val now = SystemClock.uptimeMillis()
+        val uiMode = context.resources?.configuration?.uiMode ?: lastUiMode
+        if (uiMode == lastUiMode && nightCheckAt != 0L && now - nightCheckAt < 250L) {
+            return night
+        }
+        lastUiMode = uiMode
+        nightCheckAt = now
+        val themeDark = theme.read().dark
+        val resolved = resolveEffectiveNight(night, lastThemeDark, themeDark)
+        lastThemeDark = themeDark
+        return resolved
+    }
+
     fun refresh(night: Boolean) {
-        if (closed || refreshedFrame == frame && this.night == night) return
+        val liveDensity = context.resources?.displayMetrics?.density?.takeIf { it > 0f } ?: scopeDensity
+        val densityChanged = liveDensity != scopeDensity
+        if (closed || refreshedFrame == frame && this.night == night && !densityChanged) return
+        if (densityChanged) {
+            scopeDensity = liveDensity
+            paints.keys.toList().forEach { it.refreshDensity() }
+        }
         refreshedFrame = frame
         val shown = HostViewVisibility.visible(owner, visibleBounds)
         if (visible != shown) {
@@ -295,7 +321,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     internal inner class CardPaint(view: View, radiusPx: Float, private val native: Boolean) : Drawable(), AutoCloseable {
         private val host = WeakReference(view)
         // Only cache the scalar density; keeping `target` on CardPaint would pin a View/Context across GC.
-        private val density = view.resources.displayMetrics.density
+        private var density = view.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
         private var radiusPx = radiusPx
         private val control: LumenFluentControl
         private val border: Drawable
@@ -314,20 +340,40 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
             control = LumenFluentControl(target, palette, frameOptions(radiusPx / density, native))
             border = requireNotNull(target.background)
         }
+        private fun liveDensity(): Float {
+            val measured = host.get()?.resources?.displayMetrics?.density
+                ?: owner.resources?.displayMetrics?.density
+            if (measured != null && measured > 0f && measured != density) {
+                density = measured
+                return measured
+            }
+            return density
+        }
+        fun refreshDensity() {
+            val before = density
+            val after = liveDensity()
+            if (before != after) {
+                updatePalette()
+                onBoundsChange(bounds)
+            }
+        }
         fun position(x: Float, y: Float) { windowX = x; windowY = y }
         fun radius(value: Float) {
-            if (radiusPx == value) return
+            val densityChanged = liveDensity() != density
+            if (radiusPx == value && !densityChanged) return
             radiusPx = value; updatePalette(); onBoundsChange(bounds)
         }
         fun updatePalette() {
+            val d = liveDensity().coerceAtLeast(0.5f)
             control.updatePalette(palette)
-            control.update(frameOptions(radiusPx / density, native))
+            control.update(frameOptions(radiusPx / d, native))
             invalidateSelf()
         }
         override fun onBoundsChange(bounds: Rect) {
             border.bounds = bounds
+            val d = liveDensity()
             // 与引擎描边共用宽度，避免细描边内侧仍残留一圈较宽的不透明底板。
-            val inset = density * frameStrokeDp
+            val inset = d * frameStrokeDp
             inner.set(bounds); inner.inset(inset, inset)
             clip.reset(); clip.addRoundRect(inner, (radiusPx - inset).coerceAtLeast(0f),
                 (radiusPx - inset).coerceAtLeast(0f), Path.Direction.CW)
@@ -415,6 +461,12 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     companion object {
         private val instancesLock = Any()
         private val instances = WeakHashMap<HostCardMaterialScope, Unit>()
+
+        internal fun resolveEffectiveNight(
+            currentNight: Boolean,
+            previousThemeDark: Boolean,
+            latestThemeDark: Boolean
+        ): Boolean = if (latestThemeDark != previousThemeDark) latestThemeDark else currentNight
 
         fun releaseAllOffscreenRenderNodes() {
             val snapshot = synchronized(instancesLock) { instances.keys.toList() }

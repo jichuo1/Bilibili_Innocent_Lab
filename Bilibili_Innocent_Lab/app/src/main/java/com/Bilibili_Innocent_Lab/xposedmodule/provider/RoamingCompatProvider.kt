@@ -16,6 +16,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallerIdentityVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootUpgradeRecoveryCoordinator
@@ -284,8 +285,17 @@ class RoamingCompatProvider : ContentProvider() {
             callerUid == Process.SYSTEM_UID ||
             callerUid == Process.SHELL_UID
         ) return
-        val callerPackages = context?.packageManager?.getPackagesForUid(callerUid).orEmpty()
-        if (callerPackages.any { it == HookEntry.TARGET_PACKAGE }) return
+        val providerContext = context
+        if (providerContext != null && HostCallerIdentityVerifier.verifyProviderCaller(
+                context = providerContext,
+                callerUid = callerUid,
+                expectedPackage = HookEntry.TARGET_PACKAGE,
+                allowSelf = true,
+                allowPrivilegedShell = true,
+                allowPackageListFallbackWhenPrimaryMissing = true,
+                auditTag = "RoamingCompatProvider"
+            ).allowed
+        ) return
         throw SecurityException("Caller uid $callerUid is not allowed to query $AUTHORITY")
     }
 

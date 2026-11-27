@@ -7,6 +7,8 @@ import android.os.Build
 import android.view.View
 import android.view.WindowInsets
 import android.widget.LinearLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /** Android 窗口宽度分级（dp 断点：Compact < 600, Medium 600..839, Expanded >= 840）。 */
 internal enum class WindowWidthClass {
@@ -164,6 +166,17 @@ internal fun Activity.currentWindowBoundsPx(): Rect {
     return Rect(0, 0, display.widthPixels.coerceAtLeast(1), display.heightPixels.coerceAtLeast(1))
 }
 
+internal fun subtractWindowInsets(
+    boundsWidth: Int,
+    boundsHeight: Int,
+    left: Int,
+    top: Int,
+    right: Int,
+    bottom: Int
+): Pair<Int, Int> =
+    (boundsWidth - left.coerceAtLeast(0) - right.coerceAtLeast(0)).coerceAtLeast(1) to
+        (boundsHeight - top.coerceAtLeast(0) - bottom.coerceAtLeast(0)).coerceAtLeast(1)
+
 /** 当前 Activity 窗口扣除系统栏与刘海/折痕安全区后的可用宽高（px）。 */
 internal fun Activity.usableWindowSizePx(): Pair<Int, Int> {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -172,11 +185,44 @@ internal fun Activity.usableWindowSizePx(): Pair<Int, Int> {
         val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
             WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
         )
-        return (bounds.width() - insets.left - insets.right).coerceAtLeast(1) to
-            (bounds.height() - insets.top - insets.bottom).coerceAtLeast(1)
+        return subtractWindowInsets(
+            boundsWidth = bounds.width(),
+            boundsHeight = bounds.height(),
+            left = insets.left,
+            top = insets.top,
+            right = insets.right,
+            bottom = insets.bottom
+        )
     }
     val bounds = currentWindowBoundsPx()
-    return bounds.width().coerceAtLeast(1) to bounds.height().coerceAtLeast(1)
+    val decor = window?.decorView
+    val compatInsets = decor?.let(ViewCompat::getRootWindowInsets)
+    if (compatInsets != null) {
+        val combined = compatInsets.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )
+        val cutout = compatInsets.displayCutout
+        @Suppress("DEPRECATION")
+        val left = maxOf(combined.left, compatInsets.systemWindowInsetLeft, cutout?.safeInsetLeft ?: 0)
+        @Suppress("DEPRECATION")
+        val top = maxOf(combined.top, compatInsets.systemWindowInsetTop, cutout?.safeInsetTop ?: 0)
+        @Suppress("DEPRECATION")
+        val right = maxOf(combined.right, compatInsets.systemWindowInsetRight, cutout?.safeInsetRight ?: 0)
+        @Suppress("DEPRECATION")
+        val bottom = maxOf(combined.bottom, compatInsets.systemWindowInsetBottom, cutout?.safeInsetBottom ?: 0)
+        return subtractWindowInsets(bounds.width(), bounds.height(), left, top, right, bottom)
+    }
+    val res = resources
+    val multiWindow = isInMultiWindowMode
+    val statusId = res.getIdentifier("status_bar_height", "dimen", "android")
+    val statusTop = if (!multiWindow && statusId != 0) res.getDimensionPixelSize(statusId).coerceAtLeast(0) else 0
+    val hasNavBarId = res.getIdentifier("config_showNavigationBar", "bool", "android")
+    val hasNavBar = hasNavBarId != 0 && res.getBoolean(hasNavBarId)
+    val navId = res.getIdentifier("navigation_bar_height", "dimen", "android")
+    val navBottom = if (!multiWindow && hasNavBar && navId != 0 && decor != null && decor.height > 0) {
+        res.getDimensionPixelSize(navId).coerceAtLeast(0)
+    } else 0
+    return subtractWindowInsets(bounds.width(), bounds.height(), 0, statusTop, 0, navBottom)
 }
 
 /** 任意控件所属宿主窗口的当前尺寸（px），分屏或自由窗口下比 displayMetrics 更准确。 */

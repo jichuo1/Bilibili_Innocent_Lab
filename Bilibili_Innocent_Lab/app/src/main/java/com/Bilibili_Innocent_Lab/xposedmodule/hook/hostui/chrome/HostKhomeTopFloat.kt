@@ -10,10 +10,12 @@ import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.BoundedClassCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 /**
@@ -46,8 +48,7 @@ internal class HostKhomeTopFloat {
     private var shift = 0
     private var dirty = true
     private var signature = 0L
-    private var churnStart = 0L
-    private var churn = 0
+    private val churnTracker = ChurnTracker()
     private var stopped = false
 
     var floating = false
@@ -80,7 +81,7 @@ internal class HostKhomeTopFloat {
             changed = scan(strip) || changed
         }
         updateScrim(frame.root, appBarLp.topMargin, scrimColor)
-        if (changed && churned()) {
+        if (churnTracker.record(targetOffset = next, pageSignature = current, wroteLayout = changed, nowMs = SystemClock.uptimeMillis())) {
             stopped = true
             ModernHookLog.info("[BIL] 新版首页顶栏悬浮已停用：宿主持续改写布局")
             return restore()
@@ -97,6 +98,7 @@ internal class HostKhomeTopFloat {
         removeScrim()
         floating = false
         shift = 0; dirty = true; signature = 0L
+        churnTracker.reset()
         return changed
     }
 
@@ -105,13 +107,8 @@ internal class HostKhomeTopFloat {
         val changed = margins.restoreAll()
         removeScrim()
         floating = false
+        churnTracker.clearBaseline()
         return changed
-    }
-
-    private fun churned(): Boolean {
-        val now = SystemClock.uptimeMillis()
-        if (now - churnStart > HostKhomeFloatPolicy.CHURN_WINDOW_MS) { churnStart = now; churn = 0 }
-        return ++churn > HostKhomeFloatPolicy.CHURN_LIMIT
     }
 
     private fun scan(strip: ViewGroup): Boolean {
@@ -247,12 +244,64 @@ internal class HostKhomeTopFloat {
         override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
 
-    companion object {
-        private val types = HashMap<Class<*>, HashMap<String, Boolean>>()
+    internal class ChurnTracker(
+        private val limit: Int = HostKhomeFloatPolicy.CHURN_LIMIT,
+        private val windowMs: Long = HostKhomeFloatPolicy.CHURN_WINDOW_MS
+    ) {
+        private var hasBaseline = false
+        private var lastTargetOffset = 0
+        private var lastPageSignature = 0L
+        private var windowStartMs = 0L
+        var count = 0
+            private set
 
-        private fun hasType(view: View, name: String): Boolean = types.getOrPut(view.javaClass) { HashMap() }.getOrPut(name) {
-            generateSequence(view.javaClass as Class<*>) { it.superclass }.any { it.simpleName == name }
+        /**
+         * 仅在目标偏移量和页签签名未变化，却依然因宿主回滚布局产生写入时计数；
+         * 首次注入及正常布局变化不计为抖动。
+         */
+        fun record(
+            targetOffset: Int,
+            pageSignature: Long,
+            wroteLayout: Boolean,
+            nowMs: Long
+        ): Boolean {
+            if (!hasBaseline || targetOffset != lastTargetOffset || pageSignature != lastPageSignature) {
+                hasBaseline = true
+                lastTargetOffset = targetOffset
+                lastPageSignature = pageSignature
+                return false
+            }
+            if (!wroteLayout) return false
+            if (windowStartMs == 0L || nowMs - windowStartMs > windowMs) {
+                windowStartMs = nowMs
+                count = 0
+            }
+            return ++count > limit
         }
+
+        fun clearBaseline() {
+            hasBaseline = false
+        }
+
+        fun reset() {
+            hasBaseline = false
+            lastTargetOffset = 0
+            lastPageSignature = 0L
+            windowStartMs = 0L
+            count = 0
+        }
+    }
+
+    companion object {
+        private val types = BoundedClassCache<ConcurrentHashMap<String, Boolean>>(
+            maxEntries = 128,
+            tag = "host.khome.types"
+        )
+
+        private fun hasType(view: View, name: String): Boolean =
+            types.getOrPut(view.javaClass) { ConcurrentHashMap() }.getOrPut(name) {
+                generateSequence(view.javaClass as Class<*>) { it.superclass }.any { it.simpleName == name }
+            }
 
         private fun behavior(view: View): Any? = runCatching {
             val lp = view.layoutParams ?: return null

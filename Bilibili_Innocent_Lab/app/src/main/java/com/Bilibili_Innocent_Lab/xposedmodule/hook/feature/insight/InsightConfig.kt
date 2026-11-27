@@ -44,8 +44,9 @@ internal object InsightConfig {
      * HTTPS 约束拒掉，返回 null 由 UI 明确提示而非静默失效。
      */
     fun resolve(protocol: String, baseUrl: String, apiKey: String, model: String, autoV1: Boolean): AgentModelSource? {
-        if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank()) return null
+        if (baseUrl.isBlank() || model.isBlank()) return null
         val (normalized, url) = SemanticBackend.parseUrl(baseUrl) ?: return null
+        if (apiKey.isBlank() && !SemanticBackend.isLoopbackHost(url.host)) return null
         val agentProtocol = if (protocol == PROTOCOL_ANTHROPIC) AgentSourceProtocol.ANTHROPIC
             else AgentSourceProtocol.CHAT
         val full = completeEndpoint(agentProtocol, normalized, url.path.trimEnd('/'), autoV1)

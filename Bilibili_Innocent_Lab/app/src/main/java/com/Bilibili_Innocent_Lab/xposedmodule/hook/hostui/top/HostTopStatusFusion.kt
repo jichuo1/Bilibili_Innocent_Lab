@@ -122,6 +122,8 @@ internal class HostTopStatusFusionView(
         updateSurfaces()
     }
 
+    private fun liveDensity(): Float = resources?.displayMetrics?.density?.takeIf { it > 0f } ?: density
+
     private fun options() = HostSurfaceStyle.fusion(dark,
         HostTopFusionPolicy.holdFraction(statusBarInset, bandHeight).coerceAtMost(fadeEnd), fadeEnd)
 
@@ -141,7 +143,7 @@ internal class HostTopStatusFusionView(
     fun updateDocking(progress: Float, bottom: Int) {
         glass.alpha = 1f - progress
         docked.alpha = progress
-        translationZ = 2f * density * (1f - progress)
+        translationZ = 2f * liveDensity() * (1f - progress)
         val hasWallpaper = HostBackgroundPages.contains(this)
         if (bottom != dockingBottom || hasWallpaper != wallpaper) {
             dockingBottom = bottom
@@ -159,13 +161,18 @@ internal class HostTopStatusFusionView(
     }
 
     fun updateFade(contentRestTop: Int) {
-        val height = HostTopFusionPolicy.bandHeight(contentRestTop)
-        val heightChanged = height > bandHeight
-        if (height > bandHeight) {
+        val height = HostTopFusionPolicy.bandHeight(contentRestTop).coerceAtLeast(1)
+        val heightChanged = height != bandHeight
+        if (heightChanged) {
             bandHeight = height
-            layoutParams?.let { it.height = height; layoutParams = it }
+            layoutParams?.let {
+                if (it.height != height) {
+                    it.height = height
+                    layoutParams = it
+                }
+            }
         }
-        val next = HostTopFusionPolicy.fadeEndFraction(contentRestTop, density, statusBarInset, bandHeight)
+        val next = HostTopFusionPolicy.fadeEndFraction(contentRestTop, liveDensity(), statusBarInset, bandHeight)
         if (next == fadeEnd && !heightChanged) return
         fadeEnd = next
         updateSurfaces()

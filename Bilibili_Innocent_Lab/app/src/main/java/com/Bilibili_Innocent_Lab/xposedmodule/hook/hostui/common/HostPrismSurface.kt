@@ -27,50 +27,60 @@ internal class HostPrismSurface(
     // Surface records live in a WeakHashMap; their values must not retain the View keys or parents.
     private val host = WeakReference(hostView)
     private val parent = WeakReference(hostView.parent as ViewGroup)
-    private val clipping: ClipLease
-    private val layer: WeakReference<PrismView>
+    private val clipping: ClipLease?
+    private val layer: WeakReference<PrismView>?
     private val glass: LumenPrismGlass
     private var closed = false
 
     init {
         val parent = requireNotNull(parent.get())
-        // Share clipping ownership with other Prism siblings without a process-level View cache.
-        clipping = (0 until parent.childCount).asSequence()
-            .mapNotNull { parent.getChildAt(it) as? PrismView }.firstOrNull()?.clipping ?: ClipLease(parent.clipChildren)
-        val layer = PrismView(hostView.context, clipping).also { it.owner = this }
-        this.layer = WeakReference(layer)
-        var leased = false
-        glass = try {
-            // Let the host parent create its own LayoutParams (including host ConstraintLayout).
-            parent.addView(layer, parent.indexOfChild(hostView))
-            clipping.users++
-            leased = true
-            parent.clipChildren = false
-            layer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            hostView.background = marker
-            LumenPrismGlass(layer, palette, LumenPrismOptions(), session, source)
-        } catch (failure: Throwable) {
-            layer.owner = null
-            if (layer.parent === parent) parent.removeView(layer)
-            if (leased && --clipping.users == 0 && !parent.clipChildren) parent.clipChildren = clipping.original
-            val restored = original
-            original = null
-            if (hostView.background === marker) hostView.background = restored
-            throw failure
+        if (isWhitelistedSiblingParent(parent)) {
+            // Share clipping ownership with other Prism siblings without a process-level View cache.
+            val lease = (0 until parent.childCount).asSequence()
+                .mapNotNull { parent.getChildAt(it) as? PrismView }.firstOrNull()?.clipping ?: ClipLease(parent.clipChildren)
+            clipping = lease
+            val layerView = PrismView(hostView.context, lease).also { it.owner = this }
+            layer = WeakReference(layerView)
+            var leased = false
+            glass = try {
+                // Let the host parent create its own LayoutParams (including host ConstraintLayout).
+                parent.addView(layerView, parent.indexOfChild(hostView))
+                lease.users++
+                leased = true
+                parent.clipChildren = false
+                layerView.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                hostView.background = marker
+                LumenPrismGlass(layerView, palette, LumenPrismOptions(), session, source)
+            } catch (failure: Throwable) {
+                layerView.owner = null
+                if (layerView.parent === parent) parent.removeView(layerView)
+                if (leased && --lease.users == 0 && !parent.clipChildren) parent.clipChildren = lease.original
+                val restored = original
+                original = null
+                if (hostView.background === marker) hostView.background = restored
+                throw failure
+            }
+        } else {
+            // 非定位/流式父容器（如 LinearLayout 或单子滚动容器）禁止插入兄弟节点，直接降级挂载到宿主 View。
+            clipping = null
+            layer = null
+            glass = LumenPrismGlass(hostView, palette, LumenPrismOptions(), session, source)
         }
     }
 
     val owns: Boolean get() {
         val host = host.get() ?: return false
         val parent = parent.get() ?: return false
-        val layer = layer.get() ?: return false
-        return !closed && host.parent === parent && layer.parent === parent && host.background === marker
+        if (closed || host.parent !== parent) return false
+        val layerRef = layer ?: return !glass.isClosed && host.background !== original
+        val layerView = layerRef.get() ?: return false
+        return layerView.parent === parent && host.background === marker
     }
 
     fun sync(insetX: Float, insetY: Float) {
         if (closed) return
         val host = host.get() ?: return
-        val layer = layer.get() ?: return
+        val layer = layer?.get() ?: return
         val x = insetX.coerceIn(0f, (host.width - 1).coerceAtLeast(0) / 2f).roundToInt()
         val y = insetY.coerceIn(0f, (host.height - 1).coerceAtLeast(0) / 2f).roundToInt()
         val width = (host.width - x * 2).coerceAtLeast(1)
@@ -107,14 +117,62 @@ internal class HostPrismSurface(
         closed = true
         try { glass.close() } finally {
             val parent = parent.get()
-            layer.get()?.let {
+            layer?.get()?.let {
                 it.owner = null
                 if (it.parent === parent) parent?.removeView(it)
             }
-            if (--clipping.users == 0 && parent?.clipChildren == false) parent.clipChildren = clipping.original
+            clipping?.let { lease ->
+                if (--lease.users == 0 && parent?.clipChildren == false) parent.clipChildren = lease.original
+            }
             val restored = original
             original = null
             host.get()?.takeIf { it.background === marker }?.background = restored
+        }
+    }
+
+    companion object {
+        private val disallowedFlowOrSingleChildNames = setOf(
+            "LinearLayout",
+            "ScrollView",
+            "HorizontalScrollView",
+            "NestedScrollView",
+            "AdapterView",
+            "RecyclerView",
+            "ViewPager",
+            "ViewPager2"
+        )
+        private val allowedSiblingParents = setOf(
+            "android.widget.FrameLayout",
+            "android.widget.RelativeLayout",
+            "androidx.coordinatorlayout.widget.CoordinatorLayout",
+            "androidx.constraintlayout.widget.ConstraintLayout",
+            "FrameLayout",
+            "RelativeLayout",
+            "CoordinatorLayout",
+            "ConstraintLayout"
+        )
+
+        internal fun isWhitelistedSiblingParent(parent: ViewGroup): Boolean {
+            val hierarchy = buildList {
+                var current: Class<*>? = parent.javaClass
+                while (current != null && ViewGroup::class.java.isAssignableFrom(current)) {
+                    add(current.name)
+                    current = current.superclass
+                }
+            }
+            return isWhitelistedSiblingParentNames(hierarchy)
+        }
+
+        internal fun isWhitelistedSiblingParentNames(classNames: List<String>): Boolean {
+            if (classNames.isEmpty()) return false
+            for (name in classNames) {
+                val simple = name.substringAfterLast('.').substringAfterLast('$')
+                if (simple in disallowedFlowOrSingleChildNames) return false
+            }
+            return classNames.any { name ->
+                val simple = name.substringAfterLast('.').substringAfterLast('$')
+                name in allowedSiblingParents || simple in allowedSiblingParents
+            }
         }
     }
 }

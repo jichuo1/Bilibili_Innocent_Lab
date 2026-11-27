@@ -2,8 +2,15 @@ package com.Bilibili_Innocent_Lab.xposedmodule.agent
 
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentHttpsTransport
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelException
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelSource
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentSourceProtocol
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AiChatCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ReasoningLevel
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticBackend
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticJudge
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightContext
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightMode
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight.InsightProtocol
@@ -14,10 +21,18 @@ import com.bilab.core.agent.protocol.LlmHttpTransport
 import com.bilab.core.agent.protocol.UntrustedPluginOutputCodec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -309,5 +324,149 @@ class AgentProtocolAndPerfTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun loopbackHttpAndBlankApiKeyAreAllowedOnlyForLoopbackEndpoints() {
+        val localSource = AgentModelSource.from(
+            index = 1,
+            endpoint = "http://127.0.0.1:11434",
+            apiKey = "",
+            model = "llama3.2",
+            protocol = AgentSourceProtocol.CHAT
+        )
+        assertNotNull(localSource)
+        assertEquals("http://127.0.0.1:11434/v1/chat/completions", localSource!!.resolvedEndpoint)
+        assertEquals("", localSource.apiKey)
+
+        assertNotNull(AgentModelSource.from(2, "http://localhost:8080/v1", "", "qwen2.5", AgentSourceProtocol.CHAT))
+        assertNotNull(AgentModelSource.from(3, "http://[::1]:11434", "  ", "claude-local", AgentSourceProtocol.ANTHROPIC))
+
+        // Remote endpoints MUST stay HTTPS with a non-blank API key.
+        assertNull(AgentModelSource.from(1, "https://api.example.com", "", "gpt-4o", AgentSourceProtocol.CHAT))
+        assertNull(AgentModelSource.from(1, "http://api.example.com", "sk-secret", "gpt-4o", AgentSourceProtocol.CHAT))
+        assertNull(AgentModelSource.from(1, "http://192.168.1.10:11434", "", "llama3.2", AgentSourceProtocol.CHAT))
+
+        val localInsight = InsightConfig.resolve(
+            protocol = InsightConfig.PROTOCOL_OPENAI,
+            baseUrl = "http://127.0.0.1:11434",
+            apiKey = "",
+            model = "llama3.2",
+            autoV1 = true
+        )
+        assertNotNull(localInsight)
+        assertEquals("http://127.0.0.1:11434/v1/chat/completions", localInsight!!.resolvedEndpoint)
+        assertNull(InsightConfig.resolve(InsightConfig.PROTOCOL_OPENAI, "https://api.example.com", "", "gpt-4o", true))
+        assertNull(InsightConfig.resolve(InsightConfig.PROTOCOL_OPENAI, "http://192.168.1.20:11434", "", "llama3.2", true))
+
+        val localSemantic = SemanticSource.from(1, "", "http://localhost:11434/v1/chat/completions", SemanticBackend.OPENAI, "qwen2.5")
+        assertNotNull(localSemantic)
+        assertNull(SemanticSource.from(1, "", "https://api.deepseek.com", SemanticBackend.OPENAI, "deepseek-chat"))
+        assertNull(SemanticSource.from(1, "sk-key", "http://192.168.1.20:11434", SemanticBackend.OPENAI, "qwen2.5"))
+
+        val localJudge = SemanticJudge(
+            apiKey = "",
+            rules = SemanticPresets.COMMENT,
+            endpoint = localSemantic!!.endpoint,
+            backend = localSemantic.backend
+        )
+        assertTrue(localJudge.enabled)
+
+        val remoteDisabledJudge = SemanticJudge(
+            apiKey = "",
+            rules = SemanticPresets.COMMENT,
+            endpoint = "https://api.deepseek.com",
+            backend = SemanticBackend.of(SemanticBackend.OPENAI, "deepseek-chat")!!
+        )
+        assertFalse(remoteDisabledJudge.enabled)
+    }
+
+    @Test
+    fun semanticHttpPostOmitsEmptyAuthHeaderAndMapsCleartextBlocked() {
+        val headers = linkedMapOf<String, String>()
+        val okConn = object : HttpURLConnection(URL("http://127.0.0.1:11434/v1/chat/completions")) {
+            override fun connect() {}
+            override fun disconnect() {}
+            override fun usingProxy(): Boolean = false
+            override fun setRequestProperty(key: String, value: String) {
+                headers[key] = value
+            }
+            override fun getOutputStream(): OutputStream = ByteArrayOutputStream()
+            override fun getResponseCode(): Int = 200
+            override fun getInputStream(): InputStream = ByteArrayInputStream("""{"ok":true}""".toByteArray(Charsets.UTF_8))
+        }
+        val okOutcome = SemanticJudge.httpPostWithConnection(
+            endpoint = "http://127.0.0.1:11434/v1/chat/completions",
+            body = "{}".toByteArray(Charsets.UTF_8),
+            apiKey = "",
+            timeoutMs = 5_000,
+            connect = { okConn }
+        )
+        assertEquals(SemanticJudge.Companion.HttpPostOutcome.Response(200, """{"ok":true}"""), okOutcome)
+        assertFalse("blank key must not emit Authorization header", headers.containsKey("Authorization"))
+
+        headers.clear()
+        val withKeyOutcome = SemanticJudge.httpPostWithConnection(
+            endpoint = "http://127.0.0.1:11434/v1/chat/completions",
+            body = "{}".toByteArray(Charsets.UTF_8),
+            apiKey = "sk-local",
+            timeoutMs = 5_000,
+            connect = { okConn }
+        )
+        assertEquals(SemanticJudge.Companion.HttpPostOutcome.Response(200, """{"ok":true}"""), withKeyOutcome)
+        assertEquals("Bearer sk-local", headers["Authorization"])
+
+        val cleartextOutcome = SemanticJudge.httpPostWithConnection(
+            endpoint = "http://192.168.1.99/v1/chat/completions",
+            body = "{}".toByteArray(Charsets.UTF_8),
+            apiKey = "",
+            timeoutMs = 5_000,
+            connect = { throw IOException("CLEARTEXT communication to 192.168.1.99 not permitted by network security policy") }
+        )
+        assertEquals(SemanticJudge.Companion.HttpPostOutcome.CleartextBlocked, cleartextOutcome)
+
+        try {
+            SemanticJudge.httpPost(
+                endpoint = "http://192.168.1.99/v1/chat/completions",
+                body = "{}".toByteArray(Charsets.UTF_8),
+                apiKey = "",
+                timeoutMs = 5_000,
+                connect = { throw IOException("CLEARTEXT communication to 192.168.1.99 not permitted by network security policy") }
+            )
+            fail("expected cleartext_blocked exception")
+        } catch (expected: IllegalStateException) {
+            assertEquals(SemanticJudge.ERROR_CLEARTEXT_BLOCKED, expected.message)
+        }
+    }
+
+    @Test
+    fun accessibilityRestrictedSettingsAndScreenshotFailureDecisions() {
+        assertFalse(AgentAccessibility.mayRequireRestrictedSettingsUnlock(32))
+        assertTrue(AgentAccessibility.mayRequireRestrictedSettingsUnlock(33))
+        assertTrue(AgentAccessibility.shouldSuggestRestrictedSettings(33, AgentAccessibility.State.DISABLED, isSideloaded = true))
+        assertFalse(AgentAccessibility.shouldSuggestRestrictedSettings(33, AgentAccessibility.State.CONNECTED, isSideloaded = true))
+        assertFalse(AgentAccessibility.shouldSuggestRestrictedSettings(33, AgentAccessibility.State.DISABLED, isSideloaded = false))
+        assertFalse(AgentAccessibility.shouldSuggestRestrictedSettings(32, AgentAccessibility.State.DISABLED, isSideloaded = true))
+
+        assertEquals(
+            ScreenshotFailureDecision.Fail("screen_protected"),
+            screenshotFailureDecision(SCREENSHOT_ERROR_SECURE_WINDOW, attempt = 0)
+        )
+        assertEquals(
+            ScreenshotFailureDecision.RetryAfter(350L),
+            screenshotFailureDecision(SCREENSHOT_ERROR_INTERVAL_TIME_SHORT, attempt = 0)
+        )
+        assertEquals(
+            ScreenshotFailureDecision.RetryAfter(700L),
+            screenshotFailureDecision(SCREENSHOT_ERROR_INTERVAL_TIME_SHORT, attempt = 1)
+        )
+        assertEquals(
+            ScreenshotFailureDecision.Fail("screen_busy"),
+            screenshotFailureDecision(SCREENSHOT_ERROR_INTERVAL_TIME_SHORT, attempt = MAX_SCREENSHOT_INTERVAL_RETRIES)
+        )
+        assertEquals(
+            ScreenshotFailureDecision.Fail("screen_unavailable"),
+            screenshotFailureDecision(99, attempt = 0)
+        )
     }
 }

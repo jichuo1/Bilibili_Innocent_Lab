@@ -151,13 +151,15 @@ internal object NPatchScopeProbe {
         else -> ScopeState.OUT_OF_SCOPE
     }
 
+    internal fun newBoundedExecutorForTest(threadName: String): ThreadPoolExecutor = boundedExecutor(threadName)
+
     private fun boundedExecutor(threadName: String) = ThreadPoolExecutor(
         1,
         1,
-        0L,
-        TimeUnit.MILLISECONDS,
+        30L,
+        TimeUnit.SECONDS,
         ArrayBlockingQueue(1),
         { runnable -> Thread(runnable, threadName).apply { isDaemon = true } },
         ThreadPoolExecutor.DiscardOldestPolicy()
-    )
+    ).apply { allowCoreThreadTimeOut(true) }
 }

@@ -21,7 +21,8 @@ internal data class AgentModelSource(
 
     init {
         require(index in 1..MAX_SOURCES) { "来源编号应为 1–8" }
-        require(apiKey.isNotBlank() && apiKey.length <= 4096 && apiKey.none { it.isISOControl() }) { "API Key 无效" }
+        val keyAllowed = apiKey.isNotBlank() || (apiKey.isEmpty() && isLoopbackEndpoint(resolvedEndpoint))
+        require(keyAllowed && apiKey.length <= 4096 && apiKey.none { it.isISOControl() }) { "API Key 无效" }
         require(model.isNotBlank() && model.length <= 256 && model.none { it.isISOControl() }) { "模型名称无效" }
     }
 
@@ -41,14 +42,24 @@ internal data class AgentModelSource(
                  protocol: AgentSourceProtocol = AgentSourceProtocol.CHAT): AgentModelSource? =
             runCatching { AgentModelSource(index, endpoint.trim(), apiKey.trim(), model.trim(), protocol) }.getOrNull()
 
+        internal fun isLoopbackHost(host: String?): Boolean {
+            val normalized = host?.trim()?.removePrefix("[")?.removeSuffix("]")?.lowercase() ?: return false
+            return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+        }
+
+        internal fun isLoopbackEndpoint(endpoint: String): Boolean =
+            runCatching { isLoopbackHost(URI(endpoint).host) }.getOrDefault(false)
+
         private fun resolveEndpoint(raw: String, protocol: AgentSourceProtocol): String {
             val value = if (protocol == AgentSourceProtocol.DECISIONS) JevBackend().resolveEndpoint(raw)
                 ?: throw IllegalArgumentException("判定 API 地址无效") else raw
             require(value.length in 1..2048 && value.none { it.isWhitespace() || it.isISOControl() }) { "API 地址无效" }
             val uri = try { URI(value) } catch (_: Exception) { throw IllegalArgumentException("API 地址无效") }
-            require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank() &&
+            val scheme = uri.scheme?.lowercase() ?: ""
+            val schemeAllowed = scheme == "https" || (scheme == "http" && isLoopbackHost(uri.host))
+            require(schemeAllowed && !uri.host.isNullOrBlank() &&
                 uri.rawUserInfo == null && uri.rawFragment == null && uri.port in -1..65535 && uri.port != 0) {
-                "Agent API 必须使用无内嵌凭据的 HTTPS 地址"
+                "Agent API 必须使用无内嵌凭据的 HTTPS 地址（或本地回环 HTTP 地址）"
             }
             if (protocol == AgentSourceProtocol.DECISIONS) return value
             val path = uri.rawPath.orEmpty().trimEnd('/')
@@ -65,7 +76,7 @@ internal data class AgentModelSource(
                     else -> "$path/chat/completions"
                 }
             }
-            return "https://${uri.rawAuthority}$resolved" + (uri.rawQuery?.let { "?$it" } ?: "")
+            return "$scheme://${uri.rawAuthority}$resolved" + (uri.rawQuery?.let { "?$it" } ?: "")
         }
     }
 }

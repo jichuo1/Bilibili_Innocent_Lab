@@ -100,7 +100,16 @@ internal object RoamingSettingsLauncher {
             }
             val callback = IntentCompat.getParcelableExtra(intent, EXTRA_CALLBACK, PendingIntent::class.java)
                 ?: return
-            val hostUid = context.packageManager.getApplicationInfo(HookEntry.TARGET_PACKAGE, 0).uid
+            val primaryHostUid = HostCallerIdentityVerifier.resolvePrimaryHostUid(context, HookEntry.TARGET_PACKAGE)
+            val callerIdentity = HostCallerIdentityVerifier.verifyHostUid(
+                callerUid = callback.creatorUid,
+                primaryHostUid = primaryHostUid,
+                callerPackages = HostCallerIdentityVerifier.resolvePackagesForUid(context, callback.creatorUid),
+                expectedPackage = HookEntry.TARGET_PACKAGE,
+                auditTag = "RoamingSettingsLauncher"
+            )
+            if (!callerIdentity.allowed) return
+            val hostUid = callerIdentity.callerUid
             if (!RoamingSettingsLaunchPolicy.acceptsCaller(HookEntry.TARGET_PACKAGE, hostUid,
                     callback.creatorPackage, callback.creatorUid, Build.VERSION.SDK_INT,
                     sentFromPackage, sentFromUid)) return

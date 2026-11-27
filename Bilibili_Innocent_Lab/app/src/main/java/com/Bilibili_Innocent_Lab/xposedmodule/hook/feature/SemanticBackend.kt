@@ -86,18 +86,33 @@ internal interface SemanticBackend {
 
         /** 无协议时允许补 https 的主机形式：域名 / IP / localhost，可带端口。 */
         private val BARE_HOST = Regex("[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?::[0-9]{1,5})?")
+        private val BARE_IPV6_LOOPBACK = Regex("\\[::1](?::[0-9]{1,5})?")
 
-        /** 接受完整 http(s) 地址、或只填域名 / 主机（含路径）；无协议时按 https 补全，去掉末尾斜杠。 */
+        internal fun isLoopbackHost(host: String?): Boolean {
+            val normalized = host?.trim()?.removePrefix("[")?.removeSuffix("]")?.lowercase() ?: return false
+            return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+        }
+
+        internal fun isLoopbackEndpoint(endpoint: String): Boolean =
+            runCatching { isLoopbackHost(URL(endpoint).host) }.getOrDefault(false)
+
+        /** 接受完整 https 地址或 loopback http 地址（localhost / 127.0.0.1 / ::1）；无协议时按 https 补全，去掉末尾斜杠。 */
         internal fun parseUrl(raw: String): Pair<String, URL>? {
             var value = raw.trim().trimEnd('/')
             if (value.isEmpty() || value.length > SemanticJudge.MAX_ENDPOINT_LENGTH) return null
             if (!value.contains("://")) {
                 // 设置说明里写了「可以只填域名」；但任意文本（含空格、缺域名形状）不能当地址。
-                if (value.any { it.isWhitespace() } || !BARE_HOST.matches(value.substringBefore('/'))) return null
+                val hostPart = value.substringBefore('/')
+                if (value.any { it.isWhitespace() } ||
+                    (!BARE_HOST.matches(hostPart) && !BARE_IPV6_LOOPBACK.matches(hostPart))
+                ) return null
                 value = "https://$value"
             }
             val url = runCatching { URL(value) }.getOrNull() ?: return null
-            if (url.protocol !in setOf("https", "http") || url.host.isNullOrBlank()) return null
+            val scheme = url.protocol.lowercase()
+            val schemeAllowed = scheme == "https" || (scheme == "http" && isLoopbackHost(url.host))
+            if (!schemeAllowed || url.host.isNullOrBlank()) return null
+            if (!url.userInfo.isNullOrEmpty() || url.port == 0) return null
             return value to url
         }
 

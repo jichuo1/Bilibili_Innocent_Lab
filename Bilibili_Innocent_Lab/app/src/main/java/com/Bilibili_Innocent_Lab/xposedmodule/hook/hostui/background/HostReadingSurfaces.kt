@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import io.github.jichuo1.meguviz.android.extensions.setMargins
@@ -42,7 +43,13 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         ).withTint(if (night) .90f else .94f)
     }
 
-    private class Spacing(view: View, params: ViewGroup.MarginLayoutParams, val topInset: Int, val bottomInset: Int) {
+    private class Spacing(
+        view: View,
+        params: ViewGroup.MarginLayoutParams,
+        val topInset: Int,
+        val bottomInset: Int,
+        val density: Float
+    ) {
         val view = WeakReference(view)
         val params = WeakReference(params)
         val top = params.topMargin
@@ -128,14 +135,15 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
                     (view.parent as? View)?.takeIf { name(it) == "refresh_layout" } ?: view
                 else view
                 val params = spacingView.layoutParams as? ViewGroup.MarginLayoutParams
-                if (params != null && target.spacing?.params?.get() !== params) {
-                    target.spacing?.restore()
-                    val density = view.resources.displayMetrics.density
+                val density = view.resources.displayMetrics.density
+                val existingSpacing = target.spacing
+                if (params != null && (existingSpacing?.params?.get() !== params || existingSpacing.density != density)) {
+                    existingSpacing?.restore()
                     val topInset = if (target.role == Role.MINE)
                         ((12 * density).roundToInt() - params.topMargin).coerceAtLeast(0)
                     else (4 * density).roundToInt()
                     val bottomInset = if (target.role == Role.MINE) 0 else topInset
-                    target.spacing = Spacing(spacingView, params, topInset, bottomInset)
+                    target.spacing = Spacing(spacingView, params, topInset, bottomInset, density)
                     // 个人中心只在整张列表卡片上方留白，内部各组不增加间距；保留宿主横向布局。
                     spacingView.setMargins(params.leftMargin, params.topMargin + topInset,
                         params.rightMargin, params.bottomMargin + bottomInset)
@@ -144,6 +152,7 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
             val binding = active.ensure(view, if (target.role == Role.READING) style.reading else style.card)
             if (binding !== target.binding) {
                 target.binding = binding
+                HostMemoryPressureBridge.registerBinding(binding)
                 target.drawable = view.background
                 target.drawable?.let { owned[view] = it }
             }

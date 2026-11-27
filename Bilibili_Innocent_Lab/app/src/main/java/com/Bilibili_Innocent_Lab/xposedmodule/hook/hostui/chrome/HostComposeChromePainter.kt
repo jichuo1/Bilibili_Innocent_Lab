@@ -26,7 +26,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTrimSeverity
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiPowerPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostUiSurfaceRuntime
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
@@ -43,6 +45,7 @@ import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Outer row geometry, top or bottom; [heightDp] is null where the host keeps its native row height. */
@@ -120,8 +123,15 @@ internal class HostComposeChromePainter(
     private var colors = theme.read()
     private var glow: HostGlowView? = null
     private var observer: ViewTreeObserver? = null
+    private var focusObserver: ViewTreeObserver? = null
     private var version: Long? = null
     private var paused = false
+    private val degradeBreaker = HostUiSurfaceRuntime.SurfaceDegradeCircuitBreaker()
+    private var pressureLease: AutoCloseable? = null
+    private var hasWindowFocus = owner.hasWindowFocus()
+    private var criticalPressurePaused = false
+    private var currentSessionPrism = false
+    private var activeAppearance = appearance
     private val gpuRecheckMs = LumenSurfaceSampling().minIntervalMs
     private var gpuCheckedAt = 0L
     private var gpuBacked = false
@@ -177,13 +187,24 @@ internal class HostComposeChromePainter(
                 // A frame drawn before the relayout would show the feed at its old place; bound the retries.
                 if (syncTop(currentOwner) && staleFrames < 2) { staleFrames++; proceed = false } else staleFrames = 0
                 val visible = actuallyVisible(currentOwner)
-                target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-                val shouldPause = !visible
+                val thermal = HostUiSurfaceRuntime.currentThermalPressure()
+                val previousTier = degradeBreaker.currentTier
+                degradeBreaker.recordThermalPressure(thermal, SystemClock.uptimeMillis())
+                val recovered = if (visible && (criticalPressurePaused || degradeBreaker.currentTier != HostUiSurfaceRuntime.DegradeTier.NONE)) {
+                    tryAutoRecover(currentOwner, visible = true, hasFocus = hasWindowFocus || currentOwner.hasWindowFocus(), thermal = thermal)
+                } else {
+                    false
+                }
+                if (degradeBreaker.currentTier != previousTier || recovered) {
+                    wake()
+                }
+                target?.visibility = if (visible && !criticalPressurePaused) View.VISIBLE else View.INVISIBLE
+                val shouldPause = !visible || criticalPressurePaused
                 if (paused != shouldPause) {
                     paused = shouldPause
                     if (shouldPause) session?.pause() else session?.resume()
                 }
-                if (!visible) {
+                if (!visible || criticalPressurePaused) {
                     cancelBackdropProbe()
                     cancelContentRefresh()
                     return@call proceed
@@ -220,7 +241,12 @@ internal class HostComposeChromePainter(
     }
     private val attach = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) = guarded("host.chrome.attach") {
+            ensureRuntimeObservers(v)
             theme.invalidate()
+            hasWindowFocus = v.hasWindowFocus()
+            if (hasWindowFocus) {
+                tryAutoRecover(v, visible = HostViewVisibility.shown(v), hasFocus = true)
+            }
             wake()
         }
         override fun onViewDetachedFromWindow(v: View) = guarded("host.chrome.detach") {
@@ -229,7 +255,131 @@ internal class HostComposeChromePainter(
         }
     }
 
-    init { owner.addOnAttachStateChangeListener(attach) }
+    private val windowFocusChanged = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+        guarded("host.chrome.focus") {
+            hasWindowFocus = hasFocus
+            val currentOwner = this.owner.get() ?: return@guarded
+            if (hasFocus) {
+                val visible = currentOwner.isAttachedToWindow && actuallyVisible(currentOwner)
+                if (tryAutoRecover(currentOwner, visible = visible, hasFocus = true)) {
+                    wake()
+                }
+            } else {
+                cancelContentRefresh()
+            }
+        }
+    }
+
+    init {
+        owner.addOnAttachStateChangeListener(attach)
+        if (owner.isAttachedToWindow) ensureRuntimeObservers(owner)
+    }
+
+    private fun resolvedAppearance(): HostChromeAppearance =
+        degradeBreaker.resolveAppearance(appearance.compatible(Build.VERSION.SDK_INT))
+
+    private fun ensureRuntimeObservers(view: View) {
+        if (pressureLease == null) {
+            pressureLease = HostUiSurfaceRuntime.registerSurfacePressureObserver("host.chrome.painter") { severity, thermal ->
+                HostThreadGuard.run("host.chrome.pressure") {
+                    onPressureNotification(severity, thermal)
+                }
+            }
+        }
+        val tree = view.viewTreeObserver
+        if (tree.isAlive && focusObserver !== tree) {
+            focusObserver?.takeIf { it.isAlive }?.removeOnWindowFocusChangeListener(windowFocusChanged)
+            focusObserver = tree
+            tree.addOnWindowFocusChangeListener(windowFocusChanged)
+        }
+    }
+
+    private fun releaseRuntimeObservers() {
+        val oldFocus = focusObserver; focusObserver = null
+        oldFocus?.takeIf { it.isAlive }?.removeOnWindowFocusChangeListener(windowFocusChanged)
+        val lease = pressureLease; pressureLease = null
+        lease?.close()
+    }
+
+    private fun onPressureNotification(severity: HostTrimSeverity, thermalPressure: Float) {
+        if (failed) return
+        val now = SystemClock.uptimeMillis()
+        degradeBreaker.recordTrimSeverity(severity, now)
+        degradeBreaker.recordThermalPressure(thermalPressure, now)
+        val critical = severity == HostTrimSeverity.CRITICAL ||
+            HostUiSurfaceRuntime.isCriticalGraphicsPressure(thermalPressure, criticalTrimActive = degradeBreaker.isCriticalTrimActive)
+        when {
+            critical -> {
+                criticalPressurePaused = true
+                if (!paused) {
+                    paused = true
+                    session?.pause()
+                }
+                session?.releaseGraphics()
+                cancelBackdropProbe()
+                cancelContentRefresh()
+                target?.visibility = View.INVISIBLE
+                owner.get()?.let { syncAppearanceOrSchedule(it) }
+                wake()
+            }
+            severity == HostTrimSeverity.MODERATE -> {
+                session?.releaseGraphics()
+                owner.get()?.let { syncAppearanceOrSchedule(it) }
+                wake()
+            }
+            severity == HostTrimSeverity.HIDDEN -> {
+                if (!paused) {
+                    paused = true
+                    session?.pause()
+                }
+                session?.releaseGraphics()
+                cancelBackdropProbe()
+                cancelContentRefresh()
+            }
+        }
+    }
+
+    private fun tryAutoRecover(
+        owner: View,
+        visible: Boolean,
+        hasFocus: Boolean,
+        thermal: Float = HostUiSurfaceRuntime.currentThermalPressure()
+    ): Boolean {
+        if (failed || !glass) return false
+        val now = SystemClock.uptimeMillis()
+        val thermalCritical = HostUiSurfaceRuntime.isCriticalGraphicsPressure(thermal)
+        val changed = degradeBreaker.tryRecover(
+            visible = visible,
+            hasWindowFocus = hasFocus,
+            criticalPressure = thermalCritical,
+            thermalPressure = thermal,
+            nowMs = now
+        )
+        if (!visible || !hasFocus || thermalCritical) return changed
+        var updated = changed
+        if (criticalPressurePaused) {
+            criticalPressurePaused = false
+            updated = true
+        }
+        if (paused) {
+            paused = false
+            session?.resume()
+            updated = true
+        }
+        target?.visibility = View.VISIBLE
+        if (syncAppearanceOrSchedule(owner)) updated = true
+        return updated
+    }
+
+    private fun onSurfaceGpuFailure(owner: View) {
+        if (failed) return
+        val previousTier = degradeBreaker.currentTier
+        val requested = appearance.compatible(Build.VERSION.SDK_INT)
+        val nextTier = degradeBreaker.recordGpuFailure(SystemClock.uptimeMillis(), requested)
+        if (nextTier != previousTier && owner.isAttachedToWindow) {
+            wake()
+        }
+    }
 
     internal val backdropActive: Boolean
         get() {
@@ -301,7 +451,9 @@ internal class HostComposeChromePainter(
             val margin = HostTopCapsuleWidthPolicy.marginDp(available / density, 0f, HostDockClearanceReader.sideDp(owner))
             return if (margin > 0f) HostComposeDockLayout(null, margin, 0f) else null
         }
-        val fit = HostDockFitPolicy.fit(config, available / density, tabCount, HostDockClearanceReader.read(owner, HostDockFitPolicy::bottomDp))
+        val fontScale = owner.resources.configuration.fontScale
+        val isRtl = owner.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val fit = HostDockFitPolicy.fit(config, available / density, tabCount, HostDockClearanceReader.read(owner, HostDockFitPolicy::bottomDp), fontScale, isRtl)
         return HostComposeDockLayout(fit.heightDp.takeIf { config.compact || config.iconOnly }, fit.marginDp, fit.bottomDp)
     }
 
@@ -401,20 +553,32 @@ internal class HostComposeChromePainter(
             if (!w.isFinite() || !h.isFinite() || w <= 0 || h <= 0) return
             val nextW = w.roundToInt(); val nextH = h.roundToInt()
             if (width != nextW || height != nextH) {
+                val minorJitter = target != null && width > 0 && height > 0 &&
+                    abs(width - nextW) <= 1 && abs(height - nextH) <= 1
                 width = nextW; height = nextH
-                release()?.let { throw it }
+                if (target != null) {
+                    updateSessionGeometryInPlace(owner, minorJitter)
+                }
             }
             trackOwner(owner)
-            if (!actuallyVisible(owner)) {
+            if (!actuallyVisible(owner) || criticalPressurePaused) {
                 // Native layers may still be recorded as suppressed; never expose the Window there.
                 if (replacementReady) paintBase(owner, canvas(), w, h)
                 return
+            }
+            val effective = resolvedAppearance()
+            if (glass && target != null && effective != activeAppearance) {
+                if ((effective.material == HostGlassMaterial.PRISM) != currentSessionPrism) {
+                    release()?.let { throw it }
+                } else {
+                    applyAppearanceInPlace(owner, effective)
+                }
             }
             val nextColors = theme.read()
             if (colors != nextColors) {
                 colors = nextColors; source?.windowBaseColor = sampleBase()
                 session?.updatePalette(colors.palette()); prism?.updatePalette(colors.palette())
-                binding?.update(HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)))
+                applyAppearanceInPlace(owner, effective)
                 glow?.recolor(colors.accent)
             }
             if (glass && target == null) build(owner)
@@ -424,6 +588,7 @@ internal class HostComposeChromePainter(
                 syncTarget()
                 val target = target ?: return
                 val background = target.background ?: return
+                val drawStartNs = System.nanoTime()
                 paintBase(owner, destination, w, h)
                 val inset = capsule
                 if (inset == null) background.setBounds(0, 0, width, height)
@@ -432,6 +597,14 @@ internal class HostComposeChromePainter(
                     background.setBounds(dx, dy, width - dx, height - dy)
                 }
                 background.draw(destination)
+                val drawMs = (System.nanoTime() - drawStartNs) / 1_000_000L
+                val previousTier = degradeBreaker.currentTier
+                val nextTier = degradeBreaker.recordFrameDuration(
+                    drawMs,
+                    SystemClock.uptimeMillis(),
+                    appearance.compatible(Build.VERSION.SDK_INT)
+                )
+                if (nextTier != previousTier) wake()
                 drawn = true
                 if (!replacementReady) {
                     replacementReady = true
@@ -554,6 +727,11 @@ internal class HostComposeChromePainter(
 
     private fun build(owner: View, content: ViewGroup? = selectContent()) {
         val root = owner.rootView as? ViewGroup ?: return
+        ensureRuntimeObservers(owner)
+        val effective = resolvedAppearance()
+        activeAppearance = effective
+        val usePrism = effective.material == HostGlassMaterial.PRISM
+        currentSessionPrism = usePrism
         val target = Target(owner).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; isClickable = false }
         this.target = target; overlay = root
         try {
@@ -561,15 +739,22 @@ internal class HostComposeChromePainter(
             syncTarget()
             source = HostChromeContentSource(content ?: owner, sampleBase(),
                 includeViewContent = content != null, composeWindowBase = bottom == null)
-            viewport = HostChromeViewportSource.create(requireNotNull(source), compositeView = appearance.material == HostGlassMaterial.PRISM) {
+            viewport = HostChromeViewportSource.create(requireNotNull(source), compositeView = usePrism) {
                 it(target, 0f, 0f, 72f * owner.resources.displayMetrics.density)
             }?.also { it.sync() }
             val active = LumenSurfaceSession(owner.context, colors.palette(), LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false))
+            active.setListener { _, backend, failure, _ ->
+                gpuBacked = backend == LumenSurfaceBackend.GPU && failure == LumenSurfaceFailure.NONE
+                gpuCheckedAt = SystemClock.uptimeMillis()
+                if (failure == LumenSurfaceFailure.GPU_FAILED || failure == LumenSurfaceFailure.GPU_UNAVAILABLE) {
+                    this.owner.get()?.let(::onSurfaceGpuFailure)
+                }
+            }
             session = active
-            if (appearance.material == HostGlassMaterial.PRISM) {
+            if (usePrism) {
                 prism = LumenPrismGlass(target, colors.palette(), prismOptions(owner), active, viewport?.coordinateView)
             } else {
-                binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport).also {
+                binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), effective), viewport).also {
                     HostMemoryPressureBridge.registerBinding(it)
                 }
             }
@@ -580,6 +765,51 @@ internal class HostComposeChromePainter(
             }
             scheduleBackdropProbe(owner)
         } catch (failure: Throwable) { release()?.takeUnless { it === failure }?.let(failure::addSuppressed); throw failure }
+    }
+
+    private fun updateSessionGeometryInPlace(owner: View, minorJitter: Boolean) {
+        syncTarget()
+        viewport?.sync()
+        if (!minorJitter) {
+            if (currentSessionPrism) {
+                prism?.update(prismOptions(owner))
+            } else {
+                binding?.update(HostSurfaceStyle.floating(colors.dark, radiusDp(owner), activeAppearance))
+            }
+            glow?.let {
+                if (it.left != 0 || it.top != 0 || it.right != width || it.bottom != height) {
+                    it.layout(0, 0, width, height)
+                }
+            }
+        }
+        session?.notifyPositionChanged()
+        prism?.notifyPositionChanged()
+        if (!minorJitter && width > 0 && height > 0) {
+            session?.notifyContentChanged()
+        }
+    }
+
+    private fun applyAppearanceInPlace(owner: View, effective: HostChromeAppearance) {
+        activeAppearance = effective
+        if (currentSessionPrism) {
+            prism?.update(prismOptions(owner))
+        } else {
+            binding?.update(HostSurfaceStyle.floating(colors.dark, radiusDp(owner), effective))
+        }
+    }
+
+    private fun syncAppearanceOrSchedule(owner: View): Boolean {
+        val next = resolvedAppearance()
+        if (next == activeAppearance) return false
+        if (target == null) {
+            activeAppearance = next
+            return true
+        }
+        if ((next.material == HostGlassMaterial.PRISM) != currentSessionPrism) {
+            return true
+        }
+        applyAppearanceInPlace(owner, next)
+        return true
     }
 
     private fun syncTarget() {
@@ -685,11 +915,13 @@ internal class HostComposeChromePainter(
         close { oldObserver?.takeIf { it.isAlive }?.removeOnScrollChangedListener(scrollChanged) }
         close { oldPrism?.close() }
         close { oldBinding?.close() }
+        close { oldSession?.setListener(null) }
         close { oldSession?.close() }
         close { oldViewport?.close() }
         close { oldTarget?.let { oldOverlay?.overlay?.remove(it) } }
         close { glow?.resetGestureState() }
         if (dispose) {
+            close { releaseRuntimeObservers() }
             close { header.restore() }
             close { float?.restore() }
         }

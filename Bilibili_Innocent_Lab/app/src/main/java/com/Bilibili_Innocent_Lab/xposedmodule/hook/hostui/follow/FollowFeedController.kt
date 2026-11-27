@@ -2,7 +2,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
@@ -554,7 +553,6 @@ internal class FollowFeedController(
                         } else {
                             binding = session.bind(view, options).also {
                                 HostMemoryPressureBridge.registerBinding(it)
-                                HostSurfaceStyle.enableRenderTargetBackdropIfEligible(it, options, hasViewContentSource = true)
                             }
                         }
                         return true

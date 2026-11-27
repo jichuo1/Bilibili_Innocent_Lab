@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
@@ -253,13 +254,15 @@ internal object NoRootUpgradeRecoveryCoordinator {
     }
 
     private fun stillNeedsRecovery(attempt: Attempt): Boolean {
+        val authorized = UserTermsConsentStore.readOrInitialize(attempt.context).isAuthorized
+        synchronized(stateLock) { recoveryAuthorized = authorized }
         val desiredEnabled = NoRootSupportStore.isDesiredEnabled(attempt.context)
-        val publication = if (desiredEnabled && attempt.authorized) {
+        val publication = if (desiredEnabled && authorized) {
             com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationAuthorityStore.current(attempt.context)
         } else null
         val exported = NoRootSupportStore.exportState(
             attempt.context,
-            attempt.authorized
+            authorized
         )
         // 直达发布已就绪时升级恢复不再因可选 Manager 镜像缺失而反复连接。
         val remoteSynced = exported.enabled && exported.revision > 0L &&
@@ -272,7 +275,7 @@ internal object NoRootUpgradeRecoveryCoordinator {
             directReady = publication?.let { it.decision.isAuthorized && it.noRootRevision == exported.revision } == true
         )
         return shouldRecoverSnapshot(
-            authorized = attempt.authorized,
+            authorized = authorized,
             desiredEnabled = desiredEnabled,
             hasReadySnapshot = hasReadySnapshot
         )

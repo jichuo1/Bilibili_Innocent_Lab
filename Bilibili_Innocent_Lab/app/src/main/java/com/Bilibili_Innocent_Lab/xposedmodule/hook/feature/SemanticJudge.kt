@@ -523,7 +523,9 @@ internal class SemanticJudge(
      */
     private val ruleFingerprint = fingerprintOf(rules, slots.map { it.source }, guidance)
 
-    val enabled: Boolean get() = rules.isNotEmpty() && slots.any { it.source.apiKey.isNotBlank() }
+    val enabled: Boolean get() = rules.isNotEmpty() && slots.any {
+        it.source.apiKey.isNotBlank() || SemanticBackend.isLoopbackEndpoint(it.source.endpoint)
+    }
 
     private val storeLoadScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
     /**
@@ -1013,16 +1015,28 @@ internal class SemanticJudge(
             budget.spent += 1
             val sentAt = clock()
             val body = backend.encode(clipped, rules, variant, guidanceText, source.endpoint)
-            val response = runCatching {
-                if (transport != null) transport.invoke(body, source.apiKey, requestTimeoutMs)
-                else httpPost(source.endpoint, body, source.apiKey, requestTimeoutMs)
-            }.getOrNull()
-            if (response == null) {
+            val outcome = runCatching {
+                if (transport != null) {
+                    transport.invoke(body, source.apiKey, requestTimeoutMs)
+                        ?.let { (s, p) -> HttpPostOutcome.Response(s, p) }
+                        ?: HttpPostOutcome.NetworkError
+                } else {
+                    httpPostWithConnection(source.endpoint, body, source.apiKey, requestTimeoutMs)
+                }
+            }.getOrElse { error ->
+                if (isCleartextBlockedError(error) || error.message == ERROR_CLEARTEXT_BLOCKED) {
+                    HttpPostOutcome.CleartextBlocked
+                } else {
+                    HttpPostOutcome.NetworkError
+                }
+            }
+            if (outcome !is HttpPostOutcome.Response) {
                 slot.penalize(FAILURE_COOLDOWN_MS, clock())
-                return done("network")
+                return done(if (outcome == HttpPostOutcome.CleartextBlocked) ERROR_CLEARTEXT_BLOCKED else "network")
             }
             slot.recordLatency(clock() - sentAt)
-            val (status, payload) = response
+            val status = outcome.status
+            val payload = outcome.body
             backend.usageOf(payload)?.let { current -> usage = usage?.plus(current) ?: current }
             val decoded = if (status in 200..299) backend.decode(payload, texts.size) else null
             // 2xx 但一条分数都没有（截断、题型不认、答非所问）同样算"这种写法不行"，换写法；
@@ -1510,8 +1524,44 @@ internal class SemanticJudge(
             return root.put("_headers", headers).toString()
         }
 
-        private fun httpPost(endpoint: String, body: ByteArray, apiKey: String, timeoutMs: Int): Pair<Int, String>? {
-            val connection = URL(endpoint).openConnection() as HttpURLConnection
+        const val ERROR_CLEARTEXT_BLOCKED = "cleartext_blocked"
+
+        internal sealed class HttpPostOutcome {
+            data class Response(val status: Int, val body: String) : HttpPostOutcome()
+            data object CleartextBlocked : HttpPostOutcome()
+            data object NetworkError : HttpPostOutcome()
+        }
+
+        internal fun isCleartextBlockedError(error: Throwable?): Boolean {
+            var current = error
+            var depth = 0
+            while (current != null && depth++ < 8) {
+                val msg = current.message.orEmpty()
+                if (msg.contains("CLEARTEXT", ignoreCase = true) &&
+                    (msg.contains("not permitted", ignoreCase = true) ||
+                        msg.contains("network security policy", ignoreCase = true) ||
+                        msg.contains("cleartext_blocked", ignoreCase = true))
+                ) {
+                    return true
+                }
+                if (msg.equals(ERROR_CLEARTEXT_BLOCKED, ignoreCase = true)) return true
+                current = current.cause
+            }
+            return false
+        }
+
+        internal fun httpPostWithConnection(
+            endpoint: String,
+            body: ByteArray,
+            apiKey: String,
+            timeoutMs: Int,
+            connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection }
+        ): HttpPostOutcome {
+            val connection = try {
+                connect(URL(endpoint))
+            } catch (error: Exception) {
+                return if (isCleartextBlockedError(error)) HttpPostOutcome.CleartextBlocked else HttpPostOutcome.NetworkError
+            }
             return try {
                 connection.requestMethod = "POST"
                 connection.instanceFollowRedirects = false
@@ -1521,16 +1571,31 @@ internal class SemanticJudge(
                 connection.readTimeout = (timeoutMs / 2).coerceAtLeast(1)
                 connection.setFixedLengthStreamingMode(body.size)
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                connection.setRequestProperty("Authorization", "Bearer $apiKey")
+                if (apiKey.isNotBlank()) {
+                    connection.setRequestProperty("Authorization", "Bearer $apiKey")
+                }
                 connection.outputStream.use { it.write(body) }
                 val status = connection.responseCode
                 val text = SemanticHttpResponseReader.read(connection, status)
                 // 限流：把重置相关的响应头并进返回体（`_headers`），冷却逻辑据此等到重置时刻。
-                if (status == 429) status to withRateLimitHeaders(text, connection) else status to text
-            } catch (_: Exception) {
+                val payload = if (status == 429) withRateLimitHeaders(text, connection) else text
+                HttpPostOutcome.Response(status, payload)
+            } catch (error: Exception) {
                 connection.disconnect()
-                null
+                if (isCleartextBlockedError(error)) HttpPostOutcome.CleartextBlocked else HttpPostOutcome.NetworkError
             }
+        }
+
+        internal fun httpPost(
+            endpoint: String,
+            body: ByteArray,
+            apiKey: String,
+            timeoutMs: Int,
+            connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection }
+        ): Pair<Int, String>? = when (val outcome = httpPostWithConnection(endpoint, body, apiKey, timeoutMs, connect)) {
+            is HttpPostOutcome.Response -> outcome.status to outcome.body
+            HttpPostOutcome.CleartextBlocked -> throw IllegalStateException(ERROR_CLEARTEXT_BLOCKED)
+            HttpPostOutcome.NetworkError -> null
         }
     }
 }

@@ -81,8 +81,10 @@ class LlmHttpException(
     val status: Int? = null,
     val errorBody: String = "",
     val retryAfterMs: Long? = null,
-    cause: Throwable? = null
-) : Exception(reason.name, cause) {
+    cause: Throwable? = null,
+    val overloaded: Boolean = false,
+    detailMessage: String = if (overloaded) LlmHttpTransport.ERROR_OVERLOADED else reason.name
+) : Exception(detailMessage, cause) {
     enum class Reason {
         CANCELLED,
         TIMEOUT,
@@ -92,7 +94,9 @@ class LlmHttpException(
         HTTP_STATUS
     }
 
-    override fun toString(): String = "LlmHttpException(reason=$reason, status=$status)"
+    override fun toString(): String =
+        if (overloaded) "LlmHttpException(reason=$reason, status=$status, overloaded=true)"
+        else "LlmHttpException(reason=$reason, status=$status)"
 }
 
 /**
@@ -106,13 +110,14 @@ object LlmHttpTransport {
     const val DEFAULT_MAX_TIMEOUT_MS = 300_000
     const val DEFAULT_ERROR_BYTES = 16_384
     const val DEFAULT_MAX_SSE_LINE_CHARS = 131_072
+    const val ERROR_OVERLOADED = "http_transport_overloaded"
 
     val sharedWorkers: ThreadPoolExecutor = ThreadPoolExecutor(
         2,
-        2,
+        6,
         30L,
         TimeUnit.SECONDS,
-        ArrayBlockingQueue(2)
+        ArrayBlockingQueue(16)
     ) { runnable ->
         Thread(runnable, "BIL-AgentHttp").apply { isDaemon = true }
     }.apply { allowCoreThreadTimeOut(true) }
@@ -143,6 +148,7 @@ object LlmHttpTransport {
         val budgetNs = request.timeoutMs.coerceIn(1, request.maxTimeoutMs) * 1_000_000L
         val deadlineNs = AtomicLong(started + budgetNs)
         val idleNs = minOf(budgetNs, 60_000_000_000L)
+        val idleTimeoutMs = (idleNs / 1_000_000L).coerceAtLeast(1L).toInt()
         val hardCapNs = started + request.maxTimeoutMs * 1_000_000L
 
         fun touch() {
@@ -160,17 +166,26 @@ object LlmHttpTransport {
                 alive()
                 val http = connect(URL(request.url))
                 connection.set(http)
+                var keepAliveSucceeded = false
                 try {
                     alive()
                     http.instanceFollowRedirects = false
                     http.useCaches = false
                     http.requestMethod = "POST"
-                    http.connectTimeout = remainingMs()
-                    http.readTimeout = remainingMs()
+                    val rem = remainingMs()
+                    http.connectTimeout = rem
+                    http.readTimeout = minOf(rem, idleTimeoutMs)
                     http.doOutput = true
                     http.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     http.setRequestProperty("Accept", request.acceptHeader)
-                    request.headers.forEach { (key, value) -> http.setRequestProperty(key, value) }
+                    request.headers.forEach { (key, value) ->
+                        val emptyBearer = key.equals("Authorization", ignoreCase = true) &&
+                            value.trim().equals("Bearer", ignoreCase = true)
+                        val emptyApiKeyHeader = key.equals("x-api-key", ignoreCase = true) && value.isBlank()
+                        if (!emptyBearer && !emptyApiKeyHeader) {
+                            http.setRequestProperty(key, value)
+                        }
+                    }
                     http.setFixedLengthStreamingMode(request.body.size)
                     http.outputStream.use { it.write(request.body) }
                     alive()
@@ -205,14 +220,23 @@ object LlmHttpTransport {
                             readBounded(input, request.maxResponseBytes, deadlineNs.get(), cancelled)
                         }
                     }
+                    keepAliveSucceeded = true
+                    connection.compareAndSet(http, null)
                     LlmHttpResult(status = status, body = payload, contentType = contentType)
                 } finally {
-                    http.disconnect()
                     connection.compareAndSet(http, null)
+                    if (!keepAliveSucceeded) {
+                        runCatching { http.disconnect() }
+                    }
                 }
             })
         } catch (rejected: RejectedExecutionException) {
-            throw LlmHttpException(LlmHttpException.Reason.NETWORK, cause = rejected)
+            throw LlmHttpException(
+                reason = LlmHttpException.Reason.NETWORK,
+                cause = rejected,
+                overloaded = true,
+                detailMessage = ERROR_OVERLOADED
+            )
         }
 
         try {

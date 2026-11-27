@@ -42,18 +42,27 @@ class LlmHttpTransportTest {
     @Test
     fun sharedPoolAllowsCoreThreadTimeoutAndIsBounded() {
         assertTrue(LlmHttpTransport.sharedWorkers.allowsCoreThreadTimeOut())
-        assertEquals(2, LlmHttpTransport.sharedWorkers.maximumPoolSize)
-        assertEquals(2, LlmHttpTransport.sharedWorkers.queue.remainingCapacity() + LlmHttpTransport.sharedWorkers.queue.size)
+        assertTrue(LlmHttpTransport.sharedWorkers.corePoolSize in 0..2)
+        assertEquals(6, LlmHttpTransport.sharedWorkers.maximumPoolSize)
+        assertEquals(16, LlmHttpTransport.sharedWorkers.queue.remainingCapacity() + LlmHttpTransport.sharedWorkers.queue.size)
     }
 
     @Test
     fun postSendsHeadersDisablesRedirectsAndRedactsToString() {
-        val conn = FakeConnection()
+        val streamClosed = AtomicBoolean()
+        val conn = object : FakeConnection() {
+            override fun getInputStream(): InputStream = object : ByteArrayInputStream("{\"ok\":true}".toByteArray(Charsets.UTF_8)) {
+                override fun close() {
+                    streamClosed.set(true)
+                    super.close()
+                }
+            }
+        }
         val request = LlmHttpRequest(
             url = "https://example.test/v1/chat/completions",
             body = "{\"ping\":1}".toByteArray(Charsets.UTF_8),
             headers = mapOf("Authorization" to "Bearer top-secret-key"),
-            timeoutMs = 2000
+            timeoutMs = 180_000
         )
         assertFalse(request.toString().contains("top-secret-key"))
         assertFalse(request.toString().contains("ping"))
@@ -65,9 +74,10 @@ class LlmHttpTransportTest {
         assertFalse(conn.useCaches)
         assertEquals("POST", conn.requestMethod)
         assertEquals("Bearer top-secret-key", conn.getRequestProperty("Authorization"))
-        assertTrue(conn.connectTimeout in 1..2000)
-        assertTrue(conn.readTimeout in 1..2000)
-        assertTrue(conn.disconnected.get())
+        assertTrue(conn.connectTimeout in 1..180_000)
+        assertTrue(conn.readTimeout in 1..60_000)
+        assertTrue(streamClosed.get())
+        assertFalse(conn.disconnected.get())
     }
 
     @Test
@@ -187,6 +197,44 @@ class LlmHttpTransportTest {
             fail("expected incomplete SSE error")
         } catch (e: LlmHttpException) {
             assertEquals(LlmHttpException.Reason.NETWORK, e.reason)
+        }
+    }
+
+    @Test
+    fun overloadRejectionMapsToExplicitOverloadErrorAndNon2xxDisconnects() {
+        val errorConn = FakeConnection(status = 500, payload = "{}")
+        val req = LlmHttpRequest("https://example.test/v1", byteArrayOf(1), timeoutMs = 1000)
+        try {
+            LlmHttpTransport.postWithConnection(req, { false }) { errorConn }
+            fail("expected HTTP_STATUS")
+        } catch (e: LlmHttpException) {
+            assertEquals(LlmHttpException.Reason.HTTP_STATUS, e.reason)
+            assertFalse(e.overloaded)
+        }
+        assertTrue(errorConn.disconnected.get())
+
+        val release = CountDownLatch(1)
+        val started = CountDownLatch(6)
+        val blockers = ArrayList<java.util.concurrent.Future<*>>(22)
+        try {
+            repeat(6 + 16) {
+                blockers += LlmHttpTransport.sharedWorkers.submit {
+                    started.countDown()
+                    release.await(5, TimeUnit.SECONDS)
+                }
+            }
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            try {
+                LlmHttpTransport.postWithConnection(req, { false }) { FakeConnection() }
+                fail("expected overload rejection")
+            } catch (e: LlmHttpException) {
+                assertTrue(e.overloaded)
+                assertEquals(LlmHttpTransport.ERROR_OVERLOADED, e.message)
+                assertEquals(LlmHttpException.Reason.NETWORK, e.reason)
+            }
+        } finally {
+            release.countDown()
+            blockers.forEach { it.cancel(true) }
         }
     }
 }

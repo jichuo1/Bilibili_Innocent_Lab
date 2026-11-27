@@ -29,6 +29,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -60,6 +61,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import io.github.jichuo1.meguviz.android.extensions.isUiInNightMode
+import io.github.jichuo1.meguviz.android.runtime.core.Registration
 import io.github.jichuo1.meguviz.drawable.android.RecipeDrawable
 import io.github.jichuo1.meguviz.drawable.model.DrawingRecipe
 import io.github.jichuo1.meguviz.drawable.model.FillSpec
@@ -150,6 +152,7 @@ class DiagnosticsActivity : SkinnedActivity(),
     private var scrollView: ScrollView? = null
     private var pendingRestoreScrollY = 0
     private lateinit var motionHost: SettingsBackupMotionHost
+    private var insetsRegistration: Registration? = null
     private var toolbarTitleView: TextView? = null
     private var launchOrigin: DiagnosticsTransitionOrigin? = null
     private var allowLaunchOriginForExit = true
@@ -272,8 +275,8 @@ class DiagnosticsActivity : SkinnedActivity(),
         )
         val root = buildRoot()
         setContentView(motionHost)
-        motionHost.installContentInsets()
         motionHost.replacePage(root, requireNotNull(toolbarTitleView))
+        installMorphContentInsets(root)
         bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
             if (!isFinishing && !isDestroyed) recreate()
         }
@@ -310,6 +313,8 @@ class DiagnosticsActivity : SkinnedActivity(),
     override fun onDestroy() {
         renderGeneration++
         runCatching { snapshotScheduler.close() }
+        insetsRegistration?.close()
+        insetsRegistration = null
         RemoteHookConfigStore.removeStatusListener(frameworkListener)
         activeDialog?.dismiss()
         activeDialog = null
@@ -318,6 +323,23 @@ class DiagnosticsActivity : SkinnedActivity(),
         if (::motionController.isInitialized) motionController.onDestroy()
         morphDelegate.onDestroy(null, ::finishPreparedLiquidStretch)
         super.onDestroy()
+    }
+
+    private fun installMorphContentInsets(pageRoot: View) {
+        insetsRegistration?.close()
+        insetsRegistration = observeModuleInsets(motionHost) { snapshot ->
+            val safe = snapshot.combined(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            motionHost.setPadding(0, 0, 0, 0)
+            val pageContainer = (pageRoot.parent as? View)?.takeIf { it.parent === motionHost }
+                ?: motionHost.getChildAt(2)
+            pageContainer?.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            if (Build.VERSION.SDK_INT >= 31) {
+                motionHost.rootWindowInsets?.let { motionHost.onApplyWindowInsets(it) }
+            }
+        }
+        ViewCompat.requestApplyInsets(motionHost)
     }
 
     private fun onMotionExpanded() {

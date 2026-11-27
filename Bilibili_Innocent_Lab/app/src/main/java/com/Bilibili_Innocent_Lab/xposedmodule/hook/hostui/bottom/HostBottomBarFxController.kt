@@ -107,13 +107,15 @@ internal object HostBottomBarFxController {
         val sanitizeRunnable = Runnable { HostThreadGuard.run("host.bottom.sanitize") {
             sanitizePosted = false
             if (!tabHost.isAttachedToWindow) return@Runnable
+            val currentDensity = tabHost.resources.displayMetrics.density
+            val currentInsetH = (HostNavigationMotion.INSET_DP * currentDensity).roundToInt()
             val chromeColors = theme.read()
             if (config.liquidGlass) {
                 // 角标强调色跟随当前换肤值：日夜或装扮切换后下一次清理即重新着色。
                 val badge = if (config.badgeAccent) HostDockBadgePolicy.style(chromeColors.accent) else null
                 stripAllHostArtifacts(tabHost, isRoot = true, badge = badge)
             }
-            alignTabContent(tabHost, container, density, insetH, config, chromeColors)
+            alignTabContent(tabHost, container, currentDensity, currentInsetH, config, chromeColors)
             // 冷启动时底栏还没有尺寸、找不到采样源；布局稳定后每次清理都顺手补一次定位（命中即 O(1)）。
             backdrop?.revalidate()
         } }
@@ -307,7 +309,7 @@ internal object HostBottomBarFxController {
             }
             if (changed) container.layoutParams = lp
         }
-        container.setPadding(insetH, 0, insetH, 0)
+        container.setPaddingRelative(insetH, 0, insetH, 0)
         container.clipToPadding = false
         if (tabHost.width > 0 && barHeight > 0) {
             if (container.top != 0 || container.bottom != barHeight) {
@@ -429,12 +431,22 @@ internal object HostBottomBarFxController {
         }
     }
 
-    private class DockFitMemo(val signature: Long, val tabCount: Int, val fit: HostDockFit)
+    private class DockFitMemo(
+        val signature: Long,
+        val tabCount: Int,
+        val density: Float,
+        val fontScale: Float,
+        val isRtl: Boolean,
+        val compact: Boolean,
+        val iconOnly: Boolean,
+        val liquidGlass: Boolean,
+        val fit: HostDockFit
+    )
     private val dockFits = WeakHashMap<ViewGroup, DockFitMemo>()
 
     /**
      * 底栏贴在父布局底部（gravity BOTTOM），父布局下沿即量白条与导航栏的基准。
-     * 逐帧入口：窗口 insets 与容器几何都没变时直接复用，不读取也不分配。
+     * 逐帧入口：窗口 insets、密度、字体缩放与容器方向都没变时直接复用，不读取也不分配。
      */
     private fun dockFit(
         tabHost: ViewGroup,
@@ -448,29 +460,56 @@ internal object HostBottomBarFxController {
             tabCount = 0
             for (i in 0 until container.childCount) if (container.getChildAt(i).visibility != View.GONE) tabCount++
         }
+        val liveDensity = tabHost.resources?.displayMetrics?.density?.takeIf { it > 0f } ?: density
+        val fontScale = tabHost.resources?.configuration?.fontScale ?: 1f
+        val isRtl = tabHost.layoutDirection == View.LAYOUT_DIRECTION_RTL
         val signature = parent?.let(HostDockClearanceReader::signature) ?: 0L
-        dockFits[tabHost]?.let { if (it.signature == signature && it.tabCount == tabCount) return it.fit }
+        dockFits[tabHost]?.let {
+            if (it.signature == signature && it.tabCount == tabCount &&
+                it.density == liveDensity && it.fontScale == fontScale && it.isRtl == isRtl &&
+                it.compact == config.compact && it.iconOnly == config.iconOnly &&
+                it.liquidGlass == config.liquidGlass
+            ) return it.fit
+        }
         val parentWidth = parent?.width?.takeIf { it > 0 } ?: tabHost.resources.displayMetrics.widthPixels
-        val availableWidth = parentWidth - (parent?.paddingLeft ?: 0) - (parent?.paddingRight ?: 0)
+        val hPadding = if (parent != null) {
+            if (parent.isPaddingRelative) parent.paddingStart + parent.paddingEnd
+            else parent.paddingLeft + parent.paddingRight
+        } else 0
+        val availableWidth = (parentWidth - hPadding).coerceAtLeast(0)
         val clearance = parent?.let { HostDockClearanceReader.read(it, HostDockFitPolicy::bottomDp) } ?: HostDockClearance()
-        return HostDockFitPolicy.fit(config, availableWidth / density, tabCount, clearance).also {
-            dockFits[tabHost] = DockFitMemo(signature, tabCount, it)
+        return HostDockFitPolicy.fit(config, availableWidth / liveDensity, tabCount, clearance, fontScale, isRtl).also {
+            dockFits[tabHost] = DockFitMemo(
+                signature, tabCount, liveDensity, fontScale, isRtl,
+                config.compact, config.iconOnly, config.liquidGlass, it
+            )
         }
     }
 
     private fun applyDockFit(tabHost: ViewGroup, fit: HostDockFit, density: Float) {
         val lp = tabHost.layoutParams ?: return
-        val height = (fit.heightDp * density).roundToInt()
-        val margin = (fit.marginDp * density).roundToInt()
-        val bottom = (fit.bottomDp * density).roundToInt()
+        val liveDensity = tabHost.resources?.displayMetrics?.density?.takeIf { it > 0f } ?: density
+        val height = (fit.heightDp * liveDensity).roundToInt()
+        val marginStart = (fit.marginStartDp * liveDensity).roundToInt()
+        val marginEnd = (fit.marginEndDp * liveDensity).roundToInt()
+        val isRtl = tabHost.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val marginLeft = if (isRtl) marginEnd else marginStart
+        val marginRight = if (isRtl) marginStart else marginEnd
+        val bottom = (fit.bottomDp * liveDensity).roundToInt()
         val margins = lp as? ViewGroup.MarginLayoutParams
         if (lp.height == height && (margins == null ||
-                margins.leftMargin == margin && margins.rightMargin == margin && margins.bottomMargin == bottom)) return
+                (margins.leftMargin == marginLeft && margins.rightMargin == marginRight &&
+                    margins.marginStart == marginStart && margins.marginEnd == marginEnd &&
+                    margins.bottomMargin == bottom))) return
         // 没有外边距的布局参数仍按原逻辑定高度，只是无法悬浮。
         lp.height = height
-        margins?.leftMargin = margin
-        margins?.rightMargin = margin
-        margins?.bottomMargin = bottom
+        if (margins != null) {
+            margins.leftMargin = marginLeft
+            margins.rightMargin = marginRight
+            margins.marginStart = marginStart
+            margins.marginEnd = marginEnd
+            margins.bottomMargin = bottom
+        }
         tabHost.layoutParams = lp
     }
 

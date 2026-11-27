@@ -45,7 +45,7 @@ internal object HostComposeTopTabCentering {
         val fade = if (edgeFade) HostComposeTopTabFade.resolve(loader, fadeError) else null
         fun dock(composer: Any): Dock? {
             val view = viewAccess.read(composer) ?: return null
-            return docks.getOrPut(view) { Dock(access, onError, view.resources.displayMetrics.density, fade) }
+            return docks.getOrPut(view) { Dock(WeakReference(view), access, onError, view.resources.displayMetrics.density, fade) }
         }
         for ((method, role) in listOf(top to Role.TABS, actions to Role.ACTIONS)) {
             val index = method.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
@@ -149,16 +149,88 @@ internal object HostComposeTopTabCentering {
     private data class Geometry(val dockWidth: Int, val tabLeft: Int, val tabWidth: Int, val safeLeft: Int, val safeRight: Int,
                                 val dockHeight: Int = 0, val tabTop: Int = 0)
 
-    private class Dock(val access: Access, val onError: (Throwable) -> Unit, private val density: Float,
-                       private val fade: HostComposeTopTabFade?) {
+    internal data class FadeLayoutParams(
+        val start: Float,
+        val end: Float,
+        val leading: Float,
+        val trailing: Float,
+        val fadePx: Float
+    )
+
+    internal fun resolveFadeLayout(
+        tabLeft: Int,
+        tabWidth: Int,
+        safeLeft: Int,
+        safeRight: Int,
+        scrollValue: Int,
+        scrollMax: Int,
+        density: Float,
+        fontScale: Float = 1f,
+        isRtl: Boolean = false
+    ): FadeLayoutParams {
+        val safeDensity = if (density.isFinite() && density > 0f) density else 1f
+        val fontFactor = if (fontScale.isFinite()) fontScale.coerceIn(1f, 1.35f) else 1f
+        val fadePx = HostTopTabFadePolicy.FADE_DP * safeDensity * fontFactor
+        val actionGapPx = HostTopTabFadePolicy.ACTION_GAP_DP * safeDensity * fontFactor
+        val leftGap = if (safeLeft > tabLeft) actionGapPx else 0f
+        val rightGap = if (safeRight < tabLeft + tabWidth) actionGapPx else 0f
+        val widthFloat = tabWidth.coerceAtLeast(0).toFloat()
+        val start = (safeLeft - tabLeft + leftGap).coerceIn(0f, widthFloat)
+        val end = (safeRight - tabLeft - rightGap).coerceIn(start, widthFloat)
+        val startStrength = HostTopTabFadePolicy.leadingStrength(scrollValue, fadePx)
+        val endStrength = HostTopTabFadePolicy.trailingStrength(scrollValue, scrollMax, fadePx)
+        val leading = if (isRtl) endStrength else startStrength
+        val trailing = if (isRtl) startStrength else endStrength
+        return FadeLayoutParams(start, end, leading, trailing, fadePx)
+    }
+
+    internal fun resolveCenteredOffset(
+        count: Int,
+        dockWidth: Int,
+        tabLeft: Int,
+        tabWidth: Int,
+        safeLeft: Int,
+        safeRight: Int,
+        viewportWidth: Int,
+        contentWidth: Int,
+        isRtl: Boolean = false
+    ): Int? {
+        val leftAnchored = safeRight < tabLeft + tabWidth || (!isRtl && safeLeft <= tabLeft)
+        if (leftAnchored) {
+            return HostTopTabCenteringPolicy.dockCenteredOffset(
+                count, dockWidth, tabLeft, safeLeft, safeRight, viewportWidth, contentWidth
+            )
+        }
+        val anchoredRight = tabLeft + tabWidth
+        val adjustedTabLeft = (anchoredRight - viewportWidth).coerceIn(0, dockWidth)
+        val adjustedSafeLeft = max(safeLeft, adjustedTabLeft)
+        return HostTopTabCenteringPolicy.dockCenteredOffset(
+            count, dockWidth, adjustedTabLeft, adjustedSafeLeft, safeRight, viewportWidth, contentWidth
+        )
+    }
+
+    private class Dock(
+        private val hostView: WeakReference<View>,
+        val access: Access,
+        val onError: (Throwable) -> Unit,
+        private val initialDensity: Float,
+        private val fade: HostComposeTopTabFade?
+    ) {
         private var tabs: WeakReference<Any>? = null
         private var scroll: WeakReference<Any>? = null
         private var capsuleFor: Geometry? = null
+        private var capsuleDensity = 0f
         private var capsuleRadius = 0f
         private var actions: WeakReference<Any>? = null
         private val signal = access.position.signal()
         private val width = HostTopTabWidthState(signal::invalidate)
         private var geometry: Geometry? = null
+        private fun liveDensity(): Float =
+            hostView.get()?.resources?.displayMetrics?.density?.takeIf { it > 0f } ?: initialDensity
+        private fun liveFontScale(): Float =
+            hostView.get()?.resources?.configuration?.fontScale ?: 1f
+        private fun isRtl(): Boolean =
+            hostView.get()?.layoutDirection == View.LAYOUT_DIRECTION_RTL
         fun measured(count: Int) = width.measured(count)
         fun modifier(original: Any): Any {
             // This read occurs inside the native Composable. A Tabs count change re-composes
@@ -192,21 +264,36 @@ internal object HostComposeTopTabCentering {
             val state = scroll?.get() ?: return null
             val max = fade.scrollMax(state)
             if (max <= 0) return null
+            val density = liveDensity()
             val value = fade.scrollValue(state)
-            val fadePx = HostTopTabFadePolicy.FADE_DP * density
-            // Fade ends at the action divider when a menu narrows the row, else at the row end.
-            val gap = if (g.safeRight < g.tabLeft + g.tabWidth) HostTopTabFadePolicy.ACTION_GAP_DP * density else 0f
-            val end = (g.safeRight - g.tabLeft - gap).coerceIn(0f, g.tabWidth.toFloat())
-            val start = (g.safeLeft - g.tabLeft).toFloat().coerceIn(0f, end)
+            val resolved = resolveFadeLayout(
+                tabLeft = g.tabLeft,
+                tabWidth = g.tabWidth,
+                safeLeft = g.safeLeft,
+                safeRight = g.safeRight,
+                scrollValue = value,
+                scrollMax = max,
+                density = density,
+                fontScale = liveFontScale(),
+                isRtl = isRtl()
+            )
             // The boundary follows the outer capsule's end cap: same radius as the drawn capsule.
-            if (capsuleFor !== g) {
+            if (capsuleFor != g || capsuleDensity != density) {
                 capsuleFor = g
+                capsuleDensity = density
                 capsuleRadius = HostChromeTopCapsule.fit(g.dockWidth.toFloat(), g.dockHeight.toFloat(), density)
                     ?.cornerRadius(g.dockHeight.toFloat()) ?: (g.dockHeight / 2f)
             }
-            return HostComposeTopTabFade.Edges(start, end, HostTopTabFadePolicy.leadingStrength(value, fadePx),
-                HostTopTabFadePolicy.trailingStrength(value, max, fadePx), fadePx,
-                g.dockHeight / 2f - g.tabTop, capsuleRadius, density)
+            return HostComposeTopTabFade.Edges(
+                resolved.start,
+                resolved.end,
+                resolved.leading,
+                resolved.trailing,
+                resolved.fadePx,
+                g.dockHeight / 2f - g.tabTop,
+                capsuleRadius,
+                density
+            )
         }
         fun center(count: Int, contentWidth: Int, viewportWidth: Int): Int? {
             signal.read()
@@ -215,8 +302,17 @@ internal object HostComposeTopTabCentering {
             val g = geometry ?: return null
             // The positioned callback trails the layout by a frame while the actions padding animates;
             // requiring the old viewport width here dropped the tabs back to the native start each frame.
-            return HostTopTabCenteringPolicy.dockCenteredOffset(count, g.dockWidth, g.tabLeft, g.safeLeft, g.safeRight,
-                viewportWidth, contentWidth)
+            return resolveCenteredOffset(
+                count = count,
+                dockWidth = g.dockWidth,
+                tabLeft = g.tabLeft,
+                tabWidth = g.tabWidth,
+                safeLeft = g.safeLeft,
+                safeRight = g.safeRight,
+                viewportWidth = viewportWidth,
+                contentWidth = contentWidth,
+                isRtl = isRtl()
+            )
         }
     }
 

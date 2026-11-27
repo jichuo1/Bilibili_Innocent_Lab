@@ -353,14 +353,29 @@ class AgentAccessibilityService : AccessibilityService() {
     private class ScreenshotOutcome(val image: String?, val error: String?)
 
     @RequiresApi(34)
-    private fun screenshot(task: String, result: CompletableFuture<JSONObject>, admit: () -> Unit) {
+    private fun screenshot(task: String, result: CompletableFuture<JSONObject>, admit: () -> Unit, attempt: Int = 0) {
         val state = observe(task).getJSONObject("data")
         val shot = snapshot ?: throw IllegalStateException("ui_snapshot_required")
         check(shot.tree.complete && !shot.tree.privateInput && !AgentUiPolicy.sensitiveControl(shot.tree.text)) { "screen_protected" }
         // API 34 的窗口截图不会把其它应用、键盘、通知或模块状态提示送入模型。
         admit()
         takeScreenshotOfWindow(shot.tree.window, mainExecutor, object : TakeScreenshotCallback {
-            override fun onFailure(errorCode: Int) { result.complete(error("screen_unavailable")) }
+            override fun onFailure(errorCode: Int) {
+                when (val decision = screenshotFailureDecision(errorCode, attempt)) {
+                    is ScreenshotFailureDecision.RetryAfter -> {
+                        main.postDelayed({
+                            if (result.isDone) return@postDelayed
+                            try {
+                                admit()
+                                screenshot(task, result, admit, attempt + 1)
+                            } catch (failure: Exception) {
+                                result.complete(error(reason(failure)))
+                            }
+                        }, decision.delayMs)
+                    }
+                    is ScreenshotFailureDecision.Fail -> result.complete(error(decision.reason))
+                }
+            }
             override fun onSuccess(screenshot: ScreenshotResult) {
                 // 回调在主线程：只做准入、窗口/任务身份核对，把像素处理整体交给有界 worker。
                 // HardwareBuffer 在交出前归本回调释放；交出后唯一所有者是 worker 任务。
@@ -397,6 +412,7 @@ class AgentAccessibilityService : AccessibilityService() {
     private fun encodeScreenshot(buffer: HardwareBuffer, colorSpace: ColorSpace, bounds: Rect, frame: Rect,
                                  result: CompletableFuture<JSONObject>): ScreenshotOutcome {
         var bitmap: Bitmap? = null
+        var cropped: Bitmap? = null
         var scaled: Bitmap? = null
         try {
             // 请求已超时或被取消：不再做重活。
@@ -409,10 +425,9 @@ class AgentAccessibilityService : AccessibilityService() {
             val source = bitmap ?: throw IllegalStateException("screen_unavailable")
             val region = AgentScreenshotGeometry.cropRegion(bounds.left, bounds.top, bounds.right, bounds.bottom,
                 frame.left, frame.top, frame.width(), frame.height(), source.width, source.height)
-            val cropped = Bitmap.createBitmap(source, region[0], region[1], region[2], region[3])
+            cropped = Bitmap.createBitmap(source, region[0], region[1], region[2], region[3])
             val size = AgentScreenshotGeometry.scaledSize(cropped.width, cropped.height)
             scaled = Bitmap.createScaledBitmap(cropped, size[0], size[1], true)
-            if (cropped !== scaled && cropped !== source) cropped.recycle()
             val bytes = ByteArrayOutputStream()
             for (quality in listOf(70, 50, 30)) {
                 bytes.reset(); scaled.compress(Bitmap.CompressFormat.JPEG, quality, bytes)
@@ -422,7 +437,12 @@ class AgentAccessibilityService : AccessibilityService() {
             return ScreenshotOutcome("data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP), null)
         } catch (_: OutOfMemoryError) { return ScreenshotOutcome(null, "screen_memory_unavailable") }
         catch (failure: Exception) { return ScreenshotOutcome(null, reason(failure)) }
-        finally { if (scaled !== bitmap) scaled?.recycle(); bitmap?.recycle(); buffer.close() }
+        finally {
+            if (scaled !== bitmap && scaled !== cropped) scaled?.recycle()
+            if (cropped !== bitmap) cropped?.recycle()
+            bitmap?.recycle()
+            buffer.close()
+        }
     }
 
     /** 主线程：核对任务仍有效、快照未被替换后才发布；过期结果丢弃。 */
@@ -444,20 +464,21 @@ class AgentAccessibilityService : AccessibilityService() {
         internal fun connected(): Boolean = instance != null
         internal fun foreground(): Foreground {
             val service = instance ?: return Foreground.OTHER
+            fun evaluate(): Foreground = runCatching {
+                if (service.hostWindow() != null) return@runCatching Foreground.HOST
+                val window = service.windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive && it.isFocused }
+                val root = window?.root ?: return@runCatching Foreground.OTHER
+                try { when (root.packageName?.toString()) {
+                    AgentWire.TARGET_PACKAGE -> Foreground.HOST
+                    service.packageName -> Foreground.MODULE
+                    else -> Foreground.OTHER
+                } } finally { release(root) }
+            }.getOrDefault(Foreground.OTHER)
+            if (Looper.myLooper() == service.main.looper) return evaluate()
             val result = CompletableFuture<Foreground>()
             service.main.post {
                 if (result.isDone) return@post
-                val value = runCatching {
-                    if (service.hostWindow() != null) return@runCatching Foreground.HOST
-                    val window = service.windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive && it.isFocused }
-                    val root = window?.root ?: return@runCatching Foreground.OTHER
-                    try { when (root.packageName?.toString()) {
-                        AgentWire.TARGET_PACKAGE -> Foreground.HOST
-                        service.packageName -> Foreground.MODULE
-                        else -> Foreground.OTHER
-                    } } finally { release(root) }
-                }.getOrDefault(Foreground.OTHER)
-                result.complete(value)
+                result.complete(evaluate())
             }
             return try { result.get(2, TimeUnit.SECONDS) } catch (_: Exception) { result.cancel(false); Foreground.OTHER }
         }
@@ -483,6 +504,27 @@ class AgentAccessibilityService : AccessibilityService() {
         private fun reason(failure: Exception): String = failure.message?.takeIf { it.matches(Regex("[a-z0-9_]{1,80}")) } ?: "ui_action_failed"
         @Suppress("DEPRECATION") private fun release(node: AccessibilityNodeInfo) { if (Build.VERSION.SDK_INT < 33) node.recycle() }
     }
+}
+
+internal const val SCREENSHOT_ERROR_INTERVAL_TIME_SHORT = 3
+internal const val SCREENSHOT_ERROR_SECURE_WINDOW = 6
+internal const val MAX_SCREENSHOT_INTERVAL_RETRIES = 2
+
+internal sealed class ScreenshotFailureDecision {
+    data class RetryAfter(val delayMs: Long) : ScreenshotFailureDecision()
+    data class Fail(val reason: String) : ScreenshotFailureDecision()
+}
+
+internal fun screenshotFailureDecision(errorCode: Int, attempt: Int): ScreenshotFailureDecision = when (errorCode) {
+    SCREENSHOT_ERROR_SECURE_WINDOW -> ScreenshotFailureDecision.Fail("screen_protected")
+    SCREENSHOT_ERROR_INTERVAL_TIME_SHORT -> {
+        if (attempt < MAX_SCREENSHOT_INTERVAL_RETRIES) {
+            ScreenshotFailureDecision.RetryAfter(350L * (1L shl attempt))
+        } else {
+            ScreenshotFailureDecision.Fail("screen_busy")
+        }
+    }
+    else -> ScreenshotFailureDecision.Fail("screen_unavailable")
 }
 
 internal data class UiSubtreeSummary(

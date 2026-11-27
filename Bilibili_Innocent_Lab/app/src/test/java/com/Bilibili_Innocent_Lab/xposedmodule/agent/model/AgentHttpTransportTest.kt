@@ -47,7 +47,7 @@ class AgentHttpTransportTest {
         assertTrue(connection.readTimeout in 1..2000)
         assertEquals("Bearer private-key", connection.getRequestProperty("Authorization"))
         assertEquals("body", connection.output.toString(Charsets.UTF_8.name()))
-        assertTrue(connection.disconnected.get())
+        assertFalse("2xx response closes stream cleanly to preserve HTTP Keep-Alive", connection.disconnected.get())
     }
 
     fun `redirect is refused before reading or forwarding any response`() {

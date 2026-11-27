@@ -163,4 +163,49 @@ class HostReceiptThrottleAndWireTest {
         assertEquals(2, rootRow.getInt("calls"))
         assertEquals(1, rootRow.getInt("failures"))
     }
+
+    @Test
+    fun `payload gzip compression triggers above 64KiB and round trips within 256KiB oneway budget`() {
+        val belowThreshold = "a".repeat(HostReceiptWire.GZIP_THRESHOLD_BYTES)
+        val encodedPlain = HostReceiptWire.encodePayload(belowThreshold)
+        assertTrue(encodedPlain is HostReceiptWire.EncodedPayload.Plain)
+        assertEquals(
+            belowThreshold,
+            HostReceiptWire.decodePayload(null, belowThreshold, null)
+        )
+        assertTrue(HostReceiptWire.withinOnewayBudget(encodedPlain))
+
+        // 超过 256 KiB UTF-16 预算（250 KiB JSON 文本在 Parcel UTF-16 占 500 KiB），GZIP 后可轻松放进 256 KiB 异步上限。
+        val largeSnapshot = "{\"entries\":[" + "\"flag_sample_enabled\":true,".repeat(8_000) + "]}"
+        assertTrue(largeSnapshot.toByteArray(Charsets.UTF_8).size > HostReceiptWire.GZIP_THRESHOLD_BYTES)
+        assertTrue(HostReceiptWire.estimateUtf16ParcelBytes(largeSnapshot) > HostReceiptWire.MAX_ONEWAY_PARCEL_BYTES)
+
+        val encodedGzip = HostReceiptWire.encodePayload(largeSnapshot)
+        assertTrue(encodedGzip is HostReceiptWire.EncodedPayload.Gzip)
+        assertTrue(HostReceiptWire.withinOnewayBudget(encodedGzip))
+
+        val restored = HostReceiptWire.decodePayload(
+            encoding = HostReceiptWire.ENCODING_GZIP,
+            rawPayload = "",
+            gzipPayload = (encodedGzip as HostReceiptWire.EncodedPayload.Gzip).bytes
+        )
+        assertEquals(largeSnapshot, restored)
+
+        // 拒绝超限解压（防 GZIP 炸弹）与未知编码。
+        assertNull(
+            HostReceiptWire.decodePayload(
+                encoding = HostReceiptWire.ENCODING_GZIP,
+                rawPayload = "",
+                gzipPayload = encodedGzip.bytes,
+                maxDecompressedBytes = 1024
+            )
+        )
+        assertNull(HostReceiptWire.decodePayload("br", "", byteArrayOf(1, 2)))
+        assertNull(HostReceiptWire.decodePayload(HostReceiptWire.ENCODING_GZIP, "", byteArrayOf(1, 2)))
+
+        // 不可压缩的随机高熵超大数据超过 256 KiB 单向预算时必须被预算门拦截。
+        val uncompressibleHuge = "x".repeat(HostReceiptWire.MAX_ONEWAY_PARCEL_BYTES)
+        val oversizedPlain = HostReceiptWire.EncodedPayload.Plain(uncompressibleHuge)
+        assertFalse(HostReceiptWire.withinOnewayBudget(oversizedPlain))
+    }
 }

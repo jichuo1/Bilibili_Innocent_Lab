@@ -6,6 +6,7 @@ import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Parcel
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallerIdentityVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostReceiptWire
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryContract
@@ -43,9 +44,13 @@ class CompatibilityReceiptService : Service() {
         }
     }
 
-    private fun trustedCaller(): Boolean = runCatching {
-        packageManager.getApplicationInfo(HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE, 0).uid == Binder.getCallingUid()
-    }.getOrDefault(false)
+    private fun trustedCaller(): Boolean =
+        HostCallerIdentityVerifier.verifyHostCaller(
+            context = this,
+            callerUid = Binder.getCallingUid(),
+            expectedPackage = HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE,
+            auditTag = "CompatibilityReceiptService"
+        ).allowed
 
     override fun onBind(intent: Intent?): IBinder? =
         endpoint.takeIf { CommunicationCompatibilityStore.hasConsent(this) }

@@ -93,16 +93,21 @@ internal object HostTopBarFxController {
             attachedRoots.add(root)
             return true
         }
+        fun liveDensity(): Float = topBarDock.resources.displayMetrics.density
+        fun liveBarHeight(d: Float = liveDensity()): Int = (BAR_HEIGHT_DP * d).roundToInt()
+        fun liveMarginV(d: Float = liveDensity()): Int = (MARGIN_V_DP * d).roundToInt()
+        fun liveTopPadding(d: Float = liveDensity()): Int = liveBarHeight(d) + liveMarginV(d) * 2
+
         val context = topBarDock.context
-        val density = topBarDock.resources.displayMetrics.density
+        val initialDensity = liveDensity()
         val theme = HostChromeTheme(context)
         val colors = theme.read()
         val isDark = colors.dark
         val palette = colors.palette()
 
-        val barHeight = (BAR_HEIGHT_DP * density).roundToInt()
-        val marginH = capsuleMarginPx(topBarDock, density)
-        val marginV = (MARGIN_V_DP * density).roundToInt()
+        val barHeight = liveBarHeight(initialDensity)
+        val marginH = capsuleMarginPx(topBarDock, initialDensity)
+        val marginV = liveMarginV(initialDensity)
 
         // 1. 悬浮胶囊几何形态与 Liquid Glass 外壳背景
         val backdrop = if (config.liquidGlass) HostSurfaceScope(topBarDock, colors, appearance = config.appearance) else null
@@ -147,8 +152,8 @@ internal object HostTopBarFxController {
             val glow = HostGlowView(
                 context = context,
                 highlightColor = palette.primary,
-                density = density,
-                maximumTravel = 4f * density
+                density = initialDensity,
+                maximumTravel = 4f * initialDensity
             )
             glowView = glow
             topBarDock.addView(
@@ -183,7 +188,7 @@ internal object HostTopBarFxController {
         }
 
         // 3. 将顶栏配置为浮动在视频流上方的 Overlay 图层，视频流撑满整页不被挤压
-        configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
+        configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, initialDensity)
 
         // A long strip fades at the action divider (or the capsule end) and keeps native scrolling.
         // Attached first where this creates the centering: dropping to a short strip should hand the
@@ -195,12 +200,12 @@ internal object HostTopBarFxController {
         tabCentering = NativeTopTabsCentering.attach(topBarDock, hierarchy.tabContainer)
 
         // 4. 周期性清理与对齐调度
-        val topPadding = barHeight + marginV * 2
+        val initialTopPadding = barHeight + marginV * 2
         val parent = topBarDock.parent as? ViewGroup
         val viewPager = (if (parent != null) findViewPager(parent) else null) ?: findViewPager(root)
         val pageActions = HostTopIslandPageActions(root, viewPager)
         val island = if (config.liquidGlass) {
-            HostTopIslandBinding.attach(topBarDock, hierarchy.tabContainer, density, glowView, backdrop,
+            HostTopIslandBinding.attach(topBarDock, hierarchy.tabContainer, initialDensity, glowView, backdrop,
                 palette.primary, pageActions)
         } else null
 
@@ -211,8 +216,8 @@ internal object HostTopBarFxController {
                 pager = viewPager,
                 pageActions = pageActions,
                 backdrop = backdrop,
-                basePadding = topPadding,
-                density = density,
+                basePadding = initialTopPadding,
+                density = initialDensity,
                 statusBarInset = resolveStatusBarInset(root),
                 palette = palette,
                 isDark = isDark
@@ -268,9 +273,8 @@ internal object HostTopBarFxController {
         if (viewPager != null) {
             setupViewPagerPageChangeListener(
                 viewPager,
-                density,
-                { fusion?.scrollPadding ?: topPadding },
-                { fusion?.spinnerTravelBase ?: topPadding }
+                { fusion?.scrollPadding ?: liveTopPadding() },
+                { fusion?.spinnerTravelBase ?: liveTopPadding() }
             )
         }
 
@@ -278,18 +282,31 @@ internal object HostTopBarFxController {
         val sanitizeRunnable = Runnable { HostThreadGuard.run("host.top.sanitize") {
             sanitizePosted = false
             if (!topBarDock.isAttachedToWindow) return@Runnable
-            // 旋转、分屏或折叠屏展开后重新取边距：超宽窗口限宽，刘海与侧边导航栏避让。
-            val currentMarginH = capsuleMarginPx(topBarDock, density)
+            // 旋转、分屏、折叠屏展开或密度变化后实时读取 displayMetrics.density 并刷新边距与高度。
+            val currentDensity = liveDensity()
+            val currentBarHeight = liveBarHeight(currentDensity)
+            val currentMarginV = liveMarginV(currentDensity)
+            val currentTopPadding = currentBarHeight + currentMarginV * 2
+            val currentMarginH = capsuleMarginPx(topBarDock, currentDensity)
             (topBarDock.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
-                if (lp.leftMargin != currentMarginH || lp.rightMargin != currentMarginH) {
+                if (lp.height != currentBarHeight ||
+                    lp.leftMargin != currentMarginH || lp.rightMargin != currentMarginH ||
+                    lp.marginStart != currentMarginH || lp.marginEnd != currentMarginH ||
+                    lp.topMargin != currentMarginV || lp.bottomMargin != currentMarginV
+                ) {
+                    lp.height = currentBarHeight
                     lp.leftMargin = currentMarginH
                     lp.rightMargin = currentMarginH
+                    lp.marginStart = currentMarginH
+                    lp.marginEnd = currentMarginH
+                    lp.topMargin = currentMarginV
+                    lp.bottomMargin = currentMarginV
                     topBarDock.layoutParams = lp
                 }
             }
-            configureOverlayConstraints(topBarDock, barHeight, currentMarginH, marginV, density)
+            configureOverlayConstraints(topBarDock, currentBarHeight, currentMarginH, currentMarginV, currentDensity)
             stripTopBarArtifacts(topBarDock, isRoot = true)
-            alignTopBarContent(topBarDock, density)
+            alignTopBarContent(topBarDock, currentDensity)
             tabFade?.sync()
             tabCentering?.sync()
             refreshTheme()
@@ -299,9 +316,9 @@ internal object HostTopBarFxController {
             if (vp != null) {
                 applyScrollPadding(
                     vp,
-                    fusion?.scrollPadding ?: topPadding,
-                    density,
-                    fusion?.spinnerTravelBase ?: topPadding
+                    fusion?.scrollPadding ?: currentTopPadding,
+                    currentDensity,
+                    fusion?.spinnerTravelBase ?: currentTopPadding
                 )
             }
             backdrop?.revalidate(vp)
@@ -317,13 +334,16 @@ internal object HostTopBarFxController {
 
         var lastWidth = 0
         var lastHeight = 0
+        var lastDensity = initialDensity
         topBarDock.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
             HostThreadGuard.run("host.top.layout") {
                 val w = right - left
                 val h = bottom - top
-                if (w > 0 && h > 0 && (w != lastWidth || h != lastHeight)) {
+                val currentDensity = liveDensity()
+                if (w > 0 && h > 0 && (w != lastWidth || h != lastHeight || currentDensity != lastDensity)) {
                     lastWidth = w
                     lastHeight = h
+                    lastDensity = currentDensity
                     requestSanitization()
                 }
             }
@@ -513,11 +533,15 @@ internal object HostTopBarFxController {
                 tabsLp.height != barHeight ||
                 tabsLp.leftMargin != marginH ||
                 tabsLp.rightMargin != marginH ||
+                tabsLp.marginStart != marginH ||
+                tabsLp.marginEnd != marginH ||
                 tabsLp.topMargin != marginV
             if (needUpdate) {
                 tabsLp.height = barHeight
                 tabsLp.leftMargin = marginH
                 tabsLp.rightMargin = marginH
+                tabsLp.marginStart = marginH
+                tabsLp.marginEnd = marginH
                 tabsLp.topMargin = marginV
                 setConstraintInt(tabsLp, "topToTop", PARENT_ID)
                 setConstraintInt(tabsLp, "topToBottom", UNSET)
@@ -575,28 +599,57 @@ internal object HostTopBarFxController {
     }
 
     /**
-     * 状态栏高度（像素）。优先用窗口真实 inset（挖孔/异形屏才准），拿不到时退回系统资源。
-     * 两者都没有时按 24dp 兜底，绝不返回 0——融合带的几何全靠它，返回 0 会让带子退化成一条无意义的窄条。
+     * 状态栏高度（像素）。只要窗口 `insets != null` 即完全信任 `maxOf(statusBars.top, displayCutout.top)`
+     * （允许分屏下屏或自由小窗下合法为 0，不再误回退 `status_bar_height` 导致假顶栏留白）；
+     * 只有 `insets == null` 时才保守回退系统尺寸或 24dp。
      */
     private fun resolveStatusBarInset(root: View): Int {
         val insets = ViewCompat.getRootWindowInsets(root)
         if (insets != null) {
-            // API 30 以下 Compat 的 statusBars 在全屏标志下读 0，这里要系统窗口 inset 的原值。
-            val top = if (AndroidVersion.isAtLeast(AndroidVersion.R)) {
-                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-            } else {
-                @Suppress("DEPRECATION")
-                insets.systemWindowInsetTop
-            }
-            if (top > 0) return top
+            val statusTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            val cutoutTop = insets.displayCutout?.safeInsetTop ?: 0
+            @Suppress("DEPRECATION")
+            val legacyTop = insets.systemWindowInsetTop
+            return selectStatusBarInset(
+                hasInsets = true,
+                statusBarTop = statusTop,
+                displayCutoutTop = cutoutTop,
+                legacySystemWindowInsetTop = legacyTop,
+                resourceStatusBarHeight = 0,
+                density = root.resources.displayMetrics.density
+            )
         }
         val resources = root.resources
         val id = resources.getIdentifier("status_bar_height", "dimen", "android")
-        if (id != 0) {
-            val height = resources.getDimensionPixelSize(id)
-            if (height > 0) return height
+        val resourceHeight = if (id != 0) resources.getDimensionPixelSize(id) else 0
+        return selectStatusBarInset(
+            hasInsets = false,
+            statusBarTop = 0,
+            displayCutoutTop = 0,
+            legacySystemWindowInsetTop = 0,
+            resourceStatusBarHeight = resourceHeight,
+            density = resources.displayMetrics.density
+        )
+    }
+
+    internal fun selectStatusBarInset(
+        hasInsets: Boolean,
+        statusBarTop: Int,
+        displayCutoutTop: Int,
+        legacySystemWindowInsetTop: Int = 0,
+        resourceStatusBarHeight: Int = 0,
+        density: Float = 1f,
+        isAtLeastApi30: Boolean = AndroidVersion.isAtLeast(AndroidVersion.R)
+    ): Int {
+        if (hasInsets) {
+            return if (isAtLeastApi30) {
+                maxOf(statusBarTop, displayCutoutTop).coerceAtLeast(0)
+            } else {
+                maxOf(statusBarTop, displayCutoutTop, legacySystemWindowInsetTop).coerceAtLeast(0)
+            }
         }
-        return (24f * resources.displayMetrics.density).roundToInt()
+        if (resourceStatusBarHeight > 0) return resourceStatusBarHeight
+        return (24f * density).roundToInt()
     }
 
     /**
@@ -664,7 +717,6 @@ internal object HostTopBarFxController {
      */
     private fun setupViewPagerPageChangeListener(
         viewPager: ViewGroup,
-        density: Float,
         scrollPadding: () -> Int,
         spinnerTravelBase: () -> Int
     ) {
@@ -675,7 +727,12 @@ internal object HostTopBarFxController {
                 ?: return@runCatching
             val handler = createPageChangeProxyHandler {
                 viewPager.post(HostThreadGuard.runnable("host.top.page_padding") {
-                    applyScrollPadding(viewPager, scrollPadding(), density, spinnerTravelBase())
+                    applyScrollPadding(
+                        viewPager,
+                        scrollPadding(),
+                        viewPager.resources.displayMetrics.density,
+                        spinnerTravelBase()
+                    )
                 })
             }
             val proxy = java.lang.reflect.Proxy.newProxyInstance(

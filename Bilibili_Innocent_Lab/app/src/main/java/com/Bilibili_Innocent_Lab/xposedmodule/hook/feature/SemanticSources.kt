@@ -23,13 +23,14 @@ internal data class SemanticSource(
     companion object {
         const val MAX_SOURCES = 8
 
-        /** Key 为空、后端配置不全（对话模型未填模型名）或地址非法时返回 null：这个来源不启用。 */
+        /** 远程地址 Key 为空、后端配置不全（对话模型未填模型名）或地址非法时返回 null；本地回环地址允许空 Key。 */
         fun from(index: Int, apiKey: String, endpoint: String, provider: String, model: String): SemanticSource? {
             if (index !in 1..MAX_SOURCES) return null
-            val key = apiKey.trim().takeIf { it.isNotEmpty() && it.length <= SemanticJudge.MAX_API_KEY_LENGTH }
-                ?: return null
             val backend = SemanticBackend.of(provider, model) ?: return null
             val resolved = backend.resolveEndpoint(endpoint) ?: return null
+            val key = apiKey.trim()
+            if (key.length > SemanticJudge.MAX_API_KEY_LENGTH || key.any { it.isISOControl() }) return null
+            if (key.isEmpty() && !SemanticBackend.isLoopbackEndpoint(resolved)) return null
             return SemanticSource(index, key, resolved, backend)
         }
     }

@@ -1,8 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.theme
 
+import android.app.UiModeManager
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.res.Configuration
+import android.os.Build
+import androidx.annotation.DoNotInline
+import androidx.annotation.RequiresApi
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorSpecStore
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
@@ -54,28 +58,31 @@ class MonetColors(
                 MonetSeedCache.remember(context, live)
             }
             val seed = MonetSeedPolicy.resolve(wallpaper, systemAccent, cached, FALLBACK_SEED)
-            return fromSeed(seed, isDark, MaterialColorSpecStore.read(context))
+            val contrast = readSystemContrast(context)
+            return fromSeed(seed, isDark, MaterialColorSpecStore.read(context), contrast)
         }
 
         /** 从指定种子色生成 Monet 调色板 */
         fun fromSeed(seedArgb: Int, isDark: Boolean): MonetColors =
-            fromSeed(seedArgb, isDark, MaterialColorSpec.DEFAULT)
+            fromSeed(seedArgb, isDark, MaterialColorSpec.DEFAULT, 0.0)
 
         /** 按用户选择的 Material 规范从指定种子色生成调色板。 */
         internal fun fromSeed(
             seedArgb: Int,
             isDark: Boolean,
-            colorSpec: MaterialColorSpec
+            colorSpec: MaterialColorSpec,
+            contrastLevel: Double = 0.0
         ): MonetColors {
             val hct = Hct.fromInt(seedArgb)
             val specVersion = when (colorSpec) {
                 MaterialColorSpec.SPEC_2021 -> ColorSpec.SpecVersion.SPEC_2021
                 MaterialColorSpec.SPEC_2025 -> ColorSpec.SpecVersion.SPEC_2025
             }
+            val safeContrast = if (contrastLevel.isFinite()) contrastLevel.coerceIn(-1.0, 1.0) else 0.0
             val scheme = SchemeTonalSpot(
                 hct,
                 isDark,
-                0.0,
+                safeContrast,
                 specVersion,
                 DynamicScheme.Platform.PHONE
             )
@@ -89,6 +96,28 @@ class MonetColors(
                 background = dynamicColors.background().getArgb(scheme),
                 surfaceVariant = dynamicColors.surfaceVariant().getArgb(scheme)
             )
+        }
+
+        internal fun sanitizeContrastLevel(rawContrast: Float): Double =
+            if (rawContrast.isFinite()) rawContrast.toDouble().coerceIn(-1.0, 1.0) else 0.0
+
+        internal fun canQueryWallpaperColors(
+            sdkInt: Int = AndroidVersion.code,
+            wallpaperSupported: Boolean = true
+        ): Boolean = sdkInt >= Build.VERSION_CODES.O_MR1 && wallpaperSupported
+
+        private fun readSystemContrast(context: Context): Double {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return 0.0
+            return ContrastApi34.readContrast(context)
+        }
+
+        @RequiresApi(34)
+        private object ContrastApi34 {
+            @DoNotInline
+            fun readContrast(context: Context): Double = runCatching {
+                val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+                uiModeManager?.contrast?.let(::sanitizeContrastLevel) ?: 0.0
+            }.getOrDefault(0.0)
         }
 
         /**
@@ -105,11 +134,12 @@ class MonetColors(
             }.getOrNull()
         }
 
-        /** Android 12+ 从系统壁纸提取种子色，低版本返回 null */
+        /** Android 8.1+ (API 27+) 在壁纸能力可用且权限允许时提取壁纸主色。 */
         private fun extractSeedColor(context: Context): Int? {
-            if (AndroidVersion.isLessThan(AndroidVersion.S)) return null
+            if (!canQueryWallpaperColors()) return null
             return try {
                 val manager = WallpaperManager.getInstance(context)
+                if (!manager.isWallpaperSupported) return null
                 val colors = manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
                 colors?.primaryColor?.toArgb()
             } catch (t: Throwable) {

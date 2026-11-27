@@ -57,6 +57,8 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
     private var dark: Boolean? = null
     private var wallpaper: Drawable? = null
     private var samplingState = Long.MIN_VALUE
+    private val statusBarState = StatusBarAppearanceState()
+    private var statusBarDecor: WeakReference<View>? = null
     private val source = object : LumenVersionedContentSource {
         override val coordinateView: View get() = requireNotNull(this@HostOpusChrome.root.get())
         override val excludesSurfaces: Boolean = true
@@ -132,23 +134,76 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
         }
         // 图文封面在状态栏以下，系统文字应按壁纸深浅显示，不跟随封面按钮的白色。
         val decor = root.rootView
+        applyStatusBarAppearance(decor, lightStatusBars = !night)
+    }
+
+    private fun applyStatusBarAppearance(decor: View, lightStatusBars: Boolean) {
+        statusBarDecor = WeakReference(decor)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = decor.windowInsetsController ?: return
             val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-            val appearance = if (night) 0 else mask
-            decor.windowInsetsController?.let {
-                if (it.systemBarsAppearance and mask != appearance) it.setSystemBarsAppearance(appearance, mask)
+            val currentLight = (controller.systemBarsAppearance and mask) != 0
+            statusBarState.captureOriginalIfUnset(currentLight)
+            val targetAppearance = if (lightStatusBars) mask else 0
+            if ((controller.systemBarsAppearance and mask) != targetAppearance) {
+                controller.setSystemBarsAppearance(targetAppearance, mask)
+            }
+            statusBarState.markApplied(lightStatusBars)
+        } else {
+            @Suppress("DEPRECATION")
+            val mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            @Suppress("DEPRECATION")
+            val current = decor.systemUiVisibility
+            val currentLight = (current and mask) != 0
+            statusBarState.captureOriginalIfUnset(currentLight)
+            @Suppress("DEPRECATION")
+            val flags = if (lightStatusBars) current or mask else current and mask.inv()
+            @Suppress("DEPRECATION")
+            if (current != flags) decor.systemUiVisibility = flags
+            statusBarState.markApplied(lightStatusBars)
+        }
+    }
+
+    private fun restoreStatusBarAppearance() {
+        val decor = statusBarDecor?.get() ?: root.get()?.rootView
+        statusBarDecor = null
+        if (decor == null) {
+            statusBarState.clear()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = decor.windowInsetsController
+            if (controller != null) {
+                val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                val currentLight = (controller.systemBarsAppearance and mask) != 0
+                val restoreLight = statusBarState.consumeRestoreTarget(currentLight)
+                if (restoreLight != null) {
+                    val targetAppearance = if (restoreLight) mask else 0
+                    if ((controller.systemBarsAppearance and mask) != targetAppearance) {
+                        controller.setSystemBarsAppearance(targetAppearance, mask)
+                    }
+                }
+            } else {
+                statusBarState.clear()
             }
         } else {
             @Suppress("DEPRECATION")
             val mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
             @Suppress("DEPRECATION")
-            val flags = if (night) decor.systemUiVisibility and mask.inv() else decor.systemUiVisibility or mask
-            @Suppress("DEPRECATION")
-            if (decor.systemUiVisibility != flags) decor.systemUiVisibility = flags
+            val current = decor.systemUiVisibility
+            val currentLight = (current and mask) != 0
+            val restoreLight = statusBarState.consumeRestoreTarget(currentLight)
+            if (restoreLight != null) {
+                @Suppress("DEPRECATION")
+                val flags = if (restoreLight) current or mask else current and mask.inv()
+                @Suppress("DEPRECATION")
+                if (current != flags) decor.systemUiVisibility = flags
+            }
         }
     }
 
     override fun close() {
+        restoreStatusBarAppearance()
         session?.close(); session = null
         for (view in bindings.keys) owned.remove(view)
         bindings.clear()
@@ -159,6 +214,44 @@ internal class HostOpusChrome private constructor(root: ViewGroup, guide: View, 
             viewport.removeView(guide)
             root.removeView(viewport)
             root.addView(guide, originalIndex.coerceAtMost(root.childCount), originalParams)
+        }
+    }
+
+    internal class StatusBarAppearanceState {
+        private var capturedOriginal = false
+        private var originalLight = false
+        private var lastAppliedLight: Boolean? = null
+
+        fun captureOriginalIfUnset(currentLight: Boolean) {
+            if (!capturedOriginal) {
+                capturedOriginal = true
+                originalLight = currentLight
+            }
+        }
+
+        fun markApplied(light: Boolean) {
+            lastAppliedLight = light
+        }
+
+        fun consumeRestoreTarget(currentLight: Boolean): Boolean? {
+            if (!capturedOriginal) {
+                lastAppliedLight = null
+                return null
+            }
+            val applied = lastAppliedLight
+            val target = if (applied != null && currentLight == applied && originalLight != applied) {
+                originalLight
+            } else {
+                null
+            }
+            clear()
+            return target
+        }
+
+        fun clear() {
+            capturedOriginal = false
+            originalLight = false
+            lastAppliedLight = null
         }
     }
 

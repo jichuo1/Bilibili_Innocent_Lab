@@ -27,6 +27,9 @@ object PredictiveBack {
     val isSystemEnforced: Boolean
         get() = AndroidVersion.isAtLeast(AndroidVersion.BAKLAVA)
 
+    internal fun shouldApplyRuntimeToggle(sdkInt: Int = AndroidVersion.code): Boolean =
+        sdkInt >= AndroidVersion.U && sdkInt < AndroidVersion.BAKLAVA
+
     /** Window 隐藏方法反射缓存（不存在/被拦截时为 null，resolved 标记防止重复探测） */
     @Volatile
     private var windowMethod: java.lang.reflect.Method? = null
@@ -42,7 +45,7 @@ object PredictiveBack {
     private var appInfoMethodResolved = false
 
     fun apply(window: android.view.Window?, enabled: Boolean) {
-        if (AndroidVersion.isLessThan(AndroidVersion.U) || window == null) return
+        if (isSystemEnforced || AndroidVersion.isLessThan(AndroidVersion.U) || window == null) return
         // 通道 1：当前 window 即时生效
         val wm = windowMethod ?: if (!windowMethodResolved) {
             KavaMemberLookup.methodOrNull(

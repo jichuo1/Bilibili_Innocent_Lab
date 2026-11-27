@@ -43,14 +43,20 @@ internal object HostSurfaceStyle {
     fun supportsRenderTargetBackdrop(): Boolean =
         Build.VERSION.SDK_INT >= 37 && RenderTargetBackdropGateApi36.isSdk37Point2OrLater()
 
+    internal fun supportsRenderTargetBackdrop(sdkInt: Int, sdkIntFull: Int): Boolean =
+        sdkInt >= 37 && sdkIntFull >= MIN_RENDER_TARGET_BACKDROP_SDK_FULL
+
     fun isRenderTargetBackdropEligible(options: LumenSurfaceOptions, hasViewContentSource: Boolean): Boolean =
         hasViewContentSource &&
             options.enabled &&
             options.material == LumenSurfaceMaterial.FROSTED &&
             options.role == SurfaceRole.FLOATING &&
+            options.clipBackground &&
             options.opacity >= 1f &&
             options.backdropOpacity >= 1f &&
             options.sampling.enabled &&
+            options.sampling.backend != LumenSurfaceBackend.SOFTWARE &&
+            options.sampling.backend != LumenSurfaceBackend.STATIC &&
             !options.sampling.refractionEnabled &&
             !options.sampling.fadeEnabled
 
@@ -58,12 +64,24 @@ internal object HostSurfaceStyle {
         binding: LumenSurfaceBinding?,
         options: LumenSurfaceOptions,
         hasViewContentSource: Boolean
+    ) = syncRenderTargetBackdrop(binding, options, hasViewContentSource)
+
+    fun syncRenderTargetBackdrop(
+        binding: LumenSurfaceBinding?,
+        options: LumenSurfaceOptions,
+        hasViewContentSource: Boolean
     ) {
         if (binding == null) return
         if (!supportsRenderTargetBackdrop()) return
-        if (!isRenderTargetBackdropEligible(options, hasViewContentSource)) return
         runCatching {
-            if (binding.isBound) binding.setRenderTargetBackdropEnabled(true)
+            if (!binding.isBound) return
+            val eligible = isRenderTargetBackdropEligible(options, hasViewContentSource)
+            val requested = binding.renderTargetBackdropState()?.requested ?: false
+            if (eligible) {
+                if (!requested) binding.setRenderTargetBackdropEnabled(true)
+            } else if (requested) {
+                binding.setRenderTargetBackdropEnabled(false)
+            }
         }
     }
 
@@ -71,7 +89,7 @@ internal object HostSurfaceStyle {
     private object RenderTargetBackdropGateApi36 {
         @DoNotInline
         fun isSdk37Point2OrLater(): Boolean =
-            Build.VERSION.SDK_INT >= 37 && Build.VERSION.SDK_INT_FULL >= MIN_RENDER_TARGET_BACKDROP_SDK_FULL
+            supportsRenderTargetBackdrop(Build.VERSION.SDK_INT, Build.VERSION.SDK_INT_FULL)
     }
 
     fun selection(dark: Boolean, radiusDp: Float = 28f) = LumenSurfaceOptions(

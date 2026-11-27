@@ -47,9 +47,12 @@ internal object HostAdmissionEndpoint {
         // 身份先于任何应用提供的 Bundle 解码；不信任载荷里的包名/UID。
         // 模块 Context 的 PackageManager 可能因包可见性看不到宿主，此时 status
         // 为 identity_rejected：调用方必须把它当成这一路不可用，而不是条款拒绝。
-        val trusted = callerAlreadyBound || runCatching {
-            context.packageManager.getApplicationInfo(HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE, 0).uid == uid
-        }.getOrDefault(false)
+        val trusted = callerAlreadyBound || HostCallerIdentityVerifier.verifyHostCaller(
+            context = context,
+            callerUid = uid,
+            expectedPackage = HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE,
+            auditTag = "HostAdmissionEndpoint"
+        ).allowed
         if (!trusted || pid <= 0 || uid <= 0) return status("identity_rejected")
         val result = runCatching {
             if (extras == null || extras.getInt("version") != HostAdmissionContract.VERSION) return@runCatching status("protocol_rejected")

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.IntentCompat
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallerIdentityVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsQueryContract
 import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryVersionTrigger
 import io.github.jichuo1.meguviz.android.extensions.AndroidVersion
@@ -21,8 +22,18 @@ class TelemetryHostReadyReceiver : BroadcastReceiver() {
             val proof = IntentCompat.getParcelableExtra(intent, "proof", PendingIntent::class.java)
                 ?: return@runCatching false
             val host = HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE
-            val uid = context.packageManager.getApplicationInfo(host, 0).uid
-            proof.creatorPackage == host && proof.creatorUid == uid &&
+            val primaryUid = HostCallerIdentityVerifier.resolvePrimaryHostUid(context, host)
+            val uid = proof.creatorUid
+            val identity = HostCallerIdentityVerifier.verifyHostUid(
+                callerUid = uid,
+                primaryHostUid = primaryUid,
+                callerPackages = HostCallerIdentityVerifier.resolvePackagesForUid(context, uid),
+                expectedPackage = host,
+                auditTag = "TelemetryHostReadyReceiver"
+            )
+            identity.allowed &&
+                proof.creatorPackage == host &&
+                proof.creatorUid == uid &&
                 (!AndroidVersion.isAtLeast(AndroidVersion.U) || sentFromUid == uid)
         }.getOrDefault(false)
         if (!trusted || !inFlight.compareAndSet(false, true)) return

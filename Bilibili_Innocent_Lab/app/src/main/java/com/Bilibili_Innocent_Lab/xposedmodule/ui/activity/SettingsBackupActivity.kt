@@ -29,6 +29,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.ViewModelProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
@@ -55,6 +56,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentSto
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import io.github.jichuo1.meguviz.android.runtime.core.Registration
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.DateFormat
@@ -91,6 +93,7 @@ class SettingsBackupActivity : SkinnedActivity(),
     private var pickerOpen = false
     private var importApplied = false
     private lateinit var motionHost: SettingsBackupMotionHost
+    private var insetsRegistration: Registration? = null
     private var toolbarTitleView: TextView? = null
     private var currentPageTitle = ""
     private var launchOrigin: SettingsBackupTransitionOrigin? = null
@@ -166,7 +169,7 @@ class SettingsBackupActivity : SkinnedActivity(),
             hasLaunchOrigin = { launchOrigin != null || SettingsBackupTransitionOriginRegistry.snapshot() != null }
         )
         setContentView(motionHost)
-        motionHost.installContentInsets()
+        installMorphContentInsets()
         bindPreparedSkinRoot(motionHost.liquidBackdropRoot()) {
             if (!isFinishing && !isDestroyed) recreate()
         }
@@ -195,10 +198,30 @@ class SettingsBackupActivity : SkinnedActivity(),
 
     override fun onDestroy() {
         releaseEntrySections()
+        insetsRegistration?.close()
+        insetsRegistration = null
         pageScrollView = null
         if (::motionController.isInitialized) motionController.onDestroy()
         morphDelegate.onDestroy(null, ::finishPreparedLiquidStretch)
         super.onDestroy()
+    }
+
+    private fun installMorphContentInsets() {
+        insetsRegistration?.close()
+        insetsRegistration = observeModuleInsets(motionHost) { snapshot ->
+            val safe = snapshot.combined(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            motionHost.setPadding(0, 0, 0, 0)
+            val pageContainer = pageScrollView?.let { scroll ->
+                generateSequence(scroll as View) { it.parent as? View }.firstOrNull { it.parent === motionHost }
+            } ?: motionHost.getChildAt(2)
+            pageContainer?.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            if (Build.VERSION.SDK_INT >= 31) {
+                motionHost.rootWindowInsets?.let { motionHost.onApplyWindowInsets(it) }
+            }
+        }
+        ViewCompat.requestApplyInsets(motionHost)
     }
 
     private fun handleBack() = motionController.commitBack()

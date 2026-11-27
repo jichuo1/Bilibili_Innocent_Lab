@@ -1150,7 +1150,7 @@ private class AgentHttpSchedulingCases {
                 connected.incrementAndGet()
                 connection
             })
-            assertTrue(connection.disconnected.get())
+            assertFalse("2xx response closes stream cleanly to preserve HTTP Keep-Alive", connection.disconnected.get())
         }
         assertEquals(100, connected.get())
     }
@@ -1158,14 +1158,17 @@ private class AgentHttpSchedulingCases {
     fun `two active and two queued stay bounded while cancelled and expired queued requests never connect`() {
         val pool = workers()
         waitUntil("previous work drained") { pool.activeCount == 0 && pool.queue.isEmpty() }
-        val entered = CountDownLatch(2)
+        val coreCount = pool.corePoolSize
+        val queueCapacity = pool.queue.remainingCapacity()
+        val extraCount = (pool.maximumPoolSize - coreCount).coerceAtLeast(0)
+        val entered = CountDownLatch(pool.maximumPoolSize)
         val release = CountDownLatch(1)
         val connected = AtomicInteger()
         val queuedCancel = AtomicBoolean()
-        val activeErrors = arrayOf(AtomicReference<Throwable?>(), AtomicReference<Throwable?>())
-        val queuedErrors = arrayOf(AtomicReference<Throwable?>(), AtomicReference<Throwable?>())
-        val activeDone = CountDownLatch(2)
-        val queuedDone = CountDownLatch(2)
+        val activeErrors = Array(pool.maximumPoolSize) { AtomicReference<Throwable?>() }
+        val queuedErrors = Array(queueCapacity) { AtomicReference<Throwable?>() }
+        val activeDone = CountDownLatch(pool.maximumPoolSize)
+        val queuedDone = CountDownLatch(queueCapacity)
         val threads = mutableListOf<Thread>()
         fun caller(name: String, done: CountDownLatch, errors: AtomicReference<Throwable?>,
                    cancelled: () -> Boolean, connect: (URL) -> HttpURLConnection): Thread =
@@ -1176,28 +1179,39 @@ private class AgentHttpSchedulingCases {
             }, name).apply { isDaemon = true; threads += this; start() }
 
         try {
-            repeat(2) { index ->
-                caller("http-active-$index", activeDone, activeErrors[index], { false }) {
+            val coreEntered = CountDownLatch(coreCount)
+            repeat(coreCount) { index ->
+                caller("http-core-$index", activeDone, activeErrors[index], { false }) {
+                    connected.incrementAndGet()
+                    coreEntered.countDown()
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                    Connection()
+                }
+            }
+            assertTrue("Core requests must run concurrently", coreEntered.await(2, TimeUnit.SECONDS))
+            repeat(queueCapacity) { index ->
+                caller("http-queued-$index", queuedDone, queuedErrors[index], queuedCancel::get) {
+                    connected.incrementAndGet()
+                    Connection()
+                }
+            }
+            waitUntil("all queue slots filled") { pool.queue.size == queueCapacity }
+            repeat(extraCount) { offset ->
+                val index = coreCount + offset
+                caller("http-extra-$offset", activeDone, activeErrors[index], { false }) {
                     connected.incrementAndGet()
                     entered.countDown()
                     check(release.await(10, TimeUnit.SECONDS))
                     Connection()
                 }
             }
-            assertTrue("Two independent requests must run concurrently", entered.await(2, TimeUnit.SECONDS))
-            repeat(2) { index ->
-                caller("http-queued-$index", queuedDone, queuedErrors[index], queuedCancel::get) {
-                    connected.incrementAndGet()
-                    Connection()
-                }
-            }
-            waitUntil("two queued requests") { pool.queue.size == 2 }
-            assertEquals(2, pool.activeCount)
-            assertEquals(2, pool.maximumPoolSize)
-            assertEquals(0, pool.queue.remainingCapacity())
-            assertEquals(2, connected.get())
+            assertTrue("Burst requests must scale up to maximumPoolSize", entered.await(2, TimeUnit.SECONDS))
+            waitUntil("pool saturated at maximumPoolSize") { pool.activeCount == pool.maximumPoolSize && pool.queue.remainingCapacity() == 0 }
+            val expectedActiveConnections = pool.maximumPoolSize
+            assertEquals(expectedActiveConnections, connected.get())
 
-            // 第五份工作只能有界拒绝，不得新增线程或在调用线程执行连接。
+            // Saturated pool rejects additional work with bounded NETWORK error without spawning extra threads.
             try {
                 AgentHttpsTransport.postWithConnection(source, byteArrayOf(), 1000, { false }) {
                     connected.incrementAndGet()
@@ -1206,7 +1220,7 @@ private class AgentHttpSchedulingCases {
                 }
                 fail("Bounded backpressure expected")
             } catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.NETWORK, error.reason) }
-            assertEquals(2, connected.get())
+            assertEquals(expectedActiveConnections, connected.get())
 
             queuedCancel.set(true)
             assertTrue("Queued cancellation must not wait for active sockets", queuedDone.await(2, TimeUnit.SECONDS))
@@ -1216,7 +1230,7 @@ private class AgentHttpSchedulingCases {
             }
             waitUntil("cancelled queue slots removed") { pool.queue.isEmpty() }
 
-            // 排队时间属于原期限。两条连接仍堵塞时，第三条超时必须在连接工厂之前停止。
+            // 排队时间属于原期限。全部工作者仍堵塞时，超时请求必须在连接工厂之前停止。
             val started = System.nanoTime()
             try {
                 AgentHttpsTransport.postWithConnection(source, byteArrayOf(), 120, { false }) {
@@ -1228,14 +1242,14 @@ private class AgentHttpSchedulingCases {
             } catch (error: AgentModelException) { assertEquals(AgentModelException.Reason.TIMEOUT, error.reason) }
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 1500)
             waitUntil("expired queue slot removed") { pool.queue.isEmpty() }
-            assertEquals(2, connected.get())
+            assertEquals(expectedActiveConnections, connected.get())
 
             release.countDown()
             assertTrue(activeDone.await(2, TimeUnit.SECONDS))
             activeErrors.forEach { assertNull(it.get()) }
             waitUntil("active requests drained") { pool.activeCount == 0 && pool.queue.isEmpty() }
             assertEquals("{}", AgentHttpsTransport.postWithConnection(source, byteArrayOf(), 2000, { false }) { Connection() })
-            assertEquals(2, connected.get())
+            assertEquals(expectedActiveConnections, connected.get())
         } finally {
             queuedCancel.set(true)
             release.countDown()

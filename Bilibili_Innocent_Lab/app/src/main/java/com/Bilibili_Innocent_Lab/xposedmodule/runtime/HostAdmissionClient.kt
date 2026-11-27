@@ -494,12 +494,17 @@ internal object HostAdmissionClient {
                     }
                     val awaiter = responseCoordinator.begin(responseAction)
                     val response = awaiter.response
+                    val proofFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                    } else {
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                    }
                     val proof = runCatching {
                         PendingIntent.getBroadcast(
                             context,
                             nonce.hashCode() xor method.hashCode(),
                             Intent(responseAction).setPackage(context.packageName),
-                            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                            proofFlags
                         )
                     }.getOrNull()
                     if (proof == null) {

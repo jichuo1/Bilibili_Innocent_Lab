@@ -13,6 +13,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.provider.RoamingCompatProvider
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AdmissionReplayBook
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionEndpoint
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostCallerIdentityVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeClient
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.HostRuntimeProbeContract
@@ -74,11 +75,22 @@ class RoamingOpenReceiver : BroadcastReceiver() {
         }
         if (intent.action == ACTION_QUERY_HOOK_AUTHORIZATION) {
             // 必须是显式 ordered broadcast；宿主通过系统最终回调取回结果，
-            // 模块不接受任何状态写入。Android 14+ 还校验框架报告的真实发送包。
+            // 模块不接受任何状态写入。Android 14+ 还校验框架报告的真实发送包与 UID。
             if (!isOrderedBroadcast ||
                 (AndroidVersion.isAtLeast(AndroidVersion.U) &&
                     sentFromPackage != HookEntry.TARGET_PACKAGE)
             ) return
+            if (AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromUid > 0) {
+                val primaryUid = HostCallerIdentityVerifier.resolvePrimaryHostUid(context, HookEntry.TARGET_PACKAGE)
+                if (primaryUid != null && !HostCallerIdentityVerifier.verifyHostUid(
+                        callerUid = sentFromUid,
+                        primaryHostUid = primaryUid,
+                        callerPackages = HostCallerIdentityVerifier.resolvePackagesForUid(context, sentFromUid),
+                        expectedPackage = HookEntry.TARGET_PACKAGE,
+                        auditTag = "RoamingOpenReceiver.queryAuth"
+                    ).allowed
+                ) return
+            }
             val authorized = runCatching {
                 UserTermsConsentStore.readOrInitialize(context).isAuthorized
             }.getOrDefault(false)
@@ -117,11 +129,18 @@ class RoamingOpenReceiver : BroadcastReceiver() {
             EXTRA_ADMISSION_CALLER_PROOF,
             classOf<PendingIntent>()
         ) ?: return
-        val hostUid = runCatching {
-            context.packageManager.getApplicationInfo(HookEntry.TARGET_PACKAGE, 0).uid
-        }.getOrNull() ?: return
+        val identity = HostCallerIdentityVerifier.verifyPendingIntentCaller(
+            context = context,
+            proof = proof,
+            expectedPackage = HookEntry.TARGET_PACKAGE,
+            sentFromPackage = if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromPackage else null,
+            sentFromUid = if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromUid else -1,
+            enforceSenderMatch = AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromUid > 0,
+            requirePrimaryHostUid = true,
+            auditTag = "RoamingOpenReceiver.admission"
+        )
+        if (!identity.allowed) return
         val creatorPackage = proof.creatorPackage ?: return
-        if (creatorPackage != HookEntry.TARGET_PACKAGE || proof.creatorUid != hostUid) return
         val nonce = intent.getStringExtra(EXTRA_ADMISSION_NONCE).orEmpty()
         val request = intent.getBundleExtra(EXTRA_ADMISSION_REQUEST) ?: return
         if (!HostAdmissionQueryContract.isValidNoncePair(nonce, request)) return
@@ -161,7 +180,14 @@ class RoamingOpenReceiver : BroadcastReceiver() {
             EXTRA_BOOTSTRAP_CALLBACK,
             classOf<PendingIntent>()
         ) ?: return
-        if (callback.creatorPackage != HookEntry.TARGET_PACKAGE) return
+        if (!HostCallerIdentityVerifier.verifyPendingIntentCaller(
+                context = context,
+                proof = callback,
+                expectedPackage = HookEntry.TARGET_PACKAGE,
+                requirePrimaryHostUid = false,
+                auditTag = "RoamingOpenReceiver.bootstrap"
+            ).allowed
+        ) return
         val nonce = request.getStringExtra(EXTRA_BOOTSTRAP_NONCE).orEmpty()
         if (nonce.isBlank()) return
         val exported = NoRootSupportStore.exportState(context, authorized)
@@ -185,7 +211,17 @@ class RoamingOpenReceiver : BroadcastReceiver() {
             EXTRA_CALLER_PROOF,
             classOf<PendingIntent>()
         ) ?: return
-        if (callerProof.creatorPackage != HookEntry.TARGET_PACKAGE) return
+        if (!HostCallerIdentityVerifier.verifyPendingIntentCaller(
+                context = context,
+                proof = callerProof,
+                expectedPackage = HookEntry.TARGET_PACKAGE,
+                sentFromPackage = if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromPackage else null,
+                sentFromUid = if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromUid else -1,
+                enforceSenderMatch = AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromUid > 0,
+                requirePrimaryHostUid = false,
+                auditTag = "RoamingOpenReceiver.heartbeat"
+            ).allowed
+        ) return
         val targetPackage = intent.getStringExtra(
             RoamingCompatProvider.EXTRA_NO_ROOT_TARGET_PACKAGE
         ).orEmpty()
@@ -259,7 +295,18 @@ class RoamingOpenReceiver : BroadcastReceiver() {
             Log.w("BilibiliInnocentLab", "[BIL] 存活回执被拒：缺少身份证明")
             return
         }
-        if (!HostRuntimeProbeContract.isHostProof(hostProof.creatorPackage)) {
+        if (!HostRuntimeProbeContract.isHostProof(hostProof.creatorPackage) ||
+            !HostCallerIdentityVerifier.verifyPendingIntentCaller(
+                context = context,
+                proof = hostProof,
+                expectedPackage = HookEntry.TARGET_PACKAGE,
+                sentFromPackage = if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromPackage else null,
+                sentFromUid = if (AndroidVersion.isAtLeast(AndroidVersion.U)) sentFromUid else -1,
+                enforceSenderMatch = AndroidVersion.isAtLeast(AndroidVersion.U) && sentFromUid > 0,
+                requirePrimaryHostUid = false,
+                auditTag = "RoamingOpenReceiver.probeReply"
+            ).allowed
+        ) {
             Log.w("BilibiliInnocentLab", "[BIL] 存活回执被拒：创建者是 ${hostProof.creatorPackage}")
             return
         }
