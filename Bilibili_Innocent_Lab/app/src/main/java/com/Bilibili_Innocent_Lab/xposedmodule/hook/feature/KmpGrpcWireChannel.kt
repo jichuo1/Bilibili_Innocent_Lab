@@ -1,8 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossBridgeMembers.JavaReplyCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossResponseHandlerProxy.ConfirmedReply
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
@@ -57,15 +59,17 @@ internal object KmpGrpcWireChannel {
         val wireActive: AtomicBoolean?,
         val onCall: () -> Unit,
         val onRequestFailed: (Throwable) -> Unit,
-        val onReplyFailed: (Throwable) -> Unit
+        val onReplyFailed: (Throwable) -> Unit,
+        val readbackVerifySamplePending: AtomicBoolean = AtomicBoolean(true)
     )
 
     private class Dispatcher(val surface: KmpGrpcWireAdapter.WireSurface) {
         val registrations = ConcurrentHashMap<String, CopyOnWriteArrayList<Registration>>()
         private val handlerType = surface.engineEntry.parameterTypes[surface.handlerIndex]
 
-        fun onEngineCall(args: Array<Any?>) {
-            val descriptor = args.getOrNull(surface.descriptorIndex) ?: return
+        fun onEngineCall(param: ModernHookParam) {
+            if (registrations.isEmpty()) return
+            val descriptor = param.argOrNull(surface.descriptorIndex) ?: return
             val rpc = parseDescriptorName(descriptor) ?: return
             val steps = registrations[rpc]
             if (steps == null || steps.isEmpty()) return
@@ -77,7 +81,7 @@ internal object KmpGrpcWireChannel {
                     (it.requestCodec != null && (it.transformRequest != null || it.transformWithRequest != null))
             }
             val capturedRequests = if (steps.any { it.transformWithRequest != null }) arrayOfNulls<Any?>(steps.size) else null
-            val rawRequest = args.getOrNull(surface.requestBytesIndex) as? ByteArray
+            val rawRequest = param.argOrNull(surface.requestBytesIndex) as? ByteArray
             if (rawRequest != null && needsRequestHandle) {
                 var currentBytes: ByteArray = rawRequest
                 var parsedRequest: Any? = null
@@ -126,18 +130,21 @@ internal object KmpGrpcWireChannel {
                     }
                 }
                 if (currentBytes !== rawRequest) {
-                    args[surface.requestBytesIndex] = currentBytes
+                    param.setArg(surface.requestBytesIndex, currentBytes)
                 }
             }
-            val delegate = args.getOrNull(surface.handlerIndex) ?: return
+            val delegate = param.argOrNull(surface.handlerIndex) ?: return
             if (!handlerType.isInstance(delegate)) return
             val loader = handlerType.classLoader ?: return
             val snapshot = steps.toTypedArray()
             runCatching {
-                args[surface.handlerIndex] = Proxy.newProxyInstance(
-                    loader,
-                    arrayOf(handlerType),
-                    WireHandler(delegate, snapshot, capturedRequests)
+                param.setArg(
+                    surface.handlerIndex,
+                    Proxy.newProxyInstance(
+                        loader,
+                        arrayOf(handlerType),
+                        WireHandler(delegate, snapshot, capturedRequests)
+                    )
                 )
             }
         }
@@ -198,7 +205,9 @@ internal object KmpGrpcWireChannel {
                                 ?: source
                             if (updated !== source) {
                                 val rewritten = codec.serialize(updated)
-                                val nextMirror = if (confirmed != null) {
+                                val nextMirror = if (confirmed != null &&
+                                    (BuildConfig.DEBUG || step.readbackVerifySamplePending.compareAndSet(true, false))
+                                ) {
                                     codec.parse(rewritten).also {
                                         check(it == updated) { "Wire reply readback changed the Java message" }
                                     }
@@ -575,7 +584,7 @@ internal object KmpGrpcWireChannel {
             val entry = surface.engineEntry
             key.exact(HOOK_ID, surface.engine, entry.name, *entry.parameterTypes) {
                 faultOwner = FAULT_OWNER
-                before { created.onEngineCall(args) }
+                before { created.onEngineCall(this) }
             }
             true
         }.getOrElse { throwable ->

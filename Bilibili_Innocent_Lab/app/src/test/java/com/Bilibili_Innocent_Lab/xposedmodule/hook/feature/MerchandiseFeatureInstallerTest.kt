@@ -7,7 +7,7 @@ import org.junit.Test
 class MerchandiseFeatureInstallerTest {
 
     private val environment = HookEnvironment(
-        processName = "test",
+        processName = "tv.danmaku.bili",
         classLoader = javaClass.classLoader,
         hookPoints = HookPointRegistry(javaClass.classLoader),
         registrar = TestHookRegistrar,

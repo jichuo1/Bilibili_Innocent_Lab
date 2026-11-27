@@ -2140,17 +2140,28 @@ object VersionAdapter {
     ) {
         /** 身份、手动重置、宿主指纹和结构都有效的缓存；不看覆盖范围，其它功能的补适配历史也从这里取。 */
         fun usableCache(highCandidateExists: Boolean): AdaptResult? = cached?.takeIf {
+            val highSatisfied = it.commentHigh != null ||
+                !highCandidateExists ||
+                it.coverage?.attempt(PointFamily.COMMENT_HIGH) == AdaptAssistGate.Attempt.CONCLUSIVE_MISSING
             it.ts >= resetTimestamp && it.biliVersionCode == identity.versionCode &&
                 it.isUsableWith(identity.fingerprint) &&
-                (it.commentHigh != null || !highCandidateExists)
+                highSatisfied
         }
 
         /**
          * 缓存有效，且尝试过 [plan] 要求的每个家族才算「按当前计划完整」。
          * 局部缓存（上次计划更小）或旧缓存（没有覆盖范围）返回 null，由调用方决定补适配。
          */
-        fun usableCache(highCandidateExists: Boolean, plan: AdaptPlan): AdaptResult? =
-            usableCache(highCandidateExists)?.takeIf { AdaptPlanner.missing(it.coverage, plan).isEmpty() }
+        fun usableCache(highCandidateExists: Boolean, plan: AdaptPlan): AdaptResult? {
+            val checkHigh = if (highCandidateExists && PointFamily.COMMENT_HIGH !in plan.required &&
+                cached?.coverage != null
+            ) {
+                false
+            } else {
+                highCandidateExists
+            }
+            return usableCache(checkHigh)?.takeIf { AdaptPlanner.missing(it.coverage, plan).isEmpty() }
+        }
 
         /** 有效缓存里计划要求、却从未尝试过的家族；缓存本身无效时返回 null（整轮重新适配，不是补扫）。 */
         fun missingCoverage(highCandidateExists: Boolean, plan: AdaptPlan): Set<PointFamily>? =
@@ -2164,6 +2175,15 @@ object VersionAdapter {
             return active.diagnosticsById[id]?.let(AdaptAssistGate::isAttemptedInCache) == true
         }
     }
+
+    private fun isLowMemoryDevice(context: Context): Boolean = runCatching {
+        val activityManager = context.getSystemService(android.app.ActivityManager::class.java)
+            ?: return@runCatching false
+        if (activityManager.isLowRamDevice) return@runCatching true
+        val memoryInfo = android.app.ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+        memoryInfo.lowMemory
+    }.getOrDefault(false)
 
     @Suppress("DEPRECATION")
     private fun readHostIdentity(context: Context): HostIdentity =
@@ -2553,7 +2573,7 @@ object VersionAdapter {
                 DexFeatureRefreshContext(classLoader, vc, featureFlags),
                 value
             )
-        val refreshRequested = usable?.let(::requiresFeatureRefresh) ?: false
+        val refreshRequested = effectiveUsable?.let(::requiresFeatureRefresh) ?: false
         val cached = usable?.takeUnless { refreshRequested || coverageMissing.isNotEmpty() || staleDomains.isNotEmpty() }
         if (cached != null) {
             // 缓存命中后的文件维护和 DEX 内容比对一并下沉；不一致只作废缓存。
@@ -2599,7 +2619,7 @@ object VersionAdapter {
                             val reboundUsable = StartupCacheSnapshot(
                                 startup.identity,
                                 resetTimestamp.coerceAtLeast(0L),
-                                candidate
+                                reboundStripped
                             ).usableCache(highCandidateExists)
                             val reboundCoverageMissing = if (reboundUsable != null) {
                                 AdaptPlanner.missing(reboundStripped.coverage, adaptPlan)
@@ -3174,7 +3194,9 @@ object VersionAdapter {
                 engine = DexAssistAttemptGuard(
                     marker = AdaptCacheStore.dexAssistMarkerFile(context),
                     key = "$resolvedHostFingerprint|drv=${VersionAdapterContract.domainRulesSignature()}",
-                    delegate = DexMeguvizAssistEngine
+                    delegate = DexMeguvizAssistEngine,
+                    maxAttempts = DexAssistAttemptGuard.TIERED_MAX_ATTEMPTS,
+                    isLowMemory = { isLowMemoryDevice(context) }
                 ),
                 codePaths = source.codePaths,
                 classLoader = loader,

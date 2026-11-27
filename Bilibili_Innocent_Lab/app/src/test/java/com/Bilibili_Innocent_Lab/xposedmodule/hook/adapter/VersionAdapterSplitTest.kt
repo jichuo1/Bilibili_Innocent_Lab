@@ -464,6 +464,30 @@ class VersionAdapterSplitTest {
         assertNull(VersionAdapter.locateHomeTopBar(emptyLoader))
     }
 
+    @Test
+    fun strippedStaleDomainsRequireFeatureRefreshEvaluation() {
+        val wireMethod = kmpfixture.modern.GrpcEngine::class.java.declaredMethods.single { it.name == "a" }
+        val wirePoint = KmpGrpcWireAdapter.point(wireMethod)
+        val full = full68KeyValidResult().copy(
+            kmpGrpcWireEngine = wirePoint,
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
+        )
+        val loader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
+                KmpGrpcWireAdapter.REPLY_MOSS -> kmpfixture.modern.GrpcEngine::class.java
+                else -> super.loadClass(name, resolve)
+            }
+        }
+        val flags = DexFeatureFlags(kmpGrpcWireEnabled = true, homeTabsRequested = false)
+        val ctx = DexFeatureRefreshContext(loader = loader, hostVersionCode = 9210200, flags = flags)
+        assertFalse(DexFeatureRegistry.requiresFeatureRefresh(ctx, full))
+
+        val stale = setOf(AdaptDomain.KMP_WIRE)
+        val stripped = full.withoutDomains(stale)
+        assertNull(stripped.kmpGrpcWireEngine)
+        assertTrue(DexFeatureRegistry.requiresFeatureRefresh(ctx, stripped))
+    }
+
     @Suppress("unused")
     private class ProtocolMethodFixture {
         companion object {

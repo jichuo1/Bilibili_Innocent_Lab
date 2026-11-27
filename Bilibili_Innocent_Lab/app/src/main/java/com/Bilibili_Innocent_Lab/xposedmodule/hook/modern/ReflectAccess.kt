@@ -100,7 +100,7 @@ internal object ReflectAccess {
         KavaMemberLookup.fieldOrNull(owner, name, includeSuperclasses = true)
             ?: throw NoSuchFieldException("${owner.name}#$name")
 
-    private fun findCompatibleMethod(
+    internal fun findCompatibleMethod(
         owner: Class<*>,
         name: String,
         args: Array<out Any?>,
@@ -116,10 +116,13 @@ internal object ReflectAccess {
             compatibleMethodCache[key]?.let { return it }
         }
         var current: Class<*>? = owner
+        var firstBridgeOrSyntheticFallback: Method? = null
         while (current != null) {
-            // 只要第一个兼容候选：在已缓存的成员集合上短路，不物化整份过滤结果。
+            // 只要第一个兼容候选：优先非 bridge/synthetic 具体方法，再降级兜底；在已缓存的成员集合上短路。
             val match = KavaMemberLookup.firstDeclaredMethodOrNull(current, makeAccessible = true) { method ->
-                if (method.name != name || method.isStatic != requireStatic || method.parameterCount != args.size) {
+                if (method.isBridge || method.isSynthetic ||
+                    method.name != name || method.isStatic != requireStatic || method.parameterCount != args.size
+                ) {
                     false
                 } else {
                     val parameterTypes = method.parameterTypes
@@ -132,7 +135,25 @@ internal object ReflectAccess {
                 }
                 return match
             }
+            if (firstBridgeOrSyntheticFallback == null) {
+                firstBridgeOrSyntheticFallback = KavaMemberLookup.firstDeclaredMethodOrNull(current, makeAccessible = true) { method ->
+                    if ((!method.isBridge && !method.isSynthetic) ||
+                        method.name != name || method.isStatic != requireStatic || method.parameterCount != args.size
+                    ) {
+                        false
+                    } else {
+                        val parameterTypes = method.parameterTypes
+                        parameterTypes.indices.all { index -> compatible(parameterTypes[index], args[index]) }
+                    }
+                }
+            }
             current = current.superclass
+        }
+        if (firstBridgeOrSyntheticFallback != null) {
+            synchronized(compatibleMethodCache) {
+                compatibleMethodCache[key] = firstBridgeOrSyntheticFallback
+            }
+            return firstBridgeOrSyntheticFallback
         }
         return null
     }

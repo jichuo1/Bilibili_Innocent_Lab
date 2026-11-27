@@ -21,6 +21,11 @@ internal class HomeBannerFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
+        if (environment.processName != TARGET_PACKAGE) {
+            environment.reportCapability("home_banner_view", FeatureInstallResult.Skipped("non-main-process"))
+            environment.reportStatus(CHANNEL_STATUS, "non-main-process")
+            return FeatureInstallResult.Skipped("non-main-process")
+        }
 
         val viewEnvironment = environment.forCapabilityRuntime("home_banner_view")
         val results = LinkedHashMap<String, Boolean>()
@@ -84,6 +89,7 @@ internal class HomeBannerFeatureInstaller(
 
     companion object {
         const val ID = "home_banner"
+        private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "banner_ad_status"
         private const val DEDICATED_CONTAINER_CLASS =
             "com.bilibili.pegasus.holders.bannerv8.BannerV8Container"

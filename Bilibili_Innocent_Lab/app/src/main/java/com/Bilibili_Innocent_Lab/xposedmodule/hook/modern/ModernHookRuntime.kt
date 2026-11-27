@@ -295,6 +295,10 @@ internal object ModernHookIds {
         }
         add(id)
         add(executable.declaringClass.name)
+        val loader = executable.declaringClass.classLoader
+        if (loader != null && loader !== ModernHookIds::class.java.classLoader) {
+            add("cl:${System.identityHashCode(loader)}")
+        }
         add(executable.name)
         for (type in executable.parameterTypes) add(type.name)
         val digestBytes = digest.digest()
@@ -361,11 +365,71 @@ internal class ModernHookParam private constructor(
     ) : this(method, instance, null, null, null, chain, paramCount)
 
     private var argumentCopy: Array<Any?>? = initialArgs
+    private var initialArgumentSnapshot: Array<Any?>? = initialArgs?.clone()
+    internal var argsMutated: Boolean = false
+        private set
     private var extras: HashMap<String, Any?>? = null
 
     /** 兼容既有数组读写；第一次访问才取私有副本，同次 before/after 共享它。 */
     val args: Array<Any?>
         get() = argumentCopy ?: copyArguments().also { argumentCopy = it }
+
+    fun setArg(index: Int, value: Any?) {
+        val target = args
+        if (index in target.indices) {
+            target[index] = value
+            argsMutated = true
+        }
+    }
+
+    internal fun markArgsMutated() {
+        argsMutated = true
+    }
+
+    internal fun hasArgsMutated(): Boolean {
+        if (argsMutated) return true
+        val copy = argumentCopy ?: return false
+        val baseline = initialArgumentSnapshot
+        if (baseline != null) {
+            for (index in copy.indices) {
+                if (copy[index] !== baseline[index]) {
+                    argsMutated = true
+                    return true
+                }
+            }
+            return false
+        }
+        val activeChain = chain
+        if (activeChain != null) {
+            for (index in copy.indices) {
+                val original = if (index < chainParamCount) {
+                    try {
+                        activeChain.getArg(index)
+                    } catch (_: IndexOutOfBoundsException) {
+                        null
+                    }
+                } else {
+                    null
+                }
+                if (copy[index] !== original) {
+                    argsMutated = true
+                    return true
+                }
+            }
+            return false
+        }
+        val invocation = source
+        if (invocation != null) {
+            for (index in copy.indices) {
+                if (index < invocation.argumentCount() && copy[index] !== invocation.getArgument(index)) {
+                    argsMutated = true
+                    return true
+                }
+            }
+            return false
+        }
+        return false
+    }
 
     private fun copyArguments(): Array<Any?> {
         val invocation = source
@@ -411,9 +475,13 @@ internal class ModernHookParam private constructor(
 
     /** 只把真正改动过的参数槽写回下游；SDK 逐槽按声明类型校验。 */
     internal fun writeArgumentsTo(invocation: MutableArgsInvocation) {
+        if (!argsMutated && argumentCopy == null) return
         val copy = argumentCopy ?: return
         for (index in copy.indices) {
-            if (copy[index] !== invocation.getArgument(index)) invocation.setArgument(index, copy[index])
+            if (copy[index] !== invocation.getArgument(index)) {
+                argsMutated = true
+                invocation.setArgument(index, copy[index])
+            }
         }
     }
 
@@ -635,8 +703,8 @@ internal class ModernMemberHookCreator(
         guarded(onFault) { before(param) }
         if (!param.wasResultAssignedByHook() && !param.hasThrowable) {
             try {
-                val copiedArgs = param.copiedArgsOrNull()
-                param.assignOriginal(if (copiedArgs == null) chain.proceed() else chain.proceed(copiedArgs))
+                val proceedArgs = if (param.hasArgsMutated()) param.copiedArgsOrNull() else null
+                param.assignOriginal(if (proceedArgs == null) chain.proceed() else chain.proceed(proceedArgs))
             } catch (failure: Throwable) {
                 param.assignOriginalFailure(failure)
             }
@@ -655,8 +723,8 @@ internal class ModernMemberHookCreator(
         guarded(onFault) { before(param) }
         param.throwable?.let { throw it }
         if (param.wasResultAssignedByHook()) return param.result
-        val copiedArgs = param.copiedArgsOrNull()
-        return if (copiedArgs == null) chain.proceed() else chain.proceed(copiedArgs)
+        val proceedArgs = if (param.hasArgsMutated()) param.copiedArgsOrNull() else null
+        return if (proceedArgs == null) chain.proceed() else chain.proceed(proceedArgs)
     }
 
     private fun runAfterOnly(

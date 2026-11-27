@@ -20,8 +20,20 @@ import java.nio.file.StandardCopyOption
 internal class DexAssistAttemptGuard(
     private val marker: File,
     private val key: String,
-    private val delegate: DexAssistEngine
+    private val delegate: DexAssistEngine,
+    private val maxAttempts: Int = 1,
+    private val isLowMemory: () -> Boolean = { false }
 ) : DexAssistEngine {
+    constructor(marker: File, key: String, delegate: DexAssistEngine) : this(
+        marker = marker,
+        key = key,
+        delegate = delegate,
+        maxAttempts = 1,
+        isLowMemory = { false }
+    )
+
+    private val attemptsFile: File
+        get() = File(marker.parentFile, "${marker.name}.attempts")
 
     override fun resolve(request: DexAssistRequest): DexAssistResult =
         resolveAll(setOf(request.query), request.codePaths, request.classLoader).getValue(request.query)
@@ -32,43 +44,75 @@ internal class DexAssistAttemptGuard(
         classLoader: ClassLoader
     ): Map<DexAssistQuery, DexAssistResult> {
         if (queries.isEmpty()) return emptyMap()
-        if (runCatching { marker.isFile && marker.readText() == key }.getOrDefault(false)) {
+        val effectiveMaxAttempts = maxAttempts.coerceAtLeast(1)
+        val hasPendingMarker = runCatching { marker.isFile && marker.readText() == key }.getOrDefault(false)
+        val previousAttempts = if (hasPendingMarker) {
+            readRecordedAttempts(fallbackIfMissing = if (effectiveMaxAttempts == 1) 1 else effectiveMaxAttempts)
+        } else {
+            0
+        }
+        if (hasPendingMarker && previousAttempts >= effectiveMaxAttempts) {
             return queries.associateWith {
                 DexAssistResult.Unavailable(DexAssistResult.Reason.PREVIOUS_ATTEMPT_UNFINISHED)
             }
         }
-        writeMarkerAtomically()
+        val nextAttempt = previousAttempts + 1
+        writeMarkerAtomically(marker, key)
+        if (effectiveMaxAttempts > 1) {
+            writeMarkerAtomically(attemptsFile, "$key\n$nextAttempt")
+        }
+        val allowTier2 = previousAttempts == 0 && !isLowMemory()
         try {
-            return delegate.resolveAll(queries, codePaths, classLoader)
+            return if (delegate is TieredDexAssistEngine) {
+                delegate.resolveAll(queries, codePaths, classLoader, allowTier2 = allowTier2)
+            } else {
+                delegate.resolveAll(queries, codePaths, classLoader)
+            }
         } finally {
             runCatching { marker.delete() }
+            runCatching { attemptsFile.delete() }
         }
     }
 
-    private fun writeMarkerAtomically() {
+    private fun readRecordedAttempts(fallbackIfMissing: Int): Int = runCatching {
+        val file = attemptsFile
+        if (!file.isFile) return@runCatching fallbackIfMissing
+        val lines = file.readLines()
+        if (lines.size >= 2 && lines[0] == key) {
+            lines[1].toIntOrNull()?.coerceAtLeast(1) ?: fallbackIfMissing
+        } else {
+            fallbackIfMissing
+        }
+    }.getOrDefault(fallbackIfMissing)
+
+    private fun writeMarkerAtomically(targetFile: File, content: String) {
         runCatching {
-            val parent = marker.parentFile
+            val parent = targetFile.parentFile
             if (parent != null && !parent.isDirectory && !parent.mkdirs()) return@runCatching
-            val temporary = File.createTempFile("${marker.name}.", ".tmp", parent)
+            val temporary = File.createTempFile("${targetFile.name}.", ".tmp", parent)
             try {
-                temporary.writeText(key)
+                temporary.writeText(content)
                 try {
                     Files.move(
                         temporary.toPath(),
-                        marker.toPath(),
+                        targetFile.toPath(),
                         StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING
                     )
                 } catch (_: AtomicMoveNotSupportedException) {
-                    Files.move(temporary.toPath(), marker.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    Files.move(temporary.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                 } catch (_: UnsupportedOperationException) {
-                    if (!temporary.renameTo(marker)) marker.writeText(key)
+                    if (!temporary.renameTo(targetFile)) targetFile.writeText(content)
                 } catch (_: IOException) {
-                    if (!temporary.renameTo(marker)) marker.writeText(key)
+                    if (!temporary.renameTo(targetFile)) targetFile.writeText(content)
                 }
             } finally {
                 temporary.delete()
             }
         }
+    }
+
+    companion object {
+        const val TIERED_MAX_ATTEMPTS = 2
     }
 }

@@ -55,6 +55,84 @@ internal object StartupAdapterPlan {
         }
     }
 
+    enum class ProcessRole {
+        MAIN,
+        IJK_SERVICE,
+        WEB,
+        DOWNLOAD,
+        BACKGROUND_SERVICE,
+        UNKNOWN_SUBPROCESS
+    }
+
+    data class ProcessProfile(
+        val role: ProcessRole,
+        val isMainProcess: Boolean,
+        val runVersionAdapter: Boolean,
+        val installMainProcessUiAndFeed: Boolean,
+        val installIncognitoPrivacy: Boolean,
+        val installPlayerAvAndCodecs: Boolean,
+        val installComponentLibraryBlock: Boolean
+    )
+
+    fun processProfile(processName: String): ProcessProfile = when (processName) {
+        "tv.danmaku.bili" -> ProcessProfile(
+            role = ProcessRole.MAIN,
+            isMainProcess = true,
+            runVersionAdapter = true,
+            installMainProcessUiAndFeed = true,
+            installIncognitoPrivacy = true,
+            installPlayerAvAndCodecs = true,
+            installComponentLibraryBlock = true
+        )
+        "tv.danmaku.bili:ijkservice" -> ProcessProfile(
+            role = ProcessRole.IJK_SERVICE,
+            isMainProcess = false,
+            runVersionAdapter = false,
+            installMainProcessUiAndFeed = false,
+            installIncognitoPrivacy = true,
+            installPlayerAvAndCodecs = true,
+            installComponentLibraryBlock = true
+        )
+        "tv.danmaku.bili:web" -> ProcessProfile(
+            role = ProcessRole.WEB,
+            isMainProcess = false,
+            runVersionAdapter = false,
+            installMainProcessUiAndFeed = false,
+            installIncognitoPrivacy = true,
+            installPlayerAvAndCodecs = false,
+            installComponentLibraryBlock = true
+        )
+        "tv.danmaku.bili:download" -> ProcessProfile(
+            role = ProcessRole.DOWNLOAD,
+            isMainProcess = false,
+            runVersionAdapter = false,
+            installMainProcessUiAndFeed = false,
+            installIncognitoPrivacy = true,
+            installPlayerAvAndCodecs = false,
+            installComponentLibraryBlock = true
+        )
+        "tv.danmaku.bili:pushservice",
+        "tv.danmaku.bili:channel",
+        "tv.danmaku.bili:daemon" -> ProcessProfile(
+            role = ProcessRole.BACKGROUND_SERVICE,
+            isMainProcess = false,
+            runVersionAdapter = false,
+            installMainProcessUiAndFeed = false,
+            installIncognitoPrivacy = true,
+            installPlayerAvAndCodecs = false,
+            installComponentLibraryBlock = true
+        )
+        else -> ProcessProfile(
+            role = ProcessRole.UNKNOWN_SUBPROCESS,
+            isMainProcess = false,
+            runVersionAdapter = false,
+            installMainProcessUiAndFeed = false,
+            installIncognitoPrivacy = true,
+            installPlayerAvAndCodecs = false,
+            installComponentLibraryBlock = true
+        )
+    }
+
     fun diagnosticFamily(id: String): Family? = when {
         id == "dynamic.tabs" -> Family.DYNAMIC_TABS
         id == "number.full" -> Family.FULL_NUMBERS

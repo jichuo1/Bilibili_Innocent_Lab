@@ -778,6 +778,24 @@ class HookEntry : XposedModule() {
                 }
             }
 
+            fun dexElementsCount(loader: ClassLoader?): Int = runCatching {
+                var current: Class<*>? = loader?.javaClass
+                var pathListField: java.lang.reflect.Field? = null
+                while (current != null && pathListField == null) {
+                    pathListField = current.declaredFields.firstOrNull { it.name == "pathList" }
+                    current = current.superclass
+                }
+                val pathList = pathListField?.apply { isAccessible = true }?.get(loader) ?: return@runCatching -1
+                val elementsField = pathList.javaClass.declaredFields.firstOrNull { it.name == "dexElements" }
+                    ?: return@runCatching -1
+                elementsField.isAccessible = true
+                val elements = elementsField.get(pathList) as? Array<*> ?: return@runCatching -1
+                elements.size
+            }.getOrDefault(-1)
+
+            val processProfile = StartupAdapterPlan.processProfile(processName)
+            val observedHostLoaderRef = java.util.concurrent.atomic.AtomicReference(biliClassLoader)
+            val observedDexElementsCount = java.util.concurrent.atomic.AtomicInteger(dexElementsCount(biliClassLoader))
             val authorizationAttempted = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedInstallStarted = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedHooksInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -816,6 +834,152 @@ class HookEntry : XposedModule() {
                     }
                 )
                 com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostMemoryPressureBridge.install(application)
+            }
+
+            fun buildPrivacyRuntime(
+                attachedContext: Context,
+                prefs: HookConfigSource,
+                kmpGrpcWireEngine: VersionAdapter.HookPoint?,
+                privacyIgnetHttp: VersionAdapter.HookPoint?,
+                privacyKNeuron: String?,
+                guestPlayerCore: String?
+            ) = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.PrivacyFeatureRuntime(
+                attachedContext,
+                prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false),
+                prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
+                prefs.getBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, false),
+                kmpGrpcWireEngine = kmpGrpcWireEngine,
+                privacyIgnetHttp = privacyIgnetHttp,
+                privacyKNeuron = privacyKNeuron,
+                guestPlayerCore = guestPlayerCore
+            )
+
+            fun buildBlockComponentLibraryInstaller(
+                prefs: HookConfigSource,
+                kmpGrpcWireEngine: VersionAdapter.HookPoint?
+            ) = BlockComponentLibraryFeatureInstaller(
+                enabled = prefs.getBoolean(
+                    FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD,
+                    false
+                ),
+                // 勾选与手填取并集，与其余四个勾选面同规则。
+                targetKeywords = ComponentLibraryPoolMatcher.selection(
+                    selectors = prefs.getString(
+                        FeaturePreferences.COMPONENT_POOL_BLOCKED_SELECTORS,
+                        ""
+                    ).orEmpty(),
+                    rules = prefs.getString(
+                        FeaturePreferences.COMPONENT_POOL_BLOCKED_RULES,
+                        ""
+                    ).orEmpty()
+                ),
+                kmpGrpcWireEngine = kmpGrpcWireEngine
+            )
+
+            fun buildAudioRescueInstaller(
+                attachedContext: Context,
+                prefs: HookConfigSource
+            ) = AudioRescueFeatureInstaller(
+                readAudioRescueConfig(prefs), debugTrace = BuildConfig.DEBUG,
+                moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
+                hostCodeCache = attachedContext.codeCacheDir,
+                // Framework Remote first; module provider fallback for LSPatch, which does not
+                // expose that service. Only fixed, verified assets are served by the provider.
+                remoteFile = { name ->
+                    runCatching { openRemoteFile(name) }.getOrNull()?.let {
+                        android.os.ParcelFileDescriptor.AutoCloseInputStream(it)
+                    } ?: runCatching {
+                        val uri = RoamingCompatProvider.AUDIO_ASSET_URI
+                            .buildUpon()
+                            .appendQueryParameter(RoamingCompatProvider.AUDIO_ASSET_NAME, name)
+                            .build()
+                        attachedContext.contentResolver.openInputStream(uri)
+                    }.getOrNull()
+                }
+            )
+
+            fun buildPlayerCodecForceInstaller(
+                prefs: HookConfigSource,
+                kmpGrpcWireEngine: VersionAdapter.HookPoint?
+            ) = PlayerCodecForceFeatureInstaller(
+                codecPreferenceValue = prefs.getInt(
+                    FeaturePreferences.PLAYER_CODEC_PREFERENCE,
+                    0
+                ),
+                decodeModeValue = prefs.getInt(
+                    FeaturePreferences.PLAYER_DECODE_MODE,
+                    0
+                ),
+                kmpGrpcWireEngine = kmpGrpcWireEngine
+            )
+
+            fun buildFrameInterpolationInstaller(prefs: HookConfigSource) =
+                // 入口门控关闭时发布版不安装任何插帧 Hook；debug 验证构建另见安装器注释。
+                FrameInterpolationFeatureInstaller(
+                    enabled = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, false) &&
+                        FrameInterpolationEntryGate.entryOpen(),
+                    verificationAllowed = com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG,
+                    moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
+                    remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() },
+                    maxFps = prefs.getInt(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 60)
+                        .takeIf { it in FrameRateTarget.CEILINGS } ?: 60,
+                    statusToast = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, false),
+                    disableThermalControl = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, false),
+                    forceMode = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, false),
+                    forcedMode = prefs.getString(
+                        FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE,
+                        com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationMode.AUTO_DEFAULT
+                    ).orEmpty()
+                )
+
+            fun installSubprocessAuthorizedHooks(authorizationContext: Context) {
+                StartupTrace.measure("install.subprocess") {
+                    KavaMemberLookup.withLookupBatch(biliClassLoader) {
+                        val hookConfig = checkNotNull(activeHookConfig.get()) {
+                            "Authorized hook config was not selected"
+                        }
+                        val prefs: HookConfigSource = hookConfig
+                        logEnabled = hookConfig.getBoolean(PREF_LOG_ENABLED, true)
+                        logVerbose = hookConfig.getString(PREF_LOG_LEVEL, LOG_LEVEL_COMPLETE) != LOG_LEVEL_MINIMAL
+                        RoamingCompatHook.configure(logEnabled, logVerbose, modernRuntime)
+                        val attachedContext = authorizationContext.applicationContext ?: authorizationContext
+                        val subprocessEnv = HookEnvironment(
+                            processName = processName,
+                            classLoader = biliClassLoader,
+                            hookPoints = hookPointRegistry,
+                            registrar = featureHookRegistrar,
+                            logInfo = { key, message -> logInfo(key, message) },
+                            logError = { key, message -> logError(key, message) },
+                            reportStatus = { _, _ -> },
+                            postToMain = { action ->
+                                mainHandlerOrNull()?.post(
+                                    HostThreadGuard.runnable("feature.post_to_main", action)
+                                )
+                            }
+                        )
+                        val subprocessCoordinator = FeatureInstallCoordinator(subprocessEnv)
+                        if (processProfile.installIncognitoPrivacy) {
+                            val privacyRuntime = buildPrivacyRuntime(attachedContext, prefs, null, null, null, null)
+                            subprocessCoordinator.installAll(
+                                privacyRuntime.installers().filter { it.id == "incognito_privacy" }
+                            )
+                        }
+                        if (processProfile.installComponentLibraryBlock) {
+                            subprocessCoordinator.installAll(
+                                listOf(buildBlockComponentLibraryInstaller(prefs, null))
+                            )
+                        }
+                        if (processProfile.installPlayerAvAndCodecs) {
+                            subprocessCoordinator.installAll(
+                                listOf(
+                                    buildAudioRescueInstaller(attachedContext, prefs),
+                                    buildPlayerCodecForceInstaller(prefs, null),
+                                    buildFrameInterpolationInstaller(prefs).also(frameInterpolationInstallerRef::set)
+                                )
+                            )
+                        }
+                    }
+                }
             }
 
             fun installAuthorizedHooks(authorizationContext: Context) {
@@ -1169,18 +1333,16 @@ class HookEntry : XposedModule() {
                     }
                 )
             )
-            featureInstallCoordinator.installAll(
-                com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.PrivacyFeatureRuntime(
-                    attachedContext,
-                    prefs.getBoolean(FeaturePreferences.NO_LOGIN_ENABLED, false),
-                    prefs.getBoolean(FeaturePreferences.INCOGNITO_ENABLED, false),
-                    prefs.getBoolean(FeaturePreferences.SKIP_GUEST_ONBOARDING, false),
-                    kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
-                    privacyIgnetHttp = hostAdaptResult?.privacyIgnetHttp,
-                    privacyKNeuron = hostAdaptResult?.privacyKNeuron,
-                    guestPlayerCore = hostAdaptResult?.guestPlayerCore
-                ).installers()
+            val privacyRuntime = buildPrivacyRuntime(
+                attachedContext = attachedContext,
+                prefs = prefs,
+                kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                privacyIgnetHttp = hostAdaptResult?.privacyIgnetHttp,
+                privacyKNeuron = hostAdaptResult?.privacyKNeuron,
+                guestPlayerCore = hostAdaptResult?.guestPlayerCore
             )
+            featureInstallCoordinator.registerRetryable(privacyRuntime.asAdaptRetryable())
+            featureInstallCoordinator.installAll(privacyRuntime.installers())
             // 判定结果硬盘缓存：宿主私有 files/bil_semantic/<面>.bin。启动时先在后台删掉未启用面的文件，
             // 保证"关闭 → 重启"后磁盘上没有任何残留判定。
             val semanticStoreRoot = runCatching { attachedContext.filesDir }.getOrNull()
@@ -1446,26 +1608,7 @@ class HookEntry : XposedModule() {
             featureInstallCoordinator.installAll(listOf(blockUpdateInstaller))
 
             featureInstallCoordinator.installAll(
-                listOf(
-                    BlockComponentLibraryFeatureInstaller(
-                        enabled = prefs.getBoolean(
-                            FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD,
-                            false
-                        ),
-                        // 勾选与手填取并集，与其余四个勾选面同规则。
-                        targetKeywords = ComponentLibraryPoolMatcher.selection(
-                            selectors = prefs.getString(
-                                FeaturePreferences.COMPONENT_POOL_BLOCKED_SELECTORS,
-                                ""
-                            ).orEmpty(),
-                            rules = prefs.getString(
-                                FeaturePreferences.COMPONENT_POOL_BLOCKED_RULES,
-                                ""
-                            ).orEmpty()
-                        ),
-                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
-                    )
-                )
+                listOf(buildBlockComponentLibraryInstaller(prefs, hostAdaptResult?.kmpGrpcWireEngine))
             )
 
             featureInstallCoordinator.installAll(
@@ -2145,52 +2288,9 @@ class HookEntry : XposedModule() {
                         diskMb = prefs.getInt(FeaturePreferences.PLAYER_BUFFER_DISK_MB, PlayerBufferConfig.DEFAULT_DISK_MB),
                         wifiOnly = prefs.getBoolean(FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY, PlayerBufferConfig.DEFAULT_WIFI_ONLY)
                     ),
-                    AudioRescueFeatureInstaller(
-                        readAudioRescueConfig(prefs), debugTrace = BuildConfig.DEBUG,
-                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
-                        hostCodeCache = attachedContext.codeCacheDir,
-                        // Framework Remote first; module provider fallback for LSPatch, which does not
-                        // expose that service. Only fixed, verified assets are served by the provider.
-                        remoteFile = { name ->
-                            runCatching { openRemoteFile(name) }.getOrNull()?.let {
-                                android.os.ParcelFileDescriptor.AutoCloseInputStream(it)
-                            } ?: runCatching {
-                                val uri = RoamingCompatProvider.AUDIO_ASSET_URI
-                                    .buildUpon()
-                                    .appendQueryParameter(RoamingCompatProvider.AUDIO_ASSET_NAME, name)
-                                    .build()
-                                attachedContext.contentResolver.openInputStream(uri)
-                            }.getOrNull()
-                        }
-                    ),
-                    PlayerCodecForceFeatureInstaller(
-                        codecPreferenceValue = prefs.getInt(
-                            FeaturePreferences.PLAYER_CODEC_PREFERENCE,
-                            0
-                        ),
-                        decodeModeValue = prefs.getInt(
-                            FeaturePreferences.PLAYER_DECODE_MODE,
-                            0
-                        ),
-                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
-                    ),
-                    // 入口门控关闭时发布版不安装任何插帧 Hook；debug 验证构建另见安装器注释。
-                    FrameInterpolationFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, false) &&
-                            FrameInterpolationEntryGate.entryOpen(),
-                        verificationAllowed = com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG,
-                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
-                        remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() },
-                        maxFps = prefs.getInt(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 60)
-                            .takeIf { it in FrameRateTarget.CEILINGS } ?: 60,
-                        statusToast = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, false),
-                        disableThermalControl = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, false),
-                        forceMode = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, false),
-                        forcedMode = prefs.getString(
-                            FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE,
-                            com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationMode.AUTO_DEFAULT
-                        ).orEmpty()
-                    ).also(frameInterpolationInstallerRef::set)
+                    buildAudioRescueInstaller(attachedContext, prefs),
+                    buildPlayerCodecForceInstaller(prefs, hostAdaptResult?.kmpGrpcWireEngine),
+                    buildFrameInterpolationInstaller(prefs).also(frameInterpolationInstallerRef::set)
                 )
             )
 
@@ -2820,7 +2920,9 @@ class HookEntry : XposedModule() {
             }
             }
 
-            authorizedInstallerRef.set(::installAuthorizedHooks)
+            authorizedInstallerRef.set(
+                if (processProfile.isMainProcess) ::installAuthorizedHooks else ::installSubprocessAuthorizedHooks
+            )
 
             fun reportScanResultIfReady(context: Context?) {
                 if (!applicationOnCreateCompleted.get() ||
@@ -3161,6 +3263,25 @@ class HookEntry : XposedModule() {
                 ) {
                     before {
                         authorizeAndInstall(args.firstOrNull() as? Context)
+                    }
+                    after {
+                        val attachedContext = argOrNull(0) as? Context
+                        val currentLoader = attachedContext?.classLoader
+                            ?: (instance as? android.app.Application)?.classLoader
+                            ?: biliClassLoader
+                        val prevLoader = observedHostLoaderRef.get()
+                        val currentElements = dexElementsCount(currentLoader)
+                        val prevElements = observedDexElementsCount.get()
+                        if (currentLoader !== prevLoader ||
+                            (currentElements >= 0 && prevElements >= 0 && currentElements != prevElements)
+                        ) {
+                            if (currentLoader !== prevLoader) {
+                                KavaMemberLookup.registerHostClassLoader(currentLoader)
+                            }
+                            observedHostLoaderRef.set(currentLoader)
+                            observedDexElementsCount.set(currentElements)
+                            KavaMemberLookup.clearNegativeCaches()
+                        }
                     }
                 }
             }.onFailure { throwable ->

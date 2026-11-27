@@ -879,7 +879,8 @@ internal object DexMeguvizGraphPlans {
                 QueryIntent.ENUMERATE,
                 MAX_RESULTS,
                 GRAPH_MAX_WORK
-            )
+            ),
+            fallbackOnly = true
         )
     }
 
@@ -909,7 +910,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = true
     )
 
     private fun pausedAdRequestApiPlan(): DexGraphPlan {
@@ -1648,7 +1650,8 @@ internal object DexMeguvizGraphPlans {
             QueryIntent.ENUMERATE,
             MAX_RESULTS,
             GRAPH_MAX_WORK
-        )
+        ),
+        fallbackOnly = false
     )
 
     private fun aiPlaylistDirectorPlan(): DexGraphPlan {

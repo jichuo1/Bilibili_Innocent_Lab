@@ -16,6 +16,9 @@ internal class MerchandiseFeatureInstaller(
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (!enabled) return FeatureInstallResult.Skipped("disabled")
+        if (environment.processName != TARGET_PACKAGE) {
+            return FeatureInstallResult.Skipped("non-main-process")
+        }
         val owner = KavaMemberLookup.classOrNull(environment.classLoader, COMPONENT_CLASS)
             ?: return FeatureInstallResult.Skipped("missing:$COMPONENT_CLASS")
 
@@ -62,6 +65,7 @@ internal class MerchandiseFeatureInstaller(
 
     companion object {
         const val ID = "merchandise"
+        private const val TARGET_PACKAGE = "tv.danmaku.bili"
         const val HOOK_CREATE_VIEW_ENTRY = "merchandise.create_view_entry"
         private const val COMPONENT_CLASS =
             "com.bilibili.ship.theseus.united.page.intro.module.merchandise.MerchandiseComponent"

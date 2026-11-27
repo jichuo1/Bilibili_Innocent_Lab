@@ -21,6 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PauseCountdownAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PegasusLoadMoreShape
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeComposeLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.makeAccessible
 import com.bilab.plugin.api.model.DexQuerySpec
 import io.github.jichuo1.dexmeguviz.AdvancedExecution
@@ -53,7 +54,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 宿主静态 DEX 后台兜底。归档快照与调用事实只在本次适配中持有。 */
-internal object DexMeguvizAssistEngine : DexAssistEngine {
+internal interface TieredDexAssistEngine : DexAssistEngine {
+    fun resolveAll(
+        queries: Set<DexAssistQuery>,
+        codePaths: List<String>,
+        classLoader: ClassLoader,
+        allowTier2: Boolean
+    ): Map<DexAssistQuery, DexAssistResult>
+}
+
+internal object DexMeguvizAssistEngine : TieredDexAssistEngine {
 
     private const val MAX_CODE_ARCHIVES = DexSourceFingerprint.MAX_CODE_ARCHIVES
     private const val MAX_BATCH_RULES = 32
@@ -108,6 +118,14 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         queries: Set<DexAssistQuery>,
         codePaths: List<String>,
         classLoader: ClassLoader
+    ): Map<DexAssistQuery, DexAssistResult> =
+        resolveAll(queries, codePaths, classLoader, allowTier2 = true)
+
+    override fun resolveAll(
+        queries: Set<DexAssistQuery>,
+        codePaths: List<String>,
+        classLoader: ClassLoader,
+        allowTier2: Boolean
     ): Map<DexAssistQuery, DexAssistResult> {
         if (queries.isEmpty()) return emptyMap()
         fun all(reason: Reason) = queries.associateWith { DexAssistResult.Unavailable(reason) }
@@ -122,7 +140,7 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         val splitNames = DexSourceFingerprint.splitNamesFor(paths)
         val generation = Any()
         try {
-            if (scanStrategy(queries) == ScanStrategy.DIRECT_TIER2_SNAPSHOT) {
+            if (allowTier2 && scanStrategy(queries) == ScanStrategy.DIRECT_TIER2_SNAPSHOT) {
                 if (rules.isNotEmpty() || graphPlans.isNotEmpty()) {
                     withArchiveSnapshot(paths, splitNames) { snapshot ->
                         val archive = Archive(snapshot, classLoader, generation)
@@ -132,28 +150,30 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
                 }
             } else {
                 val tier1 = runTier1Streaming(paths, splitNames, rules, outcomes, classLoader, generation)
-                val tier2Rules = if (tier1.completed) {
-                    rules.filter { it.query in tier1.crossDexFallbackQueries && outcomes.getValue(it.query).failure == null }
-                } else {
-                    rules
-                }
-                if (tier1.completed) {
-                    for (q in tier1.crossDexFallbackQueries) {
-                        outcomes.getValue(q).resetPartial()
+                if (allowTier2) {
+                    val tier2Rules = if (tier1.completed) {
+                        rules.filter { it.query in tier1.crossDexFallbackQueries && outcomes.getValue(it.query).failure == null }
+                    } else {
+                        rules
                     }
-                }
-                val tier2GraphPlans = graphPlans.filter { (query, plans) ->
-                    val outcome = outcomes.getValue(query)
-                    if (outcome.failure != null) return@filter false
-                    val hasCandidates = outcome.methods.isNotEmpty() || outcome.classes.isNotEmpty()
-                    plans.any { !it.fallbackOnly || !hasCandidates } ||
-                        (query in tier1.crossDexFallbackQueries && plans.isNotEmpty())
-                }
-                if (tier2Rules.isNotEmpty() || tier2GraphPlans.isNotEmpty()) {
-                    withArchiveSnapshot(paths, splitNames) { snapshot ->
-                        val archive = Archive(snapshot, classLoader, generation)
-                        if (tier2Rules.isNotEmpty()) archive.collect(tier2Rules, outcomes)
-                        if (tier2GraphPlans.isNotEmpty()) archive.collectGraphPlans(tier2GraphPlans, outcomes)
+                    if (tier1.completed) {
+                        for (q in tier1.crossDexFallbackQueries) {
+                            outcomes.getValue(q).resetPartial()
+                        }
+                    }
+                    val tier2GraphPlans = graphPlans.filter { (query, plans) ->
+                        val outcome = outcomes.getValue(query)
+                        if (outcome.failure != null) return@filter false
+                        val hasCandidates = outcome.methods.isNotEmpty() || outcome.classes.isNotEmpty()
+                        plans.any { !it.fallbackOnly || !hasCandidates } ||
+                            (query in tier1.crossDexFallbackQueries && plans.isNotEmpty())
+                    }
+                    if (tier2Rules.isNotEmpty() || tier2GraphPlans.isNotEmpty()) {
+                        withArchiveSnapshot(paths, splitNames) { snapshot ->
+                            val archive = Archive(snapshot, classLoader, generation)
+                            if (tier2Rules.isNotEmpty()) archive.collect(tier2Rules, outcomes)
+                            if (tier2GraphPlans.isNotEmpty()) archive.collectGraphPlans(tier2GraphPlans, outcomes)
+                        }
                     }
                 }
             }
@@ -2017,8 +2037,9 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
             synchronized(this) {
                 if (nativeState == NativeState.NOT_TRIED) {
                     nativeState = try {
+                        ModuleNativeLoader.load(NATIVE_LIBRARY_NAME)
                         if (NativeEngine.abiVersion() == 1) NativeState.AVAILABLE else NativeState.UNAVAILABLE
-                    } catch (_: LinkageError) {
+                    } catch (_: Throwable) {
                         NativeState.UNAVAILABLE
                     }
                 }
@@ -2026,6 +2047,8 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
         }
         return nativeState == NativeState.AVAILABLE
     }
+
+    private const val NATIVE_LIBRARY_NAME = "dexmeguviz"
 
     private enum class NativeState { NOT_TRIED, AVAILABLE, UNAVAILABLE }
 }

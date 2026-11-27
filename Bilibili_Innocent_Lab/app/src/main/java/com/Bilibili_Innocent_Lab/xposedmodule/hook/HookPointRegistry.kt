@@ -254,7 +254,11 @@ internal class HookPointRegistry(
         "float" -> classOf<Float>()
         "double" -> classOf<Double>()
         "void" -> Void.TYPE
-        else -> KavaMemberLookup.classOrNull(classLoader, name)
+        else -> if (name.startsWith("[")) {
+            runCatching { Class.forName(name, false, classLoader) }.getOrNull()
+        } else {
+            KavaMemberLookup.classOrNull(classLoader, name)
+        }
     }
 
     /** 只有已安装的重复点可跳过；进行中的注册不能被调用方误认为安装成功。 */

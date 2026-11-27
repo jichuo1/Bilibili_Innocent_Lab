@@ -9,6 +9,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossResponseHandlerProxy.ConfirmedReply
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.privacy.KmpMossBoundary
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.invoke
 import kmpfixture.modern.Descriptor
 import kmpfixture.modern.GrpcEngine
 import kmpfixture.modern.Handler
@@ -613,5 +614,65 @@ class KmpGrpcWireChannelTest {
             Thread.sleep(15)
         }
         assertTrue("Expected WeakHashMap entries to release registrars and loaders", refs.all { it.get() == null })
+    }
+
+    @Test
+    fun `unsubscribed RPC skips chain args materialization and override completely`() {
+        val registrar = PlayerPortTestRegistrar()
+        val environment = env(registrar = registrar)
+        val surface = KmpGrpcWireAdapter.inspectEntry(
+            GrpcEngine::class.java.declaredMethods.single { it.name == "a" }
+        )!!
+        assertTrue(
+            KmpGrpcWireChannel.install(
+                environment = environment,
+                surface = surface,
+                javaMossClassName = "com.bapis.bilibili.main.community.reply.v1.ReplyMoss",
+                rpc = "mainList",
+                javaReplyClass = WireJavaMessage::class.java,
+                what = "filter",
+                logKey = "k_zero_alloc"
+            ) { it }
+        )
+
+        val unsubscribed = Descriptor("bilibili.app.view.v1", "View", "View", WireDescriptor::class, DummyStrategy)
+        val engine = GrpcEngine(emptyList())
+        val sink = object : Handler {
+            override fun onNext(bytes: ByteArray?) = Unit
+            override fun onCompleted() = Unit
+            override fun onError(error: kmpfixture.modern.KMossException) = Unit
+        }
+        val argsArray = arrayOf(Service("grpc.biliapi.net"), unsubscribed, "req".toByteArray(), sink, null)
+        var getArgsCount = 0
+        var getArgCount = 0
+        var proceedNoArgsCount = 0
+        var proceedWithArgsCount = 0
+        val entry = registrar.hooks.getValue("kmp.grpc.wire.channel")
+        entry.callback.invoke(object : io.github.libxposed.api.XposedInterface.Chain {
+            override fun getExecutable() = entry.member
+            override fun getThisObject() = engine
+            override fun getArgs(): List<Any?> {
+                getArgsCount++
+                return argsArray.toList()
+            }
+            override fun getArg(index: Int): Any? {
+                getArgCount++
+                return argsArray[index]
+            }
+            override fun proceed(): Any? {
+                proceedNoArgsCount++
+                return null
+            }
+            override fun proceed(args: Array<Any?>): Any? {
+                proceedWithArgsCount++
+                return null
+            }
+            override fun proceedWith(thisObject: Any): Any? = null
+            override fun proceedWith(thisObject: Any, args: Array<Any?>): Any? = null
+        })
+        assertEquals(0, getArgsCount)
+        assertEquals(1, getArgCount)
+        assertEquals(1, proceedNoArgsCount)
+        assertEquals(0, proceedWithArgsCount)
     }
 }

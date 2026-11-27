@@ -20,6 +20,10 @@ internal class GamePromotionFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
+        if (environment.processName != TARGET_PACKAGE) {
+            environment.reportStatus(CHANNEL_STATUS, "non-main-process")
+            return FeatureInstallResult.Skipped("non-main-process")
+        }
 
         val results = LinkedHashMap<String, Boolean>()
         fun hookMethod(
@@ -177,6 +181,7 @@ internal class GamePromotionFeatureInstaller(
 
     companion object {
         const val ID = "game_mentioned_promotion"
+        private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val CHANNEL_STATUS = "gamecard_ad_status"
         private const val MENTIONED_COMPONENT_CLASS =
             "com.bilibili.biligame.videocard.GameVideoMentionedComponent"

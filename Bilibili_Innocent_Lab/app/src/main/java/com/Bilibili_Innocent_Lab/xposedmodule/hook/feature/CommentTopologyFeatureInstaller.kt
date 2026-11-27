@@ -197,7 +197,7 @@ internal class CommentTopologyFeatureInstaller(
 
     @Volatile private var lastInstallResult: FeatureInstallResult? = null
     @Volatile private var resolvedHostRef: ReplyTopologyHostAccess? = null
-    @Volatile private var coordinatorRef: ReplyTopologyCoordinator? = null
+    @Volatile private var coordinatorRef: Lazy<ReplyTopologyCoordinator>? = null
     @Volatile private var composeMenuInstalledComplete: Boolean = false
     @Volatile private var composeSeedsInstalledComplete: Boolean = false
     @Volatile private var lastBaseComplete: Boolean = false
@@ -256,6 +256,17 @@ internal class CommentTopologyFeatureInstaller(
     private fun isRecyclerViewInstance(view: View?): Boolean =
         anchorBinder.isRecyclerViewInstance(view)
 
+    private data class LegacyInstallResult(
+        val hooks: Int,
+        val baseComplete: Boolean,
+        val failureReason: String?
+    )
+
+    private data class ComposeInstallResult(
+        val hooks: Int,
+        val complete: Boolean
+    )
+
     @Synchronized
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (installedOnce.get()) {
@@ -277,6 +288,39 @@ internal class CommentTopologyFeatureInstaller(
         requiresAdaptationRetry = false
         val host = ReplyTopologyHostAccess.resolve(environment, adapted)
             ?: return missing(environment, "missing-host-access")
+
+        val coordinator = lazy(LazyThreadSafetyMode.SYNCHRONIZED) { ReplyTopologyCoordinator(host, environment) }
+        val legacy = installLegacyListTopology(environment, host, adapted, coordinator)
+        val compose = installComposeTopology(environment, host, coordinator)
+        val installed = legacy.hooks + compose.hooks
+
+        if (legacy.failureReason != null && compose.hooks == 0) {
+            return missing(environment, legacy.failureReason)
+        }
+
+        lastBaseComplete = legacy.baseComplete
+        lastInstalledCount = installed
+        val complete = legacy.baseComplete && compose.complete
+        val status = if (complete) "success" else "partial"
+        environment.reportStatus(CHANNEL_STATUS, status)
+        environment.logInfo(
+            "comment_topology_ok",
+            "[BIL] 回复脉络已安装，hooks=$installed,status=$status"
+        )
+        requiresAdaptationRetry = false
+        installedOnce.set(true)
+        return FeatureInstallResult.Installed(
+            installed,
+            complete = complete
+        ).also { lastInstallResult = it }
+    }
+
+    private fun installLegacyListTopology(
+        environment: HookEnvironment,
+        host: ReplyTopologyHostAccess,
+        adapted: VersionAdapter.CommentTopologyPoints,
+        coordinator: Lazy<ReplyTopologyCoordinator>
+    ): LegacyInstallResult {
         val resolvedLowBindPoint = lowBindRef.get()
         val resolvedHighBindPoint = highBindRef.get()
         val expectedBindOwners = linkedSetOf<String>()
@@ -306,11 +350,14 @@ internal class CommentTopologyFeatureInstaller(
             .distinctBy { point ->
                 "${point.className}#${point.methodName}(${point.paramClassNames.orEmpty()})"
             }
-        if (bindPoints.isEmpty()) return missing(environment, "missing-bind-point")
-        if (adapted.mapperMethods.isEmpty()) return missing(environment, "mapper-registration-failed")
+        if (bindPoints.isEmpty()) {
+            return LegacyInstallResult(hooks = 0, baseComplete = false, failureReason = "missing-bind-point")
+        }
+        if (adapted.mapperMethods.isEmpty()) {
+            return LegacyInstallResult(hooks = 0, baseComplete = false, failureReason = "mapper-registration-failed")
+        }
 
         val seedStore = ReplyTopologySeedStore()
-        val coordinator = ReplyTopologyCoordinator(host, environment)
         val committed = AtomicBoolean(false)
         var installed = 0
         var bindInstalled = 0
@@ -355,7 +402,7 @@ internal class CommentTopologyFeatureInstaller(
                             seed = seed,
                             seedStore = seedStore,
                             host = host,
-                            coordinator = coordinator,
+                            coordinator = coordinator.value,
                             environment = environment
                         )
                     }
@@ -371,7 +418,9 @@ internal class CommentTopologyFeatureInstaller(
                 )
             }
         }
-        if (bindInstalled == 0) return missing(environment, "bind-registration-failed")
+        if (bindInstalled == 0) {
+            return LegacyInstallResult(hooks = 0, baseComplete = false, failureReason = "bind-registration-failed")
+        }
 
         var mapperInstalled = 0
         val newlyRegisteredMappers = linkedSetOf<String>()
@@ -404,19 +453,28 @@ internal class CommentTopologyFeatureInstaller(
             }
         }
         if (mapperInstalled != adapted.mapperMethods.size || mapperInstalled == 0) {
-            return missing(environment, "mapper-registration-failed")
+            return LegacyInstallResult(hooks = 0, baseComplete = false, failureReason = "mapper-registration-failed")
         }
         committed.set(true)
         registeredBindKeys += newlyRegisteredBinds
         registeredMapperKeys += newlyRegisteredMappers
+        val baseComplete = bindInstalled == bindPoints.size && installedBindOwners.containsAll(expectedBindOwners)
+        return LegacyInstallResult(hooks = installed, baseComplete = baseComplete, failureReason = null)
+    }
 
+    private fun installComposeTopology(
+        environment: HookEnvironment,
+        host: ReplyTopologyHostAccess,
+        coordinator: Lazy<ReplyTopologyCoordinator>
+    ): ComposeInstallResult {
         var composeComplete = true
+        var installed = 0
         val loader = environment.classLoader
         if (loader != null && KavaMemberLookup.hasClass(loader, "kntr.common.comment.card.model.comment.CommentModel")) {
             resolvedHostRef = host
             coordinatorRef = coordinator
             val menu = ReplyTopologyComposeMenu(composeMenuPointsRef.get()) { anchor, seed ->
-                commentOwnerActivity(anchor.context)?.let { coordinator.open(it, seed, anchor) }
+                commentOwnerActivity(anchor.context)?.let { coordinator.value.open(it, seed, anchor) }
             }
             val menuResult = menu.install(environment)
             if (menuResult is FeatureInstallResult.Installed) composeMenu = menu
@@ -440,26 +498,7 @@ internal class CommentTopologyFeatureInstaller(
         } else {
             requiresComposeAdaptationRetry = false
         }
-
-        val baseComplete = bindInstalled == bindPoints.size && installedBindOwners.containsAll(expectedBindOwners)
-        lastBaseComplete = baseComplete
-        lastInstalledCount = installed
-        val complete = baseComplete && composeComplete
-        val status = if (complete) "success" else "partial"
-        environment.reportStatus(CHANNEL_STATUS, status)
-        environment.logInfo(
-            "comment_topology_ok",
-            "[BIL] 回复脉络已安装，hooks=$installed,binds=" +
-                bindPoints.joinToString("|") { point ->
-                    "${point.methodName}(${point.paramClassNames.orEmpty().joinToString(",")})"
-                } + ",status=$status"
-        )
-        requiresAdaptationRetry = false
-        installedOnce.set(true)
-        return FeatureInstallResult.Installed(
-            installed,
-            complete = complete
-        ).also { lastInstallResult = it }
+        return ComposeInstallResult(hooks = installed, complete = composeComplete)
     }
 
     @Synchronized
@@ -475,7 +514,7 @@ internal class CommentTopologyFeatureInstaller(
         if (!composeMenuInstalledComplete) {
             val menu = composeMenu?.apply { updateCachedPoints(composeMenuPointsRef.get()) }
                 ?: ReplyTopologyComposeMenu(composeMenuPointsRef.get()) { anchor, seed ->
-                    commentOwnerActivity(anchor.context)?.let { coordinator.open(it, seed, anchor) }
+                    commentOwnerActivity(anchor.context)?.let { coordinator.value.open(it, seed, anchor) }
                 }
             val menuResult = menu.install(environment)
             if (menuResult is FeatureInstallResult.Installed) {

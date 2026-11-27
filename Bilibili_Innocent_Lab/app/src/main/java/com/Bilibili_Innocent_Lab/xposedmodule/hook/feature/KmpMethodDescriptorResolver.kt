@@ -45,7 +45,8 @@ internal object KmpMethodDescriptorResolver {
         val mtdAccessor: Accessor?,
         val hasDescriptorShape: Boolean,
         val componentMethods: Triple<Method, Method, Method>?,
-        val exactStringFields: Triple<Field, Field, Field>?
+        val exactStringFields: Triple<Field, Field, Field>?,
+        val kClassFields: List<Field> = emptyList()
     )
 
     private class CachedResolution(val fullMethodName: String?)
@@ -138,11 +139,13 @@ internal object KmpMethodDescriptorResolver {
         DESCRIPTOR.find(raw)?.let { match ->
             return "${match.groupValues[1]}.${match.groupValues[2]}/${match.groupValues[3]}"
         }
-        if (!OBJECT_TO_STRING.matches(raw)) return null
+        val matchesObjectToString = OBJECT_TO_STRING.matches(raw)
         val plan = planFor(descriptor.javaClass)
-        readFromNamedMembers(descriptor, plan)?.let { return it }
+        if (!plan.hasDescriptorShape && !matchesObjectToString) return null
+        val requireDotPackage = !matchesObjectToString
+        readFromNamedMembers(descriptor, plan, requireDotPackage)?.let { return it }
         if (!plan.hasDescriptorShape) return null
-        readFromComponents(descriptor, plan)?.let { return it }
+        readFromComponents(descriptor, plan, requireDotPackage)?.let { return it }
         return readFromThreeStringFields(descriptor, plan)
     }
 
@@ -160,19 +163,26 @@ internal object KmpMethodDescriptorResolver {
             val c3 = zeroArgStringMethod(type, "component3")
             if (c1 != null && c2 != null && c3 != null) Triple(c1, c2, c3) else null
         } else null
-        val stringFields = if (hasShape) {
-            val candidates = Lookup.fields(type, includeSuperclasses = true, makeAccessible = true).filter {
-                !Modifier.isStatic(it.modifiers) && !it.isSynthetic && it.type == String::class.java
+        val declaredNonStaticFields = if (hasShape) {
+            Lookup.fields(type, includeSuperclasses = true, makeAccessible = true).filter {
+                !Modifier.isStatic(it.modifiers) && !it.isSynthetic
             }
+        } else emptyList()
+        val stringFields = if (hasShape) {
+            val candidates = declaredNonStaticFields.filter { it.type == String::class.java }
             if (candidates.size == 3) Triple(candidates[0], candidates[1], candidates[2]) else null
         } else null
+        val kClassFields = if (hasShape) {
+            declaredNonStaticFields.filter { it.type.name == KCLASS }
+        } else emptyList()
         val built = MemberPlan(
             pkgAccessor = pkgAccessor,
             svcAccessor = svcAccessor,
             mtdAccessor = mtdAccessor,
             hasDescriptorShape = hasShape,
             componentMethods = components,
-            exactStringFields = stringFields
+            exactStringFields = stringFields,
+            kClassFields = kClassFields
         )
         return synchronized(classPlans) {
             classPlans[type]?.get() ?: built.also { classPlans[type] = java.lang.ref.SoftReference(it) }
@@ -193,29 +203,86 @@ internal object KmpMethodDescriptorResolver {
         Lookup.inheritedMethodOrNull(type, name)
             ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == String::class.java }
 
-    private fun readFromNamedMembers(descriptor: Any, plan: MemberPlan): String? {
+    private fun readFromNamedMembers(descriptor: Any, plan: MemberPlan, requireDotPackage: Boolean): String? {
         val pkg = plan.pkgAccessor?.read(descriptor) ?: return null
         val svc = plan.svcAccessor?.read(descriptor) ?: return null
         val mtd = plan.mtdAccessor?.read(descriptor) ?: return null
+        val pkgValid = if (requireDotPackage) isValidPackageName(pkg) else isValidSegment(pkg)
+        if (!pkgValid || !isValidSegment(svc) || !isValidSegment(mtd)) return null
         return "$pkg.$svc/$mtd"
     }
 
-    private fun readFromComponents(descriptor: Any, plan: MemberPlan): String? {
+    private fun readFromComponents(descriptor: Any, plan: MemberPlan, requireDotPackage: Boolean): String? {
         val (c1, c2, c3) = plan.componentMethods ?: return null
         val pkg = (runCatching { c1.invoke(descriptor) as? String }.getOrNull()) ?: return null
         val svc = (runCatching { c2.invoke(descriptor) as? String }.getOrNull()) ?: return null
         val mtd = (runCatching { c3.invoke(descriptor) as? String }.getOrNull()) ?: return null
-        if (!isValidSegment(pkg) || !isValidSegment(svc) || !isValidSegment(mtd)) return null
+        val pkgValid = if (requireDotPackage) isValidPackageName(pkg) else isValidSegment(pkg)
+        if (!pkgValid || !isValidSegment(svc) || !isValidSegment(mtd)) return null
         return "$pkg.$svc/$mtd"
     }
 
     private fun readFromThreeStringFields(descriptor: Any, plan: MemberPlan): String? {
         val (f0, f1, f2) = plan.exactStringFields ?: return null
-        val pkg = (runCatching { f0.get(descriptor) as? String }.getOrNull()) ?: return null
-        val svc = (runCatching { f1.get(descriptor) as? String }.getOrNull()) ?: return null
-        val mtd = (runCatching { f2.get(descriptor) as? String }.getOrNull()) ?: return null
-        if (!isValidPackageName(pkg) || !isValidSegment(svc) || !isValidSegment(mtd)) return null
+        val values = listOf(
+            runCatching { f0.get(descriptor) as? String }.getOrNull() ?: return null,
+            runCatching { f1.get(descriptor) as? String }.getOrNull() ?: return null,
+            runCatching { f2.get(descriptor) as? String }.getOrNull() ?: return null
+        )
+        if (values.any { !isValidSegment(it) }) return null
+        val pkgMatches = values.withIndex().filter { isValidPackageName(it.value) }
+        if (pkgMatches.size != 1) return null
+        val pkgEntry = pkgMatches.single()
+        val pkg = pkgEntry.value
+        val remaining = values.withIndex()
+            .filter { it.index != pkgEntry.index }
+            .map { it.value }
+        val first = remaining[0]
+        val second = remaining[1]
+        if (first.contains('.') || second.contains('.')) return null
+        val (svc, mtd) = classifyServiceAndMethod(descriptor, plan, first, second)
+        if (!isValidSegment(svc) || !isValidSegment(mtd)) return null
         return "$pkg.$svc/$mtd"
+    }
+
+    private fun classifyServiceAndMethod(
+        descriptor: Any,
+        plan: MemberPlan,
+        first: String,
+        second: String
+    ): Pair<String, String> {
+        val kClassSimpleNames = plan.kClassFields.mapNotNull { field ->
+            val kClass = runCatching { field.get(descriptor) as? kotlin.reflect.KClass<*> }.getOrNull()
+            kClass?.java?.simpleName?.takeIf { it.isNotBlank() && it != "Object" && it != "Any" && it != "Unit" }
+        }
+        if (kClassSimpleNames.isNotEmpty()) {
+            fun matchesMessageModel(candidate: String): Boolean = kClassSimpleNames.any { simple ->
+                simple.startsWith(candidate) && (
+                    simple == "${candidate}Req" ||
+                        simple == "${candidate}Reply" ||
+                        simple == "${candidate}Resp" ||
+                        simple == "${candidate}Request" ||
+                        simple == "${candidate}Response"
+                    )
+            }
+            val firstMatchesMethod = matchesMessageModel(first)
+            val secondMatchesMethod = matchesMessageModel(second)
+            if (firstMatchesMethod && !secondMatchesMethod) return second to first
+            if (secondMatchesMethod && !firstMatchesMethod) return first to second
+        }
+        fun looksLikeServiceName(value: String): Boolean =
+            value.endsWith("Service") || value.endsWith("Svc") || value.endsWith("ServiceV2") || value.endsWith("Api")
+        val firstIsService = looksLikeServiceName(first)
+        val secondIsService = looksLikeServiceName(second)
+        if (firstIsService != secondIsService) {
+            return if (firstIsService) first to second else second to first
+        }
+        val firstLower = first.firstOrNull()?.isLowerCase() == true
+        val secondLower = second.firstOrNull()?.isLowerCase() == true
+        if (firstLower != secondLower) {
+            return if (secondLower) first to second else second to first
+        }
+        return first to second
     }
 
     private fun isValidPackageName(value: String): Boolean =

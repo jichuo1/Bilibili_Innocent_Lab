@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginApiBridgeClassLoader
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.loadClassOrNull
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.makeAccessible
 import io.github.jichuo1.meguviz.ref.api.descriptor.MemberKind
@@ -39,7 +40,6 @@ internal object KavaMemberLookup {
         val cachedMemberCollections: Int
     )
 
-    private data class CachedValue<T>(val value: T?)
     private data class ZeroArgMethodKey(
         val declaringClass: Class<*>,
         val name: String,
@@ -70,15 +70,32 @@ internal object KavaMemberLookup {
     )
 
     private class LoaderCache {
-        val classes = ConcurrentHashMap<String, CachedValue<Class<*>>>()
-        val methods = ConcurrentHashMap<MethodKey, CachedValue<Method>>()
-        val zeroArgMethods = ConcurrentHashMap<ZeroArgMethodKey, CachedValue<Method>>()
-        val fields = ConcurrentHashMap<FieldKey, CachedValue<Field>>()
-        val constructors = ConcurrentHashMap<ConstructorKey, CachedValue<Constructor<*>>>()
-        val zeroArgConstructors = ConcurrentHashMap<Class<*>, CachedValue<Constructor<*>>>()
+        val classes = ConcurrentHashMap<String, Class<*>>()
+        val methods = ConcurrentHashMap<MethodKey, Method>()
+        val zeroArgMethods = ConcurrentHashMap<ZeroArgMethodKey, Method>()
+        val fields = ConcurrentHashMap<FieldKey, Field>()
+        val constructors = ConcurrentHashMap<ConstructorKey, Constructor<*>>()
+        val zeroArgConstructors = ConcurrentHashMap<Class<*>, Constructor<*>>()
+
+        val negativeClasses: MutableSet<String> = ConcurrentHashMap.newKeySet()
+        val negativeMethods: MutableSet<MethodKey> = ConcurrentHashMap.newKeySet()
+        val negativeZeroArgMethods: MutableSet<ZeroArgMethodKey> = ConcurrentHashMap.newKeySet()
+        val negativeFields: MutableSet<FieldKey> = ConcurrentHashMap.newKeySet()
+        val negativeConstructors: MutableSet<ConstructorKey> = ConcurrentHashMap.newKeySet()
+        val negativeZeroArgConstructors: MutableSet<Class<*>> = ConcurrentHashMap.newKeySet()
+
         val methodCollections = ConcurrentHashMap<MethodCollectionKey, List<Method>>()
         val fieldCollections = ConcurrentHashMap<FieldCollectionKey, List<Field>>()
         val constructorCollections = ConcurrentHashMap<Class<*>, List<Constructor<*>>>()
+
+        fun clearNegative() {
+            negativeClasses.clear()
+            negativeMethods.clear()
+            negativeZeroArgMethods.clear()
+            negativeFields.clear()
+            negativeConstructors.clear()
+            negativeZeroArgConstructors.clear()
+        }
 
         fun clear() {
             classes.clear()
@@ -87,6 +104,7 @@ internal object KavaMemberLookup {
             fields.clear()
             constructors.clear()
             zeroArgConstructors.clear()
+            clearNegative()
             methodCollections.clear()
             fieldCollections.clear()
             constructorCollections.clear()
@@ -145,15 +163,10 @@ internal object KavaMemberLookup {
         var cur: ClassLoader? = loader
         var hops = 0
         while (cur != null && hops < 16) {
-            var curCls: Class<*>? = cur::class.java
-            while (curCls != null && curCls != ClassLoader::class.java && curCls != Any::class.java) {
-                val curName = curCls.name
-                if (curName.startsWith("com.Bilibili_Innocent_Lab.xposedmodule.plugin.") ||
-                    curName.contains("PluginApiBridgeClassLoader")
-                ) {
-                    return true
-                }
-                curCls = curCls.superclass
+            if (cur is PluginApiBridgeClassLoader ||
+                cur::class.java.name.startsWith("com.Bilibili_Innocent_Lab.xposedmodule.plugin.")
+            ) {
+                return true
             }
             cur = cur.parent
             hops++
@@ -172,10 +185,7 @@ internal object KavaMemberLookup {
             val simple = cls.simpleName
             if (simple.contains("Plugin", ignoreCase = true) ||
                 simple.contains("Dynamic", ignoreCase = true) ||
-                simple.contains("Isolated", ignoreCase = true) ||
-                simple.contains("Hotfix", ignoreCase = true) ||
-                simple.contains("Tinker", ignoreCase = true) ||
-                simple.contains("Patch", ignoreCase = true)
+                simple.contains("Isolated", ignoreCase = true)
             ) {
                 return true
             }
@@ -254,14 +264,19 @@ internal object KavaMemberLookup {
     private val cacheMisses = AtomicLong()
     private val lookupFailures = AtomicLong()
 
-    private fun <K, V> cachedValue(
-        cache: ConcurrentHashMap<K, CachedValue<V>>,
+    private fun <K : Any, V : Any> cachedValue(
+        cache: ConcurrentHashMap<K, V>,
+        negativeCache: MutableSet<K>,
         key: K,
         resolver: () -> V?
     ): V? = StartupTrace.measure("lookup.value") {
         cache[key]?.let {
             cacheHits.incrementAndGet()
-            return@measure it.value
+            return@measure it
+        }
+        if (negativeCache.contains(key)) {
+            cacheHits.incrementAndGet()
+            return@measure null
         }
         cacheMisses.incrementAndGet()
         val resolved = try {
@@ -271,8 +286,11 @@ internal object KavaMemberLookup {
             lookupFailures.incrementAndGet()
             return@measure null
         }
-        val value = CachedValue(resolved)
-        cache.putIfAbsent(key, value)?.value ?: resolved
+        if (resolved == null) {
+            negativeCache.add(key)
+            return@measure null
+        }
+        cache.putIfAbsent(key, resolved) ?: resolved
     }
 
     private fun <K, V> cachedList(
@@ -298,7 +316,8 @@ internal object KavaMemberLookup {
     /** 通过指定宿主 ClassLoader 加载类，不触发类初始化；版本漂移时返回 null。 */
     fun classOrNull(classLoader: ClassLoader?, name: String): Class<*>? {
         if (classLoader == null) return null
-        return cachedValue(loaderCache(classLoader).classes, name) {
+        val bucket = loaderCache(classLoader)
+        return cachedValue(bucket.classes, bucket.negativeClasses, name) {
             classLoader.loadClassOrNull(name)
         }
     }
@@ -331,6 +350,7 @@ internal object KavaMemberLookup {
         if (parameterTypes.isEmpty()) {
             return cachedValue(
                 bucket.zeroArgMethods,
+                bucket.negativeZeroArgMethods,
                 ZeroArgMethodKey(declaringClass, name, includeSuperclasses)
             ) {
                 firstMember(declaringClass, MemberKind.METHOD, name, EMPTY_CLASS_ARRAY, includeSuperclasses)
@@ -339,6 +359,7 @@ internal object KavaMemberLookup {
         }
         return cachedValue(
             bucket.methods,
+            bucket.negativeMethods,
             MethodKey(declaringClass, name, parameterTypes.toList(), includeSuperclasses)
         ) {
             firstMember(declaringClass, MemberKind.METHOD, name, parameterTypes, includeSuperclasses)
@@ -438,11 +459,15 @@ internal object KavaMemberLookup {
         declaringClass: Class<*>,
         name: String,
         includeSuperclasses: Boolean = false
-    ): Field? = cachedValue(
-        loaderCache(declaringClass.classLoader).fields,
-        FieldKey(declaringClass, name, includeSuperclasses)
-    ) {
-        firstMember(declaringClass, MemberKind.FIELD, name, includeSuperclasses = includeSuperclasses)?.let { it as Field }?.takeIf { it.makeAccessible() }
+    ): Field? {
+        val bucket = loaderCache(declaringClass.classLoader)
+        return cachedValue(
+            bucket.fields,
+            bucket.negativeFields,
+            FieldKey(declaringClass, name, includeSuperclasses)
+        ) {
+            firstMember(declaringClass, MemberKind.FIELD, name, includeSuperclasses = includeSuperclasses)?.let { it as Field }?.takeIf { it.makeAccessible() }
+        }
     }
 
     /** 解析当前类声明的字段集合；读取型调用方可要求统一开放访问权限。 */
@@ -533,13 +558,14 @@ internal object KavaMemberLookup {
     ): Constructor<*>? {
         val bucket = loaderCache(declaringClass.classLoader)
         if (parameterTypes.isEmpty()) {
-            return cachedValue(bucket.zeroArgConstructors, declaringClass) {
+            return cachedValue(bucket.zeroArgConstructors, bucket.negativeZeroArgConstructors, declaringClass) {
                 firstMember(declaringClass, MemberKind.CONSTRUCTOR, parameterTypes = EMPTY_CLASS_ARRAY)
                     ?.let { it as Constructor<*> }?.takeIf { it.makeAccessible() }
             }
         }
         return cachedValue(
             bucket.constructors,
+            bucket.negativeConstructors,
             ConstructorKey(declaringClass, parameterTypes.toList())
         ) {
             firstMember(declaringClass, MemberKind.CONSTRUCTOR, parameterTypes = parameterTypes)
@@ -631,10 +657,12 @@ internal object KavaMemberLookup {
         var cachedConstructors = 0
         var cachedMemberCollections = 0
         fun accumulate(bucket: LoaderCache) {
-            cachedClasses += bucket.classes.size
-            cachedMethods += bucket.methods.size + bucket.zeroArgMethods.size
-            cachedFields += bucket.fields.size
-            cachedConstructors += bucket.constructors.size + bucket.zeroArgConstructors.size
+            cachedClasses += bucket.classes.size + bucket.negativeClasses.size
+            cachedMethods += bucket.methods.size + bucket.zeroArgMethods.size +
+                bucket.negativeMethods.size + bucket.negativeZeroArgMethods.size
+            cachedFields += bucket.fields.size + bucket.negativeFields.size
+            cachedConstructors += bucket.constructors.size + bucket.zeroArgConstructors.size +
+                bucket.negativeConstructors.size + bucket.negativeZeroArgConstructors.size
             cachedMemberCollections += bucket.methodCollections.size +
                 bucket.fieldCollections.size + bucket.constructorCollections.size
         }
@@ -651,6 +679,16 @@ internal object KavaMemberLookup {
             cachedConstructors = cachedConstructors,
             cachedMemberCollections = cachedMemberCollections
         )
+    }
+
+    /** 清空全部已缓存的负查询结果（如 Tinker/热更新追加 dexElements 后），保留正缓存命中结果。 */
+    internal fun clearNegativeCaches() {
+        bootCache.clearNegative()
+        lastLoaderSlot?.cache?.clearNegative()
+        val buckets = synchronized(loaderCaches) { loaderCaches.values.toList() }
+        for (bucket in buckets) {
+            bucket.clearNegative()
+        }
     }
 
     /** 仅供单元测试隔离状态；生产进程不清空稳定的 Class/Member 缓存。 */

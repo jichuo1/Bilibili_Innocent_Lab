@@ -380,6 +380,22 @@ private class AdaptPlanCacheCases {
         // 评论 high 点缺失的旧规则仍然整轮失效。
         val lowOnly = stored.copy(commentHigh = null, coverage = null)
         assertNull(StartupCacheSnapshot(identity, stored.ts, lowOnly).usableCache(true, plan()))
+        // 但如果覆盖证明 COMMENT_HIGH 已确证缺失或当前计划不请求且存在覆盖范围，缓存可复用不再无限重适配。
+        val highConclusiveMissing = stored.copy(
+            commentHigh = null,
+            coverage = AdaptCoverage(
+                PointFamily.entries.associateWith {
+                    if (it == PointFamily.COMMENT_HIGH) Attempt.CONCLUSIVE_MISSING
+                    else stored.coverage!!.attempt(it)
+                }
+            )
+        )
+        assertNotNull(StartupCacheSnapshot(identity, stored.ts, highConclusiveMissing).usableCache(true, AdaptPlan.full()))
+        val disabledHighPartial = stored.copy(
+            commentHigh = null,
+            coverage = AdaptCoverage(mapOf(PointFamily.FULL_NUMBERS to Attempt.FOUND))
+        )
+        assertNotNull(StartupCacheSnapshot(identity, stored.ts, disabledHighPartial).usableCache(true, plan(PointFamily.FULL_NUMBERS)))
     }
 
     fun `decision table`() {

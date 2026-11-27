@@ -23,7 +23,8 @@ internal object DexSourceFingerprint {
      * 输入归档上限（涵盖含原生库/资源/语言在内的全部 APK 与 split）；
      * 通过过滤后实际交给 DexMeguviz 的含 DEX 归档数由 [MAX_CODE_ARCHIVES]（与 `ApkMetadataPlan` 对齐，base + 7 split = 8）约束。
      */
-    private const val MAX_ARCHIVES = 32
+    private const val MAX_ARCHIVES = 64
+    private const val MAX_RAW_ARCHIVES = 512
     internal const val MAX_CODE_ARCHIVES = 8
     private const val MAX_DEX_ENTRIES = 512
     private const val MAX_SPLIT_CACHE_ENTRIES = 8
@@ -105,10 +106,16 @@ internal object DexSourceFingerprint {
         maximumOriginalBytes: Long = 512L * 1024 * 1024,
         materializeArchiveView: Boolean = false
     ): Result? = runCatching {
-        val archives = paths.mapIndexed { index, path ->
+        val rawArchives = paths.mapIndexed { index, path ->
             File(path) to splitNames.getOrNull(index)?.takeIf(String::isNotBlank)
         }.distinctBy { (file, _) -> file.canonicalPath }
-        if (archives.isEmpty() || archives.size > MAX_ARCHIVES || archives.any { (file, _) -> !file.isFile }) {
+        if (rawArchives.isEmpty() || rawArchives.size > MAX_RAW_ARCHIVES || rawArchives.any { (file, _) -> !file.isFile }) {
+            return@runCatching null
+        }
+        val archives = rawArchives.filter { (file, splitName) ->
+            !isNonCodeConfigSplit(file, splitName) && hasDexOrPatchCarrier(file)
+        }
+        if (archives.isEmpty() || archives.size > MAX_ARCHIVES) {
             return@runCatching null
         }
 
@@ -155,6 +162,27 @@ internal object DexSourceFingerprint {
     }.getOrNull()
 
     private class ResolvedArchive(val archive: File, val dexEntries: List<String>)
+
+    private fun isNonCodeConfigSplit(file: File, splitName: String?): Boolean {
+        val normalizedSplit = splitName?.lowercase()
+        if (normalizedSplit != null && normalizedSplit.startsWith("config.")) {
+            return true
+        }
+        val name = file.name.lowercase()
+        return name.startsWith("split_config.") && name.endsWith(".apk")
+    }
+
+    private fun hasDexOrPatchCarrier(file: File): Boolean = ZipFile(file).use { zip ->
+        val entries = zip.entries()
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+            if (entry.isDirectory) continue
+            val name = entry.name
+            if (DEX_ENTRY_PATTERN.matches(name)) return@use true
+            if (PATCH_ROOTS.any { root -> name == "$root/origin.apk" }) return@use true
+        }
+        false
+    }
 
     private fun readDexEntries(zip: ZipFile): List<String> =
         zip.entries().asSequence()

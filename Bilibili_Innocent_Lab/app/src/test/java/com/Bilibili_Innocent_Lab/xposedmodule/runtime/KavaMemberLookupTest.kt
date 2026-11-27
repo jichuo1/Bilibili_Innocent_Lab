@@ -373,6 +373,38 @@ class KavaMemberLookupTest {
         assertTrue("dynamic ClassLoader should not be pinned by Value -> Key cycle in loaderCaches", collected)
     }
 
+    fun `negative cache separation preserves positive hits when clearNegativeCaches runs`() {
+        val loader = requireNotNull(HiddenMethods::class.java.classLoader)
+
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(loader, HiddenMethods::class.java.name))
+        assertEquals("seed", KavaMemberLookup.methodOrNull(HiddenMethods::class.java, "seed")?.name)
+        assertNull(KavaMemberLookup.classOrNull(loader, "missing.PatchClass"))
+        assertNull(KavaMemberLookup.methodOrNull(HiddenMethods::class.java, "missingPatchMethod"))
+        assertNull(KavaMemberLookup.fieldOrNull(HiddenMethods::class.java, "missingPatchField"))
+        assertNull(KavaMemberLookup.constructorOrNull(HiddenMethods::class.java, String::class.java, Int::class.java))
+
+        val beforeClear = KavaMemberLookup.diagnostics()
+        assertEquals(2, beforeClear.cachedClasses)
+        assertEquals(2, beforeClear.cachedMethods)
+        assertEquals(1, beforeClear.cachedFields)
+        assertEquals(1, beforeClear.cachedConstructors)
+
+        KavaMemberLookup.clearNegativeCaches()
+
+        val afterClear = KavaMemberLookup.diagnostics()
+        assertEquals(1, afterClear.cachedClasses)
+        assertEquals(1, afterClear.cachedMethods)
+        assertEquals(0, afterClear.cachedFields)
+        assertEquals(0, afterClear.cachedConstructors)
+
+        val missesBeforeRetry = afterClear.cacheMisses
+        val hitsBeforeRetry = afterClear.cacheHits
+        assertSame(HiddenMethods::class.java, KavaMemberLookup.classOrNull(loader, HiddenMethods::class.java.name))
+        assertEquals("seed", KavaMemberLookup.methodOrNull(HiddenMethods::class.java, "seed")?.name)
+        assertEquals(missesBeforeRetry, KavaMemberLookup.diagnostics().cacheMisses)
+        assertEquals(hitsBeforeRetry + 2, KavaMemberLookup.diagnostics().cacheHits)
+    }
+
     private fun assertFalse(condition: Boolean) = org.junit.Assert.assertFalse(condition)
 
     @org.junit.Test
@@ -400,5 +432,6 @@ class KavaMemberLookupTest {
         runIsolated { s -> s.`superclass collections reuse cached declared class collections and batch boot scope`() }
         runIsolated { s -> s.`registered host loader uses volatile fast path and keeps third party child loaders out of cache`() }
         runIsolated { s -> s.`isolated and url class loaders bypass persistent loaderCaches and remain collectable`() }
+        runIsolated { s -> s.`negative cache separation preserves positive hits when clearNegativeCaches runs`() }
     }
 }
