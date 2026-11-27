@@ -9,6 +9,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.LiveDanmakuRules
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
+import com.bilab.plugin.api.spi.DanmakuBatchFilter
+import com.bilab.plugin.api.spi.DanmakuBatchView
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -55,7 +58,9 @@ internal class DanmakuPurifyFeatureInstaller(
     /** 主线程上只查缓存、绝不联网；单测可替换。 */
     private val isMainThread: () -> Boolean = { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() },
     private val liveRules: (() -> LiveDanmakuRules)? = null,
-    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
+    private val kmpGrpcWireEngine: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null,
+    private val pluginBatchFilters: () -> List<DanmakuBatchFilter> = { emptyList() },
+    private val pluginFiltersEnabled: Boolean = false
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -81,7 +86,8 @@ internal class DanmakuPurifyFeatureInstaller(
     private var wireLog: ((String, String) -> Unit)? = null
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (minimumWeight == null && !removeVipColorful && semanticJudge == null) {
+        val hasPluginFilters = pluginFiltersEnabled || pluginBatchFilters().isNotEmpty()
+        if (minimumWeight == null && !removeVipColorful && semanticJudge == null && !hasPluginFilters) {
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
@@ -111,7 +117,8 @@ internal class DanmakuPurifyFeatureInstaller(
         val usableWeight = minimumWeight != null && members.weight != null
         val usableColorful = removeVipColorful && members.colorful != null
         val usableSemantic = semanticJudge != null && members.elemList != null && members.content != null
-        if (!usableWeight && !usableColorful && !usableSemantic) {
+        val usablePlugin = hasPluginFilters && members.elemList != null
+        if (!usableWeight && !usableColorful && !usableSemantic && !usablePlugin) {
             return missing(environment, "missing-reply-members")
         }
         val handlerClass = KavaMemberLookup.classOrNull(loader, MOSS_HANDLER_CLASS)
@@ -403,7 +410,8 @@ internal class DanmakuPurifyFeatureInstaller(
             // 删了渐变样式定义，就必须同时把引用它的弹幕改回普通色：弹幕分段整包交给原生引擎
             // （libchronos）解析，不能留"条目引用一个已不存在的样式"这种半截数据。
             val recolored = neutralizeVipColorful(reply, members, weighted, live.colorful) ?: weighted
-            val elems = semanticFilter(environment, reply, members, recolored) ?: recolored
+            val semanticElems = semanticFilter(environment, reply, members, recolored) ?: recolored
+            val elems = applyPluginBatchFilters(reply, members, semanticElems) ?: semanticElems
             if (elems == null && colorful == null) return@runCatching reply
             val updated = members.builder.edit(reply) { builder ->
                 if (elems != null) {
@@ -473,10 +481,12 @@ internal class DanmakuPurifyFeatureInstaller(
     ): Any? {
         val threshold = live.minimum
         val liveColorful = live.colorful
-        if (threshold == null && !liveColorful && semanticJudge == null) return reply
+        val activePluginFilters = pluginBatchFilters()
+        if (threshold == null && !liveColorful && semanticJudge == null && activePluginFilters.isEmpty()) return reply
         return runCatching {
             val bytes = plan.serialize(reply) ?: return@runCatching null
-            val purified = purifyWireBytes(plan, environment, bytes, members, live) ?: return@runCatching null
+            val purified = purifyWireBytes(plan, environment, bytes, members, live, activePluginFilters)
+                ?: return@runCatching null
             if (purified.bytes === bytes) return@runCatching reply
             // 宿主解析器口径二次核验：改写产物真的被 parseFrom 接受且条数与 wire 复核一致。
             val parsed = plan.parse(purified.bytes) ?: return@runCatching null
@@ -496,10 +506,13 @@ internal class DanmakuPurifyFeatureInstaller(
         bytes: ByteArray,
         members: ReplyMembers,
         live: LiveDanmakuRules,
+        activePluginFilters: List<DanmakuBatchFilter> = pluginBatchFilters(),
     ): WirePurifyResult? {
         val threshold = live.minimum
         val liveColorful = live.colorful
-        if (threshold == null && !liveColorful && semanticJudge == null) return WirePurifyResult(bytes, -1)
+        if (threshold == null && !liveColorful && semanticJudge == null && activePluginFilters.isEmpty()) {
+            return WirePurifyResult(bytes, -1)
+        }
         return runCatching {
             val fields: DanmakuWireFields = plan.fields
             val scan = engineScan(bytes, fields) ?: return@runCatching null
@@ -577,16 +590,46 @@ internal class DanmakuPurifyFeatureInstaller(
                 emptySet()
             }
 
-            // ---- 位图：权重 × 语义 × 彩字改色（改色只作用于保留下来的条目，与反射路径组合一致）----
+            // ---- 位图：权重 × 语义 × 插件批量过滤 × 彩字改色（改色只作用于保留下来的条目，与反射路径组合一致）----
+            val pluginActions: ByteArray?
+            val pluginColors: IntArray?
+            if (activePluginFilters.isNotEmpty() && elemCount > 0) {
+                val actions = ByteArray(elemCount)
+                val colors = IntArray(elemCount)
+                if (runDanmakuBatchFilters(activePluginFilters, WireDanmakuBatchView(bytes, scan, elemCount), actions, colors)) {
+                    pluginActions = actions
+                    pluginColors = colors
+                } else {
+                    pluginActions = null
+                    pluginColors = null
+                }
+            } else {
+                pluginActions = null
+                pluginColors = null
+            }
+
             val keep = BooleanArray(elemCount)
             val recolor = BooleanArray(elemCount)
             var changed = false
             var keptCount = 0
             for (i in 0 until elemCount) {
-                val keepEntry = weightKeep[i] && (!semanticActive || texts[i] !in blocked)
+                val pluginAction = pluginActions?.get(i) ?: DanmakuBatchFilter.ACTION_KEEP
+                val keepEntry = weightKeep[i] &&
+                    (!semanticActive || texts[i] !in blocked) &&
+                    pluginAction != DanmakuBatchFilter.ACTION_DROP
                 keep[i] = keepEntry
-                val recolorEntry = liveColorful && keepEntry && scan.hasColorful(i) &&
-                    scan.colorful(i) == vipValue
+                val pluginRecolor = keepEntry && pluginAction == DanmakuBatchFilter.ACTION_RECOLOR
+                if (pluginRecolor) {
+                    val requestedColor = pluginColors?.get(i) ?: 0
+                    if (requestedColor != 0 || !scan.hasColorful(i)) {
+                        // 需要写入非零颜色或新增彩字字段时回退反射副本链路。
+                        return@runCatching null
+                    }
+                }
+                val recolorEntry = keepEntry && (
+                    (liveColorful && scan.hasColorful(i) && scan.colorful(i) == vipValue) ||
+                        pluginRecolor
+                    )
                 recolor[i] = recolorEntry
                 if (keepEntry) keptCount++
                 if (!keepEntry || recolorEntry) changed = true
@@ -815,6 +858,12 @@ internal class DanmakuPurifyFeatureInstaller(
             }
         }
         val elemColorfulSetter = elemPlan?.method("setColorfulValue", classOf<Int>())
+        val elemColorGetter = elemClass?.let {
+            KavaMemberLookup.methodOrNull(it, "getColor")?.takeIf { method ->
+                !method.isStatic && method.parameterCount == 0 && method.returnType == classOf<Int>()
+            }
+        }
+        val elemColorSetter = elemPlan?.method("setColor", classOf<Int>())
         val colorful = typeGetter?.let { getter ->
             val clear = builder.method("clearColorfulSrc")
             val addAll = builder.method("addAllColorfulSrc", classOf<Iterable<*>>())
@@ -850,7 +899,12 @@ internal class DanmakuPurifyFeatureInstaller(
         return ReplyMembers(
             replyClass = replyClass, builder = builder, elemList = elemList, weight = weight, colorful = colorful,
             content = contentGetter?.takeIf { elemList != null },
-            wire = wire
+            wire = wire,
+            elemPlan = elemPlan,
+            elemColorGetter = elemColorGetter,
+            elemColorSetter = elemColorSetter,
+            elemColorfulGetter = elemColorfulGetter,
+            elemColorfulSetter = elemColorfulSetter,
         )
     }
 
@@ -905,7 +959,185 @@ internal class DanmakuPurifyFeatureInstaller(
         val content: Method?,
         /** wire 快路径计划；探针或自检失败时为 null，走既有反射链路。 */
         val wire: DanmakuWirePlan? = null,
+        val elemPlan: ProtobufBuilderPlan? = null,
+        val elemColorGetter: Method? = null,
+        val elemColorSetter: Method? = null,
+        val elemColorfulGetter: Method? = null,
+        val elemColorfulSetter: Method? = null,
     )
+
+    private fun applyPluginBatchFilters(
+        reply: Any,
+        members: ReplyMembers,
+        base: List<Any>?
+    ): List<Any>? {
+        val filters = pluginBatchFilters()
+        if (filters.isEmpty()) return null
+        val sourceElems = base ?: invokeList(members.elemList!!.elemsGetter, reply)?.filterNotNull() ?: return null
+        if (sourceElems.isEmpty()) return null
+        val count = sourceElems.size
+        val actions = ByteArray(count)
+        val colors = IntArray(count)
+        val view = ReflectionDanmakuBatchView(sourceElems, members)
+        if (!runDanmakuBatchFilters(filters, view, actions, colors)) return null
+
+        val out = ArrayList<Any>(count)
+        var changed = false
+        for (i in 0 until count) {
+            val elem = sourceElems[i]
+            when (actions[i]) {
+                DanmakuBatchFilter.ACTION_DROP -> {
+                    changed = true
+                }
+                DanmakuBatchFilter.ACTION_RECOLOR -> {
+                    val targetColor = colors[i]
+                    val plan = members.elemPlan
+                    val colorSetter = members.elemColorSetter
+                    val colorfulSetter = members.elemColorfulSetter
+                    val edited = if (plan != null) {
+                        when {
+                            targetColor != 0 && colorSetter != null ->
+                                runCatching { plan.edit(elem) { b -> colorSetter.invoke(b, targetColor) } }.getOrNull()
+                            targetColor == 0 && colorfulSetter != null ->
+                                runCatching { plan.edit(elem) { b -> colorfulSetter.invoke(b, 0) } }.getOrNull()
+                            colorSetter != null ->
+                                runCatching { plan.edit(elem) { b -> colorSetter.invoke(b, targetColor) } }.getOrNull()
+                            colorfulSetter != null ->
+                                runCatching { plan.edit(elem) { b -> colorfulSetter.invoke(b, targetColor) } }.getOrNull()
+                            else -> null
+                        }
+                    } else {
+                        null
+                    }
+                    if (edited != null && edited !== elem) changed = true
+                    out += (edited ?: elem)
+                }
+                else -> out += elem
+            }
+        }
+        return if (changed) out else null
+    }
+
+    private fun runDanmakuBatchFilters(
+        filters: List<DanmakuBatchFilter>,
+        view: DanmakuBatchView,
+        actionsOut: ByteArray,
+        colorsOut: IntArray
+    ): Boolean {
+        val count = view.count
+        if (filters.isEmpty() || count <= 0 || actionsOut.size < count || colorsOut.size < count) {
+            return false
+        }
+        for (i in 0 until count) {
+            actionsOut[i] = DanmakuBatchFilter.ACTION_KEEP
+            colorsOut[i] = 0
+        }
+        if (filters.size == 1) {
+            val applied = runCatching {
+                filters[0].filterBatch(view, actionsOut, colorsOut)
+            }.getOrElse { throwable ->
+                HostThreadGuard.report("danmaku.plugin.filter", throwable)
+                return false
+            }
+            if (!applied) return false
+            for (i in 0 until count) {
+                val a = actionsOut[i]
+                if (a == DanmakuBatchFilter.ACTION_DROP || a == DanmakuBatchFilter.ACTION_RECOLOR) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        val scratchActions = ByteArray(count)
+        val scratchColors = IntArray(count)
+        var anyModified = false
+        for (filter in filters) {
+            for (i in 0 until count) {
+                scratchActions[i] = DanmakuBatchFilter.ACTION_KEEP
+                scratchColors[i] = 0
+            }
+            val applied = runCatching {
+                filter.filterBatch(view, scratchActions, scratchColors)
+            }.getOrElse { throwable ->
+                HostThreadGuard.report("danmaku.plugin.filter", throwable)
+                false
+            }
+            if (!applied) continue
+            for (i in 0 until count) {
+                when (scratchActions[i]) {
+                    DanmakuBatchFilter.ACTION_DROP -> {
+                        actionsOut[i] = DanmakuBatchFilter.ACTION_DROP
+                        anyModified = true
+                    }
+                    DanmakuBatchFilter.ACTION_RECOLOR -> {
+                        if (actionsOut[i] != DanmakuBatchFilter.ACTION_DROP) {
+                            actionsOut[i] = DanmakuBatchFilter.ACTION_RECOLOR
+                            colorsOut[i] = scratchColors[i]
+                            anyModified = true
+                        }
+                    }
+                }
+            }
+        }
+        return anyModified
+    }
+
+    private class WireDanmakuBatchView(
+        private val bytes: ByteArray,
+        private val scan: DanmakuWire.FlatScan,
+        override val count: Int
+    ) : DanmakuBatchView {
+        override fun weightAt(index: Int): Int = if (scan.hasWeight(index)) scan.weight(index) else 0
+        override fun hasWeightAt(index: Int): Boolean = scan.hasWeight(index)
+        override fun colorAt(index: Int): Int = if (scan.hasColorful(index)) scan.colorful(index) else 0
+        override fun isColorfulAt(index: Int): Boolean = scan.hasColorful(index) && scan.colorful(index) != 0
+        override fun contentAt(index: Int): String = if (scan.hasContent(index)) {
+            String(bytes, scan.contentStart(index), scan.contentLen(index), Charsets.UTF_8)
+        } else {
+            ""
+        }
+        override fun senderHashAt(index: Int): String = ""
+    }
+
+    private class ReflectionDanmakuBatchView(
+        private val elems: List<Any>,
+        private val members: ReplyMembers
+    ) : DanmakuBatchView {
+        override val count: Int = elems.size
+
+        override fun weightAt(index: Int): Int {
+            val getter = members.weight?.weightGetter ?: return 0
+            return (runCatching { getter.invoke(elems[index]) }.getOrNull() as? Number)?.toInt() ?: 0
+        }
+
+        override fun hasWeightAt(index: Int): Boolean {
+            val getter = members.weight?.weightGetter ?: return false
+            return (runCatching { getter.invoke(elems[index]) }.getOrNull() as? Number) != null
+        }
+
+        override fun colorAt(index: Int): Int {
+            val colorGetter = members.elemColorGetter
+            if (colorGetter != null) {
+                return (runCatching { colorGetter.invoke(elems[index]) }.getOrNull() as? Number)?.toInt() ?: 0
+            }
+            val colorfulGetter = members.elemColorfulGetter ?: members.colorful?.elemColorfulGetter ?: return 0
+            return (runCatching { colorfulGetter.invoke(elems[index]) }.getOrNull() as? Number)?.toInt() ?: 0
+        }
+
+        override fun isColorfulAt(index: Int): Boolean {
+            val colorfulGetter = members.elemColorfulGetter ?: members.colorful?.elemColorfulGetter ?: return false
+            val v = (runCatching { colorfulGetter.invoke(elems[index]) }.getOrNull() as? Number)?.toInt() ?: 0
+            return v != 0
+        }
+
+        override fun contentAt(index: Int): String {
+            val getter = members.content ?: return ""
+            return runCatching { getter.invoke(elems[index]) }.getOrNull() as? String ?: ""
+        }
+
+        override fun senderHashAt(index: Int): String = ""
+    }
 
     /** 弹幕条目列表的读写；权重过滤与彩字改色共用。 */
     private class ElemListMembers(

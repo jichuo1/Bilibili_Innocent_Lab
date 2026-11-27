@@ -142,6 +142,22 @@ internal object KavaMemberLookup {
         system: ClassLoader?,
         platform: ClassLoader?
     ): Boolean {
+        var cur: ClassLoader? = loader
+        var hops = 0
+        while (cur != null && hops < 16) {
+            var curCls: Class<*>? = cur::class.java
+            while (curCls != null && curCls != ClassLoader::class.java && curCls != Any::class.java) {
+                val curName = curCls.name
+                if (curName.startsWith("com.Bilibili_Innocent_Lab.xposedmodule.plugin.") ||
+                    curName.contains("PluginApiBridgeClassLoader")
+                ) {
+                    return true
+                }
+                curCls = curCls.superclass
+            }
+            cur = cur.parent
+            hops++
+        }
         if (loader is URLClassLoader) return true
         if (loader.parent == null && loader !== system && loader !== platform) return true
         var cls: Class<*>? = loader::class.java

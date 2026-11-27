@@ -480,6 +480,154 @@ class HookEntry : XposedModule() {
         StartupTrace.measure("entry") { installTargetHooks(param.classLoader, loadedProcessName) }
     }
 
+    private fun maybeBootstrapPlugins(
+        appContext: Context,
+        hookConfig: HookConfigSource,
+        biliClassLoader: ClassLoader,
+        processName: String,
+        pipelineRef: java.util.concurrent.atomic.AtomicReference<com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline?>,
+        bootstrapStarted: java.util.concurrent.atomic.AtomicBoolean
+    ) {
+        val pluginIndexDigest = hookConfig.getString(
+            RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST,
+            ""
+        ).orEmpty()
+        if (pluginIndexDigest.isEmpty() || pluginIndexDigest.isBlank()) return
+        if (!bootstrapStarted.compareAndSet(false, true)) return
+
+        val thread = Thread({
+            HostThreadGuard.run("plugin.bootstrap") {
+                val activePipeline = pipelineRef.get()
+                    ?: com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline()
+                        .also { created -> pipelineRef.compareAndSet(null, created) }
+                        .let { pipelineRef.get()!! }
+                val tierBRuntime = com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.TierBPluginRuntime(
+                    activePipeline
+                )
+                val ledgerFile = java.io.File(appContext.noBackupFilesDir, "bil_plugins/boot_ledger.json")
+                val ledgerStore = runCatching {
+                    com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.FileBootLedgerStore(ledgerFile)
+                }.getOrElse {
+                    com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.InMemoryBootLedgerStore()
+                }
+                val tierCRuntime = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.TierCPluginRuntime(
+                    bootLedger = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginBootLedger(ledgerStore)
+                )
+                @Suppress("DEPRECATION")
+                val pkgInfo = runCatching {
+                    appContext.packageManager.getPackageInfo(TARGET_PACKAGE, 0)
+                }.getOrNull()
+                val hostVersionCode = pkgInfo?.versionCodeCompat ?: 0L
+                val hostVersionName = pkgInfo?.versionName.orEmpty()
+                val hostAppInfo = com.bilab.plugin.api.model.HostAppInfo(
+                    packageName = TARGET_PACKAGE,
+                    versionCode = hostVersionCode,
+                    versionName = hostVersionName,
+                    processName = processName,
+                    abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+                )
+                val res = appContext.resources
+                val isDark = (res.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+                val themeSnapshot = com.bilab.plugin.api.model.HostThemeSnapshot(
+                    isDark = isDark,
+                    surfaceColor = if (isDark) 0xFF18191C.toInt() else 0xFFFFFFFF.toInt(),
+                    accentColor = 0xFFFB7299.toInt(),
+                    textPrimaryColor = if (isDark) 0xFFE3E5E7.toInt() else 0xFF18191C.toInt(),
+                    textSecondaryColor = if (isDark) 0xFF9499A0.toInt() else 0xFF61666D.toInt(),
+                    density = res.displayMetrics.density
+                )
+                val apkPaths = runCatching {
+                    val info = appContext.applicationInfo
+                    buildList {
+                        info.sourceDir?.let { add(java.io.File(it)) }
+                        info.splitSourceDirs?.forEach { add(java.io.File(it)) }
+                    }
+                }.getOrDefault(emptyList())
+                val hookBridge = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.PluginHookBridge { member, onBefore, onAfter ->
+                    val executable = member.executable as? java.lang.reflect.Executable
+                    if (executable == null) {
+                        return@PluginHookBridge object : com.bilab.plugin.api.spi.HookHandle {
+                            override val hookId: String = "${member.ownerClassName}#${member.memberName}"
+                            override val isActive: Boolean = false
+                            override fun close() = Unit
+                        }
+                    }
+                    val hookKey = "plugin.${member.pluginId}:${member.ownerClassName}#${member.memberName}"
+                    val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+                    val paramCount = executable.parameterCount
+                    val modernHandle = modernRuntime.install(
+                        hookKey,
+                        executable,
+                        HookExceptionPolicy.PROTECT_HOST
+                    ) {
+                        before {
+                            val argArr = Array(paramCount) { idx -> argOrNull(idx) }
+                            val ctx = com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.HostHookCallbackContext(
+                                member = member,
+                                thisObject = thisObject,
+                                args = argArr,
+                                initialResult = result,
+                                initialHasResult = wasResultAssignedByHook(),
+                                hasFailure = hasThrowable
+                            )
+                            setObjectExtra(hookKey, ctx)
+                            onBefore(ctx)
+                            for (i in 0 until paramCount) {
+                                if (argArr[i] !== argOrNull(i)) {
+                                    args[i] = argArr[i]
+                                }
+                            }
+                            if (ctx.hasResult()) {
+                                result = ctx.resultOrNull()
+                            }
+                        }
+                        after {
+                            val ctx = getObjectExtra(hookKey) as?
+                                com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.HostHookCallbackContext
+                                ?: com.Bilibili_Innocent_Lab.xposedmodule.plugin.sandbox.HostHookCallbackContext(
+                                    member = member,
+                                    thisObject = thisObject,
+                                    args = Array(paramCount) { idx -> argOrNull(idx) },
+                                    initialResult = result,
+                                    initialHasResult = wasResultAssignedByHook(),
+                                    hasFailure = hasThrowable
+                                )
+                            onAfter(ctx)
+                            if (ctx.hasResult()) {
+                                result = ctx.resultOrNull()
+                            }
+                        }
+                    }
+                    object : com.bilab.plugin.api.spi.HookHandle {
+                        override val hookId: String = hookKey
+                        override val isActive: Boolean get() = !closed.get()
+                        override fun close() {
+                            if (closed.compareAndSet(false, true)) {
+                                modernHandle.unhook()
+                            }
+                        }
+                    }
+                }
+                val source = com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ProviderPluginPackageSource(appContext)
+                com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.PluginBootstrap.bootstrap(
+                    pluginIndexDigest = pluginIndexDigest,
+                    hostVersionCode = hostVersionCode,
+                    hostAppInfo = hostAppInfo,
+                    themeSnapshot = themeSnapshot,
+                    hostClassLoader = biliClassLoader,
+                    source = source,
+                    tierBRuntime = tierBRuntime,
+                    tierCRuntime = tierCRuntime,
+                    hookBridge = hookBridge,
+                    apkPaths = apkPaths
+                )
+            }
+        }, "bil-plugin-bootstrap")
+        thread.isDaemon = true
+        thread.start()
+    }
+
     private fun installTargetHooks(biliClassLoader: ClassLoader, processName: String) {
             // Hook 环境把进程与宿主类加载器当作身份固定下来，必须早于任何一次安装登记。
             modernRuntime.attachHost(processName, biliClassLoader)
@@ -623,6 +771,9 @@ class HookEntry : XposedModule() {
                 java.util.concurrent.atomic.AtomicReference<FrameInterpolationFeatureInstaller?>(null)
             val freeCopyInstallerRef =
                 java.util.concurrent.atomic.AtomicReference<FreeCopyFeatureInstaller?>(null)
+            val pluginPipelineRef =
+                java.util.concurrent.atomic.AtomicReference<com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline?>(null)
+            val pluginBootstrapStarted = java.util.concurrent.atomic.AtomicBoolean(false)
             val memoryPressureInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
             lateinit var scheduleAuthorizationRetry: (Context, android.app.Application?) -> Unit
 
@@ -2158,6 +2309,24 @@ class HookEntry : XposedModule() {
                 )
             )
 
+            val pluginIndexDigest = prefs.getString(
+                RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST,
+                ""
+            ).orEmpty()
+            val pluginDanmakuEnabled = pluginIndexDigest.isNotBlank()
+            val pluginDanmakuFiltersProvider: () -> List<com.bilab.plugin.api.spi.DanmakuBatchFilter> =
+                if (pluginDanmakuEnabled) {
+                    val created = com.Bilibili_Innocent_Lab.xposedmodule.plugin.runtime.ContentFilterPipeline()
+                    pluginPipelineRef.compareAndSet(null, created)
+                    val pipeline = checkNotNull(pluginPipelineRef.get())
+                    val provider: () -> List<com.bilab.plugin.api.spi.DanmakuBatchFilter> = {
+                        pipeline.danmakuFiltersSnapshot()
+                    }
+                    provider
+                } else {
+                    { emptyList() }
+                }
+
             featureInstallCoordinator.installAll(
                 listOf(
                     DanmakuPurifyFeatureInstaller(
@@ -2182,7 +2351,9 @@ class HookEntry : XposedModule() {
                             timeoutMs = DanmakuPurifyFeatureInstaller.SEMANTIC_TIMEOUT_MS
                         ),
                         semanticLogDir = semanticLogDir,
-                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine
+                        kmpGrpcWireEngine = hostAdaptResult?.kmpGrpcWireEngine,
+                        pluginBatchFilters = pluginDanmakuFiltersProvider,
+                        pluginFiltersEnabled = pluginDanmakuEnabled
                     ),
                     LiveRoomWidgetFeatureInstaller(
                         blockRoomSwitch = prefs.getBoolean(
@@ -2737,6 +2908,20 @@ class HookEntry : XposedModule() {
                     }
                     reportScanResultIfReady(appContext)
                     reportNoRootHeartbeatIfSynced(appContext, config)
+                    if (processName == TARGET_PACKAGE && applicationOnCreateCompleted.get() &&
+                        !activeHookConfig.get()?.getString(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST, "").isNullOrBlank()
+                    ) {
+                        activeHookConfig.get()?.let { activeCfg ->
+                            maybeBootstrapPlugins(
+                                appContext,
+                                activeCfg,
+                                biliClassLoader,
+                                processName,
+                                pluginPipelineRef,
+                                pluginBootstrapStarted
+                            )
+                        }
+                    }
                 }.onFailure { throwable ->
                     NPatchProcessDiagnostics.recordInstallation(android.os.SystemClock.elapsedRealtime() - installStartedAtMs)
                     NPatchProcessDiagnostics.record(NPatchProcessState.FAILED)
@@ -3004,6 +3189,22 @@ class HookEntry : XposedModule() {
                             }
                         }
                         reportScanResultIfReady(args.firstOrNull() as? Context)
+                        if (processName == TARGET_PACKAGE && authorizedHooksInstalled.get() &&
+                            !activeHookConfig.get()?.getString(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST, "").isNullOrBlank()
+                        ) {
+                            val hookCfg = activeHookConfig.get()
+                            val app = args.firstOrNull() as? android.app.Application
+                            if (hookCfg != null && app != null) {
+                                maybeBootstrapPlugins(
+                                    app,
+                                    hookCfg,
+                                    biliClassLoader,
+                                    processName,
+                                    pluginPipelineRef,
+                                    pluginBootstrapStarted
+                                )
+                            }
+                        }
                     }
                 }
             }.onFailure { throwable ->

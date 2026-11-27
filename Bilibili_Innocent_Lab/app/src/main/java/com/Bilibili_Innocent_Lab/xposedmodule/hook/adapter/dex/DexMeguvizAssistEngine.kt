@@ -22,6 +22,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PegasusLoadMoreShape
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeComposeLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.makeAccessible
+import com.bilab.plugin.api.model.DexQuerySpec
 import io.github.jichuo1.dexmeguviz.AdvancedExecution
 import io.github.jichuo1.dexmeguviz.AdvancedResult
 import io.github.jichuo1.dexmeguviz.AndroidApkSources
@@ -48,6 +49,8 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.util.IdentityHashMap
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** 宿主静态 DEX 后台兜底。归档快照与调用事实只在本次适配中持有。 */
 internal object DexMeguvizAssistEngine : DexAssistEngine {
@@ -1742,6 +1745,250 @@ internal object DexMeguvizAssistEngine : DexAssistEngine {
     }
 
     private val PEGASUS_FRAGMENT_DESCRIPTOR = "Lcom/bilibili/pegasus/PegasusFragment;"
+
+    /**
+     * Resolves verified plugin [DexQuerySpec] entries in a single pass across [apkPaths].
+     *
+     * Fast-paths empty queries without opening any APK or touching the native engine, and
+     * enforces unique-match discipline (`uniqueOnly = true` returns null when 0 or >1 match).
+     */
+    @JvmOverloads
+    fun resolvePluginDexQueries(
+        apkPaths: List<File>,
+        queries: List<DexQuerySpec>,
+        classLoader: ClassLoader = DexMeguvizAssistEngine::class.java.classLoader
+            ?: ClassLoader.getSystemClassLoader()
+    ): Map<String, Method?> {
+        if (queries.isEmpty()) return emptyMap()
+        val results = LinkedHashMap<String, Method?>(queries.size)
+        val validSpecs = ArrayList<DexQuerySpec>(
+            queries.size.coerceAtMost(DexQuerySpec.MAX_TOTAL_PLUGIN_QUERIES)
+        )
+        val seenIds = HashSet<String>()
+        for (spec in queries) {
+            if (spec.queryId.isBlank() || !seenIds.add(spec.queryId)) continue
+            results[spec.queryId] = null
+            if (validSpecs.size >= DexQuerySpec.MAX_TOTAL_PLUGIN_QUERIES) continue
+            if (spec.validate().isEmpty() && spec.uniqueOnly) {
+                validSpecs += spec
+            }
+        }
+        if (validSpecs.isEmpty()) return results
+
+        val resolvedPaths = apkPaths.asSequence()
+            .filter { it.isFile && it.canRead() }
+            .map { it.absolutePath }
+            .distinct()
+            .take(MAX_CODE_ARCHIVES)
+            .toList()
+        if (resolvedPaths.isEmpty() || !ensureNativeLoaded()) return results
+
+        val ruleEntries = ArrayList<Pair<DexQuerySpec, ByteArray>>(validSpecs.size)
+        for (spec in validSpecs) {
+            for (payload in buildPluginDexQueryPayloads(spec)) {
+                ruleEntries += spec to payload
+            }
+        }
+        if (ruleEntries.isEmpty()) return results
+
+        val uniqueCandidates = LinkedHashMap<String, MutableMap<Pair<Int, Long>, NativeEngine.MethodCandidate>>()
+        val ambiguousQueries = HashSet<String>()
+        val completed = runCatching {
+            withArchiveSnapshot(resolvedPaths) { snapshot ->
+                val snapshotId = snapshot.info().snapshotId
+                for (chunkStart in ruleEntries.indices step MAX_BATCH_RULES) {
+                    val chunkEnd = minOf(ruleEntries.size, chunkStart + MAX_BATCH_RULES)
+                    val chunk = ruleEntries.subList(chunkStart, chunkEnd)
+                    val batchResults = runPluginMethodBatch(snapshot, chunk)
+                    for (i in chunk.indices) {
+                        val spec = chunk[i].first
+                        if (spec.queryId in ambiguousQueries) continue
+                        val qr = batchResults[i]
+                        if (qr == null ||
+                            qr.snapshotId != snapshotId ||
+                            qr.executionStatus != NATIVE_OK ||
+                            qr.unknownRows != 0L ||
+                            qr.visitedMethods != qr.totalMethods
+                        ) {
+                            ambiguousQueries += spec.queryId
+                            continue
+                        }
+                        if (qr.reason == NATIVE_RESULT_LIMIT || qr.candidateCount() > 1) {
+                            ambiguousQueries += spec.queryId
+                            continue
+                        }
+                        if (qr.candidateCount() == 1) {
+                            val cand = qr.candidate(0)
+                            val bucket = uniqueCandidates.getOrPut(spec.queryId) { linkedMapOf() }
+                            bucket[cand.sourceIndex to cand.methodIndex] = cand
+                            if (bucket.size > 1) {
+                                ambiguousQueries += spec.queryId
+                            }
+                        }
+                    }
+                }
+            }
+            true
+        }.getOrDefault(false)
+        if (!completed) return results
+
+        val generation = Any()
+        for ((queryId, bucket) in uniqueCandidates) {
+            if (queryId in ambiguousQueries || bucket.size != 1) continue
+            val candidate = bucket.values.single()
+            if (candidate.name == "<init>" || candidate.name == "<clinit>") continue
+            val bound = runCatching {
+                RuntimeMethodBinder.bind(classLoader, generation, candidate)
+            }.getOrNull() ?: continue
+            if (bound.status == RuntimeMethodBinder.Status.BOUND) {
+                results[queryId] = bound.method?.takeIf { it.makeAccessible() }
+            }
+        }
+        return results
+    }
+
+    private fun runPluginMethodBatch(
+        snapshot: NativeEngine.SourceSetSnapshot,
+        chunk: List<Pair<DexQuerySpec, ByteArray>>
+    ): Array<NativeEngine.QueryResult?> {
+        val out = arrayOfNulls<NativeEngine.QueryResult>(chunk.size)
+        fun executeRange(from: Int, to: Int) {
+            val count = to - from
+            if (count <= 0) return
+            if (count == 1) {
+                out[from] = runCatching { snapshot.queryMethods(chunk[from].second) }.getOrNull()
+                return
+            }
+            val payloads = Array(count) { idx -> chunk[from + idx].second }
+            val result = try {
+                MethodBatchQuery.execute(snapshot, payloads, 4 * MIB, MAX_QUERY_WORK)
+            } catch (_: MethodBatchQuery.Failure) {
+                val mid = from + count / 2
+                executeRange(from, mid)
+                executeRange(mid, to)
+                return
+            } catch (_: NativeEngine.NativeFailure) {
+                val mid = from + count / 2
+                executeRange(from, mid)
+                executeRange(mid, to)
+                return
+            }
+            for (i in 0 until count) {
+                out[from + i] = result.get(i)
+            }
+        }
+        executeRange(0, chunk.size)
+        return out
+    }
+
+    private fun buildPluginDexQueryPayloads(spec: DexQuerySpec): List<ByteArray> {
+        val packages = spec.withinPackages.mapNotNull { pkg ->
+            val trimmed = pkg.trim().trimEnd('.')
+            if (trimmed.isEmpty()) null else "L${trimmed.replace('.', '/')}/"
+        }.distinct()
+        val targets = if (packages.isEmpty()) listOf<String?>(null) else packages
+        return targets.map { pkgPrefix ->
+            val where = JSONObject()
+            if (pkgPrefix != null) {
+                where.put("owner", JSONObject().put("op", "prefix").put("value", pkgPrefix))
+            }
+            spec.methodName?.takeIf { it.isNotBlank() }?.let { where.put("name", it) }
+            spec.returnType?.takeIf { it.isNotBlank() }?.let {
+                where.put("return_type", toPluginDexDescriptor(it))
+            }
+            spec.parameterTypes?.let { params ->
+                where.put("parameters", JSONArray(params.map(::toPluginDexDescriptor)))
+            }
+            if (spec.requiredStrings.isNotEmpty()) {
+                val filteredStrings = spec.requiredStrings.filter { it.isNotEmpty() }
+                if (filteredStrings.isNotEmpty()) {
+                    where.put("using_strings", JSONObject().put("all", JSONArray(filteredStrings)))
+                }
+            }
+            if (spec.invokedMethods.isNotEmpty()) {
+                val invokesArray = JSONArray()
+                for (invokeSpec in spec.invokedMethods) {
+                    parsePluginInvokeSpec(invokeSpec)?.let { invokesArray.put(it) }
+                }
+                if (invokesArray.length() > 0) {
+                    where.put("invokes", JSONObject().put("all", invokesArray))
+                }
+            }
+            JSONObject()
+                .put("schema_version", 1)
+                .put("relation", "method_defs")
+                .put("where", where)
+                .put("intent", "enumerate")
+                .put("max_results", 2)
+                .toString()
+                .toByteArray(Charsets.UTF_8)
+        }
+    }
+
+    private fun parsePluginInvokeSpec(raw: String): JSONObject? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val obj = JSONObject()
+        val arrowIdx = trimmed.indexOf("->")
+        val hashIdx = trimmed.indexOf('#')
+        val ownerPart: String?
+        val memberPart: String
+        when {
+            arrowIdx >= 0 -> {
+                ownerPart = trimmed.substring(0, arrowIdx).trim().takeIf { it.isNotEmpty() }
+                memberPart = trimmed.substring(arrowIdx + 2).trim()
+            }
+            hashIdx >= 0 -> {
+                ownerPart = trimmed.substring(0, hashIdx).trim().takeIf { it.isNotEmpty() }
+                memberPart = trimmed.substring(hashIdx + 1).trim()
+            }
+            else -> {
+                ownerPart = null
+                memberPart = trimmed
+            }
+        }
+        if (ownerPart != null) {
+            obj.put("owner", toPluginDexDescriptor(ownerPart))
+        }
+        val parenIdx = memberPart.indexOf('(')
+        if (parenIdx >= 0) {
+            val methodName = memberPart.substring(0, parenIdx).trim()
+            if (methodName.isNotEmpty()) obj.put("name", methodName)
+            val closeIdx = memberPart.indexOf(')', parenIdx + 1)
+            if (closeIdx > closeIdx.coerceAtMost(parenIdx) || closeIdx > parenIdx) {
+                val retPart = memberPart.substring(closeIdx + 1).trim()
+                if (retPart.isNotEmpty()) {
+                    obj.put("return_type", toPluginDexDescriptor(retPart))
+                }
+            }
+        } else if (memberPart.isNotEmpty()) {
+            obj.put("name", memberPart)
+        }
+        return if (obj.length() == 0) null else obj
+    }
+
+    private fun toPluginDexDescriptor(type: String): String {
+        val trimmed = type.trim()
+        if (trimmed.endsWith("[]")) {
+            return "[" + toPluginDexDescriptor(trimmed.removeSuffix("[]"))
+        }
+        return when (trimmed) {
+            "void", "V" -> "V"
+            "boolean", "Z" -> "Z"
+            "byte", "B" -> "B"
+            "short", "S" -> "S"
+            "char", "C" -> "C"
+            "int", "I" -> "I"
+            "long", "J" -> "J"
+            "float", "F" -> "F"
+            "double", "D" -> "D"
+            else -> if ((trimmed.startsWith("L") && trimmed.endsWith(";")) || trimmed.startsWith("[")) {
+                trimmed
+            } else {
+                "L${trimmed.replace('.', '/')};"
+            }
+        }
+    }
     private val END_PAGE_SERVICE_DESCRIPTOR =
         "Lcom/bilibili/ship/theseus/ugc/endpage/relatedrecommand/UGCEndPageRelatedRecommendService;"
     private val SEARCH_VIEW_MODEL_DESCRIPTOR = "Lcom/bilibili/search2/main/MainSearchViewModel;"
