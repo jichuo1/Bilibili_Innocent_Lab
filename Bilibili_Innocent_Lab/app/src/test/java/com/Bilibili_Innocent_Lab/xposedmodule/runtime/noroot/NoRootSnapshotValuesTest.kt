@@ -61,6 +61,7 @@ class NoRootSnapshotValuesTest {
             RemoteHookConfigContract.KEY_SEMANTIC_JEV_API_KEY to "test-only-key",
             RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION to 123L,
             RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP to 456L,
+            RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST to "a".repeat(64),
             "unrelated" to true
         )
         val actual = snapshot(raw)

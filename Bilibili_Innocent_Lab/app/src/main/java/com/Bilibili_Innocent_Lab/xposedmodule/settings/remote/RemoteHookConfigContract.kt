@@ -40,7 +40,7 @@ internal sealed interface RemoteHookConfigDecodeResult {
  */
 internal object RemoteHookConfigContract {
     const val GROUP = "hook_config"
-    const val SCHEMA_VERSION = 4
+    const val SCHEMA_VERSION = 5
 
     const val KEY_READY = "__remote_ready"
     const val KEY_SCHEMA_VERSION = "__remote_schema_version"
@@ -107,6 +107,13 @@ internal object RemoteHookConfigContract {
     const val KEY_INSIGHT_TIMEOUT_MS = "insight_timeout_ms"
     val INSIGHT_TUNING_KEYS: List<String> = listOf(KEY_INSIGHT_OUTPUT_BUDGET, KEY_INSIGHT_TIMEOUT_MS)
 
+    /**
+     * 已启用插件索引规范摘要（64 位小写 hex SHA-256 或空串 `""` 表示 0 活跃插件）。
+     * 作为启动信任锚随 hook_config 下发并受摘要保护，不进 SettingsCatalog、备份、诊断与热更新集合。
+     */
+    const val KEY_PLUGIN_INDEX_DIGEST = "plugin_index_digest"
+    private val PLUGIN_INDEX_DIGEST_REGEX = Regex("[0-9a-f]{64}")
+
     private val metadataKeys = setOf(
         KEY_READY,
         KEY_SCHEMA_VERSION,
@@ -121,7 +128,8 @@ internal object RemoteHookConfigContract {
     )
     private val runtimeKeys = linkedSetOf(
         KEY_FREE_COPY_CONFIG_REVISION,
-        KEY_ADAPTER_RESET_TIMESTAMP
+        KEY_ADAPTER_RESET_TIMESTAMP,
+        KEY_PLUGIN_INDEX_DIGEST
     ) + RUNTIME_API_KEYS + INSIGHT_TUNING_KEYS
     val hookValueKeys: Set<String> = SettingsCatalog.specs
         .mapTo(linkedSetOf()) { it.storageKey }
@@ -170,6 +178,12 @@ internal object RemoteHookConfigContract {
                 ?.coerceIn(InsightConfig.OUTPUT_BUDGET_RANGE) ?: InsightConfig.DEFAULT_OUTPUT_BUDGET)
             put(KEY_INSIGHT_TIMEOUT_MS, (raw[KEY_INSIGHT_TIMEOUT_MS] as? Int)
                 ?.coerceIn(InsightConfig.TIMEOUT_RANGE) ?: InsightConfig.DEFAULT_TIMEOUT_MS)
+            put(
+                KEY_PLUGIN_INDEX_DIGEST,
+                (raw[KEY_PLUGIN_INDEX_DIGEST] as? String)?.trim()
+                    ?.takeIf { PLUGIN_INDEX_DIGEST_REGEX.matches(it) }
+                    .orEmpty()
+            )
         }
 
     fun encode(
@@ -321,6 +335,11 @@ internal object RemoteHookConfigContract {
         val timeoutMs = values[KEY_INSIGHT_TIMEOUT_MS] as? Int
             ?: return "runtime-type:$KEY_INSIGHT_TIMEOUT_MS"
         if (timeoutMs !in InsightConfig.TIMEOUT_RANGE) return "runtime-value:$KEY_INSIGHT_TIMEOUT_MS"
+        val pluginIndexDigest = values[KEY_PLUGIN_INDEX_DIGEST] as? String
+            ?: return "runtime-type:$KEY_PLUGIN_INDEX_DIGEST"
+        if (pluginIndexDigest.isNotEmpty() && !PLUGIN_INDEX_DIGEST_REGEX.matches(pluginIndexDigest)) {
+            return "runtime-value:$KEY_PLUGIN_INDEX_DIGEST"
+        }
         return null
     }
 
@@ -363,6 +382,7 @@ internal object RemoteHookConfigContract {
                 }
                 output.writeLong(values.getValue(KEY_FREE_COPY_CONFIG_REVISION) as Long)
                 output.writeLong(values.getValue(KEY_ADAPTER_RESET_TIMESTAMP) as Long)
+                output.writeString(values.getValue(KEY_PLUGIN_INDEX_DIGEST) as String)
                 RUNTIME_API_KEYS.forEach { key -> output.writeString(values.getValue(key) as String) }
                 INSIGHT_TUNING_KEYS.forEach { key -> output.writeInt(values.getValue(key) as Int) }
             }

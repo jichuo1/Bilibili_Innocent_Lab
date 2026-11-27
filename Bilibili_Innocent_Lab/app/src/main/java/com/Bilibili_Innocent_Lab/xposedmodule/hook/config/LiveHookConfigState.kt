@@ -100,8 +100,11 @@ internal class LiveHookConfigState(
             allowed += setOf(P.RECOMMEND_VIDEO_MIN_PLAY_COUNT, P.RECOMMEND_VIDEO_MAX_PLAY_COUNT)
         }
         val values = previous.values.toMutableMap()
+        // 插件索引摘要属于启动权威信任锚，禁止热更新以维持当前进程装载集合的不可变性。
+        allowed.remove(RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST)
         var applied = 0
         for (key in allowed) {
+            if (key == RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST) continue
             val value = candidate.values[key] ?: continue
             // 完整协议已经校验类型，这里再次防止直接调用构造出的错误候选。
             val valid = when (key) {

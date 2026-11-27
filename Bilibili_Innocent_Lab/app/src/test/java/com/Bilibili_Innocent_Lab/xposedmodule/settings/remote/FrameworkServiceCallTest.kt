@@ -574,12 +574,13 @@ private class RemoteHookConfigContractCases {
         assertTrue(RemoteHookConfigContract.decode(encoded - FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
             is RemoteHookConfigDecodeResult.Invalid)
         assertEquals("jev-test-key", snapshot.values[RemoteHookConfigContract.KEY_SEMANTIC_JEV_API_KEY])
-        // 目录外是运行时修订字段、全部运行时凭据（判定来源 + AI Insight）与两项生成调参，不能遗漏或多导出其它偏好。
+        // 目录外是运行时修订字段、插件索引摘要、全部运行时凭据（判定来源 + AI Insight）与两项生成调参，不能遗漏或多导出其它偏好。
         val runtimeKeys = setOf(RemoteHookConfigContract.KEY_FREE_COPY_CONFIG_REVISION,
-            RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP) + RemoteHookConfigContract.RUNTIME_API_KEYS +
+            RemoteHookConfigContract.KEY_ADAPTER_RESET_TIMESTAMP,
+            RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST) + RemoteHookConfigContract.RUNTIME_API_KEYS +
             RemoteHookConfigContract.INSIGHT_TUNING_KEYS
         assertEquals(runtimeKeys, snapshot.values.keys - SettingsCatalog.specs.map { it.storageKey }.toSet())
-        assertEquals(SettingsCatalog.specs.size + 2 + RemoteHookConfigContract.RUNTIME_API_KEYS.size +
+        assertEquals(SettingsCatalog.specs.size + 3 + RemoteHookConfigContract.RUNTIME_API_KEYS.size +
             RemoteHookConfigContract.INSIGHT_TUNING_KEYS.size, snapshot.values.size)
     }
 
@@ -786,6 +787,32 @@ private class RemoteHookConfigContractCases {
         assertTrue(RemoteHookConfigContract.decode(encoded + (key to "other")) is RemoteHookConfigDecodeResult.Invalid)
     }
 
+    /** 插件索引摘要是受摘要保护的运行时信任锚：合法 64-hex 透传，非法类型/hex 落回空串，绝不进目录与备份。 */
+    fun `plugin index digest is a signed runtime trust anchor outside the backup catalog`() {
+        assertEquals(5, RemoteHookConfigContract.SCHEMA_VERSION)
+        val key = RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST
+        assertTrue(key in RemoteHookConfigContract.hookValueKeys)
+        assertTrue(SettingsCatalog.specs.none { it.storageKey == key })
+        assertEquals("", defaultValues()[key])
+
+        val validDigest = "0123456789abcdef".repeat(4)
+        assertEquals(validDigest, RemoteHookConfigContract.resolveSourceValues(mapOf(key to "  $validDigest  "))[key])
+        assertEquals("", RemoteHookConfigContract.resolveSourceValues(mapOf(key to 12345))[key])
+        assertEquals("", RemoteHookConfigContract.resolveSourceValues(mapOf(key to "A".repeat(64)))[key])
+        assertEquals("", RemoteHookConfigContract.resolveSourceValues(mapOf(key to "0".repeat(63)))[key])
+        assertEquals("", RemoteHookConfigContract.resolveSourceValues(mapOf(key to "g".repeat(64)))[key])
+
+        val encoded = encode(values = RemoteHookConfigContract.resolveSourceValues(mapOf(key to validDigest)))
+        val decoded = RemoteHookConfigContract.decode(encoded) as RemoteHookConfigDecodeResult.Ready
+        assertEquals(validDigest, decoded.snapshot.values[key])
+        assertTrue(RemoteHookConfigContract.decode(encoded + (key to "f".repeat(64))) is RemoteHookConfigDecodeResult.Invalid)
+        assertTrue(RemoteHookConfigContract.decode(encoded + (key to "")) is RemoteHookConfigDecodeResult.Invalid)
+        assertTrue(RemoteHookConfigContract.decode(encoded + (key to 42)) is RemoteHookConfigDecodeResult.Invalid)
+        assertThrows(IllegalArgumentException::class.java) {
+            encode(values = defaultValues() + (key to "not-a-valid-sha256"))
+        }
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (RemoteHookConfigContractCases) -> Unit) {
             val s = RemoteHookConfigContractCases()
@@ -800,6 +827,7 @@ private class RemoteHookConfigContractCases {
         runIsolated { s -> s.`insight tuning keys are clamped signed runtime integers outside the backup catalog`() }
         runIsolated { s -> s.`extra semantic source keys are signed runtime credentials too`() }
         runIsolated { s -> s.`ai insight api key is a signed runtime credential outside the backup catalog`() }
+        runIsolated { s -> s.`plugin index digest is a signed runtime trust anchor outside the backup catalog`() }
     }
 }
 

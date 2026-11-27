@@ -188,6 +188,18 @@ class LiveHookConfigStateTest {
         assertFalse(reader.isAlive); assertFalse(invalid.get()); assertEquals(109, state.home().duration.maxSeconds)
     }
 
+    fun pluginIndexDigestCannotBeHotUpdatedAndTriggersRestartRequired() {
+        val digestA = "a".repeat(64)
+        val digestB = "b".repeat(64)
+        val state = state(base + (com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST to digestA))
+        val next = snapshot(2, base + (com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST to digestB))
+        val report = state.apply(next, identity(2), installed)
+        assertEquals("RESTART_REQUIRED", report.status)
+        assertEquals(0, report.applied)
+        assertEquals(1, report.deferred)
+        assertEquals(digestA, state.getString(com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST, ""))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (LiveHookConfigStateTest) -> Unit) {
@@ -208,5 +220,6 @@ class LiveHookConfigStateTest {
         runIsolated { s -> s.lspatchKeepsAuthorizationInstallationAndDeadlineBoundaries() }
         runIsolated { s -> s.npatchCannotRegressThePublicationOrderWhileIncreasingSnapshotRevision() }
         runIsolated { s -> s.concurrentReadersOnlySeeWholeImmutableRuleSets() }
+        runIsolated { s -> s.pluginIndexDigestCannotBeHotUpdatedAndTriggersRestartRequired() }
     }
 }

@@ -147,6 +147,11 @@
             android:authorities="${applicationId}.roaming"
             android:exported="true" />
 
+        <provider
+            android:name=".provider.PluginPayloadProvider"
+            android:authorities="${applicationId}.plugin.payload"
+            android:exported="true" />
+
         <!--
             漫游设置入口点击中转：B 站进程对本模块不可见（无法用 Provider），
             点击「哔哩漫游设置」时 B 站发送显式广播到本接收器，模块返回固定目标
