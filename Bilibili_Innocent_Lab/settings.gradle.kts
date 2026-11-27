@@ -1,4 +1,5 @@
 pluginManagement {
+    includeBuild("build-logic")
     repositories {
         gradlePluginPortal()
         google()
@@ -37,6 +38,7 @@ gropify {
 rootProject.name = "Bilibili_Innocent_Lab"
 
 include(":app")
+include(":plugin-api", ":core-settings-schema", ":core-agent-protocol", ":host-test-fixtures")
 
 // P2-07 opt-in: the Macrobenchmark / Baseline Profile producer exists only when requested with
 // -PinnocentLab.baselineProfile=true (see baselineprofile/README.md). Default and CI builds do not
