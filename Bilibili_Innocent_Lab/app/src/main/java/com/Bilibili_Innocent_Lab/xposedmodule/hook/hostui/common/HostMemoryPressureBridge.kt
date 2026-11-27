@@ -129,6 +129,7 @@ internal object HostMemoryPressureBridge {
     private const val THERMAL_SEVERE = 3
     private const val THERMAL_CRITICAL = 4
     private const val API_37_2 = 3_700_002
+    private const val SKIP_NATIVE_LOAD_PROP = "io.github.jichuo1.meguviz.memory.skipNativeLoad"
 
     private val installLock = Any()
     private val callbackLock = Any()
@@ -138,6 +139,7 @@ internal object HostMemoryPressureBridge {
     private var installedApp: WeakReference<Application>? = null
 
     private var pressureAdapter: AutoCloseable? = null
+    private var uiHiddenCallbacks: ComponentCallbacks2? = null
     private var fallbackCallbacks: ComponentCallbacks2? = null
     private var budgetObserver: AutoCloseable? = null
     private var thermalObserver: AutoCloseable? = null
@@ -288,8 +290,11 @@ internal object HostMemoryPressureBridge {
 
     private fun preloadNativeLibraries() {
         runCatching {
-            ModuleNativeLoader.load("mgmem")
-            ModuleNativeLoader.load("mgmem_pressure_jni")
+            if (!java.lang.Boolean.getBoolean(SKIP_NATIVE_LOAD_PROP)) {
+                ModuleNativeLoader.load("mgmem")
+                ModuleNativeLoader.load("mgmem_pressure_jni")
+                System.setProperty(SKIP_NATIVE_LOAD_PROP, "true")
+            }
         }
     }
 
@@ -297,6 +302,21 @@ internal object HostMemoryPressureBridge {
         val adapter = createPressureAdapter(application)
         if (adapter != null) {
             pressureAdapter = adapter
+            val hiddenCallbacks = object : ComponentCallbacks2 {
+                override fun onTrimMemory(level: Int) = HostThreadGuard.run("host.memory_pressure") {
+                    if (classifyTrimLevel(level) == LEVEL_NONE &&
+                        level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+                    ) {
+                        dispatchHidden()
+                    }
+                }
+
+                override fun onLowMemory() = Unit
+
+                override fun onConfigurationChanged(newConfig: Configuration) = Unit
+            }
+            runCatching { application.registerComponentCallbacks(hiddenCallbacks) }
+                .onSuccess { uiHiddenCallbacks = hiddenCallbacks }
             return
         }
         val callbacks = object : ComponentCallbacks2 {
@@ -404,6 +424,10 @@ internal object HostMemoryPressureBridge {
         runCatching { pressureAdapter?.close() }
         pressureAdapter = null
         val app = installedApp?.get()
+        uiHiddenCallbacks?.let { cb ->
+            runCatching { app?.unregisterComponentCallbacks(cb) }
+        }
+        uiHiddenCallbacks = null
         fallbackCallbacks?.let { cb ->
             runCatching { app?.unregisterComponentCallbacks(cb) }
         }

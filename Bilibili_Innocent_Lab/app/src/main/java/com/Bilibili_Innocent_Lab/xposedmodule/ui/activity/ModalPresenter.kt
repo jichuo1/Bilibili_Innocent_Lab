@@ -143,11 +143,16 @@ internal object ModalPresenter {
     ): () -> Unit {
         val scope = session?.scope(insetsHost)
         val slot = scope?.let(InsetsSlot::claimExclusive)
+        val animation = slot?.enableAnimationUpdatesInOwnedSlot()
+        val marginTargetRef = WeakReference(marginTarget)
         val registration = slot?.observe { snapshot ->
+            val target = marginTargetRef.get() ?: return@observe
             val safe = snapshot.combined(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout() or
+                    WindowInsetsCompat.Type.ime()
             )
-            val params = marginTarget.layoutParams as? NativeFrameLayout.LayoutParams ?: return@observe
+            val params = target.layoutParams as? NativeFrameLayout.LayoutParams ?: return@observe
             val left = baseSidePx + safe.left
             val top = baseVerticalPx + safe.top
             val right = baseSidePx + safe.right
@@ -156,10 +161,11 @@ internal object ModalPresenter {
                 params.rightMargin != right || params.bottomMargin != bottom
             ) {
                 params.setMargins(left, top, right, bottom)
-                marginTarget.layoutParams = params
+                target.layoutParams = params
             }
         }
         return {
+            animation?.close()
             registration?.close()
             slot?.close()
             scope?.close()
@@ -332,11 +338,14 @@ internal object ModalPresenter {
                 false
             }
         }
-        dialog.setOnDismissListener {
+        var cleanedUp = false
+        fun cleanup() {
+            if (cleanedUp) return
+            cleanedUp = true
             closeInsets()
             disposeElasticInteraction()
             backdropBlur?.clear()
-            dialogScrims.remove(dialog)
+            clearDialogTracking(dialog)
             val dispatcher = backDispatcher
             if (dispatcher != null && backCallback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
                 backDispatcher = null
@@ -344,8 +353,16 @@ internal object ModalPresenter {
             }
             onDismissCleanup()
         }
+        dialog.setOnDismissListener { cleanup() }
         styleControls(container)
-        dialog.show()
+        try {
+            dialog.show()
+        } catch (t: Throwable) {
+            cleanup()
+            if (t is Error) throw t
+            Log.e("BilibiliInnocentLab", "presentCenteredDialog show failed", t)
+            return
+        }
         if (backCallback != null && AndroidVersion.isAtLeast(AndroidVersion.T)) {
             runCatching { backDispatcher = PredictiveBackApi33.register(dialog, backCallback) }
                 .onFailure { Log.e("BilibiliInnocentLab", "register centered dialog back callback failed", it) }
@@ -822,7 +839,28 @@ internal fun MainActivity.presentSizedModalDialog(
         }
         else -> null
     }
-    if (anchoredCloser != null) ModalPresenter.registerAnchoredCloser(dialog, anchoredCloser)
+    if (anchoredCloser != null) {
+        val dialogRef = WeakReference(dialog)
+        val activityRef = WeakReference(this)
+        val bubbleRef = WeakReference(bubbleController)
+        val morphRef = WeakReference(morphController)
+        val pendingRef = WeakReference(pendingAnchoredAfterClose)
+        ModalPresenter.registerAnchoredCloser(dialog) { interactive, after ->
+            if (dialogRef.get() == null || activityRef.get() == null) {
+                return@registerAnchoredCloser false
+            }
+            val pending = pendingRef.get() ?: return@registerAnchoredCloser false
+            bubbleRef.get()?.let { activeBubble ->
+                if (!activeBubble.isClosing) pending.set(after)
+                return@registerAnchoredCloser activeBubble.requestClose(interactive)
+            }
+            morphRef.get()?.let { activeMorph ->
+                if (!activeMorph.isClosing) pending.set(after)
+                return@registerAnchoredCloser activeMorph.requestClose(interactive)
+            }
+            false
+        }
+    }
     val bubbleRootLocation = IntArray(2)
     val bubbleSourceLocation = IntArray(2)
     var bubbleLaidOut = false
@@ -985,7 +1023,10 @@ internal fun MainActivity.presentSizedModalDialog(
             false
         }
     }
-    dialog.setOnDismissListener {
+    var cleanedUp = false
+    fun cleanupOnClose() {
+        if (cleanedUp) return
+        cleanedUp = true
         closeInsets()
         releaseElasticInteraction()
         morphController?.cancelMotion()
@@ -1013,8 +1054,16 @@ internal fun MainActivity.presentSizedModalDialog(
         scheduleReleaseHighlights()
         onDismissed?.invoke()
     }
+    dialog.setOnDismissListener { cleanupOnClose() }
     activeConfirmDialog = dialog
-    dialog.show()
+    try {
+        dialog.show()
+    } catch (t: Throwable) {
+        cleanupOnClose()
+        if (t is Error) throw t
+        Log.e("BilibiliInnocentLab", "presentSizedModalDialog show failed", t)
+        return
+    }
     dialog.window?.setLayout(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT

@@ -6,6 +6,7 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.Elf16KbVerifier;
 import io.github.jichuo1.meguviz.media.MediaNative;
 import io.github.jichuo1.meguviz.media.MediaRuntime;
 import java.io.File;
@@ -106,6 +107,11 @@ final class NativeDependencyCache {
             try (InputStream input = new java.io.FileInputStream(descriptor)) {
                 descriptor = null;
                 ArchiveVerifier.verifyLibrary(input, spec);
+            }
+            if ("arm64-v8a".equals(spec.abi)) {
+                Elf16KbVerifier.requireElf64FilePageAlignment(library.toFile(), ArchiveSpec.LIBRARY_NAME);
+            } else if ("armeabi-v7a".equals(spec.abi)) {
+                Elf16KbVerifier.requireElf32FilePageAlignment(library.toFile(), ArchiveSpec.LIBRARY_NAME);
             }
             requireSame(status, requireOwned(library, false, false));
         } catch (ErrnoException failure) { throw new IOException("cache_open_failed", failure); }

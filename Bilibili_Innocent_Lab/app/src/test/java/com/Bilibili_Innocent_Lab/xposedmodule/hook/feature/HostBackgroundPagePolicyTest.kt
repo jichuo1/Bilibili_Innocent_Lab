@@ -604,6 +604,8 @@ private class HostCopyBubblePlacementCases {
         assertEquals(84f, HostCopyBubblePlacement.left(100, 800, 1080, 16, 8), 0f)
         assertEquals(272f, HostCopyBubblePlacement.left(950, 800, 1080, 16, 8), 0f)
         assertEquals(8f, HostCopyBubblePlacement.left(0, 800, 1080, 16, 8), 0f)
+        assertEquals(128f, HostCopyBubblePlacement.left(40, 800, 1080, 16, 8, safeLeft = 120, safeRight = 60), 0f)
+        assertEquals(212f, HostCopyBubblePlacement.left(950, 800, 1080, 16, 8, safeLeft = 40, safeRight = 60), 0f)
     }
 
     fun leavesTheOriginalBottomTwentyPercentClearAndFallsBackForStaleAnchors() {
@@ -611,6 +613,8 @@ private class HostCopyBubblePlacementCases {
         assertEquals(1496f, HostCopyBubblePlacement.top(1800, 50, true, 300, 2340, 4, 8), 0f)
         assertEquals(1572f, HostCopyBubblePlacement.top(2200, 50, true, 300, 2340, 4, 8), 0f)
         assertEquals(990f, HostCopyBubblePlacement.top(3000, 50, false, 200, 2340, 4, 8), 0f)
+        assertEquals(138f, HostCopyBubblePlacement.top(20, 40, true, 200, 2340, 4, 8, safeTop = 130, safeBottom = 96), 0f)
+        assertEquals(1432f, HostCopyBubblePlacement.top(2200, 50, true, 300, 2340, 4, 8, safeTop = 100, safeBottom = 600), 0f)
     }
 
     fun verifyAllCases() {

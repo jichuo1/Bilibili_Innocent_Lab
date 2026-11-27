@@ -26,8 +26,16 @@ target_link_options(meguviz_qcom_motion PRIVATE "LINKER:-z,max-page-size=16384")
 add_library(bil_frame_window SHARED frame_window.cpp)
 target_compile_definitions(bil_frame_window PRIVATE VK_USE_PLATFORM_ANDROID_KHR VK_NO_PROTOTYPES)
 target_link_libraries(bil_frame_window PRIVATE android dl)
-target_compile_options(bil_frame_window PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
-target_link_options(bil_frame_window PRIVATE "LINKER:-z,max-page-size=16384")
+target_compile_options(bil_frame_window PRIVATE
+    -Wall -Wextra -Werror -fvisibility=hidden
+    -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti)
+target_link_options(bil_frame_window PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,--exclude-libs,ALL"
+    "-Wl,--gc-sections"
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/bil_frame_window.map")
+set_property(TARGET bil_frame_window APPEND PROPERTY LINK_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/bil_frame_window.map")
 
 # Rust 只生成静态库，最终 JNI 共享库由 Android 工具链链接。
 find_program(DANMAKU_CARGO_EXECUTABLE cargo)
@@ -61,9 +69,15 @@ if(DANMAKU_CARGO_EXECUTABLE AND danmaku_rust_triple)
     add_library(innocent_danmaku_wire SHARED danmaku_wire_jni.cpp)
     add_dependencies(innocent_danmaku_wire danmaku_wire_rust_archive)
     target_link_libraries(innocent_danmaku_wire PRIVATE "${danmaku_wire_static}")
-    target_compile_options(innocent_danmaku_wire PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
-    set_source_files_properties(danmaku_wire_jni.cpp PROPERTIES COMPILE_OPTIONS -fexceptions)
-    target_link_options(innocent_danmaku_wire PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,--exclude-libs,ALL")
+    target_compile_options(innocent_danmaku_wire PRIVATE
+        -Wall -Wextra -Werror -fvisibility=hidden
+        -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections)
+    # -fno-exceptions/-fno-rtti applied on innocent_danmaku_wire target above.
+    target_link_options(innocent_danmaku_wire PRIVATE
+        "-Wl,-z,max-page-size=16384"
+        "-Wl,--exclude-libs,ALL"
+        "-Wl,--gc-sections"
+        "-Wl,--icf=safe")
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     message(FATAL_ERROR "danmaku wire requires cargo (rustup with aarch64-linux-android and armv7-linux-androideabi targets) for release builds")
 else()

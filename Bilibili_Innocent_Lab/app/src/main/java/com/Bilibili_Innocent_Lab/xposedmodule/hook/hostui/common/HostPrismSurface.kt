@@ -19,8 +19,10 @@ internal class HostPrismSurface(
     source: View?
 ) : AutoCloseable {
     private class ClipLease(val original: Boolean, var users: Int = 0)
-    private class PrismView(context: android.content.Context, val clipping: ClipLease) : View(context), HostDockLayer
-    private val original = hostView.background
+    private class PrismView(context: android.content.Context, val clipping: ClipLease) : View(context), HostDockLayer {
+        var owner: HostPrismSurface? = null
+    }
+    private var original: android.graphics.drawable.Drawable? = hostView.background
     private val marker = Color.TRANSPARENT.toDrawable()
     // Surface records live in a WeakHashMap; their values must not retain the View keys or parents.
     private val host = WeakReference(hostView)
@@ -35,7 +37,7 @@ internal class HostPrismSurface(
         // Share clipping ownership with other Prism siblings without a process-level View cache.
         clipping = (0 until parent.childCount).asSequence()
             .mapNotNull { parent.getChildAt(it) as? PrismView }.firstOrNull()?.clipping ?: ClipLease(parent.clipChildren)
-        val layer = PrismView(hostView.context, clipping)
+        val layer = PrismView(hostView.context, clipping).also { it.owner = this }
         this.layer = WeakReference(layer)
         var leased = false
         glass = try {
@@ -48,9 +50,12 @@ internal class HostPrismSurface(
             hostView.background = marker
             LumenPrismGlass(layer, palette, LumenPrismOptions(), session, source)
         } catch (failure: Throwable) {
+            layer.owner = null
             if (layer.parent === parent) parent.removeView(layer)
             if (leased && --clipping.users == 0 && !parent.clipChildren) parent.clipChildren = clipping.original
-            if (hostView.background === marker) hostView.background = original
+            val restored = original
+            original = null
+            if (hostView.background === marker) hostView.background = restored
             throw failure
         }
     }
@@ -102,9 +107,14 @@ internal class HostPrismSurface(
         closed = true
         try { glass.close() } finally {
             val parent = parent.get()
-            layer.get()?.takeIf { it.parent === parent }?.let { parent?.removeView(it) }
+            layer.get()?.let {
+                it.owner = null
+                if (it.parent === parent) parent?.removeView(it)
+            }
             if (--clipping.users == 0 && parent?.clipChildren == false) parent.clipChildren = clipping.original
-            host.get()?.takeIf { it.background === marker }?.background = original
+            val restored = original
+            original = null
+            host.get()?.takeIf { it.background === marker }?.background = restored
         }
     }
 }

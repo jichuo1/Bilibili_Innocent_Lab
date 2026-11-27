@@ -1804,6 +1804,7 @@
     <string name="player_frame_gpu_arch_mali">ARM Mali / Immortalis</string>
     <string name="player_frame_gpu_arch_xclipse">AMD RDNA / Samsung Xclipse</string>
     <string name="player_frame_gpu_arch_powervr">Imagination PowerVR</string>
+    <string name="player_frame_gpu_arch_maleoon">Huawei Maleoon</string>
     <string name="player_frame_gpu_arch_generic">Vulkan Compute GPU</string>
     <string name="player_frame_gpu_arch_unavailable">不支持插帧加速</string>
     <string name="player_frame_feat_qcom_ahb">AHB 零拷贝</string>

@@ -11,6 +11,8 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
@@ -44,13 +46,19 @@ if (baselineProfileTooling) {
     dependencies.add("baselineProfile", project(":baselineprofile"))
 }
 
-/** ELF64 16KB page-size and ZIP STORED LFH alignment verifier delegated to build-logic (Configuration Cache safe). */
+/** ELF64 16KB / ELF32 4KB page-size and ZIP STORED LFH alignment verifier delegated to build-logic (Configuration Cache safe). */
 object MediaElf16KbCheck {
     fun verifyElf64PageAlignment(bytes: ByteArray, label: String) =
         com.bilibili.innocentlab.buildlogic.BilMediaElf16KbCheck.verifyElf64PageAlignment(bytes, label)
 
+    fun verifyElf32PageAlignment(bytes: ByteArray, label: String) =
+        com.bilibili.innocentlab.buildlogic.BilMediaElf16KbCheck.verifyElf32PageAlignment(bytes, label)
+
     fun verifyApk16KbAlignment(apk: File, expectedStoredSos: Set<String>) =
         com.bilibili.innocentlab.buildlogic.BilMediaElf16KbCheck.verifyApk16KbAlignment(apk, expectedStoredSos)
+
+    fun verifyApk4KbAlignment(apk: File, expectedStoredSos: Set<String>) =
+        com.bilibili.innocentlab.buildlogic.BilMediaElf16KbCheck.verifyApk4KbAlignment(apk, expectedStoredSos)
 }
 
 /** Repackage the native bytes from the same published AAR as the Java API for lazy host loading. */
@@ -77,6 +85,8 @@ abstract class PackFrameNativePayload : DefaultTask() {
                 check(bytes.size.toLong() == nativeEntry.size) { "Incomplete MeguvizMedia native payload." }
                 if (abi == "arm64-v8a") {
                     MediaElf16KbCheck.verifyElf64PageAlignment(bytes, "PackFrameNativePayload:$abi/$library")
+                } else if (abi == "armeabi-v7a") {
+                    MediaElf16KbCheck.verifyElf32PageAlignment(bytes, "PackFrameNativePayload:$abi/$library")
                 }
                 val archive = assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile
                 archive.parentFile.mkdirs()
@@ -113,11 +123,48 @@ abstract class LumenContractJvmArguments : CommandLineArgumentProvider {
 abstract class VerifyMediaApk : DefaultTask() {
     @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.RELATIVE)
     abstract val apkDirectory: DirectoryProperty
+    @get:Input
+    abstract val requireDanmakuWire: Property<Boolean>
+
+    private fun verifyVisionToolArchive(
+        apk: File,
+        zip: ZipFile,
+        visionPath: String,
+        is64Bit: Boolean,
+        required: Boolean
+    ) {
+        val visionEntry = zip.getEntry(visionPath)
+        if (visionEntry == null) {
+            check(!required) { "Missing $visionPath in ${apk.name}" }
+            return
+        }
+        val visionBytes = zip.getInputStream(visionEntry).use { it.readAllBytes() }
+        var visionSoCount = 0
+        ZipInputStream(ByteArrayInputStream(visionBytes)).use { zis ->
+            while (true) {
+                val inner = zis.nextEntry ?: break
+                if (!inner.isDirectory && inner.name.endsWith(".so")) {
+                    visionSoCount++
+                    val soBytes = zis.readAllBytes()
+                    if (is64Bit) {
+                        MediaElf16KbCheck.verifyElf64PageAlignment(soBytes, "${apk.name}:$visionPath/${inner.name}")
+                    } else {
+                        MediaElf16KbCheck.verifyElf32PageAlignment(soBytes, "${apk.name}:$visionPath/${inner.name}")
+                    }
+                }
+                zis.closeEntry()
+            }
+        }
+        check(visionSoCount > 0) { "No .so found inside $visionPath of ${apk.name}" }
+    }
+
     @TaskAction fun verify() {
         val apks = apkDirectory.get().asFile.walkTopDown().filter { it.isFile && it.extension == "apk" }.toList()
         check(apks.isNotEmpty()) { "Media packaging check found no APK" }
+        val requireWire = requireDanmakuWire.getOrElse(false)
         for (apk in apks) {
             val arm64Sos = mutableSetOf<String>()
+            val armeabiSos = mutableSetOf<String>()
             ZipFile(apk).use { zip ->
                 val forbidden = zip.entries().asSequence().filter { entry ->
                     entry.name.endsWith("/libonnxruntime.so") || entry.name.endsWith("/libonnxruntime4j_jni.so") ||
@@ -128,6 +175,14 @@ abstract class VerifyMediaApk : DefaultTask() {
                     .map { it.substringAfter("lib/").substringBefore('/') }.toSet()
                 check(abis.isNotEmpty() && abis.all { (zip.getEntry("lib/$it/libmeguviz_qcom_motion.so")?.size ?: 0L) > 0 }) {
                     "QCOM motion library missing for a packaged ABI: $abis"
+                }
+                check(abis.all { (zip.getEntry("lib/$it/libbil_frame_window.so")?.size ?: 0L) > 0 }) {
+                    "Frame window library missing for a packaged ABI: $abis"
+                }
+                if (requireWire) {
+                    check(abis.all { (zip.getEntry("lib/$it/libinnocent_danmaku_wire.so")?.size ?: 0L) > 0 }) {
+                        "Danmaku wire library missing for a packaged ABI in release build: $abis"
+                    }
                 }
                 val arm64Entries = zip.entries().asSequence().filter { entry ->
                     !entry.isDirectory && entry.name.startsWith("lib/arm64-v8a/") && entry.name.endsWith(".so")
@@ -144,27 +199,40 @@ abstract class VerifyMediaApk : DefaultTask() {
                     MediaElf16KbCheck.verifyElf64PageAlignment(soBytes, "${apk.name}:${entry.name}")
                     arm64Sos += entry.name
                 }
-                val visionPath = "assets/native-packing/arm64-v8a/VisionTool.zip"
-                val visionEntry = requireNotNull(zip.getEntry(visionPath)) { "Missing $visionPath in ${apk.name}" }
-                val visionBytes = zip.getInputStream(visionEntry).use { it.readAllBytes() }
-                var visionSoCount = 0
-                ZipInputStream(ByteArrayInputStream(visionBytes)).use { zis ->
-                    while (true) {
-                        val inner = zis.nextEntry ?: break
-                        if (!inner.isDirectory && inner.name.endsWith(".so")) {
-                            visionSoCount++
-                            MediaElf16KbCheck.verifyElf64PageAlignment(
-                                zis.readAllBytes(),
-                                "${apk.name}:$visionPath/${inner.name}"
-                            )
-                        }
-                        zis.closeEntry()
+                val armeabiEntries = zip.entries().asSequence().filter { entry ->
+                    !entry.isDirectory && entry.name.startsWith("lib/armeabi-v7a/") && entry.name.endsWith(".so")
+                }.toList()
+                for (entry in armeabiEntries) {
+                    check(entry.method == ZipEntry.STORED) {
+                        "${entry.name} in ${apk.name} must be STORED"
                     }
+                    check(entry.size > 0 && entry.size == entry.compressedSize) {
+                        "${entry.name} in ${apk.name} has compressed size mismatch"
+                    }
+                    val soBytes = zip.getInputStream(entry).use { it.readAllBytes() }
+                    MediaElf16KbCheck.verifyElf32PageAlignment(soBytes, "${apk.name}:${entry.name}")
+                    armeabiSos += entry.name
                 }
-                check(visionSoCount > 0) { "No .so found inside $visionPath of ${apk.name}" }
-                logger.lifecycle("Media packaging verified: ${apk.name} (${apk.length()} bytes), QCOM motion for $abis, 16KB verified for ${arm64Sos.size} arm64-v8a .so(s)")
+                verifyVisionToolArchive(
+                    apk = apk,
+                    zip = zip,
+                    visionPath = "assets/native-packing/arm64-v8a/VisionTool.zip",
+                    is64Bit = true,
+                    required = true
+                )
+                verifyVisionToolArchive(
+                    apk = apk,
+                    zip = zip,
+                    visionPath = "assets/native-packing/armeabi-v7a/VisionTool.zip",
+                    is64Bit = false,
+                    required = false
+                )
+                logger.lifecycle("Media packaging verified: ${apk.name} (${apk.length()} bytes), QCOM motion & frame window for $abis, 16KB verified for ${arm64Sos.size} arm64-v8a .so(s), 4KB verified for ${armeabiSos.size} armeabi-v7a .so(s)")
             }
             MediaElf16KbCheck.verifyApk16KbAlignment(apk, arm64Sos)
+            if (armeabiSos.isNotEmpty()) {
+                MediaElf16KbCheck.verifyApk4KbAlignment(apk, armeabiSos)
+            }
         }
     }
 }
@@ -334,6 +402,11 @@ android {
         baseline = file("lint-baseline.xml")
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
     packaging.jniLibs.excludes += setOf(
         "lib/arm64-v8a/libmeguviz_media_rife_ncnn.so",
         "lib/armeabi-v7a/libmeguviz_media_rife_ncnn.so"
@@ -380,6 +453,7 @@ androidComponents.onVariants { variant ->
     // Keep the existing verification task name for CI and local callers.
     val mediaPackaging = tasks.register<VerifyMediaApk>("verify${variant.name.replaceFirstChar { it.uppercase() }}AudioApk") {
         apkDirectory.set(variant.artifacts.get(SingleArtifact.APK))
+        requireDanmakuWire.set(variant.buildType == "release" || variant.buildType == "embedded")
     }
     tasks.matching { it.name == "assemble${variant.name.replaceFirstChar { it.uppercase() }}" }.configureEach {
         finalizedBy(mediaPackaging)

@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.ArchiveVerifier
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.Elf16KbVerifier
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.PayloadVerifyException
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.SecurePayloadStore
 import java.io.File
@@ -38,7 +39,8 @@ internal class AudioAssetStore(
     fun valid(part: AudioAsset): Boolean = valid(part, file(part))
     fun valid(part: AudioAsset, file: File): Boolean = runCatching {
         SecurePayloadStore.isSafeRegularFile(file) && file.length() == part.size &&
-            Files.newInputStream(file.toPath(), NOFOLLOW_LINKS).use { verify(part, it); true }
+            Files.newInputStream(file.toPath(), NOFOLLOW_LINKS).use { verify(part, it); true } &&
+            isValidNativeElf(part, file)
     }.getOrDefault(false)
 
     fun install(part: AudioAsset, input: () -> InputStream): File {
@@ -57,9 +59,38 @@ internal class AudioAssetStore(
             isExistingValid = { existing -> valid(part, existing) },
             checkCancelled = {
                 if (Thread.currentThread().isInterrupted) throw AudioAssetFailure("cancelled", part.name)
-            }
+            },
+            validateStagedFile = { staged -> verifyNativeElfIfRequired(part, staged.toFile()) }
         ).getOrElse { failure ->
             throw mapStoreFailure(failure, part.name)
+        }
+    }
+
+    private fun isValidNativeElf(part: AudioAsset, file: File): Boolean = runCatching {
+        verifyNativeElfIfRequired(part, file)
+        true
+    }.getOrDefault(false)
+
+    private fun verifyNativeElfIfRequired(part: AudioAsset, file: File) {
+        if (!part.name.endsWith(".so")) return
+        val isArm64Entry = part.entry.startsWith("jni/arm64-v8a/") || part.entry.startsWith("lib/arm64-v8a/")
+        val isArm32Entry = part.entry.startsWith("jni/armeabi-v7a/") || part.entry.startsWith("lib/armeabi-v7a/")
+        val checkResult = when {
+            isArm64Entry -> Elf16KbVerifier.verifyElf64FilePageAlignment(file, part.name)
+            isArm32Entry -> Elf16KbVerifier.verifyElf32FilePageAlignment(file, part.name)
+            else -> {
+                val elfClass = Elf16KbVerifier.readElfClassIfElf(file) ?: return
+                when {
+                    hostAbi == "arm64-v8a" -> Elf16KbVerifier.verifyElf64FilePageAlignment(file, part.name)
+                    hostAbi == "armeabi-v7a" -> Elf16KbVerifier.verifyElf32FilePageAlignment(file, part.name)
+                    elfClass == 2 -> Elf16KbVerifier.verifyElf64FilePageAlignment(file, part.name)
+                    elfClass == 1 -> Elf16KbVerifier.verifyElf32FilePageAlignment(file, part.name)
+                    else -> Result.failure(IllegalArgumentException("${part.name} has unsupported ELF class=$elfClass"))
+                }
+            }
+        }
+        checkResult.getOrElse { failure ->
+            throw AudioAssetFailure("elf_alignment_invalid", part.name, cause = failure)
         }
     }
 

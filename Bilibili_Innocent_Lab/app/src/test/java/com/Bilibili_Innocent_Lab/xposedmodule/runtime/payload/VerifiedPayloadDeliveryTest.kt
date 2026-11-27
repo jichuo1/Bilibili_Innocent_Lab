@@ -1,5 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAsset
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetFailure
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets.AudioAssetStore
 import com.bilab.testfixtures.TestElf16KbBuilder
 import com.bilab.testfixtures.TestZipBuilder
 import org.junit.Assert.assertArrayEquals
@@ -7,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -14,6 +18,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
@@ -70,6 +75,181 @@ class VerifiedPayloadDeliveryTest {
 
         val elfFile = tempFolder.newFile("libfile16k.so").apply { writeBytes(valid16k) }
         assertTrue(Elf16KbVerifier.verifyElf64FilePageAlignment(elfFile).isSuccess)
+    }
+
+    @Test
+    fun elf16KbVerifierEnforcesCongruenceBoundsOverlapAndNoTextrel() {
+        // 同权限多 PT_LOAD（例如 TestElf16KbBuilder 构造的最小双 PF_RX 头）允许共页
+        val sameFlagMultiSeg = TestElf16KbBuilder.buildElf64WithSegments(listOf(16384L, 16384L))
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(sameFlagMultiSeg, "same-flags").isSuccess)
+
+        // 非 0 同余偏移（p_offset % 16384 == p_vaddr % 16384）放行
+        val congruent = buildElf64Custom(
+            totalBytes = 8192,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 4096L, vaddr = 16384L + 4096L, filesz = 128L, memsz = 128L, align = 16384L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(congruent, "congruent").isSuccess)
+
+        // 段同余错位（p_offset % 16384 != p_vaddr % 16384）拒绝
+        val incongruent = buildElf64Custom(
+            totalBytes = 8192,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 4096L, vaddr = 0L, filesz = 128L, memsz = 128L, align = 16384L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(incongruent, "incongruent").isFailure)
+
+        // p_memsz < p_filesz 或文件越界拒绝
+        val memLtFile = buildElf64Custom(
+            totalBytes = 1024,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = 256L, memsz = 128L, align = 16384L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(memLtFile, "memsz-lt-filesz").isFailure)
+
+        val fileOob = buildElf64Custom(
+            totalBytes = 1024,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 512L, vaddr = 512L, filesz = 600L, memsz = 600L, align = 16384L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(fileOob, "file-oob").isFailure)
+
+        // 异权 PT_LOAD（PF_RX=5 与 PF_RW=6）落入同一 16KB 虚拟页必须拒绝
+        val overlapDiffFlags = buildElf64Custom(
+            totalBytes = 8192,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = 4096L, memsz = 4096L, align = 16384L),
+                ElfSegSpec(type = 1, flags = 6, offset = 4096L, vaddr = 4096L, filesz = 128L, memsz = 128L, align = 16384L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(overlapDiffFlags, "diff-flags-overlap").isFailure)
+
+        // 异权 PT_LOAD 位于不交叠 16KB 虚拟页时允许
+        val disjointDiffFlags = buildElf64Custom(
+            totalBytes = 20480,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = 4096L, memsz = 4096L, align = 16384L),
+                ElfSegSpec(type = 1, flags = 6, offset = 16384L, vaddr = 16384L, filesz = 128L, memsz = 128L, align = 16384L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(disjointDiffFlags, "diff-flags-disjoint").isSuccess)
+
+        // PT_DYNAMIC 包含 DT_TEXTREL (22) 或 DT_FLAGS (30) & DF_TEXTREL (0x4) 必须拒绝
+        val dtTextrel = buildElf64WithDynamic(dTag = 22L, dVal = 0L)
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(dtTextrel, "dt-textrel").isFailure)
+
+        val dfTextrel = buildElf64WithDynamic(dTag = 30L, dVal = 0x4L)
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(dfTextrel, "df-textrel").isFailure)
+
+        val dfBindNow = buildElf64WithDynamic(dTag = 30L, dVal = 0x8L)
+        assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(dfBindNow, "df-bind-now").isSuccess)
+
+        val badElfFile = tempFolder.newFile("bad-textrel.so").apply { writeBytes(dtTextrel) }
+        assertThrows(IOException::class.java) {
+            Elf16KbVerifier.requireElf64FilePageAlignment(badElfFile, "bad-textrel.so")
+        }
+    }
+
+    @Test
+    fun elf32VerifierEnforcesAlignmentCongruenceOverlapAndNoTextrel() {
+        val valid4k = buildElf32Custom(
+            totalBytes = 512,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = 512L, memsz = 512L, align = 4096L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf32PageAlignment(valid4k, "elf32-4k").isSuccess)
+        val elf32File = tempFolder.newFile("lib32.so").apply { writeBytes(valid4k) }
+        assertTrue(Elf16KbVerifier.verifyElf32FilePageAlignment(elf32File).isSuccess)
+
+        val bad2k = buildElf32Custom(
+            totalBytes = 512,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = 512L, memsz = 512L, align = 2048L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf32PageAlignment(bad2k, "elf32-2k").isFailure)
+
+        val incongruent32 = buildElf32Custom(
+            totalBytes = 4096,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 1024L, vaddr = 0L, filesz = 128L, memsz = 128L, align = 4096L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf32PageAlignment(incongruent32, "elf32-incongruent").isFailure)
+
+        val overlap32 = buildElf32Custom(
+            totalBytes = 4096,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = 1024L, memsz = 1024L, align = 4096L),
+                ElfSegSpec(type = 1, flags = 6, offset = 1024L, vaddr = 1024L, filesz = 128L, memsz = 128L, align = 4096L)
+            )
+        )
+        assertTrue(Elf16KbVerifier.verifyElf32PageAlignment(overlap32, "elf32-overlap").isFailure)
+
+        val textrel32 = buildElf32WithDynamic(dTag = 22, dVal = 0L)
+        assertTrue(Elf16KbVerifier.verifyElf32PageAlignment(textrel32, "elf32-textrel").isFailure)
+    }
+
+    @Test
+    fun archiveVerifierAllowsSmallHighRatioZeroPaddedSoBelow256KbAndRejects1MbZipBomb() {
+        // 200 KiB (< 256 KiB 阈值) 高压缩比全零载荷（模拟 16KB 零填充小 .so）应放行
+        val smallZeroPaddedSo = ByteArray(200 * 1024)
+        val smallZip = TestZipBuilder.buildZip(
+            tempFolder.newFile("small-padded-so.zip"),
+            mapOf("lib/arm64-v8a/libsmall_16kb.so" to smallZeroPaddedSo)
+        )
+        val smallVerified = ArchiveVerifier.verifyZip(
+            smallZip,
+            ZipLimits(
+                maxEntries = 16,
+                maxEntryBytes = 4L * 1024L * 1024L,
+                maxTotalBytes = 4L * 1024L * 1024L,
+                maxCompressionRatio = 50.0,
+                forbiddenExtensions = emptySet()
+            )
+        )
+        assertTrue(smallVerified.isSuccess)
+        assertEquals(200L * 1024L, smallVerified.getOrThrow().single().size)
+
+        // 1 MiB 真正高压缩 Zip 炸弹必须继续拦截
+        val bomb1Mb = ByteArray(1024 * 1024)
+        val bombZip = TestZipBuilder.buildZip(
+            tempFolder.newFile("bomb-1mb.zip"),
+            mapOf("payload.json" to bomb1Mb)
+        )
+        val bombResult = ArchiveVerifier.verifyZip(
+            bombZip,
+            ZipLimits(
+                maxEntries = 16,
+                maxEntryBytes = 4L * 1024L * 1024L,
+                maxTotalBytes = 4L * 1024L * 1024L,
+                maxCompressionRatio = 50.0
+            )
+        )
+        assertTrue(bombResult.isFailure)
+    }
+
+    @Test
+    fun audioAssetStoreRejects4KbArm64ElfAndAccepts16KbElf() {
+        val store = AudioAssetStore(tempFolder.newFolder("audio-elf-store"), hostAbi = "arm64-v8a")
+        val bad4k = TestElf16KbBuilder.buildElf64(4096L)
+        val badAsset = AudioAsset("libonnxruntime.so", bad4k.size.toLong(), sha256Hex(bad4k), "jni/arm64-v8a/libonnxruntime.so")
+        val ex = assertThrows(AudioAssetFailure::class.java) {
+            store.install(badAsset) { ByteArrayInputStream(bad4k) }
+        }
+        assertEquals("elf_alignment_invalid", ex.code)
+        assertFalse(store.file(badAsset).exists())
+
+        val good16k = TestElf16KbBuilder.buildElf64(16384L)
+        val goodAsset = AudioAsset("libonnxruntime.so", good16k.size.toLong(), sha256Hex(good16k), "jni/arm64-v8a/libonnxruntime.so")
+        val installed = store.install(goodAsset) { ByteArrayInputStream(good16k) }
+        assertTrue(installed.isFile)
+        assertTrue(store.valid(goodAsset))
     }
 
     @Test
@@ -312,4 +492,120 @@ class VerifiedPayloadDeliveryTest {
 
     private fun sha256Hex(bytes: ByteArray): String =
         SecurePayloadStore.sha256Hex(MessageDigest.getInstance("SHA-256").digest(bytes))
+
+    private data class ElfSegSpec(
+        val type: Int,
+        val flags: Int,
+        val offset: Long,
+        val vaddr: Long,
+        val filesz: Long,
+        val memsz: Long,
+        val align: Long
+    )
+
+    private fun buildElf64Custom(totalBytes: Int, segments: List<ElfSegSpec>): ByteArray {
+        val ehdrSize = 64
+        val phdrSize = 56
+        val minBytes = ehdrSize + segments.size * phdrSize
+        require(totalBytes >= minBytes)
+        val bytes = ByteArray(totalBytes)
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        bytes[0] = 0x7f
+        bytes[1] = 'E'.code.toByte()
+        bytes[2] = 'L'.code.toByte()
+        bytes[3] = 'F'.code.toByte()
+        bytes[4] = 2
+        bytes[5] = 1
+        bytes[6] = 1
+        buf.putShort(16, 3.toShort())
+        buf.putShort(18, 183.toShort())
+        buf.putInt(20, 1)
+        buf.putLong(32, ehdrSize.toLong())
+        buf.putShort(52, ehdrSize.toShort())
+        buf.putShort(54, phdrSize.toShort())
+        buf.putShort(56, segments.size.toShort())
+        segments.forEachIndexed { idx, seg ->
+            val off = ehdrSize + idx * phdrSize
+            buf.putInt(off, seg.type)
+            buf.putInt(off + 4, seg.flags)
+            buf.putLong(off + 8, seg.offset)
+            buf.putLong(off + 16, seg.vaddr)
+            buf.putLong(off + 24, seg.vaddr)
+            buf.putLong(off + 32, seg.filesz)
+            buf.putLong(off + 40, seg.memsz)
+            buf.putLong(off + 48, seg.align)
+        }
+        return bytes
+    }
+
+    private fun buildElf64WithDynamic(dTag: Long, dVal: Long): ByteArray {
+        val dynOff = 64 + 2 * 56
+        val total = dynOff + 32
+        val bytes = buildElf64Custom(
+            totalBytes = total,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = total.toLong(), memsz = total.toLong(), align = 16384L),
+                ElfSegSpec(type = 2, flags = 6, offset = dynOff.toLong(), vaddr = dynOff.toLong(), filesz = 32L, memsz = 32L, align = 8L)
+            )
+        )
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putLong(dynOff, dTag)
+        buf.putLong(dynOff + 8, dVal)
+        buf.putLong(dynOff + 16, 0L)
+        buf.putLong(dynOff + 24, 0L)
+        return bytes
+    }
+
+    private fun buildElf32Custom(totalBytes: Int, segments: List<ElfSegSpec>): ByteArray {
+        val ehdrSize = 52
+        val phdrSize = 32
+        val minBytes = ehdrSize + segments.size * phdrSize
+        require(totalBytes >= minBytes)
+        val bytes = ByteArray(totalBytes)
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        bytes[0] = 0x7f
+        bytes[1] = 'E'.code.toByte()
+        bytes[2] = 'L'.code.toByte()
+        bytes[3] = 'F'.code.toByte()
+        bytes[4] = 1
+        bytes[5] = 1
+        bytes[6] = 1
+        buf.putShort(16, 3.toShort())
+        buf.putShort(18, 40.toShort()) // EM_ARM
+        buf.putInt(20, 1)
+        buf.putInt(28, ehdrSize)
+        buf.putShort(40, ehdrSize.toShort())
+        buf.putShort(42, phdrSize.toShort())
+        buf.putShort(44, segments.size.toShort())
+        segments.forEachIndexed { idx, seg ->
+            val off = ehdrSize + idx * phdrSize
+            buf.putInt(off, seg.type)
+            buf.putInt(off + 4, seg.offset.toInt())
+            buf.putInt(off + 8, seg.vaddr.toInt())
+            buf.putInt(off + 12, seg.vaddr.toInt())
+            buf.putInt(off + 16, seg.filesz.toInt())
+            buf.putInt(off + 20, seg.memsz.toInt())
+            buf.putInt(off + 24, seg.flags)
+            buf.putInt(off + 28, seg.align.toInt())
+        }
+        return bytes
+    }
+
+    private fun buildElf32WithDynamic(dTag: Int, dVal: Long): ByteArray {
+        val dynOff = 52 + 2 * 32
+        val total = dynOff + 16
+        val bytes = buildElf32Custom(
+            totalBytes = total,
+            segments = listOf(
+                ElfSegSpec(type = 1, flags = 5, offset = 0L, vaddr = 0L, filesz = total.toLong(), memsz = total.toLong(), align = 4096L),
+                ElfSegSpec(type = 2, flags = 6, offset = dynOff.toLong(), vaddr = dynOff.toLong(), filesz = 16L, memsz = 16L, align = 4L)
+            )
+        )
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(dynOff, dTag)
+        buf.putInt(dynOff + 4, dVal.toInt())
+        buf.putInt(dynOff + 8, 0)
+        buf.putInt(dynOff + 12, 0)
+        return bytes
+    }
 }

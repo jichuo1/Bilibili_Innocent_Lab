@@ -85,33 +85,56 @@ class HostMemoryPressureBridgeTest {
             onCritical = { criticalCalls++ }
         )
 
-        HostMemoryPressureBridge.install(app)
-        HostMemoryPressureBridge.install(app)
-        assertEquals(1, registered.size)
+        val observed = ArrayList<HostTrimSeverity>()
+        val lease = HostMemoryPressureBridge.registerResource("install-test") { severity ->
+            observed += severity
+        }
+        try {
+            HostMemoryPressureBridge.install(app)
+            HostMemoryPressureBridge.install(app)
+            assertEquals(2, registered.size)
 
-        val callback = registered.single() as ComponentCallbacks2
-        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
-        assertEquals(0, moderateCalls)
-        assertEquals(0, criticalCalls)
+            fun dispatchTrim(level: Int) {
+                registered.toList().forEach { (it as ComponentCallbacks2).onTrimMemory(level) }
+            }
 
-        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
-        assertEquals(1, moderateCalls)
-        assertEquals(0, criticalCalls)
+            @Suppress("DEPRECATION")
+            dispatchTrim(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+            assertEquals(0, moderateCalls)
+            assertEquals(0, criticalCalls)
+            assertEquals(listOf(HostTrimSeverity.HIDDEN), observed)
 
-        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
-        assertEquals(2, moderateCalls)
-        assertEquals(1, criticalCalls)
+            @Suppress("DEPRECATION")
+            dispatchTrim(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+            assertEquals(1, moderateCalls)
+            assertEquals(0, criticalCalls)
+            assertEquals(listOf(HostTrimSeverity.HIDDEN, HostTrimSeverity.MODERATE), observed)
 
-        callback.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
-        assertEquals(3, moderateCalls)
-        assertEquals(2, criticalCalls)
+            @Suppress("DEPRECATION")
+            dispatchTrim(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+            assertEquals(2, moderateCalls)
+            assertEquals(1, criticalCalls)
+            assertEquals(
+                listOf(HostTrimSeverity.HIDDEN, HostTrimSeverity.MODERATE, HostTrimSeverity.CRITICAL),
+                observed
+            )
 
-        callback.onLowMemory()
-        assertEquals(4, moderateCalls)
-        assertEquals(3, criticalCalls)
+            @Suppress("DEPRECATION")
+            dispatchTrim(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+            assertEquals(3, moderateCalls)
+            assertEquals(2, criticalCalls)
 
-        HostMemoryPressureBridge.resetForTests()
-        assertTrue(registered.isEmpty())
+            registered.toList().forEach { (it as ComponentCallbacks2).onLowMemory() }
+            assertEquals(4, moderateCalls)
+            assertEquals(3, criticalCalls)
+            assertEquals(1, observed.count { it == HostTrimSeverity.HIDDEN })
+
+            HostMemoryPressureBridge.resetForTests()
+            assertTrue(registered.isEmpty())
+            assertEquals(2, unregistered.size)
+        } finally {
+            lease.close()
+        }
     }
 
     fun `soft floating surface disables refraction and allows render target backdrop only with view content source`() {

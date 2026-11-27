@@ -187,16 +187,11 @@ internal class FrameQcomBridge private constructor(
                 throw pending
             }
         }
-        if (ahb) try {
-            return GlesMotionWarp(width, height, false, true)
-        } catch (failure: IllegalStateException) {
-            // 1.2.2 rethrows these capability rejections after its constructor has
-            // cleaned up. A different exception can denote unproven EGL/Vulkan retirement.
-            if (failure.message != "Vulkan QCOM block matcher unavailable" &&
-                failure.message != "compact luma AHB preflight failed") throw failure
-            ahb = false
+        val (backend, usedAhb) = openQcomBackend(width, height, ahb) { w, h, asyncReadback, useAhb ->
+            GlesMotionWarp(w, h, asyncReadback, useAhb)
         }
-        return GlesMotionWarp(width, height, true, false)
+        ahb = usedAhb
+        return backend
     }
 
     override fun onFlush() {
@@ -442,7 +437,7 @@ internal class FrameQcomBridge private constructor(
         return true
     }
 
-    private fun report() = host.log("$logName.window", "originals=$originals midpoints=$midpoints missed=$missed workNs=$lastWorkNs")
+    private fun report() = host.log("$logName.window", "originals=$originals midpoints=$midpoints missed=$missed tsRejected=${egl.timestampRejected} workNs=$lastWorkNs")
 
     private fun checkRuntimeEligibility(): RuntimeEligibility {
         val codec = decoder.get() ?: return RuntimeEligibility.DecoderUnavailable
@@ -596,9 +591,52 @@ internal class FrameQcomBridge private constructor(
         private const val MAX_RETIRE_RETRIES = 3
         private const val WORKER_HANG_SAFETY_NS = 500_000_000L
         private const val ORIGINAL_HANG_SAFETY_NS = 250_000_000L
+        internal const val VULKAN_QCOM_UNAVAILABLE_MESSAGE = "Vulkan QCOM block matcher unavailable"
+        internal const val COMPACT_LUMA_AHB_PREFLIGHT_FAILED_MESSAGE = "compact luma AHB preflight failed"
         private fun temporary(status: Int) = status == -7 || status == -8 || status == -12
         private val unresolvedOwners = mutableSetOf<FrameQcomBridge>()
         private var nextRetirementWakeNs = 0L
+        private val qcomUnavailable = AtomicBoolean(false)
+
+        internal fun isQcomUnavailable(): Boolean = qcomUnavailable.get()
+
+        internal fun resetQcomUnavailableForTest() {
+            qcomUnavailable.set(false)
+        }
+
+        internal fun openQcomBackend(
+            width: Int,
+            height: Int,
+            tryAhb: Boolean,
+            createWarp: (Int, Int, Boolean, Boolean) -> WindowBackend
+        ): Pair<WindowBackend, Boolean> {
+            if (qcomUnavailable.get()) {
+                throw IllegalStateException(VULKAN_QCOM_UNAVAILABLE_MESSAGE)
+            }
+            fun invoke(asyncReadback: Boolean, useAhb: Boolean): WindowBackend = try {
+                createWarp(width, height, asyncReadback, useAhb)
+            } catch (error: LinkageError) {
+                qcomUnavailable.set(true)
+                throw error
+            } catch (failure: IllegalStateException) {
+                if (failure.message == VULKAN_QCOM_UNAVAILABLE_MESSAGE) {
+                    qcomUnavailable.set(true)
+                }
+                throw failure
+            }
+            if (tryAhb) {
+                try {
+                    return invoke(false, true) to true
+                } catch (failure: IllegalStateException) {
+                    // 1.2.2 rethrows capability rejections after constructor cleanup. Only compact luma
+                    // AHB preflight failure may fall back to async PBO; missing matcher or LinkageError latches off QCOM.
+                    if (failure.message != COMPACT_LUMA_AHB_PREFLIGHT_FAILED_MESSAGE) {
+                        throw failure
+                    }
+                }
+            }
+            return invoke(true, false) to false
+        }
 
         internal fun supportsQcomColorStandard(colorStandard: Int?): Boolean =
             colorStandard == MediaFormat.COLOR_STANDARD_BT709 ||
@@ -674,7 +712,7 @@ internal class FrameQcomBridge private constructor(
                    ).standard,
                    bypassFrameBudget: Boolean = false,
                    onBackendFailed: (String, Boolean) -> Unit): FrameQcomBridge? {
-            if (!validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
+            if (qcomUnavailable.get() || !validExtent(width, height) || !display.isValid || !sourceFps.isFinite() || targetFps !in 24..240 ||
                 abs(sourceFps * 2 - targetFps) > 2.1 || !supportsQcomColorStandard(initialColorStandard) ||
                 !ownersReady()) return null
             val bridge = FrameQcomBridge(codec, width, height, sourceFps, targetFps, source, FrameStatus.Backend.QCOM,

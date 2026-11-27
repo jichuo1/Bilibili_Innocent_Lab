@@ -17,6 +17,7 @@ internal class FrameQcomEgl {
     private var rateOwner: Surface? = null
     private val extent = IntArray(1)
     private var textureId = 0
+    private val presentationTime = PresentationTimeTracker()
     var texture: SurfaceTexture? = null
         private set
     var input: Surface? = null
@@ -27,10 +28,12 @@ internal class FrameQcomEgl {
         private set
     val oes: Int get() = textureId
     val connected: Boolean get() = window != EGL14.EGL_NO_SURFACE
+    val timestampRejected: Long get() = presentationTime.rejectedCount
 
     fun prepare(width: Int, height: Int) {
         val e = checkNotNull(FrameGl.create(EGL14.EGL_PBUFFER_BIT or EGL14.EGL_WINDOW_BIT, clientVersion = 3))
         egl = e
+        presentationTime.configure(EGL14.eglQueryString(e.display, EGL14.EGL_EXTENSIONS))
         scratch = EGL14.eglCreatePbufferSurface(e.display, e.config,
             intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
         check(scratch != EGL14.EGL_NO_SURFACE && EGL14.eglMakeCurrent(e.display, scratch, scratch, e.context))
@@ -63,7 +66,9 @@ internal class FrameQcomEgl {
 
     fun swap(dueNs: Long) {
         val e = checkNotNull(egl)
-        check(EGLExt.eglPresentationTimeANDROID(e.display, window, dueNs))
+        presentationTime.apply {
+            EGLExt.eglPresentationTimeANDROID(e.display, window, dueNs)
+        }
         check(EGL14.eglSwapBuffers(e.display, window))
     }
 
@@ -92,5 +97,33 @@ internal class FrameQcomEgl {
         scratch = EGL14.EGL_NO_SURFACE
         FrameGl.release(e)
         egl = null
+    }
+
+    internal class PresentationTimeTracker {
+        @Volatile var supported: Boolean = true
+            private set
+        @Volatile var rejectedCount: Long = 0L
+            private set
+
+        fun configure(extensions: String?) {
+            supported = supportsPresentationTime(extensions)
+        }
+
+        fun apply(action: () -> Boolean): Boolean {
+            val applied = tryPresentationTime(supported, action)
+            if (!applied) rejectedCount++
+            return applied
+        }
+    }
+
+    companion object {
+        private const val PRESENTATION_TIME_EXTENSION = "EGL_ANDROID_presentation_time"
+
+        internal fun supportsPresentationTime(extensions: String?): Boolean =
+            extensions == null || extensions.splitToSequence(' ', '\t', '\n', '\r')
+                .any { it == PRESENTATION_TIME_EXTENSION }
+
+        internal fun tryPresentationTime(supported: Boolean, apply: () -> Boolean): Boolean =
+            supported && runCatching { apply() }.getOrDefault(false)
     }
 }

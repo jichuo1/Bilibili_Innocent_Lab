@@ -310,6 +310,7 @@ internal fun MainActivity.frameInterpolationArchitectureLabel(capabilities: Fram
         GpuArchitecture.ARM_MALI -> R.string.player_frame_gpu_arch_mali
         GpuArchitecture.SAMSUNG_XCLIPSE_RDNA -> R.string.player_frame_gpu_arch_xclipse
         GpuArchitecture.IMAGINATION_POWERVR -> R.string.player_frame_gpu_arch_powervr
+        GpuArchitecture.HUAWEI_MALEOON -> R.string.player_frame_gpu_arch_maleoon
         GpuArchitecture.GENERIC_VULKAN -> R.string.player_frame_gpu_arch_generic
         GpuArchitecture.UNAVAILABLE -> R.string.player_frame_gpu_arch_unavailable
     })

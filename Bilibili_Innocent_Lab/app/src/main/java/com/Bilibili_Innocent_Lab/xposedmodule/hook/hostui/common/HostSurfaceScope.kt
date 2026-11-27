@@ -35,9 +35,9 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private val reuseGpuFrames: Boolean = HostUiPowerPolicy.current.retainsGpuFrames) {
     private class Surface(var options: LumenSurfaceOptions) {
         var prism = false
-        var prismSurface: HostPrismSurface? = null
-        // Surface records live in a WeakHashMap<View, Surface>; avoid strong references to bindings
-        // or Drawables whose Session/Group/Drawable references could pin View keys across GC.
+        // Surface records live in a WeakHashMap<View, Surface>; avoid strong references to bindings,
+        // prism surfaces, or Drawables whose Session/Group/Drawable/View references could pin View keys.
+        private var prismSurfaceRef: WeakReference<HostPrismSurface>? = null
         private var bindingRef: WeakReference<LumenSurfaceBinding>? = null
         private var backgroundRef: WeakReference<Drawable>? = null
         var resolvedOptions: LumenSurfaceOptions? = null
@@ -48,6 +48,12 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         var shapeHeight = -1
         var appliedX = Float.NaN
         var appliedY = Float.NaN
+
+        fun prismSurface(): HostPrismSurface? = prismSurfaceRef?.get()
+
+        fun setPrismSurface(value: HostPrismSurface?) {
+            prismSurfaceRef = value?.let(::WeakReference)
+        }
 
         fun binding(): LumenSurfaceBinding? = bindingRef?.get()
 
@@ -68,8 +74,8 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
             if (closeBinding) bindingRef?.get()?.close()
             bindingRef = null
             backgroundRef = null
-            prismSurface?.close()
-            prismSurface = null
+            prismSurfaceRef?.get()?.close()
+            prismSurfaceRef = null
         }
 
         fun invalidateResolvedOptions() {
@@ -85,16 +91,16 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var garbAccent = colors.garbAccent
     private var optionsEpoch = 0
     private var session: LumenSurfaceSession? = null
-    private var content: View? = null
+    private var contentRef: WeakReference<View>? = null
     private var contentSource: HostChromeContentSource? = null
     private var viewportSource: HostChromeViewportSource? = null
     private var legibility: LumenSurfaceLegibilityController? = null
     private var closed = false
-    private var focusObserver: ViewTreeObserver? = null
+    private var focusObserver: WeakReference<ViewTreeObserver>? = null
     private var backdropVersion: Long? = null
     private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.surface.backdrop.predraw", true) {
-        if (content?.isShown == false) return@call true
-        surfaces.forEach { (_, spec) -> spec.prismSurface?.sync(spec.insetX, spec.insetY) }
+        if (contentRef?.get()?.isShown == false) return@call true
+        surfaces.forEach { (_, spec) -> spec.prismSurface()?.sync(spec.insetX, spec.insetY) }
         if (viewportSource?.sync() == true) session?.notifyPositionChanged()
         // Snapshot child invalidations before the software legibility probe can draw the
         // content and consume their dirty flags later in this same pre-draw dispatch.
@@ -103,8 +109,13 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
             backdropVersion = version
             // Ancestor backgrounds and retained child updates can bypass the owner's dirty
             // flag. Wake the hosts too so both backends adopt the updated scene this frame.
-            if (canRetainGpuFrame(SystemClock.uptimeMillis())) (viewportSource ?: contentSource)?.coordinateView?.invalidate()
-            else session?.notifyContentChanged()
+            if (canRetainGpuFrame(SystemClock.uptimeMillis())) {
+                val activeSource = viewportSource ?: contentSource
+                if (activeSource is HostChromeContentSource) activeSource.coordinateViewOrNull?.invalidate()
+                else activeSource?.coordinateView?.invalidate()
+            } else {
+                session?.notifyContentChanged()
+            }
         }
         true
     } }
@@ -136,7 +147,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         var sampled = false
         for (spec in surfaces.values) {
             if (!spec.options.sampling.enabled || spec.options.material == LumenSurfaceMaterial.STATIC) continue
-            val backend = spec.prismSurface?.diagnostics()?.backdropBackend ?: spec.binding()?.diagnostics()?.backend
+            val backend = spec.prismSurface()?.diagnostics()?.backdropBackend ?: spec.binding()?.diagnostics()?.backend
             if (backend != LumenSurfaceBackend.GPU) return false
             sampled = true
         }
@@ -146,8 +157,9 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     fun attach(surface: View, explicitContent: View? = null) {
         if (closed) return
         val previous = viewportSource
-        content = explicitContent ?: HostBackdropLocator.find(surface)
-        contentSource = content?.let { HostChromeContentSource(it, palette.background) }
+        val resolvedContent = explicitContent ?: HostBackdropLocator.find(surface)
+        contentRef = resolvedContent?.let(::WeakReference)
+        contentSource = resolvedContent?.let { HostChromeContentSource(it, palette.background) }
         viewportSource = createViewportSource()
         if (session == null) session = LumenSurfaceSession(surface.context, palette,
             // Recents snapshots are drawn after focus is lost. Keep the glass in that frame.
@@ -174,7 +186,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
                 existing.options = options
                 existing.invalidateResolvedOptions()
             }
-            if (existing.prism && existing.prismSurface?.owns == true) return
+            if (existing.prism && existing.prismSurface()?.owns == true) return
             val activeBinding = existing.binding()
             if (activeBinding?.isBound == true && existing.matchesBackground(view)) {
                 val resolvedOptions = resolvedOptions(existing)
@@ -189,7 +201,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
             prism = appearance.material == HostGlassMaterial.PRISM)
 
     fun owns(view: View): Boolean = surfaces[view]?.let {
-        it.prismSurface?.owns == true || (it.binding()?.isBound == true && it.matchesBackground(view))
+        it.prismSurface()?.owns == true || (it.binding()?.isBound == true && it.matchesBackground(view))
     } == true
 
     fun updatePalette(colors: HostChromeColors) {
@@ -204,7 +216,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         }
         session?.updatePalette(next)
         surfaces.values.forEach { spec -> spec.binding()?.update(resolvedOptions(spec)) }
-        surfaces.values.forEach { spec -> spec.prismSurface?.updatePalette(next) }
+        surfaces.values.forEach { spec -> spec.prismSurface()?.updatePalette(next) }
         resetLegibility()
         surfaces.forEach { (view, spec) -> spec.binding()?.let { legibility?.bind(view, it, resolvedOptions(spec)) } }
     }
@@ -212,11 +224,12 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     fun revalidate(explicitContent: View? = null) {
         if (closed) return
         val anchor = anchor.get() ?: return
-        val next = explicitContent ?: content?.takeIf { it.isAttachedToWindow && it.parent != null }
+        val currentContent = contentRef?.get()
+        val next = explicitContent ?: currentContent?.takeIf { it.isAttachedToWindow && it.parent != null }
             ?: HostBackdropLocator.find(anchor)
         if (session == null) { attach(anchor, next); return }
-        val changed = content !== next
-        content = next
+        val changed = currentContent !== next
+        contentRef = next?.let(::WeakReference)
         val previous = viewportSource
         if (changed) {
             contentSource = next?.let { HostChromeContentSource(it, palette.background) }
@@ -234,7 +247,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         val spec = surfaces[view] ?: return
         spec.insetX = insetX
         spec.insetY = insetY
-        spec.prismSurface?.sync(insetX, insetY)
+        spec.prismSurface()?.sync(insetX, insetY)
         applyShape(view, spec)
     }
 
@@ -261,7 +274,8 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
             val source = viewportSource?.takeIf { it.availability == com.lumen.coacervation.engine.host.LumenSourceAvailability.READY }
                 ?.coordinateView
             if (view.parent !is ViewGroup) return
-            spec.prismSurface = HostPrismSurface(view, palette, active, source).also { it.sync(spec.insetX, spec.insetY) }
+            val created = HostPrismSurface(view, palette, active, source).also { it.sync(spec.insetX, spec.insetY) }
+            spec.setPrismSurface(created)
             return
         }
         val resolvedOptions = resolvedOptions(spec)
@@ -309,35 +323,37 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     internal fun samplingPerformance() = session?.performanceDiagnostics()
 
-    internal fun prismDiagnostics(view: View) = surfaces[view]?.prismSurface?.diagnostics()
+    internal fun prismDiagnostics(view: View) = surfaces[view]?.prismSurface()?.diagnostics()
 
     private fun observeFocus(view: View) {
         val observer = view.viewTreeObserver
-        if (focusObserver === observer && observer.isAlive) return
-        focusObserver?.takeIf { it.isAlive }?.let {
+        val currentFocusObserver = focusObserver?.get()
+        if (currentFocusObserver === observer && observer.isAlive) return
+        currentFocusObserver?.takeIf { it.isAlive }?.let {
             it.removeOnWindowFocusChangeListener(focusListener)
             it.removeOnPreDrawListener(backdropPreDraw)
         }
         if (observer.isAlive) {
             observer.addOnWindowFocusChangeListener(focusListener)
             observer.addOnPreDrawListener(backdropPreDraw)
-            focusObserver = observer
+            focusObserver = WeakReference(observer)
         }
     }
 
     private fun resetLegibility() {
         legibility?.close()
-        legibility = (viewportSource?.coordinateView ?: content)?.takeIf { dark && appearance.material != HostGlassMaterial.PRISM }?.let {
+        legibility = (viewportSource?.coordinateView ?: contentRef?.get())?.takeIf { dark && appearance.material != HostGlassMaterial.PRISM }?.let {
             LumenSurfaceLegibilityController(it, palette.surface, 0xFF9EA3AB.toInt())
         }
     }
 
     fun detach() {
-        focusObserver?.takeIf { it.isAlive }?.let {
+        val currentFocusObserver = focusObserver?.get()
+        currentFocusObserver?.takeIf { it.isAlive }?.let {
             it.removeOnWindowFocusChangeListener(focusListener)
             it.removeOnPreDrawListener(backdropPreDraw)
         }
-        anchor.get()?.viewTreeObserver?.takeIf { it.isAlive && it !== focusObserver }
+        anchor.get()?.viewTreeObserver?.takeIf { it.isAlive && it !== currentFocusObserver }
             ?.let {
                 it.removeOnWindowFocusChangeListener(focusListener)
                 it.removeOnPreDrawListener(backdropPreDraw)
@@ -347,11 +363,14 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         gpuCheckedAt = 0L; gpuBacked = false
         legibility?.close()
         legibility = null
-        surfaces.values.forEach { it.prismSurface?.close(); it.prismSurface = null }
+        surfaces.values.forEach {
+            it.prismSurface()?.close()
+            it.setPrismSurface(null)
+        }
         session?.close()
         session = null
         viewportSource?.close(); viewportSource = null
-        content = null
+        contentRef = null
         contentSource = null
         surfaces.values.forEach { it.clearBinding(closeBinding = false) }
     }

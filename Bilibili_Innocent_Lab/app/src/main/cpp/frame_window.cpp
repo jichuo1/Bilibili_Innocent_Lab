@@ -1,13 +1,15 @@
 #include <android/native_window_jni.h>
 #include <dlfcn.h>
 #include <jni.h>
+#include <pthread.h>
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <new>
+#include <type_traits>
 
 namespace {
 
@@ -29,15 +31,18 @@ constexpr uint32_t kQcomPackedLumaWidth = kQcomMotionWidth / 4;
 
 template <typename T>
 class ScopedArray {
+    static_assert(std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>,
+                  "ScopedArray requires trivial types for calloc/free");
 public:
     explicit ScopedArray(uint32_t count = 0)
-        : data_(count > 0 ? new (std::nothrow) T[count]() : nullptr), count_(data_ ? count : 0) {}
-    ~ScopedArray() { delete[] data_; }
+        : data_(count > 0 ? static_cast<T*>(std::calloc(count, sizeof(T))) : nullptr),
+          count_(data_ ? count : 0) {}
+    ~ScopedArray() { std::free(data_); }
     ScopedArray(const ScopedArray&) = delete;
     ScopedArray& operator=(const ScopedArray&) = delete;
 
     void reset() {
-        delete[] data_;
+        std::free(data_);
         data_ = nullptr;
         count_ = 0;
     }
@@ -46,7 +51,7 @@ public:
         reset();
         if (count == 0) return true;
         if (count > std::numeric_limits<uint32_t>::max()) return false;
-        data_ = new (std::nothrow) T[count]();
+        data_ = static_cast<T*>(std::calloc(count, sizeof(T)));
         if (!data_) return false;
         count_ = static_cast<uint32_t>(count);
         return true;
@@ -63,11 +68,18 @@ private:
     uint32_t count_;
 };
 
-PFN_vkGetInstanceProcAddr loadVkGetInstanceProcAddr() {
+void* gVulkanLib = nullptr;
+pthread_once_t gVulkanLibOnce = PTHREAD_ONCE_INIT;
+
+void initVulkanLib() {
     // Keep libvulkan.so resident once opened so vendor ICDs never tear down TLS on dlclose.
-    static void* vulkanLib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
-    if (!vulkanLib) return nullptr;
-    return reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(vulkanLib, "vkGetInstanceProcAddr"));
+    gVulkanLib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+}
+
+PFN_vkGetInstanceProcAddr loadVkGetInstanceProcAddr() {
+    pthread_once(&gVulkanLibOnce, initVulkanLib);
+    if (!gVulkanLib) return nullptr;
+    return reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(gVulkanLib, "vkGetInstanceProcAddr"));
 }
 
 bool hasExtension(const ScopedArray<VkExtensionProperties>& extensions, const char* name) {
@@ -138,6 +150,7 @@ bool supportsSyncFdImport(const ScopedArray<VkExtensionProperties>& extensions,
 }
 
 int scoreCandidate(jlong flags, VkPhysicalDeviceType type) {
+    if (type == VK_PHYSICAL_DEVICE_TYPE_CPU) return 0;
     if ((flags & kFlagQcomBlockMatch) != 0) return 4;
     if ((flags & kFlagVulkanCompute) == 0) return 0;
     if (type == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) return 3;
@@ -177,7 +190,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
     auto createInstance = instanceProc<PFN_vkCreateInstance>(getProc, nullptr, "vkCreateInstance");
     if (!createInstance) return 0;
 
-    uint32_t instanceApi = VK_API_VERSION_1_1;
+    uint32_t instanceApi = VK_API_VERSION_1_0;
     if (auto enumerateVersion = instanceProc<PFN_vkEnumerateInstanceVersion>(
             getProc, nullptr, "vkEnumerateInstanceVersion")) {
         uint32_t reported = 0;
@@ -188,6 +201,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
 
     VkInstance instance = VK_NULL_HANDLE;
     auto tryCreateInstance = [&](uint32_t apiVersion) -> VkResult {
+        instance = VK_NULL_HANDLE;
         VkApplicationInfo app{};
         app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         app.pApplicationName = "BILCapabilityProbe";
@@ -200,10 +214,16 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
     };
 
     if (tryCreateInstance(instanceApi) != VK_SUCCESS) {
-        instanceApi = VK_API_VERSION_1_0;
-        if (tryCreateInstance(instanceApi) != VK_SUCCESS || instance == VK_NULL_HANDLE) {
+        if (instanceApi == VK_API_VERSION_1_0) {
             return 0;
         }
+        instanceApi = VK_API_VERSION_1_0;
+        if (tryCreateInstance(instanceApi) != VK_SUCCESS) {
+            return 0;
+        }
+    }
+    if (instance == VK_NULL_HANDLE) {
+        return 0;
     }
 
     auto destroyInstance = instanceProc<PFN_vkDestroyInstance>(getProc, instance, "vkDestroyInstance");
@@ -217,16 +237,27 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
         getProc, instance, "vkGetPhysicalDeviceQueueFamilyProperties");
     auto getImageFormat = instanceProc<PFN_vkGetPhysicalDeviceImageFormatProperties>(
         getProc, instance, "vkGetPhysicalDeviceImageFormatProperties");
-    auto getProps2 = instanceProc<PFN_vkGetPhysicalDeviceProperties2>(
-        getProc, instance, "vkGetPhysicalDeviceProperties2");
-    auto getFeatures2 = instanceProc<PFN_vkGetPhysicalDeviceFeatures2>(
-        getProc, instance, "vkGetPhysicalDeviceFeatures2");
-    auto getFormatProps2 = instanceProc<PFN_vkGetPhysicalDeviceFormatProperties2>(
-        getProc, instance, "vkGetPhysicalDeviceFormatProperties2");
-    auto getImageFormat2 = instanceProc<PFN_vkGetPhysicalDeviceImageFormatProperties2>(
-        getProc, instance, "vkGetPhysicalDeviceImageFormatProperties2");
-    auto getSemaphoreProps = instanceProc<PFN_vkGetPhysicalDeviceExternalSemaphoreProperties>(
-        getProc, instance, "vkGetPhysicalDeviceExternalSemaphoreProperties");
+    const bool instance11 = instanceApi >= VK_API_VERSION_1_1;
+    auto getProps2 = instance11
+        ? instanceProc<PFN_vkGetPhysicalDeviceProperties2>(
+            getProc, instance, "vkGetPhysicalDeviceProperties2")
+        : nullptr;
+    auto getFeatures2 = instance11
+        ? instanceProc<PFN_vkGetPhysicalDeviceFeatures2>(
+            getProc, instance, "vkGetPhysicalDeviceFeatures2")
+        : nullptr;
+    auto getFormatProps2 = instance11
+        ? instanceProc<PFN_vkGetPhysicalDeviceFormatProperties2>(
+            getProc, instance, "vkGetPhysicalDeviceFormatProperties2")
+        : nullptr;
+    auto getImageFormat2 = instance11
+        ? instanceProc<PFN_vkGetPhysicalDeviceImageFormatProperties2>(
+            getProc, instance, "vkGetPhysicalDeviceImageFormatProperties2")
+        : nullptr;
+    auto getSemaphoreProps = instance11
+        ? instanceProc<PFN_vkGetPhysicalDeviceExternalSemaphoreProperties>(
+            getProc, instance, "vkGetPhysicalDeviceExternalSemaphoreProperties")
+        : nullptr;
 
     jlong bestPacked = kFlagVulkanAvailable;
     int bestScore = 0;
@@ -245,6 +276,10 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
 
                     VkPhysicalDeviceProperties baseProps{};
                     getProps(physical, &baseProps);
+                    if (baseProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
+                        // Never expose CPU software rasterizers (SwiftShader/Lavapipe) as RIFE/QCOM compute devices.
+                        continue;
+                    }
 
                     uint32_t qCount = 0;
                     getQueues(physical, &qCount, nullptr);
@@ -309,158 +344,163 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameWi
                         }
                     }
 
-                    const bool syncFdOk = supportsSyncFdImport(extensions, getSemaphoreProps, physical);
-                    if (syncFdOk) flags |= kFlagVulkanSyncFd;
-
-                    constexpr VkImageUsageFlags ahbUsage =
-                        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-                    const bool qcomAhbOk =
-                        syncFdOk &&
-                        supportsAhbImport(extensions, getImageFormat2, physical, ahbUsage,
-                                          kQcomPackedLumaWidth, kQcomMotionHeight);
-                    // MeguvizCompute AHB interop requires AHB external memory + foreign queue;
-                    // syncFd is tracked separately because drivers can still run host-wait AHB without it.
-                    const bool vulkanAhbOk = supportsAhbImport(
-                        extensions, getImageFormat2, physical, VK_IMAGE_USAGE_SAMPLED_BIT, 1280, 720);
-                    if (vulkanAhbOk) flags |= kFlagVulkanAhb;
-
-                    // Query optional GPU architecture features matching MeguvizCompute/ncnn-meguviz.
+                    // Vulkan 1.0 physical devices must never receive core 1.1 queries.
                     if (instanceApi >= VK_API_VERSION_1_1 &&
-                        baseProps.apiVersion >= VK_API_VERSION_1_1 &&
-                        getProps2 && getFeatures2) {
-                        VkPhysicalDeviceSubgroupProperties subgroupProps{};
-                        subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
-                        VkPhysicalDeviceProperties2 props2{};
-                        props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-                        props2.pNext = &subgroupProps;
-                        getProps2(physical, &props2);
-                        subgroupSize = subgroupProps.subgroupSize;
-                        constexpr VkSubgroupFeatureFlags usefulSubgroupOps =
-                            VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
-                            VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT;
-                        if (subgroupProps.subgroupSize >= 4 &&
-                            (subgroupProps.supportedOperations & usefulSubgroupOps) != 0) {
-                            flags |= kFlagSubgroupOps;
-                        }
+                        baseProps.apiVersion >= VK_API_VERSION_1_1) {
+                        const bool syncFdOk =
+                            supportsSyncFdImport(extensions, getSemaphoreProps, physical);
+                        if (syncFdOk) flags |= kFlagVulkanSyncFd;
 
-                        const bool queryFp16 =
-                            baseProps.apiVersion >= VK_API_VERSION_1_2 ||
-                            hasExtension(extensions, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
-                        const bool queryCoop =
-                            hasExtension(extensions, VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
-                        const bool queryDot =
-                            baseProps.apiVersion >= VK_API_VERSION_1_3 ||
-                            hasExtension(extensions, VK_KHR_SHADER_INTEGER_DOT_PRODUCT_EXTENSION_NAME);
-                        const bool queryQcom =
-                            hasExtension(extensions, VK_QCOM_IMAGE_PROCESSING_EXTENSION_NAME);
+                        constexpr VkImageUsageFlags ahbUsage =
+                            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+                        const bool qcomAhbOk =
+                            syncFdOk &&
+                            supportsAhbImport(extensions, getImageFormat2, physical, ahbUsage,
+                                              kQcomPackedLumaWidth, kQcomMotionHeight);
+                        // MeguvizCompute AHB interop requires AHB external memory + foreign queue;
+                        // syncFd is tracked separately because drivers can still run host-wait AHB without it.
+                        const bool vulkanAhbOk = supportsAhbImport(
+                            extensions, getImageFormat2, physical, VK_IMAGE_USAGE_SAMPLED_BIT, 1280, 720);
+                        if (vulkanAhbOk) flags |= kFlagVulkanAhb;
 
-                        VkPhysicalDeviceShaderFloat16Int8Features fp16Features{};
-                        fp16Features.sType =
-                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
-                        VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopFeatures{};
-                        coopFeatures.sType =
-                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
-                        VkPhysicalDeviceShaderIntegerDotProductFeatures dotFeatures{};
-                        dotFeatures.sType =
-                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES;
-                        VkPhysicalDeviceImageProcessingFeaturesQCOM qcomFeatures{};
-                        qcomFeatures.sType =
-                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_PROCESSING_FEATURES_QCOM;
+                        // Query optional GPU architecture features matching MeguvizCompute/ncnn-meguviz.
+                        if (getProps2 && getFeatures2) {
+                            VkPhysicalDeviceSubgroupProperties subgroupProps{};
+                            subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+                            VkPhysicalDeviceProperties2 props2{};
+                            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                            props2.pNext = &subgroupProps;
+                            getProps2(physical, &props2);
+                            subgroupSize = subgroupProps.subgroupSize;
+                            constexpr VkSubgroupFeatureFlags usefulSubgroupOps =
+                                VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+                                VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT;
+                            if (subgroupProps.subgroupSize >= 4 &&
+                                (subgroupProps.supportedOperations & usefulSubgroupOps) != 0) {
+                                flags |= kFlagSubgroupOps;
+                            }
 
-                        VkPhysicalDeviceFeatures2 features2{};
-                        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-                        void** nextPtr = &features2.pNext;
-                        if (queryFp16) {
-                            *nextPtr = &fp16Features;
-                            nextPtr = &fp16Features.pNext;
-                        }
-                        if (queryCoop) {
-                            *nextPtr = &coopFeatures;
-                            nextPtr = &coopFeatures.pNext;
-                        }
-                        if (queryDot) {
-                            *nextPtr = &dotFeatures;
-                            nextPtr = &dotFeatures.pNext;
-                        }
-                        if (queryQcom) {
-                            *nextPtr = &qcomFeatures;
-                            nextPtr = &qcomFeatures.pNext;
-                        }
-                        getFeatures2(physical, &features2);
+                            const bool queryFp16 =
+                                (instanceApi >= VK_API_VERSION_1_2 &&
+                                 baseProps.apiVersion >= VK_API_VERSION_1_2) ||
+                                hasExtension(extensions, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
+                            const bool queryCoop =
+                                hasExtension(extensions, VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
+                            const bool queryDot =
+                                (instanceApi >= VK_API_VERSION_1_3 &&
+                                 baseProps.apiVersion >= VK_API_VERSION_1_3) ||
+                                hasExtension(extensions, VK_KHR_SHADER_INTEGER_DOT_PRODUCT_EXTENSION_NAME);
+                            const bool queryQcom =
+                                hasExtension(extensions, VK_QCOM_IMAGE_PROCESSING_EXTENSION_NAME);
 
-                        if (queryFp16 && fp16Features.shaderFloat16 == VK_TRUE) {
-                            flags |= kFlagShaderFp16;
-                        }
-                        if (queryCoop && coopFeatures.cooperativeMatrix == VK_TRUE) {
-                            flags |= kFlagCoopMatrix;
-                        }
-                        if (queryDot && dotFeatures.shaderIntegerDotProduct == VK_TRUE) {
-                            flags |= kFlagDotProduct;
-                        }
+                            VkPhysicalDeviceShaderFloat16Int8Features fp16Features{};
+                            fp16Features.sType =
+                                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
+                            VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopFeatures{};
+                            coopFeatures.sType =
+                                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+                            VkPhysicalDeviceShaderIntegerDotProductFeatures dotFeatures{};
+                            dotFeatures.sType =
+                                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES;
+                            VkPhysicalDeviceImageProcessingFeaturesQCOM qcomFeatures{};
+                            qcomFeatures.sType =
+                                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_PROCESSING_FEATURES_QCOM;
 
-                        // Align QCOM block-match capability check with Meguviz qcom_motion.cpp:358-418.
-                        if (queryQcom && qcomFeatures.textureBlockMatch == VK_TRUE && getImageFormat) {
-                            VkPhysicalDeviceImageProcessingPropertiesQCOM qcomProps{};
-                            qcomProps.sType =
-                                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_PROCESSING_PROPERTIES_QCOM;
-                            VkPhysicalDeviceProperties2 qcomPropsQuery{};
-                            qcomPropsQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-                            qcomPropsQuery.pNext = &qcomProps;
-                            getProps2(physical, &qcomPropsQuery);
+                            VkPhysicalDeviceFeatures2 features2{};
+                            features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                            void** nextPtr = &features2.pNext;
+                            if (queryFp16) {
+                                *nextPtr = &fp16Features;
+                                nextPtr = &fp16Features.pNext;
+                            }
+                            if (queryCoop) {
+                                *nextPtr = &coopFeatures;
+                                nextPtr = &coopFeatures.pNext;
+                            }
+                            if (queryDot) {
+                                *nextPtr = &dotFeatures;
+                                nextPtr = &dotFeatures.pNext;
+                            }
+                            if (queryQcom) {
+                                *nextPtr = &qcomFeatures;
+                                nextPtr = &qcomFeatures.pNext;
+                            }
+                            getFeatures2(physical, &features2);
 
-                            const bool tileOk =
-                                qcomProps.maxBlockMatchRegion.width >= kQcomMotionTile &&
-                                qcomProps.maxBlockMatchRegion.height >= kQcomMotionTile;
-                            const bool coreSpirv14 =
-                                instanceApi >= VK_API_VERSION_1_2 &&
-                                baseProps.apiVersion >= VK_API_VERSION_1_2;
-                            const bool spirv14Ok = coreSpirv14 ||
-                                (hasExtension(extensions, VK_KHR_SPIRV_1_4_EXTENSION_NAME) &&
-                                 hasExtension(extensions, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME));
+                            if (queryFp16 && fp16Features.shaderFloat16 == VK_TRUE) {
+                                flags |= kFlagShaderFp16;
+                            }
+                            if (queryCoop && coopFeatures.cooperativeMatrix == VK_TRUE) {
+                                flags |= kFlagCoopMatrix;
+                            }
+                            if (queryDot && dotFeatures.shaderIntegerDotProduct == VK_TRUE) {
+                                flags |= kFlagDotProduct;
+                            }
 
-                            bool formatOk = false;
-                            if (tileOk && spirv14Ok) {
-                                const bool coreFlags2 =
-                                    instanceApi >= VK_API_VERSION_1_3 &&
-                                    baseProps.apiVersion >= VK_API_VERSION_1_3;
-                                const bool extFlags2 =
-                                    hasExtension(extensions, VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
-                                constexpr VkImageUsageFlags blockUsage =
-                                    VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                    VK_IMAGE_USAGE_SAMPLED_BIT |
-                                    VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM;
-                                const VkFormat candidates[2] = {
-                                    VK_FORMAT_R8_UNORM,
-                                    VK_FORMAT_R8G8B8A8_UNORM,
-                                };
-                                for (VkFormat fmt : candidates) {
-                                    if (coreFlags2 || extFlags2) {
-                                        if (!getFormatProps2) continue;
-                                        VkFormatProperties3 fmtProps3{};
-                                        fmtProps3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
-                                        VkFormatProperties2 fmtProps2{};
-                                        fmtProps2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
-                                        fmtProps2.pNext = &fmtProps3;
-                                        getFormatProps2(physical, fmt, &fmtProps2);
-                                        if ((fmtProps3.optimalTilingFeatures &
-                                             VK_FORMAT_FEATURE_2_BLOCK_MATCHING_BIT_QCOM) == 0) {
-                                            continue;
+                            // Align QCOM block-match capability check with Meguviz qcom_motion.cpp:358-418.
+                            if (queryQcom && qcomFeatures.textureBlockMatch == VK_TRUE && getImageFormat) {
+                                VkPhysicalDeviceImageProcessingPropertiesQCOM qcomProps{};
+                                qcomProps.sType =
+                                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_PROCESSING_PROPERTIES_QCOM;
+                                VkPhysicalDeviceProperties2 qcomPropsQuery{};
+                                qcomPropsQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                                qcomPropsQuery.pNext = &qcomProps;
+                                getProps2(physical, &qcomPropsQuery);
+
+                                const bool tileOk =
+                                    qcomProps.maxBlockMatchRegion.width >= kQcomMotionTile &&
+                                    qcomProps.maxBlockMatchRegion.height >= kQcomMotionTile;
+                                const bool coreSpirv14 =
+                                    instanceApi >= VK_API_VERSION_1_2 &&
+                                    baseProps.apiVersion >= VK_API_VERSION_1_2;
+                                const bool spirv14Ok = coreSpirv14 ||
+                                    (hasExtension(extensions, VK_KHR_SPIRV_1_4_EXTENSION_NAME) &&
+                                     hasExtension(extensions, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME));
+
+                                bool formatOk = false;
+                                if (tileOk && spirv14Ok) {
+                                    const bool coreFlags2 =
+                                        instanceApi >= VK_API_VERSION_1_3 &&
+                                        baseProps.apiVersion >= VK_API_VERSION_1_3;
+                                    const bool extFlags2 =
+                                        hasExtension(extensions, VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
+                                    constexpr VkImageUsageFlags blockUsage =
+                                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                        VK_IMAGE_USAGE_SAMPLED_BIT |
+                                        VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM;
+                                    const VkFormat candidates[2] = {
+                                        VK_FORMAT_R8_UNORM,
+                                        VK_FORMAT_R8G8B8A8_UNORM,
+                                    };
+                                    for (VkFormat fmt : candidates) {
+                                        if (coreFlags2 || extFlags2) {
+                                            if (!getFormatProps2) continue;
+                                            VkFormatProperties3 fmtProps3{};
+                                            fmtProps3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+                                            VkFormatProperties2 fmtProps2{};
+                                            fmtProps2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+                                            fmtProps2.pNext = &fmtProps3;
+                                            getFormatProps2(physical, fmt, &fmtProps2);
+                                            if ((fmtProps3.optimalTilingFeatures &
+                                                 VK_FORMAT_FEATURE_2_BLOCK_MATCHING_BIT_QCOM) == 0) {
+                                                continue;
+                                            }
+                                        }
+                                        VkImageFormatProperties limits{};
+                                        if (getImageFormat(physical, fmt, VK_IMAGE_TYPE_2D,
+                                                           VK_IMAGE_TILING_OPTIMAL, blockUsage, 0,
+                                                           &limits) == VK_SUCCESS &&
+                                            limits.maxExtent.width >= kQcomMotionWidth &&
+                                            limits.maxExtent.height >= kQcomMotionHeight) {
+                                            formatOk = true;
+                                            break;
                                         }
                                     }
-                                    VkImageFormatProperties limits{};
-                                    if (getImageFormat(physical, fmt, VK_IMAGE_TYPE_2D,
-                                                       VK_IMAGE_TILING_OPTIMAL, blockUsage, 0,
-                                                       &limits) == VK_SUCCESS &&
-                                        limits.maxExtent.width >= kQcomMotionWidth &&
-                                        limits.maxExtent.height >= kQcomMotionHeight) {
-                                        formatOk = true;
-                                        break;
-                                    }
                                 }
-                            }
-                            if (formatOk) {
-                                flags |= kFlagQcomBlockMatch;
-                                if (qcomAhbOk) flags |= kFlagQcomAhb;
+                                if (formatOk) {
+                                    flags |= kFlagQcomBlockMatch;
+                                    if (qcomAhbOk) flags |= kFlagQcomAhb;
+                                }
                             }
                         }
                     }

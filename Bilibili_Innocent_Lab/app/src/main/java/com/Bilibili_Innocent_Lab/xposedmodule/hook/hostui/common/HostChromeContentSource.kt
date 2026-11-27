@@ -9,6 +9,7 @@ import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.lumen.coacervation.engine.host.LumenVersionedContentSource
 import com.lumen.coacervation.engine.host.LumenSourceAvailability
+import java.lang.ref.WeakReference
 
 /** A module-owned wallpaper set as a View background; its scene inputs change without invalidating the feed. */
 internal interface HostSceneBackground {
@@ -16,27 +17,39 @@ internal interface HostSceneBackground {
 }
 
 /** Supplies the scene behind transparent feed content through the engine's public source API. */
-internal class HostChromeContentSource(override val coordinateView: View, var windowBaseColor: Int,
+internal class HostChromeContentSource(
+    coordinateView: View,
+    var windowBaseColor: Int,
     private val includeViewContent: Boolean = true,
-    private val composeWindowBase: Boolean = false) : LumenVersionedContentSource {
+    private val composeWindowBase: Boolean = false
+) : LumenVersionedContentSource {
+    private val coordinateViewRef = WeakReference(coordinateView)
     private val ancestors = ArrayList<View>()
     private val matrix = Matrix()
     private val mapping = ViewSamplingMatrix()
     private val values = FloatArray(9)
     private val savedBounds = Rect()
 
+    internal val coordinateViewOrNull: View? get() = coordinateViewRef.get()
+
+    override val coordinateView: View
+        get() = requireNotNull(coordinateViewRef.get()) { "coordinateView was garbage collected" }
+
     override val sourceEpoch: Long get() = 0L
     override val excludesSurfaces: Boolean get() = !includeViewContent
-    override val availability: LumenSourceAvailability get() = LumenSourceAvailability.READY
+    override val availability: LumenSourceAvailability
+        get() = if (coordinateViewRef.get() != null) LumenSourceAvailability.READY
+        else LumenSourceAvailability.TEMPORARILY_UNAVAILABLE
     override val contentVersion: Long
         get() = mapping.withAncestorMemo {
+            val hostView = coordinateViewRef.get() ?: return@withAncestorMemo 0L
             // Backgrounds can change without invalidating the feed. A pure snapshot also catches
             // the source moving relative to the wallpaper and asynchronous artwork completion.
             var signature = 17L
             fun mix(value: Long) { signature = signature * 31L + value }
             mix(windowBaseColor.toLong())
-            mix(coordinateView.scrollX.toLong()); mix(coordinateView.scrollY.toLong())
-            var view = if (includeViewContent) coordinateView.parent as? View else coordinateView
+            mix(hostView.scrollX.toLong()); mix(hostView.scrollY.toLong())
+            var view = if (includeViewContent) hostView.parent as? View else hostView
             var depth = 0
             while (view != null && depth++ < 128) {
                 val background = inheritedBackground(view)
@@ -48,7 +61,7 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
                     mix(bounds.right.toLong()); mix(bounds.bottom.toLong())
                     if (background is ColorDrawable) mix(background.color.toLong())
                     if (background is HostSceneBackground) mix(background.samplingState)
-                    if (mapping.sourceToTarget(view, coordinateView, matrix)) {
+                    if (mapping.sourceToTarget(view, hostView, matrix)) {
                         matrix.getValues(values)
                         for (value in values) mix(value.toBits().toLong())
                     }
@@ -62,8 +75,9 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
         // Window fallback backgrounds are not always exposed as View.background. Complete the
         // input's alpha before compositing the actual backgrounds and translucent feed layers.
         canvas.drawColor(windowBaseColor or 0xFF000000.toInt())
+        val hostView = coordinateViewRef.get() ?: return@withAncestorMemo
         ancestors.clear()
-        var ancestor = if (includeViewContent) coordinateView.parent as? View else coordinateView
+        var ancestor = if (includeViewContent) hostView.parent as? View else hostView
         while (ancestor != null && ancestors.size < 128) {
             ancestors.add(ancestor)
             ancestor = ancestor.parent as? View
@@ -74,7 +88,7 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
             for (index in ancestors.indices.reversed()) {
                 val view = ancestors[index]
                 val background = inheritedBackground(view) ?: continue
-                if (!mapping.sourceToTarget(view, coordinateView, matrix)) continue
+                if (!mapping.sourceToTarget(view, hostView, matrix)) continue
                 val save = canvas.save()
                 savedBounds.set(background.bounds)
                 val resize = savedBounds.left != 0 || savedBounds.top != 0 ||
@@ -94,8 +108,8 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
                 val save = canvas.save()
                 try {
                     // View.draw expects its parent to have applied the View's scroll offset.
-                    canvas.translate(-coordinateView.scrollX.toFloat(), -coordinateView.scrollY.toFloat())
-                    coordinateView.draw(canvas)
+                    canvas.translate(-hostView.scrollX.toFloat(), -hostView.scrollY.toFloat())
+                    hostView.draw(canvas)
                 } finally { canvas.restoreToCount(save) }
             }
         } finally { ancestors.clear() }

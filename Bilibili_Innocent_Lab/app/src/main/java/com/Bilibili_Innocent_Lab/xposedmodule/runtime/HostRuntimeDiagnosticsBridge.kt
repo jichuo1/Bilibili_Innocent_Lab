@@ -17,7 +17,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureSkipReason
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.receiver.TelemetryHostReadyReceiver
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -38,11 +40,17 @@ internal object HostRuntimeDiagnosticsBridge {
     private val launchObserverRegistered = AtomicBoolean(false)
     @Volatile private var hostOpened = false
     @Volatile private var installCompleted = false
-    private val versionSignalExecutor = Executors.newSingleThreadExecutor { runnable ->
+    private val versionSignalExecutor = ThreadPoolExecutor(
+        1, 1, 30L, TimeUnit.SECONDS, LinkedBlockingQueue()
+    ) { runnable ->
         Thread(runnable, "bil-version-receipt").apply { isDaemon = true }
-    }
-    private val persistenceExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
+    }.apply { allowCoreThreadTimeOut(true) }
+    private val persistenceExecutor = ScheduledThreadPoolExecutor(1) { runnable ->
         Thread(runnable, "bil-host-diagnostics").apply { isDaemon = true }
+    }.apply {
+        removeOnCancelPolicy = true
+        setKeepAliveTime(30L, TimeUnit.SECONDS)
+        allowCoreThreadTimeOut(true)
     }
 
     /**
@@ -143,11 +151,12 @@ internal object HostRuntimeDiagnosticsBridge {
         if (!launchObserverRegistered.compareAndSet(false, true)) return
         runCatching {
             application.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
-                override fun onActivityResumed(activity: android.app.Activity) {
-                    hostOpened = true
-                    application.unregisterActivityLifecycleCallbacks(this)
-                    notifyVersionReceiptReady()
-                }
+                override fun onActivityResumed(activity: android.app.Activity) =
+                    HostThreadGuard.run("diagnostics.version_launch.resume") {
+                        hostOpened = true
+                        application.unregisterActivityLifecycleCallbacks(this)
+                        notifyVersionReceiptReady()
+                    }
                 override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
                 override fun onActivityStarted(activity: android.app.Activity) = Unit
                 override fun onActivityPaused(activity: android.app.Activity) = Unit
@@ -415,34 +424,35 @@ internal object HostRuntimeDiagnosticsBridge {
 
     private fun createQueryReceiver(): BroadcastReceiver =
         object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action != HostRuntimeDiagnosticsQueryContract.ACTION_QUERY ||
-                    !isOrderedBroadcast
-                ) return
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                    sentFromPackage != HostRuntimeDiagnosticsQueryContract.MODULE_PACKAGE
-                ) return
-                val nonce = intent.getStringExtra(
-                    HostRuntimeDiagnosticsQueryContract.EXTRA_REQUEST_NONCE
-                ).orEmpty()
-                if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return
-                val extras = getResultExtras(true)
-                extras.putBoolean(HostRuntimeDiagnosticsQueryContract.EXTRA_HANDLED, true)
-                extras.putString(HostRuntimeDiagnosticsQueryContract.EXTRA_REQUEST_NONCE, nonce)
-                if (intent.getIntExtra(
-                        HostRuntimeDiagnosticsQueryContract.EXTRA_PROTOCOL_VERSION, 0
-                    ) != HostRuntimeDiagnosticsQueryContract.PROTOCOL_VERSION
-                ) {
-                    extras.putString(
-                        HostRuntimeDiagnosticsQueryContract.EXTRA_STATUS,
-                        HostRuntimeDiagnosticsQueryContract.STATUS_UNSUPPORTED
-                    )
+            override fun onReceive(context: Context, intent: Intent) =
+                HostThreadGuard.run("host.diagnostics_query.receive") {
+                    if (intent.action != HostRuntimeDiagnosticsQueryContract.ACTION_QUERY ||
+                        !isOrderedBroadcast
+                    ) return@run
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                        sentFromPackage != HostRuntimeDiagnosticsQueryContract.MODULE_PACKAGE
+                    ) return@run
+                    val nonce = intent.getStringExtra(
+                        HostRuntimeDiagnosticsQueryContract.EXTRA_REQUEST_NONCE
+                    ).orEmpty()
+                    if (!HostRuntimeDiagnosticsQueryContract.isValidNonce(nonce)) return@run
+                    val extras = getResultExtras(true)
+                    extras.putBoolean(HostRuntimeDiagnosticsQueryContract.EXTRA_HANDLED, true)
+                    extras.putString(HostRuntimeDiagnosticsQueryContract.EXTRA_REQUEST_NONCE, nonce)
+                    if (intent.getIntExtra(
+                            HostRuntimeDiagnosticsQueryContract.EXTRA_PROTOCOL_VERSION, 0
+                        ) != HostRuntimeDiagnosticsQueryContract.PROTOCOL_VERSION
+                    ) {
+                        extras.putString(
+                            HostRuntimeDiagnosticsQueryContract.EXTRA_STATUS,
+                            HostRuntimeDiagnosticsQueryContract.STATUS_UNSUPPORTED
+                        )
+                        resultCode = HostRuntimeDiagnosticsQueryContract.RESULT_CODE_HANDLED
+                        return@run
+                    }
+                    setResultExtras(response(nonce) ?: return@run)
                     resultCode = HostRuntimeDiagnosticsQueryContract.RESULT_CODE_HANDLED
-                    return
                 }
-                setResultExtras(response(nonce) ?: return)
-                resultCode = HostRuntimeDiagnosticsQueryContract.RESULT_CODE_HANDLED
-            }
         }
 
     private fun currentSource(context: Context): HostRuntimeDiagnosticsSource? = runCatching {

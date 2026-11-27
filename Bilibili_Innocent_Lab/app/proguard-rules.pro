@@ -31,9 +31,7 @@
 # This model bridge and its companion are loaded into the dedicated audio native namespace.
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.GtcrnSpeechModel** { *; }
 # Preserve ONNX Runtime Java/JNI classes and package prefixes for ModelLoader classloader isolation.
--keep class ai.onnxruntime.* { *; }
--keep class ai.onnxruntime.platform.** { *; }
--keep class ai.onnxruntime.providers.** { *; }
+-keep class ai.onnxruntime.** { *; }
 # Native C++ JNI methods in libbil_frame_window.so bind by exact class and method names.
 -keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameWindowGeometry { *; }
 # 只允许改写 java_init.list 的**内容**（把入口类名换成混淆后的名字）。

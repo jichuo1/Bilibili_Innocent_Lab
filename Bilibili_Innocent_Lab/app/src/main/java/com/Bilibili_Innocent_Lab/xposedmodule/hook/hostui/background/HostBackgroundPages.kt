@@ -18,6 +18,7 @@ import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.BoundedClassCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostRecyclerTypes
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewResourceNames
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
@@ -33,11 +34,22 @@ internal class HostBackgroundPages(
     private val onError: (Throwable) -> Unit
 ) {
     private val pages = WeakHashMap<ViewGroup, Page>()
-    private val detailBackgrounds = WeakHashMap<View, Drawable>()
+    private val detailBackgrounds: MutableMap<View, Drawable> = WeakDrawableMap()
     private val recyclerTypes = HostRecyclerTypes(excludeViewPager2 = true, maxDepth = 24)
-    private val materialFills = HashMap<Class<*>, Pair<java.lang.reflect.Method, java.lang.reflect.Method>?>()
+    private val materialFills = BoundedClassCache.forReflection<Pair<java.lang.reflect.Method, java.lang.reflect.Method>>(
+        maxEntries = 32,
+        tag = "host.background.material_fills"
+    )
     private val visiblePageBounds = Rect()
     val requiresNight: Boolean get() = background.requiresNight
+
+    fun dispose() {
+        pages.values.toList().forEach(Page::dispose)
+        pages.clear()
+        detailBackgrounds.clear()
+        materialFills.close()
+        recyclerTypes.clear()
+    }
 
     fun attach(root: ViewGroup, kind: HostBackgroundPagePolicy.Kind, window: Window? = null) {
         if (protected(root) || HostDetailFloatLayers.contains(root)) return
@@ -57,6 +69,7 @@ internal class HostBackgroundPages(
                 background.release(child)
             }
         }
+        pages.remove(root)?.dispose()
         kinds[root] = kind
         val page = Page(root, kind, window)
         pages[root] = page
@@ -208,7 +221,20 @@ internal class HostBackgroundPages(
 
         fun dispose() {
             stop()
-            root.get()?.removeOnAttachStateChangeListener(this)
+            root.get()?.let {
+                it.removeOnAttachStateChangeListener(this)
+                if (pages[it] === this) {
+                    pages.remove(it)
+                    kinds.remove(it)
+                }
+            }
+            positions.clear()
+            activeList = null
+            containers = emptyList()
+            lists = emptyList()
+            texts = emptyList()
+            sideCenter = null
+            windowBackground = WeakReference(null)
         }
 
         override fun onViewAttachedToWindow(view: View) = HostThreadGuard.run("host.background.page.attach") { start() }
@@ -418,10 +444,10 @@ internal class HostBackgroundPages(
             }
             else -> {
                 if (!nativeContainers || view.isClickable || view.width < page.width * .9f || drawable == null) return
-                val access = materialFills.getOrPut(drawable.javaClass) {
-                    if (!HostRecyclerTypes.inherits(drawable.javaClass, MATERIAL_SHAPE_DRAWABLE, maxDepth = 24)) return@getOrPut null
-                    val read = KavaMemberLookup.inheritedMethodOrNull(drawable.javaClass, "getFillColor") ?: return@getOrPut null
-                    val write = KavaMemberLookup.inheritedMethodOrNull(drawable.javaClass, "setFillColor", ColorStateList::class.java) ?: return@getOrPut null
+                val access = materialFills.getOrPutNullable(drawable.javaClass) { clazz ->
+                    if (!HostRecyclerTypes.inherits(clazz, MATERIAL_SHAPE_DRAWABLE, maxDepth = 24)) return@getOrPutNullable null
+                    val read = KavaMemberLookup.inheritedMethodOrNull(clazz, "getFillColor") ?: return@getOrPutNullable null
+                    val write = KavaMemberLookup.inheritedMethodOrNull(clazz, "setFillColor", ColorStateList::class.java) ?: return@getOrPutNullable null
                     read to write
                 } ?: return
                 val fill = access.first.invoke(drawable) as? ColorStateList ?: return
@@ -470,6 +496,96 @@ internal class HostBackgroundPages(
             is ColorDrawable -> if (HostBackgroundPagePolicy.neutral(layer.color)) HostLayerKind.NEUTRAL_COLOR else HostLayerKind.OTHER
             is GradientDrawable -> if (plainGradient(layer)) HostLayerKind.NEUTRAL_PLAIN_GRADIENT else HostLayerKind.OTHER
             else -> HostLayerKind.OTHER
+        }
+    }
+
+    /** 弱持有 Drawable 值，避免 WeakHashMap<View, Drawable> 通过 Drawable.Callback 形成 Value→Key 环。 */
+    private class WeakDrawableMap : AbstractMutableMap<View, Drawable>() {
+        private val backing = WeakHashMap<View, WeakReference<Drawable>>()
+
+        override val size: Int
+            get() {
+                prune()
+                return backing.size
+            }
+
+        override fun containsKey(key: View): Boolean = get(key) != null
+
+        override fun get(key: View): Drawable? {
+            val ref = backing[key] ?: return null
+            val value = ref.get()
+            if (value == null) backing.remove(key)
+            return value
+        }
+
+        override fun put(key: View, value: Drawable): Drawable? =
+            backing.put(key, WeakReference(value))?.get()
+
+        override fun remove(key: View): Drawable? = backing.remove(key)?.get()
+
+        override fun clear() = backing.clear()
+
+        override val entries: MutableSet<MutableMap.MutableEntry<View, Drawable>> =
+            object : AbstractMutableSet<MutableMap.MutableEntry<View, Drawable>>() {
+                override val size: Int get() = this@WeakDrawableMap.size
+
+                override fun add(element: MutableMap.MutableEntry<View, Drawable>): Boolean {
+                    put(element.key, element.value)
+                    return true
+                }
+
+                override fun iterator(): MutableIterator<MutableMap.MutableEntry<View, Drawable>> {
+                    prune()
+                    val delegate = backing.entries.iterator()
+                    return object : MutableIterator<MutableMap.MutableEntry<View, Drawable>> {
+                        private var current: MutableMap.MutableEntry<View, Drawable>? = null
+                        private var nextEntry: MutableMap.MutableEntry<View, Drawable>? = advance()
+
+                        private fun advance(): MutableMap.MutableEntry<View, Drawable>? {
+                            while (delegate.hasNext()) {
+                                val raw = delegate.next()
+                                val value = raw.value.get()
+                                if (value == null) {
+                                    delegate.remove()
+                                    continue
+                                }
+                                return object : MutableMap.MutableEntry<View, Drawable> {
+                                    override val key: View = raw.key
+                                    override var value: Drawable = value
+                                    override fun setValue(newValue: Drawable): Drawable {
+                                        val prev = this.value
+                                        this.value = newValue
+                                        raw.setValue(WeakReference(newValue))
+                                        return prev
+                                    }
+                                }
+                            }
+                            return null
+                        }
+
+                        override fun hasNext(): Boolean = nextEntry != null
+
+                        override fun next(): MutableMap.MutableEntry<View, Drawable> {
+                            val resolved = nextEntry ?: throw NoSuchElementException()
+                            current = resolved
+                            nextEntry = advance()
+                            return resolved
+                        }
+
+                        override fun remove() {
+                            checkNotNull(current)
+                            delegate.remove()
+                            current = null
+                        }
+                    }
+                }
+            }
+
+        private fun prune() {
+            val iterator = backing.entries.iterator()
+            while (iterator.hasNext()) {
+                if (iterator.next().value.get() == null) iterator.remove()
+            }
         }
     }
 

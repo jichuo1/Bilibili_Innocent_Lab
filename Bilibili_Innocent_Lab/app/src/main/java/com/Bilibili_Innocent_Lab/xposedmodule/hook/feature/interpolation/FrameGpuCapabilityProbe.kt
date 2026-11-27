@@ -9,6 +9,7 @@ internal enum class GpuArchitecture(val vendorId: Int) {
     ARM_MALI(0x13B5),
     SAMSUNG_XCLIPSE_RDNA(0x1002),
     IMAGINATION_POWERVR(0x1010),
+    HUAWEI_MALEOON(0x19E5),
     GENERIC_VULKAN(0),
     UNAVAILABLE(0);
 
@@ -21,6 +22,7 @@ internal enum class GpuArchitecture(val vendorId: Int) {
             vendorId == ARM_MALI.vendorId -> ARM_MALI
             vendorId == SAMSUNG_XCLIPSE_RDNA.vendorId || vendorId == SAMSUNG_VENDOR_ID -> SAMSUNG_XCLIPSE_RDNA
             vendorId == IMAGINATION_POWERVR.vendorId -> IMAGINATION_POWERVR
+            vendorId == HUAWEI_MALEOON.vendorId -> HUAWEI_MALEOON
             else -> GENERIC_VULKAN
         }
     }
@@ -109,9 +111,24 @@ internal object FrameGpuCapabilityProbe {
         )
     }
 
-    private fun probeQcomMotionLibrary(): Boolean = runCatching {
+    private fun probeQcomMotionLibrary(): Boolean = probeQcomMotionLibraryWith {
         Class.forName("io.github.jichuo1.meguviz.media.GlesMotionWarp")
-        com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModuleNativeLoader.load("meguviz_qcom_motion")
+        // Verify QcomMotionNative actually initializes in its classloader namespace (internal System.loadLibrary);
+        // ModuleNativeLoader.load(...) alone can succeed via APK path fallback and cause a false positive.
+        val qcomNative = Class.forName(
+            "io.github.jichuo1.meguviz.media.QcomMotionNative",
+            true,
+            FrameGpuCapabilityProbe::class.java.classLoader
+        )
+        qcomNative.getDeclaredMethod("ensureLoaded").apply { isAccessible = true }.invoke(null)
+    }
+
+    internal fun probeQcomMotionLibraryWith(loader: () -> Unit): Boolean = try {
+        loader()
         true
-    }.getOrDefault(false)
+    } catch (_: LinkageError) {
+        false
+    } catch (_: Throwable) {
+        false
+    }
 }

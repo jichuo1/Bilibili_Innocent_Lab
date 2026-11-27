@@ -54,7 +54,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     private var source: HostChromeContentSource? = null
     private var dark: Boolean? = null
     private var version: Long? = null
-    private var statusBand: View? = null
+    private var statusBand: WeakReference<View>? = null
     private var statusBinding: LumenSurfaceBinding? = null
     private val location = IntArray(2)
     private val visibleBounds = Rect()
@@ -138,7 +138,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
 
     private fun hideStatusBar() {
         statusBinding?.close(); statusBinding = null
-        statusBand?.visibility = View.GONE
+        statusBand?.get()?.visibility = View.GONE
     }
 
     private fun syncStatusBar(active: LumenSurfaceSession, options: LumenSurfaceOptions) {
@@ -156,12 +156,12 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
             }
         }
         if (!touchesStatusBar) { hideStatusBar(); return }
-        val band = statusBand ?: View(root.context).apply {
+        val band = statusBand?.get()?.takeIf { it.parent === root } ?: View(root.context).apply {
             isClickable = false
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             root.addView(this, FrameLayout.LayoutParams(-1, inset, Gravity.TOP))
-        }.also { statusBand = it }
+        }.also { statusBand = WeakReference(it) }
         if (band.layoutParams.height != inset) {
             band.layoutParams = band.layoutParams.apply { height = inset }
         }
@@ -218,7 +218,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
 
     override fun close() {
         hideStatusBar()
-        statusBand?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        statusBand?.get()?.let { (it.parent as? ViewGroup)?.removeView(it) }
         statusBand = null
         for ((view, target) in targets) {
             target.binding?.close()

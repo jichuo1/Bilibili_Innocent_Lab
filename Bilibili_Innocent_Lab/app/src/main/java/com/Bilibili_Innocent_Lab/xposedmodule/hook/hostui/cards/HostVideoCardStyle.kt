@@ -40,7 +40,7 @@ internal class HostVideoCardStyle(
 
     private class Panel(view: View) {
         val view = WeakReference(view)
-        private var original = view.background
+        private var original: Drawable? = null
         private val materialOnly = view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView"
         private var cleared = false
         fun blocks(shared: Boolean) = (!materialOnly || shared) && view.get()?.background != null
@@ -49,6 +49,7 @@ internal class HostVideoCardStyle(
         } }
         fun restore() {
             if (cleared) view.get()?.let { if (it.background == null) it.background = original }
+            original = null
             cleared = false
         }
     }
@@ -62,7 +63,7 @@ internal class HostVideoCardStyle(
         val livePanel: Boolean,
         val nativePanels: Array<Panel>
     ) : ViewOutlineProvider() {
-        var surface: Drawable? = null
+        private var surfaceRef: WeakReference<Drawable>? = null
         var surfaceRadius = -1f
         var surfaceScope: WeakReference<HostVideoCardSurface.Scope>? = null
         var surfaceX = Float.NaN
@@ -71,6 +72,19 @@ internal class HostVideoCardStyle(
         var decorated = false
         var color = 0
         var integratedCover = false
+
+        fun surface(): Drawable? {
+            val ref = surfaceRef ?: return null
+            val current = ref.get()
+            if (current == null) {
+                surfaceRef = null
+            }
+            return current
+        }
+
+        fun setSurface(value: Drawable?) {
+            surfaceRef = value?.let(::WeakReference)
+        }
 
         fun updateGeometry(width: Int, height: Int, radius: Float): Boolean {
             return geometry.update(width, height, radius)
@@ -124,7 +138,7 @@ internal class HostVideoCardStyle(
             states[view]?.let { state ->
                 state.surfaceScope?.get()?.release(view)
                 state.surfaceScope = null
-                state.surface = null
+                state.setSurface(null)
                 state.nativePanels.forEach(Panel::restore)
             }
         }
@@ -164,6 +178,9 @@ internal class HostVideoCardStyle(
             stop()
             surfaces?.close()
             surfaces = null
+            if (view is ViewGroup && listWatchers[view]?.get() === this) {
+                listWatchers.remove(view)
+            }
         }
 
         override fun onPreDraw(): Boolean = HostThreadGuard.call("host.card.list.predraw", true) {
@@ -184,7 +201,9 @@ internal class HostVideoCardStyle(
                     state.surfaceY = root.y
                     surfaces?.positionChanged(root)
                 }
-                var changed = state.surfaceScope?.get() !== surfaces || state.color != color || root.background !== state.surface ||
+                val expectedSurface = state.surface()
+                var changed = state.surfaceScope?.get() !== surfaces || state.color != color ||
+                    expectedSurface == null || root.background !== expectedSurface ||
                     root.outlineProvider !== state || !root.clipToOutline
                 if (!changed) changed = state.nativePanels.any { it.blocks(material.usesSharedField) }
                 if (!changed) for (cached in state.covers) {
@@ -207,7 +226,8 @@ internal class HostVideoCardStyle(
         for (index in 0 until list.childCount) {
             val child = list.getChildAt(index)
             val state = states[child] ?: continue
-            if (state.decorated && child.background === state.surface) return true
+            val expectedSurface = state.surface()
+            if (state.decorated && expectedSurface != null && child.background === expectedSurface) return true
         }
         return false
     }
@@ -228,6 +248,8 @@ internal class HostVideoCardStyle(
                 root.addOnAttachStateChangeListener(attachListener)
             }
             state?.surfaceScope?.get()?.release(root)
+            state?.surfaceScope = null
+            state?.setSurface(null)
             state?.nativePanels?.forEach(Panel::restore)
             state = discovered
             states[root] = state
@@ -418,7 +440,8 @@ internal class HostVideoCardStyle(
         val resized = state.updateGeometry(root.width, root.height, radius)
         val color = HostVideoCardSurface.color(night, root.context)
         val scope = if (material.usesSharedField) listWatchers[parent]?.get()?.surfaceScope(night, root.context) ?: return else null
-        if (state.surfaceScope?.get() !== scope || state.surface == null || root.background !== state.surface ||
+        var activeSurface = state.surface()
+        if (state.surfaceScope?.get() !== scope || activeSurface == null || root.background !== activeSurface ||
             state.surfaceRadius != radius || state.color != color) {
             if (state.surfaceScope?.get() !== scope) state.surfaceScope?.get()?.release(root)
             val surface = if (scope != null) scope.apply(root, radius)
@@ -426,14 +449,15 @@ internal class HostVideoCardStyle(
             state.surfaceScope = scope?.let(::WeakReference)
             state.color = color
             state.surfaceRadius = radius
-            state.surface = surface
+            state.setSurface(surface)
+            activeSurface = surface
         }
         if (!state.decorated) {
             if (!material.usesSharedField) HostVideoCardShadow.apply(root)
             state.decorated = true
             onApplied()
         }
-        if (root.background !== state.surface) root.background = state.surface
+        if (root.background !== activeSurface) root.background = activeSurface
         // 信息区保留宿主约束和点击目标，背景由整卡统一承载，换肤后也不会重新出现方形底板。
         state.nativePanels.forEach { it.clear(material.usesSharedField) }
         val replaced = root.outlineProvider !== state
@@ -518,6 +542,24 @@ internal class HostVideoCardStyle(
     fun trimCaches() {
         resourceKinds.clear()
         recyclerTypes.clear()
+        val stateIterator = states.entries.iterator()
+        while (stateIterator.hasNext()) {
+            val (view, state) = stateIterator.next()
+            val liveSurface = state.surface()
+            val liveScope = state.surfaceScope?.get()
+            if (liveSurface == null && liveScope == null) {
+                state.surfaceScope = null
+            }
+            if (!view.isAttachedToWindow && state.decorated && liveSurface == null) {
+                state.surfaceScope?.get()?.release(view)
+                state.surfaceScope = null
+                state.setSurface(null)
+            }
+        }
+        val watcherIterator = listWatchers.entries.iterator()
+        while (watcherIterator.hasNext()) {
+            if (watcherIterator.next().value.get() == null) watcherIterator.remove()
+        }
     }
 
     companion object {

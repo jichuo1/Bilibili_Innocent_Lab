@@ -781,15 +781,8 @@ internal class FrameInterpolationFeatureInstaller(
                 val sizes = listOf(1280 to 720, 1920 to 1080, 2560 to 1440) +
                     (if (panelLong >= 3840) listOf(3840 to 2160) else emptyList())
                 val modePolicy = FrameInterpolationModePolicy(forceMode, forcedMode)
-                val routeStrategy = if (!modePolicy.forceMode) {
-                    FramePlaybackRoutes.Strategy.Auto
-                } else {
-                    val capabilities = FrameGpuCapabilityProbe.probe()
-                    when (val resolved = modePolicy.resolveForcedMode(capabilities)) {
-                        null -> FramePlaybackRoutes.Strategy.Unavailable
-                        else -> FramePlaybackRoutes.Strategy.Forced(resolved)
-                    }
-                }
+                val capabilities = runCatching { FrameGpuCapabilityProbe.probe() }.getOrNull()
+                val routeStrategy = resolveRouteStrategy(modePolicy, capabilities)
                 val holder = FrameInterpolationEngineHolder(apk, host.codeCacheDir, modelSource,
                     log = { event, detail -> log(event, detail) }, capabilitySizes = sizes,
                     dumpDir = if (verifying) File(external, "$VERIFY_DIR/dump").apply { mkdirs() } else null,
@@ -803,6 +796,27 @@ internal class FrameInterpolationFeatureInstaller(
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")
             active = decided
         }
+    }
+
+    private object AutoRifeStrategy : FramePlaybackRoutes.Strategy {
+        override val allowsQcom = false
+        override val allowsRife = true
+        override val bypassFrameBudget = false
+        override val logName = "auto:rife"
+    }
+
+    internal fun resolveRouteStrategy(
+        modePolicy: FrameInterpolationModePolicy,
+        capabilities: FrameGpuCapabilities?
+    ): FramePlaybackRoutes.Strategy = if (modePolicy.forceMode) {
+        when (val resolved = capabilities?.let(modePolicy::resolveForcedMode)) {
+            null -> FramePlaybackRoutes.Strategy.Unavailable
+            else -> FramePlaybackRoutes.Strategy.Forced(resolved)
+        }
+    } else when {
+        capabilities?.qcomMotionSupported == true -> FramePlaybackRoutes.Strategy.Auto
+        capabilities == null || capabilities.rifeVulkanSupported -> AutoRifeStrategy
+        else -> FramePlaybackRoutes.Strategy.Unavailable
     }
 
     private val bridgeHost = object : FrameCaptureBridge.Host {

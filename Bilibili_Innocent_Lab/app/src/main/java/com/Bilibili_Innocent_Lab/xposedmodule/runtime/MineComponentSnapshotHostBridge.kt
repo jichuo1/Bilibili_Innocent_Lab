@@ -11,7 +11,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntr
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ScanSnapshotContent
 import io.github.jichuo1.meguviz.android.extensions.versionCodeCompat
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * 运行在 B 站主进程中的扫描快照桥。
@@ -34,9 +36,11 @@ internal object MineComponentSnapshotHostBridge {
 
     private val receiverLock = Any()
     private val latest = java.util.concurrent.ConcurrentHashMap<String, CachedSnapshot>()
-    private val persistenceExecutor = Executors.newSingleThreadExecutor { runnable ->
+    private val persistenceExecutor = ThreadPoolExecutor(
+        1, 1, 30L, TimeUnit.SECONDS, LinkedBlockingQueue()
+    ) { runnable ->
         Thread(runnable, "bil-mine-host-cache").apply { isDaemon = true }
-    }
+    }.apply { allowCoreThreadTimeOut(true) }
     private data class Publication(val context: Context, val content: ScanSnapshotContent)
     @Volatile private var processSource: MineComponentSnapshotSource? = null
     private val publications = LatestValuePublisher<String, Publication>(
@@ -181,41 +185,42 @@ internal object MineComponentSnapshotHostBridge {
 
     private fun createQueryReceiver(): BroadcastReceiver =
         object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action != MineComponentSnapshotQueryContract.ACTION_QUERY ||
-                    !isOrderedBroadcast
-                ) return
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                    sentFromPackage != MineComponentSnapshotQueryContract.MODULE_PACKAGE
-                ) return
-                val nonce = intent.getStringExtra(
-                    MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE
-                ).orEmpty()
-                if (!MineComponentSnapshotQueryContract.isValidNonce(nonce)) return
+            override fun onReceive(context: Context, intent: Intent) =
+                HostThreadGuard.run("mine_snapshot.query.receive") {
+                    if (intent.action != MineComponentSnapshotQueryContract.ACTION_QUERY ||
+                        !isOrderedBroadcast
+                    ) return@run
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                        sentFromPackage != MineComponentSnapshotQueryContract.MODULE_PACKAGE
+                    ) return@run
+                    val nonce = intent.getStringExtra(
+                        MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE
+                    ).orEmpty()
+                    if (!MineComponentSnapshotQueryContract.isValidNonce(nonce)) return@run
 
-                val extras = getResultExtras(true)
-                extras.putBoolean(MineComponentSnapshotQueryContract.EXTRA_HANDLED, true)
-                extras.putString(MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE, nonce)
-                val requestedProtocol = intent.getIntExtra(
-                    MineComponentSnapshotQueryContract.EXTRA_PROTOCOL_VERSION,
-                    0
-                )
-                if (requestedProtocol != MineComponentSnapshotQueryContract.PROTOCOL_VERSION) {
-                    extras.putString(
-                        MineComponentSnapshotQueryContract.EXTRA_STATUS,
-                        MineComponentSnapshotQueryContract.STATUS_UNSUPPORTED
+                    val extras = getResultExtras(true)
+                    extras.putBoolean(MineComponentSnapshotQueryContract.EXTRA_HANDLED, true)
+                    extras.putString(MineComponentSnapshotQueryContract.EXTRA_REQUEST_NONCE, nonce)
+                    val requestedProtocol = intent.getIntExtra(
+                        MineComponentSnapshotQueryContract.EXTRA_PROTOCOL_VERSION,
+                        0
                     )
-                    resultCode = MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED
-                    return
-                }
+                    if (requestedProtocol != MineComponentSnapshotQueryContract.PROTOCOL_VERSION) {
+                        extras.putString(
+                            MineComponentSnapshotQueryContract.EXTRA_STATUS,
+                            MineComponentSnapshotQueryContract.STATUS_UNSUPPORTED
+                        )
+                        resultCode = MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED
+                        return@run
+                    }
 
-                val requestedSurface = intent.getStringExtra(
-                    MineComponentSnapshotQueryContract.EXTRA_SURFACE
-                )?.takeIf { it in MineComponentSnapshotCodec.ALLOWED_SURFACES }
-                    ?: MineComponentSnapshotCodec.SURFACE_MINE
-                setResultExtras(response(requestedSurface, nonce))
-                resultCode = MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED
-            }
+                    val requestedSurface = intent.getStringExtra(
+                        MineComponentSnapshotQueryContract.EXTRA_SURFACE
+                    )?.takeIf { it in MineComponentSnapshotCodec.ALLOWED_SURFACES }
+                        ?: MineComponentSnapshotCodec.SURFACE_MINE
+                    setResultExtras(response(requestedSurface, nonce))
+                    resultCode = MineComponentSnapshotQueryContract.RESULT_CODE_HANDLED
+                }
         }
 
     private fun readCachedSnapshot(context: Context, surface: String, source: MineComponentSnapshotSource): CachedSnapshot? {

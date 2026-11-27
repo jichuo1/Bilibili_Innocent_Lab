@@ -14,12 +14,14 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
-import com.Bilibili_Innocent_Lab.xposedmodule.R
+import androidx.core.view.WindowInsetsCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.motion.LumenEasing
 import com.lumen.coacervation.engine.widget.BubbleDrawable
@@ -35,7 +37,7 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
     private lateinit var surface: BubbleDrawable
     private lateinit var body: LinearLayout
     var onClosed: () -> Unit = {}
-    val dialog = object : Dialog(activity, R.style.FreeCopyBubble) {
+    val dialog = object : Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar) {
         override fun dismiss() { try { super.dismiss() } finally { release() } }
     }
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {
@@ -57,14 +59,24 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
                 runCatching { activity.windowManager.currentWindowMetrics.bounds }.getOrNull() else null
             val width = bounds?.width()?.takeIf { it > 0 } ?: metrics.widthPixels
             val height = bounds?.height()?.takeIf { it > 0 } ?: metrics.heightPixels
-            val maxContentWidth = (width * .72).toInt()
+            val safeInsets = ViewCompat.getRootWindowInsets(anchor)
+                ?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val safeLeft = safeInsets?.left ?: 0
+            val safeTop = safeInsets?.top ?: 0
+            val safeRight = safeInsets?.right ?: 0
+            val safeBottom = safeInsets?.bottom ?: 0
+            val safeWidth = (width - safeLeft - safeRight).coerceAtLeast(0)
+            val maxContentWidth = (safeWidth * .72).toInt()
             val maxBubbleWidth = maxContentWidth + dp(36)
             val location = IntArray(2).also(anchor::getLocationInWindow)
-            val x = HostCopyBubblePlacement.left(location[0], maxBubbleWidth, width, dp(16), dp(8))
+            val x = HostCopyBubblePlacement.left(
+                location[0], maxBubbleWidth, width, dp(16), dp(8), safeLeft, safeRight
+            )
             val tailWidth = dp(12).toFloat()
             val radius = 14f * density
-            val tailOffset = (location[0] + anchor.width / 2f - x).coerceIn(
-                tailWidth / 2f + radius, maxBubbleWidth - tailWidth / 2f - radius)
+            val tailMin = tailWidth / 2f + radius
+            val tailMax = (maxBubbleWidth - tailMin).coerceAtLeast(tailMin)
+            val tailOffset = (location[0] + anchor.width / 2f - x).coerceIn(tailMin, tailMax)
             surface = BubbleDrawable(if (light) Color.WHITE else 0xFF2A2B2E.toInt(),
                 tailWidth, dp(6).toFloat(), radius, tailOffset,
                 if (outlined) Color.BLACK else 0, if (outlined) dp(1).toFloat() else 0f)
@@ -85,8 +97,10 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
             content.setTextColor(if (light) 0xFF1C1B1F.toInt() else 0xFFE8E8E8.toInt())
             body.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-            val y = HostCopyBubblePlacement.top(location[1], anchor.height, anchor.isShown,
-                body.measuredHeight, height, dp(4), dp(8))
+            val y = HostCopyBubblePlacement.top(
+                location[1], anchor.height, anchor.isShown,
+                body.measuredHeight, height, dp(4), dp(8), safeTop, safeBottom
+            )
             val root = FrameLayout(activity).apply {
                 addView(body, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                 addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -100,7 +114,14 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
             content.setOnClickListener { }
             root.setOnClickListener { closeAnimated() }
             dialog.setOwnerActivity(activity)
+            prepareWindow(beforeContent = true)
             dialog.setContentView(root)
+            var fitAncestor = root.parent as? View
+            while (fitAncestor != null && fitAncestor !== dialog.window?.decorView) {
+                fitAncestor.fitsSystemWindows = false
+                fitAncestor.setPadding(0, 0, 0, 0)
+                fitAncestor = fitAncestor.parent as? View
+            }
             dialog.setCanceledOnTouchOutside(false)
             prepareWindow()
             activity.application.registerActivityLifecycleCallbacks(lifecycle)
@@ -110,33 +131,72 @@ internal class HostCopyBubble(private val activity: Activity, private val anchor
             content.setTextIsSelectable(false)
             dialog.show()
             prepareWindow()
-            dialog.window?.apply {
-                if (Build.VERSION.SDK_INT < 35) {
-                    @Suppress("DEPRECATION")
-                    statusBarColor = Color.BLACK
-                    @Suppress("DEPRECATION")
-                    navigationBarColor = Color.BLACK
-                }
-                if (Build.VERSION.SDK_INT >= 30) {
-                    WindowCompat.getInsetsController(this, decorView).isAppearanceLightStatusBars = false
-                } else {
-                    @Suppress("DEPRECATION")
-                    decorView.systemUiVisibility = decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                }
-            }
             enter()
         } catch (error: Throwable) { dialog.dismiss(); throw error }
     }
 
-    private fun prepareWindow() {
+    private fun prepareWindow(beforeContent: Boolean = false) {
         dialog.window?.apply {
+            if (beforeContent) {
+                requestFeature(Window.FEATURE_NO_TITLE)
+                return@apply
+            }
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             setDimAmount(0f)
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             setElevation(0f)
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION")
+            clearFlags(
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                    WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+            )
+            WindowCompat.setDecorFitsSystemWindows(this, false)
+            if (Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                statusBarColor = Color.TRANSPARENT
+                @Suppress("DEPRECATION")
+                navigationBarColor = Color.TRANSPARENT
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                isStatusBarContrastEnforced = false
+                isNavigationBarContrastEnforced = false
+            }
+            if (Build.VERSION.SDK_INT >= 28) {
+                attributes = attributes.apply {
+                    layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    } else {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 30) {
+                attributes = attributes.apply { fitInsetsTypes = 0 }
+            }
             decorView.setBackgroundColor(Color.TRANSPARENT)
             decorView.elevation = 0f
+            syncSystemBarsAppearance(this)
+        }
+    }
+
+    private fun syncSystemBarsAppearance(dialogWindow: Window) {
+        val hostWindow = activity.window ?: return
+        if (Build.VERSION.SDK_INT >= 30) {
+            val hostBars = WindowCompat.getInsetsController(hostWindow, hostWindow.decorView)
+            WindowCompat.getInsetsController(dialogWindow, dialogWindow.decorView).apply {
+                isAppearanceLightStatusBars = hostBars.isAppearanceLightStatusBars
+                isAppearanceLightNavigationBars = hostBars.isAppearanceLightNavigationBars
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val hostVis = hostWindow.decorView.systemUiVisibility
+            @Suppress("DEPRECATION")
+            val mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            @Suppress("DEPRECATION")
+            dialogWindow.decorView.systemUiVisibility =
+                (dialogWindow.decorView.systemUiVisibility and mask.inv()) or (hostVis and mask)
         }
     }
 
