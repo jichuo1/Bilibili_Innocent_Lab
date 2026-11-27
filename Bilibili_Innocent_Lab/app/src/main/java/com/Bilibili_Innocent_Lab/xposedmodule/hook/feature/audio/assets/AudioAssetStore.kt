@@ -1,7 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.audio.assets
 
-import android.system.ErrnoException
-import android.system.Os
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.ArchiveVerifier
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.PayloadVerifyException
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.payload.SecurePayloadStore
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -9,12 +10,8 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.WRITE
-import java.nio.file.attribute.PosixFilePermissions
-import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 /** Only fixed filenames under an app-owned root. All writers use unique temporary files + atomic replacement. */
@@ -25,69 +22,44 @@ internal class AudioAssetStore(
 ) {
     val directory: File
     init {
-        val parent = root.canonicalFile.toPath()
-        Files.createDirectories(parent)
         require(hostAbi == null || hostAbi in AudioAssetSpec.native)
-        val path = parent.resolve("bil-audio-${AudioAssetSpec.ID}" + (hostAbi?.let { "-$it" } ?: ""))
-        Files.createDirectories(path)
-        if (Files.isSymbolicLink(path) || path.toRealPath().parent != parent) throw AudioAssetFailure("unsafe_directory")
-        enforcePosixMode(path, MODE_DIR)
-        directory = path.toFile()
+        val subdir = "bil-audio-${AudioAssetSpec.ID}" + (hostAbi?.let { "-$it" } ?: "")
+        directory = SecurePayloadStore.prepareDirectory(
+            root = root,
+            relativePath = subdir,
+            mode = MODE_DIR,
+            enforcePermissions = hostAbi != null,
+            posixChmod = posixChmod
+        ).getOrElse { failure ->
+            throw mapStoreFailure(failure, subdir, defaultCode = "unsafe_directory")
+        }
     }
     fun file(part: AudioAsset) = File(directory, if (hostAbi == null) part.remoteName else part.name)
     fun valid(part: AudioAsset): Boolean = valid(part, file(part))
     fun valid(part: AudioAsset, file: File): Boolean = runCatching {
-        Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS) && file.length() == part.size &&
+        SecurePayloadStore.isSafeRegularFile(file) && file.length() == part.size &&
             Files.newInputStream(file.toPath(), NOFOLLOW_LINKS).use { verify(part, it); true }
     }.getOrDefault(false)
 
     fun install(part: AudioAsset, input: () -> InputStream): File {
-        val target = file(part)
-        if (valid(part)) {
-            enforcePosixMode(target.toPath(), MODE_FILE)
-            return target
-        }
-        val temporary = Files.createTempFile(directory.toPath(), ".audio-", ".part")
-        try {
-            input().use { source ->
-                FileChannel.open(temporary, WRITE, NOFOLLOW_LINKS).use { channel ->
-                    val output = java.nio.channels.Channels.newOutputStream(channel)
-                    verify(part, source, output)
-                    channel.force(true)
-                }
+        return SecurePayloadStore.installVerified(
+            directory = directory,
+            targetFileName = if (hostAbi == null) part.remoteName else part.name,
+            expectedSize = part.size,
+            expectedSha256 = part.sha256,
+            input = input,
+            tempPrefix = ".audio-",
+            tempSuffix = ".part",
+            enforcePermissions = hostAbi != null,
+            fileMode = MODE_FILE,
+            posixChmod = posixChmod,
+            publicationLock = publicationLock,
+            isExistingValid = { existing -> valid(part, existing) },
+            checkCancelled = {
+                if (Thread.currentThread().isInterrupted) throw AudioAssetFailure("cancelled", part.name)
             }
-            enforcePosixMode(temporary, MODE_FILE)
-            synchronized(publicationLock) {
-                // Another writer may have published the verified asset while this copy was prepared.
-                // Avoid replacing that file while its caller is already reading it.
-                if (!valid(part)) Files.move(temporary, target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
-                else enforcePosixMode(target.toPath(), MODE_FILE)
-            }
-            return target
-        } finally { Files.deleteIfExists(temporary) }
-    }
-
-    private fun enforcePosixMode(path: Path, mode: Int) {
-        if (hostAbi == null) return
-        val custom = posixChmod
-        if (custom != null) {
-            custom(path, mode)
-            return
-        }
-        if (isWindows()) return
-        try {
-            Os.chmod(path.toString(), mode)
-        } catch (failure: RuntimeException) {
-            if (failure.message == "Stub!") {
-                val permissions = PosixFilePermissions.fromString(
-                    if (mode == MODE_DIR) "rwx------" else "r--------"
-                )
-                Files.setPosixFilePermissions(path, permissions)
-            } else {
-                throw AudioAssetFailure("chmod_failed", path.fileName?.toString().orEmpty(), cause = failure)
-            }
-        } catch (failure: ErrnoException) {
-            throw AudioAssetFailure("chmod_failed", path.fileName?.toString().orEmpty(), cause = failure)
+        ).getOrElse { failure ->
+            throw mapStoreFailure(failure, part.name)
         }
     }
 
@@ -96,6 +68,9 @@ internal class AudioAssetStore(
         if (!valid(archive)) throw AudioAssetFailure("archive_invalid")
         ZipFile(file(archive)).use { zip ->
             for (part in parts) {
+                if (!ArchiveVerifier.isSafeRelativePath(part.entry)) {
+                    throw AudioAssetFailure("archive_entry_invalid", part.name)
+                }
                 val entry = zip.getEntry(part.entry) ?: throw AudioAssetFailure("archive_entry_missing", part.name)
                 if (entry.size != part.size) throw AudioAssetFailure("archive_entry_size", part.name)
                 install(part) { zip.getInputStream(entry) }
@@ -117,30 +92,43 @@ internal class AudioAssetStore(
     }
 
     companion object {
-        internal const val MODE_FILE = 0x100
-        internal const val MODE_DIR = 0x1C0
+        internal const val MODE_FILE = SecurePayloadStore.MODE_FILE_READONLY
+        internal const val MODE_DIR = SecurePayloadStore.MODE_DIR_PRIVATE
         private val processLock = Any()
         private val publicationLock = Any()
-        private fun isWindows(): Boolean =
-            System.getProperty("os.name", "").orEmpty().startsWith("Windows", ignoreCase = true)
-        fun verify(part: AudioAsset, input: InputStream, output: OutputStream? = null, progress: (Long) -> Unit = {}) {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(64 * 1024)
-            var total = 0L
-            while (true) {
-                if (Thread.currentThread().isInterrupted) throw AudioAssetFailure("cancelled", part.name)
-                val count = input.read(buffer, 0, minOf(buffer.size.toLong(), part.size - total + 1).toInt())
-                if (count < 0) break
-                if (count == 0) continue
-                total += count
-                if (total > part.size) throw AudioAssetFailure("size_overflow", part.name, "bytes=$total")
-                digest.update(buffer, 0, count)
-                output?.write(buffer, 0, count)
-                progress(total)
+
+        private fun mapStoreFailure(
+            failure: Throwable,
+            partName: String,
+            defaultCode: String? = null
+        ): Throwable {
+            if (failure is AudioAssetFailure) return failure
+            if (failure is PayloadVerifyException) {
+                return when (failure.code) {
+                    "chmod_failed" -> AudioAssetFailure("chmod_failed", failure.detail.ifEmpty { partName }, cause = failure.cause ?: failure)
+                    "cancelled", "size_overflow", "size_mismatch", "hash_mismatch" ->
+                        AudioAssetFailure(failure.code, partName, failure.detail, failure.cause)
+                    else -> AudioAssetFailure(defaultCode ?: failure.code, partName, failure.detail, failure.cause ?: failure)
+                }
             }
-            if (total != part.size) throw AudioAssetFailure("size_mismatch", part.name, "bytes=$total expected=${part.size}")
-            val hash = digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
-            if (hash != part.sha256) throw AudioAssetFailure("hash_mismatch", part.name, "actual=$hash expected=${part.sha256}")
+            return if (defaultCode != null) AudioAssetFailure(defaultCode, partName, cause = failure) else failure
+        }
+
+        fun verify(part: AudioAsset, input: InputStream, output: OutputStream? = null, progress: (Long) -> Unit = {}) {
+            try {
+                SecurePayloadStore.verifyStream(
+                    input = input,
+                    expectedSize = part.size,
+                    expectedSha256 = part.sha256,
+                    output = output,
+                    checkCancelled = {
+                        if (Thread.currentThread().isInterrupted) throw AudioAssetFailure("cancelled", part.name)
+                    },
+                    progress = progress
+                )
+            } catch (failure: PayloadVerifyException) {
+                throw mapStoreFailure(failure, part.name)
+            }
         }
     }
 }

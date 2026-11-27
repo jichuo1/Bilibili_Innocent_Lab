@@ -62,6 +62,16 @@ internal object AgentController {
         var lastOperationSucceeded: Boolean? = null
         var lastOperationStep = 0L
         var future: Future<*>? = null
+        val authCache = AgentAuthorizationCacheEntry()
+        var checkedConfigVersion: Long
+            get() = authCache.checkedConfigVersion
+            set(value) { authCache.checkedConfigVersion = value }
+        var checkedAtMs: Long
+            get() = authCache.checkedAtMs
+            set(value) { authCache.checkedAtMs = value }
+        var cachedAuthorized: Boolean
+            get() = authCache.cachedAuthorized
+            set(value) { authCache.cachedAuthorized = value }
         fun stopped() = cancelled.get() || Thread.currentThread().isInterrupted || limits.timeExceeded(startedAt, SystemClock.elapsedRealtime()) ||
             !context.prefs().getBoolean(AgentPreferences.ENABLED, false)
     }
@@ -71,6 +81,7 @@ internal object AgentController {
     private val cancellations = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(1),
         { Thread(it, "BIL-AgentCancel").apply { isDaemon = true } }, ThreadPoolExecutor.AbortPolicy())
     private val observers = CopyOnWriteArraySet<(AgentTaskState) -> Unit>()
+    private val configVersion = AtomicLong(1L)
     private val notificationPending = AtomicBoolean()
     private val notification = Runnable {
         notificationPending.set(false)
@@ -88,6 +99,7 @@ internal object AgentController {
     fun actionAuthorized(taskId: String): Boolean = active?.let { it.id == taskId && owns(taskId) && authorized(it) } == true
     fun owns(taskId: String): Boolean = active?.let { it.id == taskId && !it.cancelled.get() && !it.closing.get() &&
         !it.limits.timeExceeded(it.startedAt, SystemClock.elapsedRealtime()) } == true
+    internal fun notifyConfigChanged() { configVersion.incrementAndGet() }
 
     /** 必须由可见设置页的用户点击调用；服务不接受 Intent 中的目标、凭据或命令。 */
     @Synchronized fun start(context: Context, goal: String, selected: Set<Int>, fixed: Int?, allowVision: Boolean,
@@ -155,9 +167,11 @@ internal object AgentController {
             listOf(keys.first, keys.second, keys.third, RemoteHookConfigContract.semanticApiKey(index))
         }.toSet() + setOf(AgentPreferences.ENABLED, FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED)
         val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key in sourceKeys) configVersion.incrementAndGet()
             if (active === task && key in sourceKeys) cancel(context, "configuration_changed")
         }
         val termsListener = UserTermsAuthorizationListener { snapshot ->
+            configVersion.incrementAndGet()
             if (active === task && !snapshot.consentState.decision.isAuthorized) cancel(context, "not_authorized")
         }
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
@@ -328,11 +342,20 @@ internal object AgentController {
         }
     }
 
-    private fun authorized(task: Task): Boolean = !task.stopped() &&
-        UserTermsConsentStore.readOrInitialize(task.context).isAuthorized &&
-        AgentPreferences.sources(task.context).associateBy { it.index }.let { current ->
-            task.sources.all { current[it.index]?.fingerprint == it.fingerprint }
-        }
+    private fun authorized(task: Task): Boolean = evaluateCachedAuthorization(
+        entry = task.authCache,
+        lock = task,
+        currentConfigVersion = configVersion.get(),
+        nowMs = SystemClock.elapsedRealtime(),
+        stopped = task.stopped(),
+        readConfigVersion = configVersion::get
+    ) {
+        !task.stopped() &&
+            UserTermsConsentStore.readOrInitialize(task.context).isAuthorized &&
+            AgentPreferences.sources(task.context).associateBy { it.index }.let { current ->
+                task.sources.all { current[it.index]?.fingerprint == it.fingerprint }
+            }
+    }
 
     private fun host(task: Task, operation: String, args: JSONObject = JSONObject()): JSONObject {
         check(authorized(task)) { "not_authorized" }
@@ -425,4 +448,39 @@ internal object AgentController {
         notifyObservers()
     } }
     private fun notifyObservers() { if (observers.isNotEmpty() && notificationPending.compareAndSet(false, true)) main.post(notification) }
+}
+
+internal class AgentAuthorizationCacheEntry(
+    var checkedConfigVersion: Long = -1L,
+    var checkedAtMs: Long = 0L,
+    var cachedAuthorized: Boolean = false
+)
+
+internal inline fun evaluateCachedAuthorization(
+    entry: AgentAuthorizationCacheEntry,
+    lock: Any,
+    currentConfigVersion: Long,
+    nowMs: Long,
+    ttlMs: Long = 2_000L,
+    stopped: Boolean,
+    readConfigVersion: () -> Long,
+    evaluateFull: () -> Boolean
+): Boolean {
+    if (stopped) return false
+    synchronized(lock) {
+        if (entry.checkedConfigVersion == currentConfigVersion &&
+            nowMs - entry.checkedAtMs in 0L until ttlMs
+        ) {
+            return entry.cachedAuthorized
+        }
+    }
+    val valid = evaluateFull()
+    synchronized(lock) {
+        if (readConfigVersion() == currentConfigVersion) {
+            entry.checkedConfigVersion = currentConfigVersion
+            entry.checkedAtMs = nowMs
+            entry.cachedAuthorized = valid
+        }
+    }
+    return valid
 }

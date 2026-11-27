@@ -88,13 +88,14 @@ class AgentAccessibilityService : AccessibilityService() {
         val root = hostRoot()
         val bounds = Rect().also(root::getBoundsInScreen)
         val targets = mutableListOf<Target>()
+        val descendantSummaries = mutableListOf<UiSubtreeSummary>()
         var visited = 0
         var complete = true
         var privateInput = false
         val contextText = StringBuilder()
-        fun visit(node: AccessibilityNodeInfo, path: String, ancestors: String, depth: Int) {
-            if (++visited > 384 || depth > 24 || targets.size >= 160) { complete = false; return }
-            if (!node.isVisibleToUser) return
+        fun visit(node: AccessibilityNodeInfo, path: String, ancestors: String, depth: Int): UiSubtreeSummary {
+            if (++visited > 384 || depth > 24 || targets.size >= 160) { complete = false; return UiSubtreeSummary.EMPTY }
+            if (!node.isVisibleToUser) return UiSubtreeSummary.EMPTY
             val rect = Rect().also(node::getBoundsInScreen)
             val type = node.inputType
             val variation = type and android.text.InputType.TYPE_MASK_VARIATION
@@ -116,33 +117,57 @@ class AgentAccessibilityService : AccessibilityService() {
             if (node.childCount == 0 && publicLabel.isBlank() &&
                 (renderer.contains("WebView", true) || renderer.contains("ComposeView", true))) complete = false
             if (contextText.length < 6_000) contextText.append(' ').append(publicLabel)
+            var selfIndex = -1
+            var selfLabel = ""
+            var selfContext = ""
+            var selfPassword = false
             if (!rect.isEmpty && Rect.intersects(bounds, rect) && (publicLabel.isNotBlank() || node.isClickable || node.isScrollable || node.isEditable)) {
                 val signature = listOf(publicLabel, node.viewIdResourceName.orEmpty(), node.className?.toString().orEmpty(),
                     rect.toShortString(), node.isClickable, node.isScrollable, node.isEditable, privateField, node.isEnabled).joinToString("|")
+                selfIndex = targets.size
+                selfLabel = publicLabel
+                selfContext = context
+                selfPassword = privateField
                 targets += Target(path, publicLabel, context, rect, node.isClickable, node.isScrollable, node.isEditable,
                     privateField, node.isEnabled, signature, AgentUiPolicy.sensitiveControl(context) || privateField, node.windowId)
+                descendantSummaries += UiSubtreeSummary.EMPTY
             }
+            val childSummaries = if (node.childCount > 0) ArrayList<UiSubtreeSummary>(node.childCount) else null
             for (i in 0 until node.childCount) {
                 if (visited >= 384 || targets.size >= 160) { complete = false; break }
                 val child = node.getChild(i)
                 if (child == null) { complete = false; continue }
-                try { visit(child, "$path.$i", if (node.isEditable) ancestors else context, depth + 1) } finally { release(child) }
+                val childSummary = try { visit(child, "$path.$i", if (node.isEditable) ancestors else context, depth + 1) } finally { release(child) }
+                if (childSummary !== UiSubtreeSummary.EMPTY) {
+                    childSummaries?.add(childSummary)
+                }
             }
+            val descendants = if (childSummaries.isNullOrEmpty()) UiSubtreeSummary.EMPTY else UiSubtreeSummary.combine(childSummaries)
+            if (selfIndex >= 0) {
+                descendantSummaries[selfIndex] = descendants
+                return descendants.withSelf(selfLabel, selfContext, selfPassword)
+            }
+            return descendants
         }
         return try {
             visit(root, "0", "", 0)
-            val guarded = targets.map { target ->
+            val fullContextText = contextText.toString()
+            val guarded = targets.mapIndexed { index, target ->
                 // 可点击父容器也要检查静态子文案，不能用空 label 绕过付款等按钮保护。
-                val descendants = targets.filter { it.path.startsWith(target.path + ".") }
-                val childLabels = descendants.map { it.label }.filter { it.isNotBlank() }.take(3).joinToString(" ").take(80)
-                val risky = AgentUiPolicy.protectedControl(target.context, descendants.map { it.context },
-                    target.password || descendants.any { it.password })
-                if (target.clickable) target.copy(label = target.label.ifBlank { childLabels },
-                    signature = target.signature + "|" + childLabels,
-                    protected = target.protected || risky || AgentUiPolicy.sensitiveConfirmation(target.label.ifBlank { childLabels }, contextText.toString()))
+                val (resolvedLabel, resolvedSignature, resolvedProtected) = guardUiTargetFields(
+                    target.label,
+                    target.context,
+                    target.password,
+                    target.signature,
+                    target.protected,
+                    target.clickable,
+                    descendantSummaries[index],
+                    fullContextText
+                )
+                if (target.clickable) target.copy(label = resolvedLabel, signature = resolvedSignature, protected = resolvedProtected)
                 else target
             }
-            Tree(root.windowId, bounds, guarded, complete, privateInput, contextText.toString())
+            Tree(root.windowId, bounds, guarded, complete, privateInput, fullContextText)
         }
         finally { release(root) }
     }
@@ -457,5 +482,172 @@ class AgentAccessibilityService : AccessibilityService() {
         private fun error(reason: String): JSONObject = JSONObject().put("ok", false).put("error", reason)
         private fun reason(failure: Exception): String = failure.message?.takeIf { it.matches(Regex("[a-z0-9_]{1,80}")) } ?: "ui_action_failed"
         @Suppress("DEPRECATION") private fun release(node: AccessibilityNodeInfo) { if (Build.VERSION.SDK_INT < 33) node.recycle() }
+    }
+}
+
+internal data class UiSubtreeSummary(
+    val labels: List<String> = emptyList(),
+    val sensitiveContext: String? = null,
+    val hasPassword: Boolean = false
+) {
+    fun childLabelsText(): String = labels.joinToString(" ").take(80)
+
+    fun withSelf(label: String, context: String, password: Boolean): UiSubtreeSummary {
+        val nextLabels = if (label.isNotBlank()) {
+            buildList(minOf(3, 1 + labels.size)) {
+                add(label)
+                for (item in labels) {
+                    if (size >= 3) break
+                    add(item)
+                }
+            }
+        } else {
+            labels
+        }
+        val selfSensitive = if (AgentUiPolicy.sensitiveControl(context)) context else null
+        val nextSensitive = selfSensitive ?: sensitiveContext
+        return UiSubtreeSummary(nextLabels, nextSensitive, hasPassword || password)
+    }
+
+    companion object {
+        val EMPTY = UiSubtreeSummary()
+
+        fun combine(children: List<UiSubtreeSummary>): UiSubtreeSummary {
+            if (children.isEmpty()) return EMPTY
+            var mergedLabels: MutableList<String>? = null
+            var firstSensitive: String? = null
+            var anyPassword = false
+            for (child in children) {
+                if (child === EMPTY) continue
+                if (child.labels.isNotEmpty()) {
+                    val list = mergedLabels ?: ArrayList<String>(3).also { mergedLabels = it }
+                    if (list.size < 3) {
+                        for (label in child.labels) {
+                            list += label
+                            if (list.size == 3) break
+                        }
+                    }
+                }
+                if (firstSensitive == null && child.sensitiveContext != null) {
+                    firstSensitive = child.sensitiveContext
+                }
+                if (child.hasPassword) {
+                    anyPassword = true
+                }
+            }
+            return if (mergedLabels == null && firstSensitive == null && !anyPassword) EMPTY
+            else UiSubtreeSummary(mergedLabels ?: emptyList(), firstSensitive, anyPassword)
+        }
+    }
+}
+
+internal fun guardUiTargetFields(
+    label: String,
+    context: String,
+    password: Boolean,
+    signature: String,
+    initiallyProtected: Boolean,
+    clickable: Boolean,
+    descendants: UiSubtreeSummary,
+    fullContextText: String
+): Triple<String, String, Boolean> {
+    val childLabels = descendants.childLabelsText()
+    val risky = AgentUiPolicy.protectedControl(
+        context,
+        listOfNotNull(descendants.sensitiveContext),
+        password || descendants.hasPassword
+    )
+    return if (clickable) {
+        val resolvedLabel = label.ifBlank { childLabels }
+        Triple(
+            resolvedLabel,
+            "$signature|$childLabels",
+            initiallyProtected || risky || AgentUiPolicy.sensitiveConfirmation(resolvedLabel, fullContextText)
+        )
+    } else {
+        Triple(label, signature, initiallyProtected)
+    }
+}
+
+internal data class UiScanNodeSpec(
+    val path: String,
+    val label: String,
+    val context: String,
+    val clickable: Boolean,
+    val password: Boolean,
+    val signature: String,
+    val initiallyProtected: Boolean,
+    val includeTarget: Boolean = true,
+    val children: List<UiScanNodeSpec> = emptyList()
+)
+
+internal data class UiGuardedTarget(
+    val path: String,
+    val label: String,
+    val context: String,
+    val password: Boolean,
+    val signature: String,
+    val protected: Boolean
+)
+
+/** Pure O(N) bottom-up subtree aggregation matching [AgentAccessibilityService.scan] guard semantics. */
+internal fun aggregateUiSubtreeTargets(
+    root: UiScanNodeSpec,
+    fullContextText: String
+): List<UiGuardedTarget> {
+    val rawTargets = mutableListOf<UiScanNodeSpec>()
+    val descendantSummaries = mutableListOf<UiSubtreeSummary>()
+
+    fun visit(node: UiScanNodeSpec): UiSubtreeSummary {
+        val selfIndex = if (node.includeTarget) {
+            rawTargets += node
+            descendantSummaries += UiSubtreeSummary.EMPTY
+            rawTargets.lastIndex
+        } else {
+            -1
+        }
+        val childSummaries = if (node.children.isNotEmpty()) {
+            ArrayList<UiSubtreeSummary>(node.children.size)
+        } else {
+            null
+        }
+        for (child in node.children) {
+            val summary = visit(child)
+            if (summary !== UiSubtreeSummary.EMPTY) {
+                childSummaries?.add(summary)
+            }
+        }
+        val descendants = if (childSummaries.isNullOrEmpty()) {
+            UiSubtreeSummary.EMPTY
+        } else {
+            UiSubtreeSummary.combine(childSummaries)
+        }
+        if (selfIndex >= 0) {
+            descendantSummaries[selfIndex] = descendants
+            return descendants.withSelf(node.label, node.context, node.password)
+        }
+        return descendants
+    }
+
+    visit(root)
+    return rawTargets.mapIndexed { index, target ->
+        val (resolvedLabel, resolvedSignature, resolvedProtected) = guardUiTargetFields(
+            target.label,
+            target.context,
+            target.password,
+            target.signature,
+            target.initiallyProtected,
+            target.clickable,
+            descendantSummaries[index],
+            fullContextText
+        )
+        UiGuardedTarget(
+            path = target.path,
+            label = resolvedLabel,
+            context = target.context,
+            password = target.password,
+            signature = resolvedSignature,
+            protected = resolvedProtected
+        )
     }
 }

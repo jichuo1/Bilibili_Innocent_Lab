@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.insight
 
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.AiChatCompat
+import com.bilab.core.agent.protocol.CoreAiChatCompat
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -124,7 +124,7 @@ internal object InsightProtocol {
 
     fun decode(mode: InsightMode, raw: String, context: InsightContext): InsightOutput {
         require(raw.length <= MAX_OUTPUT)
-        val json = AiChatCompat.findJsonObject(raw) { root -> when (mode) {
+        val json = CoreAiChatCompat.findJsonObject(raw) { root -> when (mode) {
             InsightMode.SUMMARY -> root.opt("overview") is String && root.optJSONArray(if (context.timed) "sections" else "points") != null
             InsightMode.ASK -> root.opt("answer") is String
             InsightMode.COMMENTS -> root.optJSONArray("topics") != null

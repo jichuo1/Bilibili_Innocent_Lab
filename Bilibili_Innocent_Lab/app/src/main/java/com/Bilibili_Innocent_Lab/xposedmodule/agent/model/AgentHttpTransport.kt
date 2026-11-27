@@ -1,18 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.agent.model
 
+import com.bilab.core.agent.protocol.LlmHttpException
+import com.bilab.core.agent.protocol.LlmHttpRequest
+import com.bilab.core.agent.protocol.LlmHttpTransport
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.Callable
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 
 internal fun interface AgentHttpTransport {
     fun post(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean): String
@@ -23,9 +18,7 @@ internal fun interface AgentHttpTransport {
 
 /** 全程 HTTPS；不跟随重定向；DNS/写入阻塞也不得无限占住任务线程。 */
 internal object AgentHttpsTransport : AgentHttpTransport {
-    private val workers = ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(2)) { runnable ->
-        Thread(runnable, "BIL-AgentHttp").apply { isDaemon = true }
-    }.apply { allowCoreThreadTimeOut(true) }
+    private val workers: ThreadPoolExecutor = LlmHttpTransport.sharedWorkers
 
     override fun post(source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean): String =
         postWithConnection(source, body, timeoutMs, cancelled) { it.openConnection() as HttpURLConnection }
@@ -47,115 +40,67 @@ internal object AgentHttpsTransport : AgentHttpTransport {
         source: AgentModelSource, body: ByteArray, timeoutMs: Int, cancelled: () -> Boolean,
         onDelta: ((String) -> Unit)?, connect: (URL) -> HttpURLConnection
     ): String {
-        if (body.size > MAX_REQUEST_BYTES) throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
-        if (cancelled()) throw AgentModelException(AgentModelException.Reason.CANCELLED)
-        val connection = AtomicReference<HttpURLConnection?>()
-        val started = System.nanoTime()
-        val budgetNs = timeoutMs.coerceIn(1, MAX_TIMEOUT_MS) * 1_000_000L
-        val deadlineNs = AtomicLong(started + budgetNs)
-        // 流式请求：每个 SSE 事件把空闲时限往后推，但不超过绝对上限，长总结不会被总时限拦腰截断。
-        val idleNs = minOf(budgetNs, 60_000_000_000L)
-        val hardCapNs = started + MAX_TIMEOUT_MS * 1_000_000L
-        fun touch() {
-            val now = System.nanoTime()
-            deadlineNs.updateAndGet { current -> minOf(maxOf(current, now + idleNs), hardCapNs) }
+        val headers = if (source.protocol == AgentSourceProtocol.ANTHROPIC) {
+            mapOf("x-api-key" to source.apiKey, "anthropic-version" to "2023-06-01")
+        } else {
+            mapOf("Authorization" to "Bearer ${source.apiKey}")
         }
-        fun alive() {
-            if (cancelled() || Thread.currentThread().isInterrupted) throw AgentModelException(AgentModelException.Reason.CANCELLED)
-            if (System.nanoTime() >= deadlineNs.get()) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
+        val request = LlmHttpRequest(
+            url = source.resolvedEndpoint,
+            body = body,
+            headers = headers,
+            timeoutMs = timeoutMs,
+            maxRequestBytes = MAX_REQUEST_BYTES,
+            maxResponseBytes = MAX_RESPONSE_BYTES,
+            maxStreamWireBytes = AgentChatStream.MAX_WIRE_BYTES,
+            maxTimeoutMs = MAX_TIMEOUT_MS,
+            errorBytesLimit = 16_384,
+            acceptHeader = if (onDelta == null) "application/json" else "text/event-stream, application/json"
+        )
+        return try {
+            LlmHttpTransport.executeWithConnection(
+                request = request,
+                cancelled = cancelled,
+                onStream = if (onDelta != null) { input, streamAlive ->
+                    AgentChatStream.read(input, {
+                        try {
+                            streamAlive()
+                        } catch (e: LlmHttpException) {
+                            throw mapException(e)
+                        }
+                    }, onDelta, source.protocol)
+                } else null,
+                connect = connect
+            ).body
+        } catch (e: LlmHttpException) {
+            throw mapException(e)
         }
-        fun remainingMs(): Int = ((deadlineNs.get() - System.nanoTime()) / 1_000_000L)
-            .coerceIn(1, MAX_TIMEOUT_MS.toLong()).toInt()
-        val task = try {
-            workers.submit(Callable {
-                // Future完成到worker重新等待之间仍占用线程，有限队列吸收快速重试而不误报网络失败。
-                alive()
-                val http = connect(URL(source.resolvedEndpoint))
-                connection.set(http)
-                try {
-                    alive()
-                    http.instanceFollowRedirects = false
-                    http.useCaches = false
-                    http.requestMethod = "POST"
-                    http.connectTimeout = remainingMs()
-                    http.readTimeout = remainingMs()
-                    http.doOutput = true
-                    http.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                    http.setRequestProperty("Accept", if (onDelta == null) "application/json" else "text/event-stream, application/json")
-                    if (source.protocol == AgentSourceProtocol.ANTHROPIC) {
-                        http.setRequestProperty("x-api-key", source.apiKey)
-                        http.setRequestProperty("anthropic-version", "2023-06-01")
-                    } else {
-                        http.setRequestProperty("Authorization", "Bearer ${source.apiKey}")
-                    }
-                    http.setFixedLengthStreamingMode(body.size)
-                    http.outputStream.use { it.write(body) }
-                    alive()
-                    val status = http.responseCode
-                    if (status in 300..399) throw AgentModelException(AgentModelException.Reason.REDIRECT, status)
-                    if (status !in 200..299) {
-                        val retryAfter = http.getHeaderField("Retry-After")?.toLongOrNull()
-                            ?.coerceIn(0, 300)?.times(1000)
-                        val error = http.errorStream?.use { readBounded(it, 16_384, deadlineNs.get(), cancelled) }.orEmpty()
-                        throw httpFailure(status, error, retryAfter)
-                    }
-                    val streaming = onDelta != null && http.contentType?.substringBefore(';')?.trim()
-                        ?.equals("text/event-stream", ignoreCase = true) == true
-                    if (http.contentLengthLong > if (streaming) AgentChatStream.MAX_WIRE_BYTES else MAX_RESPONSE_BYTES) {
-                        throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
-                    }
-                    http.inputStream.use { input ->
-                        if (streaming) AgentChatStream.read(input, { touch(); alive() }, checkNotNull(onDelta), source.protocol)
-                        else readBounded(input, MAX_RESPONSE_BYTES, deadlineNs.get(), cancelled)
-                    }
-                } finally {
-                    http.disconnect()
-                    connection.compareAndSet(http, null)
-                }
-            })
-        } catch (_: java.util.concurrent.RejectedExecutionException) {
-            throw AgentModelException(AgentModelException.Reason.NETWORK)
-        }
+    }
+
+    internal fun readBounded(input: InputStream, limit: Int, deadline: Long, cancelled: () -> Boolean): String = try {
+        LlmHttpTransport.readBounded(input, limit, deadline, cancelled)
+    } catch (e: LlmHttpException) {
+        throw mapException(e)
+    }
+
+    internal fun checkAlive(deadline: Long, cancelled: () -> Boolean) {
         try {
-            while (true) {
-                alive()
-                try {
-                    return task.get(minOf(100, remainingMs()).toLong(), TimeUnit.MILLISECONDS)
-                } catch (_: TimeoutException) {
-                    // 有界等待同时响应用户取消；真实 Socket 超时只是第二道防线。
-                } catch (e: ExecutionException) {
-                    val cause = e.cause
-                    if (cause is AgentModelException) throw cause
-                    if (cause is java.net.SocketTimeoutException) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
-                    throw AgentModelException(AgentModelException.Reason.NETWORK)
-                }
-            }
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            throw AgentModelException(AgentModelException.Reason.CANCELLED)
-        } finally {
-            task.cancel(true)
-            (task as? Runnable)?.let(workers::remove)
-            connection.getAndSet(null)?.disconnect()
+            LlmHttpTransport.checkAlive(deadline, cancelled)
+        } catch (e: LlmHttpException) {
+            throw mapException(e)
         }
     }
 
-    private fun readBounded(input: InputStream, limit: Int, deadline: Long, cancelled: () -> Boolean): String {
-        val result = ByteArrayOutputStream()
-        val buffer = ByteArray(8192)
-        while (true) {
-            checkAlive(deadline, cancelled)
-            val count = input.read(buffer)
-            if (count < 0) break
-            if (result.size() + count > limit) throw AgentModelException(AgentModelException.Reason.TOO_LARGE)
-            result.write(buffer, 0, count)
+    private fun mapException(e: LlmHttpException): AgentModelException {
+        (e.cause as? AgentModelException)?.let { return it }
+        return when (e.reason) {
+            LlmHttpException.Reason.CANCELLED -> AgentModelException(AgentModelException.Reason.CANCELLED)
+            LlmHttpException.Reason.TIMEOUT -> AgentModelException(AgentModelException.Reason.TIMEOUT)
+            LlmHttpException.Reason.REDIRECT -> AgentModelException(AgentModelException.Reason.REDIRECT, e.status)
+            LlmHttpException.Reason.TOO_LARGE -> AgentModelException(AgentModelException.Reason.TOO_LARGE)
+            LlmHttpException.Reason.HTTP_STATUS -> httpFailure(e.status ?: 0, e.errorBody, e.retryAfterMs)
+            LlmHttpException.Reason.NETWORK -> AgentModelException(AgentModelException.Reason.NETWORK)
         }
-        return result.toString(Charsets.UTF_8.name())
-    }
-
-    private fun checkAlive(deadline: Long, cancelled: () -> Boolean) {
-        if (cancelled() || Thread.currentThread().isInterrupted) throw AgentModelException(AgentModelException.Reason.CANCELLED)
-        if (System.nanoTime() >= deadline) throw AgentModelException(AgentModelException.Reason.TIMEOUT)
     }
 
     internal fun httpFailure(status: Int, body: String, retryAfterMs: Long?): AgentModelException {
