@@ -39,7 +39,8 @@ internal object CommentTopologyLocator {
         9200200 to VerifiedCommentReplyMapper("v260", "B", "m9w"),
         9200300 to VerifiedCommentReplyMapper("l260", "B", "z8w"),
         9210100 to VerifiedCommentReplyMapper("ot50", "B", "y1w"),
-        9210200 to VerifiedCommentReplyMapper("kt50", "B", "b4w")
+        9210200 to VerifiedCommentReplyMapper("kt50", "B", "b4w"),
+        9210300 to VerifiedCommentReplyMapper("kt50", "B", "b4w")
     )
 
     /**

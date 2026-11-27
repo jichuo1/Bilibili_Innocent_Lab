@@ -53,11 +53,12 @@ internal object MediaQualityAndPlayerLocator {
         9200100 to ("lr72" to "mg12"),
         9200200 to ("rt72" to "oh12"),
         9200300 to ("jv72" to "wj12"),
-        // 9.21.0 双构建远端 dexq 验真：block update 为 *72#a(Context)BiliUpgradeInfo（306 条指令，
+        // 9.21.0 三构建远端 dexq 验真：block update 为 *72#a(Context)BiliUpgradeInfo（306 条指令/152 行 Smali，
         // 含 'Do sync http request.'），ep01/ps01（54 条）为缓存包装层；默认画质 t612/l212#a()I
-        // （55 条指令，含 'quality settings:'）。
+        // （含 'quality settings:'）。9210300 与 9210200 同为 dd72 / l212。
         9210100 to ("jg72" to "t612"),
-        9210200 to ("dd72" to "l212")
+        9210200 to ("dd72" to "l212"),
+        9210300 to ("dd72" to "l212")
     )
 
     internal val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(

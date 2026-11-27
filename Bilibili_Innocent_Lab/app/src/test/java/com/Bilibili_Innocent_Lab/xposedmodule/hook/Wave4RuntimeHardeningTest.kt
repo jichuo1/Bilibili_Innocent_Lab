@@ -576,7 +576,7 @@ class Wave4RuntimeHardeningTest {
         )
         val roundtripped = VersionAdapter.AdaptResult.fromJson(adaptResult.toJson())
         assertEquals("it02", roundtripped?.guestPlayerCore)
-        assertEquals(99, VersionAdapterContract.RULE_VERSION)
+        assertEquals(100, VersionAdapterContract.RULE_VERSION)
     }
 
     // -------------------------------------------------------------------------

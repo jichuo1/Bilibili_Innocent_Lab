@@ -198,6 +198,7 @@ class PlayerSpeedLocatorTest {
             Triple(9200300, CalcOwnerE::class.java, "e"),
             Triple(9210100, CalcOwnerA::class.java, "a"),
             Triple(9210200, CalcOwnerD::class.java, "d"),
+            Triple(9210300, CalcOwnerD::class.java, "d"),
         )
         for ((version, owner, methodName) in builds) {
             val loader = CalcLoader(owner, CalcPlayable::class.java)
@@ -212,11 +213,11 @@ class PlayerSpeedLocatorTest {
                     PlayerSpeedLocator.theseus2LongPressCalculator(loader, other))
             }
         }
-        // 未登记构建保持关闭；9210100 与 9210200 在真实类名仅单边存在时也互不串用。
+        // 未登记构建保持关闭；9210100 与 9210200/9210300 在真实类名仅单边存在时也互不串用。
         val loader = CalcLoader(CalcOwnerI::class.java, CalcPlayable::class.java)
         assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9190500))
         assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9200400))
-        assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9210300))
+        assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(loader, 9210400))
         val only9211Loader = object : ClassLoader(PlayerSpeedLocatorTest::class.java.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
                 "n9h" -> CalcOwnerA::class.java
@@ -226,6 +227,7 @@ class PlayerSpeedLocatorTest {
         }
         assertNotNull(PlayerSpeedLocator.theseus2LongPressCalculator(only9211Loader, 9210100))
         assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(only9211Loader, 9210200))
+        assertNull(PlayerSpeedLocator.theseus2LongPressCalculator(only9211Loader, 9210300))
     }
 
     fun `theseus2 calculator refuses non-interface playable and non-static owner`() {

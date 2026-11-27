@@ -72,7 +72,7 @@ class PauseResponseInstallerTest {
         assertTrue(PauseRequestCoverage.covered(emptyLoader, 9190300, families, kotlinInstalled = true).isEmpty())
         assertTrue(PauseRequestCoverage.covered(javaClass.classLoader!!, 9190400, families, kotlinInstalled = true).isEmpty())
         // 9.20/9.21 构建与 9.19 共用 b#c 请求入口（远端 dexq 验真）；无宿主 ABI 证据时同样不得宣称覆盖。
-        for (version in listOf(9200100, 9200200, 9200300, 9210100, 9210200)) {
+        for (version in listOf(9200100, 9200200, 9200300, 9210100, 9210200, 9210300)) {
             assertTrue(PauseRequestCoverage.covered(loader, version, families, kotlinInstalled = false).isEmpty())
             assertTrue(PauseRequestCoverage.covered(javaClass.classLoader!!, version, families, kotlinInstalled = true).isEmpty())
         }
@@ -82,10 +82,10 @@ class PauseResponseInstallerTest {
         val ad = "kntr.app.ad.biz.videodetail.pausedpage."
         for (version in listOf(9180100, 9180200, 9180300))
             assertEquals(ad + "a", PauseRequestCoverage.apiOwnerName(version))
-        for (version in listOf(9190200, 9190400, 9200100, 9200200, 9200300, 9210100, 9210200))
+        for (version in listOf(9190200, 9190400, 9200100, 9200200, 9200300, 9210100, 9210200, 9210300))
             assertEquals(ad + "b", PauseRequestCoverage.apiOwnerName(version))
         assertNull(PauseRequestCoverage.apiOwnerName(9190300))
-        assertNull(PauseRequestCoverage.apiOwnerName(9210300))
+        assertNull(PauseRequestCoverage.apiOwnerName(9210400))
         assertNull(PauseRequestCoverage.apiOwnerName(null))
     }
 

@@ -798,7 +798,7 @@ class Wave3HardcodingAndCleanupTest {
                 }
             }.toList()
         assertTrue("Unexpected forbidden literals in main sources: $hits", hits.isEmpty())
-        assertEquals(99, VersionAdapterContract.RULE_VERSION)
+        assertEquals(100, VersionAdapterContract.RULE_VERSION)
     }
 
     @Test

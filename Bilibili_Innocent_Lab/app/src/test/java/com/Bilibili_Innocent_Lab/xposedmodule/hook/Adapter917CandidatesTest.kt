@@ -107,6 +107,7 @@ class Adapter917CandidatesTest {
         val builds = mapOf(
             9210100 to ("jg72" to "t612"),
             9210200 to ("dd72" to "l212"),
+            9210300 to ("dd72" to "l212"),
         )
         builds.forEach { (version, owners) ->
             val loader = HostLoader(WrongNetwork::class.java, WrongQuality::class.java,
@@ -126,6 +127,9 @@ class Adapter917CandidatesTest {
         assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9210200)?.className)
         assertEquals(Quality::class.java.name,
             VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9210200)?.defaultQualityMethod?.className)
+        assertEquals(Network::class.java.name, VersionAdapter.locateBlockUpdate(crossLoader, 9210300)?.className)
+        assertEquals(Quality::class.java.name,
+            VersionAdapter.locateDefaultVideoQuality(crossLoader, hostVersionCode = 9210300)?.defaultQualityMethod?.className)
     }
 
     /**
@@ -142,6 +146,8 @@ class Adapter917CandidatesTest {
             9210100 to VerifiedOnlyLoader(mapOf("jg72" to WrongNetwork::class.java, "t612" to WrongQuality::class.java)),
             9210200 to VerifiedOnlyLoader(mapOf("dd72" to WrongNetwork::class.java, "l212" to WrongQuality::class.java)),
             9210200 to VerifiedOnlyLoader(emptyMap()),
+            9210300 to VerifiedOnlyLoader(mapOf("dd72" to WrongNetwork::class.java, "l212" to WrongQuality::class.java)),
+            9210300 to VerifiedOnlyLoader(emptyMap()),
         )
         for ((versionCode, loader) in cases) {
             val withVersion = VersionAdapter.buildDiagnostics(loader, plan, null, located, "", versionCode)

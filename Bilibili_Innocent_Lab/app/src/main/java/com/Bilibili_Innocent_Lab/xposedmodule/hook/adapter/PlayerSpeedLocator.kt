@@ -269,10 +269,10 @@ internal object PlayerSpeedLocator {
             9200100 -> Triple("tyg1", "i", "mmq2")
             9200200 -> Triple("h7h1", "h", "apq2")
             9200300 -> Triple("jy0", "e", "rpq2")
-            // 9.21.0 双构建远端 dexq 验真：TripleSpeedService$a.a()Float 与 beginTemporarySpeed$1
-            // 不变，计算器重打包为 n9h#a(rbq2,Float)F 与 jpj#d(q7q2,Float)F（getScriptPace 唯一命中）。
+            // 9.21.0 三构建远端 dexq 验真：TripleSpeedService$a.a()Float 与 beginTemporarySpeed$1
+            // 不变，计算器重打包为 n9h#a(rbq2,Float)F 与 jpj#d(q7q2,Float)F（getScriptPace 唯一命中；9210300 同 9210200）。
             9210100 -> Triple("n9h", "a", "rbq2")
-            9210200 -> Triple("jpj", "d", "q7q2")
+            9210200, 9210300 -> Triple("jpj", "d", "q7q2")
             else -> return null
         }
         return theseus2LongPressCalculator(loader, ownerName, methodName, playableName)

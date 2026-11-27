@@ -398,7 +398,8 @@ class ReplyTopology920AdaptationTest {
             9200200 to ("v260" to "m9w"),
             9200300 to ("l260" to "z8w"),
             9210100 to ("ot50" to "y1w"),
-            9210200 to ("kt50" to "b4w")
+            9210200 to ("kt50" to "b4w"),
+            9210300 to ("kt50" to "b4w")
         )
         builds.forEach { (versionCode, pair) ->
             val loader = mapperHostClassLoader(listOf(pair))
@@ -408,8 +409,8 @@ class ReplyTopology920AdaptationTest {
             assertEquals(listOf("B"), points.mapperMethods.map { it.methodName })
             assertTrue(points.hasRequiredMethods())
 
-            // Passing another build's version code with only this build's classes must NOT cross-match.
-            val otherVersion = builds.keys.first { it != versionCode }
+            // Passing another build's version code with distinct owner must NOT cross-match.
+            val otherVersion = builds.entries.first { it.value != pair }.key
             assertNull(VersionAdapter.locateCommentTopology(loader, hostVersionCode = otherVersion))
         }
 
@@ -417,7 +418,7 @@ class ReplyTopology920AdaptationTest {
         val driftedLoader = mapperHostClassLoader(emptyList())
         val plan = AdaptPlan(1L, setOf(PointFamily.COMMENT_TOPOLOGY), emptySet())
         val located = VersionAdapterTest().result().copy(commentTopology = null)
-        for (missingVersion in listOf(9200300, 9210200)) {
+        for (missingVersion in listOf(9200300, 9210200, 9210300)) {
             val diag = VersionAdapter.buildDiagnostics(
                 driftedLoader,
                 plan,

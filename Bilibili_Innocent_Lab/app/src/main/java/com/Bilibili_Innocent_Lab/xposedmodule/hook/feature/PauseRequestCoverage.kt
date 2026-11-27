@@ -59,7 +59,7 @@ internal object PauseRequestCoverage {
         9180100, 9180200, 9180300 -> AD_API + "a"
         // 9.20/9.21 构建远端 dexq 验真：请求入口仍是 b#c(16 参)Object（430 指令），
         // AdPausedPageApi 内部类、KViewMoss.playPause 与 KPlayPauseReply.getBar/getData 结构同 9.19。
-        9190200, 9190400, 9200100, 9200200, 9200300, 9210100, 9210200 -> AD_API + "b"
+        9190200, 9190400, 9200100, 9200200, 9200300, 9210100, 9210200, 9210300 -> AD_API + "b"
         else -> null
     }
 

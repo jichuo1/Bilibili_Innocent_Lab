@@ -98,7 +98,8 @@ internal object VersionAdapterContract {
     /** 96 → 97：Wave 4 新增 guest_player_core 可选缓存键及后台 DexMeguviz 兜底，不抬 schema。 */
     /** 97 → 98：补齐 9.21.0 双构建（9210100 / 9210200）已验真表项，并泛化首页早加载与故事弹幕控制器混淆适配，不抬 schema。 */
     /** 98 → 99：Phase 1 为首页提前加载接入共享后台 DEX 图发现缓存键 home_recommend_early_load_listener，不抬 schema。 */
-    const val RULE_VERSION = 99
+    /** 99 → 100：补齐 9.21.0 build 3（9210300）已验真表项（更新阻断/默认画质/评论映射/长按倍速/暂停页请求入口），不抬 schema。 */
+    const val RULE_VERSION = 100
 
     /**
      * Phase 2 按功能域拆分的规则版本号（相对于当前 [RULE_VERSION] 从 0 起算）：
