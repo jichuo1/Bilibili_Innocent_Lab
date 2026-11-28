@@ -17,6 +17,7 @@ import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
@@ -62,6 +63,7 @@ object MediaElf16KbCheck {
 }
 
 /** Repackage the native bytes from the same published AAR as the Java API for lazy host loading. */
+@CacheableTask
 abstract class PackFrameNativePayload : DefaultTask() {
     @get:InputFile @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.NONE)
     abstract val mediaAar: RegularFileProperty
@@ -419,6 +421,13 @@ android {
             // 源码契约测试（读取生产源码文本的"护栏"）独立成目录，与行为测试编进同一个
             // 单测任务；分层运行与反向查询见下方 innocentLab.testLayer / contractsFor。
             kotlin.directories.add("src/contractTest/java")
+            // 需外部 pinned ONNX/AAR 离线验证时才挂载手动测试源码，避免常规 CI/本地默认跳过。
+            val includeManualAudioArtifacts =
+                providers.gradleProperty("innocentLab.audioArtifactsTest").orNull == "true" ||
+                    providers.environmentVariable("BIL_AUDIO_ARTIFACTS").isPresent
+            if (includeManualAudioArtifacts) {
+                kotlin.directories.add("src/manualTest/java")
+            }
         }
     }
 }
@@ -520,49 +529,53 @@ if (testLayer != null && testLayer != "unit" && testLayer != "contract") {
     throw GradleException("innocentLab.testLayer must be 'unit' or 'contract', got '$testLayer'")
 }
 
-// 源码护栏读取真实文件，必须把文本也计入 Test 缓存键；仅有测试 classpath 不足以
-// 识别注释、工作流或未改变字节码的源码修改。只允许公开生产输入，不包含构建输出、
-// local.properties、签名文件、环境文件或整个 .gradle 缓存。
+// 源码护栏与部分行为测试读取真实文件，必须把文本也计入 Test 缓存键；仅有测试 classpath 不足以
+// 识别注释、配置或未改变字节码的源码修改。只允许公开生产输入，不包含构建输出、
+// local.properties、签名文件、环境文件、C++/Rust/assets 等未读取目录。
 val sourceContractInputs = files(
     fileTree("src/main") {
-        exclude("rust/**/target/**", "**/.mimosa/**")
+        include("java/**", "res/**", "resources/**", "AndroidManifest.xml")
+        exclude("**/.mimosa/**")
     },
     fileTree(rootDir.resolve("plugin-api/src/main")),
     fileTree(rootDir.resolve("core-settings-schema/src/main")),
     fileTree(rootDir.resolve("core-agent-protocol/src/main")),
     fileTree(rootDir) {
         include(
-            "build.gradle.kts", "settings.gradle.kts", "gradle.properties",
-            "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.properties",
-            "gradlew", "gradlew.bat", "app/build.gradle.kts",
-            "app/proguard-rules.pro", "app/lint-baseline.xml",
-            "plugin-api/build.gradle.kts", "core-settings-schema/build.gradle.kts",
+            "settings.gradle.kts",
+            "app/build.gradle.kts",
+            "app/proguard-rules.pro",
+            "app/lint-baseline.xml",
+            "plugin-api/build.gradle.kts",
+            "core-settings-schema/build.gradle.kts",
             "core-agent-protocol/build.gradle.kts"
         )
-    },
-    fileTree(rootDir.parentFile) {
-        include("docs/npatch-feature-matrix.tsv")
-        include("docs/npatch-embed-acceptance.md")
-        include(".github/workflows/*.yml", ".github/workflows/*.yaml")
-        include(".github/actions/**/action.yml")
-        include(".github/release-templates/*.py")
-        exclude(".github/release-templates/test_*.py")
     }
 )
-if (testLayer != "unit") {
-    val objectFactory = objects
-    // This optional generated projection is read by a JVM test in private checkouts. No secrets.
-    val projection = rootDir.parentFile.resolve("server/src/analytics/capability-catalog.json")
-    val projectionFiles = providers.provider { if (projection.isFile) listOf(projection) else emptyList<File>() }
-    tasks.withType<Test>().configureEach {
-        jvmArgumentProviders.add(objectFactory.newInstance(LumenContractJvmArguments::class.java).apply {
+val unitDocInputs = files(
+    fileTree(rootDir.parentFile) {
+        include("docs/npatch-feature-matrix.tsv", "docs/npatch-embed-acceptance.md")
+    }
+)
+// This optional generated projection is read by a JVM test in private checkouts. No secrets.
+val projection = rootDir.parentFile.resolve("server/src/analytics/capability-catalog.json")
+val projectionFiles = providers.provider { if (projection.isFile) listOf(projection) else emptyList<File>() }
+val configuredTestMaxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+tasks.withType<Test>().configureEach {
+    maxParallelForks = configuredTestMaxParallelForks
+    maxHeapSize = "1024m"
+    inputs.files(unitDocInputs)
+        .withPropertyName("unitDocInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(projectionFiles)
+        .withPropertyName("privateCapabilityProjection")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    if (testLayer != "unit") {
+        jvmArgumentProviders.add(objects.newInstance(LumenContractJvmArguments::class.java).apply {
             sources.from(lumenContractSources)
         })
         inputs.files(sourceContractInputs, lumenContractSources)
             .withPropertyName("sourceContractInputs")
-            .withPathSensitivity(PathSensitivity.RELATIVE)
-        inputs.files(projectionFiles)
-            .withPropertyName("privateCapabilityProjection")
             .withPathSensitivity(PathSensitivity.RELATIVE)
     }
 }
@@ -583,13 +596,17 @@ tasks.matching {
 val contractTestRoot: File = file("src/contractTest/java")
 
 fun contractTestClassNames(): List<String> = contractTestRoot.walkTopDown()
-    .filter { it.isFile && it.extension == "kt" }
+    .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
     .flatMap { source ->
         val text = source.readText()
+        if (!Regex("""@(?:org\.junit\.)?Test\b""").containsMatchIn(text)) return@flatMap emptySequence()
         val pkg = Regex("^package ([\\w.]+)", RegexOption.MULTILINE).find(text)?.groupValues?.get(1)
-        if (pkg == null) emptySequence()
-        else Regex("^(?:internal |public )?class (\\w+)", RegexOption.MULTILINE).findAll(text)
-            .map { "$pkg.${it.groupValues[1]}" }
+            ?: return@flatMap emptySequence()
+        Regex("^(?:(?:internal|public|final|open)\\s+)*class (\\w+)", RegexOption.MULTILINE).findAll(text)
+            .mapNotNull { match ->
+                val name = match.groupValues[1]
+                if (name.endsWith("Test")) "$pkg.$name" else null
+            }
     }
     .toList()
 
@@ -620,13 +637,28 @@ tasks.register("contractsFor") {
         val requested = target.orNull?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw GradleException("Pass -PinnocentLab.contractTarget=<File.kt | symbol | changed>")
         val symbols = if (requested == "changed") {
-            val process = ProcessBuilder("git", "diff", "--name-only", "HEAD")
-                .directory(repoDir).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().readText()
-            check(process.waitFor() == 0) { "Cannot inspect changed files: git diff failed." }
-            output.lines()
-                .filter { it.contains("/src/main/") && it.endsWith(".kt") }
-                .map { it.substringAfterLast('/').removeSuffix(".kt") }
+            fun runGit(vararg args: String): List<String> {
+                val process = ProcessBuilder("git", *args)
+                    .directory(repoDir).redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().readText()
+                check(process.waitFor() == 0) { "Cannot inspect changed files: git ${args.joinToString(" ")} failed." }
+                return output.lines()
+            }
+            val changed = runGit("diff", "--name-only", "HEAD") +
+                runGit("ls-files", "--others", "--exclude-standard")
+            changed.distinct()
+                .filter { path ->
+                    (path.contains("/src/main/") && (path.endsWith(".kt") || path.endsWith(".java") || path.endsWith("AndroidManifest.xml"))) ||
+                        path.endsWith("app/build.gradle.kts")
+                }
+                .map { path ->
+                    val name = path.substringAfterLast('/')
+                    when {
+                        name.endsWith(".kt") -> name.removeSuffix(".kt")
+                        name.endsWith(".java") -> name.removeSuffix(".java")
+                        else -> name
+                    }
+                }
         } else {
             requested.split(',').map { it.trim().substringAfterLast('/').removeSuffix(".kt") }.filter { it.isNotEmpty() }
         }

@@ -11,7 +11,8 @@ class LocalVirtualLibrary(
     private val load: () -> String?,
     private val save: (String) -> Unit,
     private val maxEntries: Int = MAX_ENTRIES,
-    private val maxFolders: Int = MAX_FOLDERS
+    private val maxFolders: Int = MAX_FOLDERS,
+    private val maxJsonLength: Int = MAX_JSON_LENGTH
 ) {
     data class Video(
         val aid: Long,
@@ -484,7 +485,7 @@ class LocalVirtualLibrary(
             root.put("specialFollows", JSONArray(collections.specialFollows.sorted()))
             root.put("nextFollowGroupId", collections.nextFollowGroupId)
         }
-        return root.toString().also { require(it.length <= MAX_JSON_LENGTH) { "Library JSON limit exceeded" } }
+        return root.toString().also { require(it.length <= maxJsonLength) { "Library JSON limit exceeded" } }
     }
 
     private fun decode(text: String): Collections = try {
@@ -600,7 +601,7 @@ class LocalVirtualLibrary(
 
     // Android org.json 比 JVM 版更宽松；先拒绝重复键、非标准语法和过深嵌套。
     private fun validateJsonSyntax(text: String) {
-        require(text.isNotEmpty() && text.length <= MAX_JSON_LENGTH)
+        require(text.isNotEmpty() && text.length <= maxJsonLength)
         var offset = 0
         fun whitespace() {
             while (offset < text.length && text[offset] in " \t\r\n") offset++

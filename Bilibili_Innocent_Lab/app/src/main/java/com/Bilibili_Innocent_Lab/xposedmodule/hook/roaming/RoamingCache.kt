@@ -93,13 +93,13 @@ internal object RoamingHookInfo {
 
 /** Compatibility identity, not an authenticity proof. Reads only bounded ZIP central directories. */
 internal object RoamingArchiveIdentity {
-    fun inspect(paths: List<File>, allowOrigin: Boolean): String? = runCatching {
-        require(paths.isNotEmpty() && paths.size <= 32)
+    fun inspect(paths: List<File>, allowOrigin: Boolean, maxEntries: Int = 65536): String? = runCatching {
+        require(paths.isNotEmpty() && paths.size <= 32 && maxEntries in 1..65536)
         val lines = paths.mapIndexed { index, file ->
             ZipFile(file).use { zip ->
                 // The supported 8.90.2 host has 24,659 entries. Metadata only, never inflate APK data.
-                val entries = zip.entries().asSequence().take(65537).toList()
-                require(entries.size <= 65536)
+                val entries = zip.entries().asSequence().take(maxEntries + 1).toList()
+                require(entries.size <= maxEntries)
                 val origins = entries.filter { it.name == "assets/npatch/origin.apk" }
                 if (origins.isNotEmpty()) {
                     require(allowOrigin && origins.size == 1)

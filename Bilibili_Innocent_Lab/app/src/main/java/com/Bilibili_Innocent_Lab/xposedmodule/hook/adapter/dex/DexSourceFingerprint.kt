@@ -90,13 +90,15 @@ internal object DexSourceFingerprint {
         paths: List<String>,
         originalCacheDirectory: File? = null,
         maximumOriginalBytes: Long = 512L * 1024 * 1024,
-        materializeArchiveView: Boolean = false
+        materializeArchiveView: Boolean = false,
+        maxArchives: Int = MAX_ARCHIVES
     ): Result? = inspectCodePathsWithSplitNames(
         paths = paths,
         splitNames = emptyList(),
         originalCacheDirectory = originalCacheDirectory,
         maximumOriginalBytes = maximumOriginalBytes,
-        materializeArchiveView = materializeArchiveView
+        materializeArchiveView = materializeArchiveView,
+        maxArchives = maxArchives
     )
 
     internal fun inspectCodePathsWithSplitNames(
@@ -104,8 +106,10 @@ internal object DexSourceFingerprint {
         splitNames: List<String?> = emptyList(),
         originalCacheDirectory: File? = null,
         maximumOriginalBytes: Long = 512L * 1024 * 1024,
-        materializeArchiveView: Boolean = false
+        materializeArchiveView: Boolean = false,
+        maxArchives: Int = MAX_ARCHIVES
     ): Result? = runCatching {
+        require(maxArchives in 1..MAX_ARCHIVES)
         val rawArchives = paths.mapIndexed { index, path ->
             File(path) to splitNames.getOrNull(index)?.takeIf(String::isNotBlank)
         }.distinctBy { (file, _) -> file.canonicalPath }
@@ -115,7 +119,7 @@ internal object DexSourceFingerprint {
         val archives = rawArchives.filter { (file, splitName) ->
             !isNonCodeConfigSplit(file, splitName) && hasDexOrPatchCarrier(file)
         }
-        if (archives.isEmpty() || archives.size > MAX_ARCHIVES) {
+        if (archives.isEmpty() || archives.size > maxArchives) {
             return@runCatching null
         }
 
