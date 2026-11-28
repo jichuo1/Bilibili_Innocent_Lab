@@ -117,10 +117,17 @@ internal object VersionAdapterSource {
             """\b(?:AdaptCacheStore|AdaptResultCodec|AdaptResultValidator|AdaptResultMerger|ProtocolFingerprintBuilder|DexFeatureAdapter)\b"""
         )
         val versionAdapterExtension = Regex("""(?m)^(?:internal |private |public )*fun VersionAdapter\.""")
+        val quickMarkers = listOf(
+            "fun VersionAdapter.",
+            "AdaptCacheStore", "AdaptResultCodec", "AdaptResultValidator",
+            "AdaptResultMerger", "ProtocolFingerprintBuilder", "DexFeatureAdapter"
+        )
         hookDir.listFiles().orEmpty()
             .filter { it.isFile && it.name.endsWith(".kt") && it.name != "VersionAdapter.kt" }
             .forEach { file ->
-                val text = code(SourceContract.read("hook/${file.name}"))
+                val raw = SourceContract.read("hook/${file.name}")
+                if (quickMarkers.none(raw::contains)) return@forEach
+                val text = code(raw)
                 if (versionAdapterExtension.containsMatchIn(text) ||
                     (file.name != "HookEntry.kt" && adapterSymbolPattern.containsMatchIn(text))
                 ) {

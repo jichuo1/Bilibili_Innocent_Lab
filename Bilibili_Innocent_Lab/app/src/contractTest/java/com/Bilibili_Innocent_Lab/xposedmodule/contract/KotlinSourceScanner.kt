@@ -14,9 +14,25 @@ internal object KotlinSourceScanner {
 
     private val CONTINUATIONS = listOf("=", "->", "+", ",", ".", ":", "&&", "||", "?:", "?")
     private val MODIFIERS = "(?:private |internal |public |protected |override |open |inline |suspend |final |operator |infix |tailrec |external )*"
+    private val BY_KEYWORD = Regex("""\bby\b""")
+    private val NON_NESTED_FUN_PATTERN = Regex(
+        "(?m)^[ \\t]*" + MODIFIERS +
+            """fun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.<>?,\s]*\.)?(\w+)\s*\("""
+    )
+    private val ANY_FUN_HEAD = Regex(
+        """\bfun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.<>?,\s]*\.)?(\w+)\s*\("""
+    )
+    private val ANY_PROP_HEAD = Regex(
+        """\b(?:val|var)\s+(\w+)(?=\s*(?:[:=]|by\b))"""
+    )
 
     private val codeCache = ConcurrentHashMap<String, String>()
     private val maskCache = ConcurrentHashMap<String, String>()
+    private val declaredCache = ConcurrentHashMap<Int, ConcurrentHashMap<String, List<Pair<String, String>>>>()
+    private val declaredRegexCache = ConcurrentHashMap<Int, Regex>()
+    private val nonNestedCache = ConcurrentHashMap<String, List<Pair<String, String>>>()
+    private val functionIndexCache = ConcurrentHashMap<String, Map<String, List<String>>>()
+    private val propertyIndexCache = ConcurrentHashMap<String, Map<String, List<String>>>()
 
     fun code(source: String): String {
         val normalized = SourceContract.normalize(source)
@@ -28,45 +44,55 @@ internal object KotlinSourceScanner {
         return maskCache.computeIfAbsent(normalized) { scan(it, blankStrings = true) }
     }
 
+    private fun functionIndex(normalized: String): Map<String, List<String>> =
+        functionIndexCache.computeIfAbsent(normalized) { text ->
+            val m = masked(text)
+            val map = LinkedHashMap<String, MutableList<String>>()
+            for (match in ANY_FUN_HEAD.findAll(m)) {
+                val end = declarationEnd(m, match.range.first, requireBinding = false) ?: continue
+                map.getOrPut(match.groupValues[1]) { ArrayList(2) } += text.substring(match.range.first, end)
+            }
+            map
+        }
+
+    private fun propertyIndex(normalized: String): Map<String, List<String>> =
+        propertyIndexCache.computeIfAbsent(normalized) { text ->
+            val m = masked(text)
+            val map = LinkedHashMap<String, MutableList<String>>()
+            for (match in ANY_PROP_HEAD.findAll(m)) {
+                val end = declarationEnd(m, match.range.first, requireBinding = true) ?: continue
+                map.getOrPut(match.groupValues[1]) { ArrayList(2) } += text.substring(match.range.first, end)
+            }
+            map
+        }
+
     fun functions(source: String, name: String): List<String> {
         val normalized = SourceContract.normalize(source)
-        val masked = masked(normalized)
-        val pattern = Regex(
-            """\bfun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.<>?,\s]*\.)?""" +
-                Regex.escape(name) + """\s*\("""
-        )
-        return pattern.findAll(masked).mapNotNull { match ->
-            declarationEnd(masked, match.range.first, requireBinding = false)?.let { end ->
-                normalized.substring(match.range.first, end)
-            }
-        }.toList()
+        return functionIndex(normalized)[name].orEmpty()
     }
 
     fun properties(source: String, name: String): List<String> {
         val normalized = SourceContract.normalize(source)
-        val masked = masked(normalized)
-        val pattern = Regex(
-            """\b(?:val|var)\s+""" + Regex.escape(name) + """(?=\s*(?:[:=]|by\b))"""
-        )
-        return pattern.findAll(masked).mapNotNull { match ->
-            declarationEnd(masked, match.range.first, requireBinding = true)?.let { end ->
-                normalized.substring(match.range.first, end)
-            }
-        }.toList()
+        return propertyIndex(normalized)[name].orEmpty()
     }
 
     fun declaredFunctions(source: String, indent: Int): List<Pair<String, String>> {
         val normalized = SourceContract.normalize(source)
-        val masked = masked(normalized)
-        val pattern = Regex(
-            "(?m)^ {" + indent + "}" + MODIFIERS +
-                """fun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.<>?,\s]*\.)?(\w+)\s*\("""
-        )
-        return pattern.findAll(masked).mapNotNull { match ->
-            declarationEnd(masked, match.range.first, requireBinding = false)?.let { end ->
-                match.groupValues[1] to normalized.substring(match.range.first, end)
+        val perIndent = declaredCache.computeIfAbsent(indent) { ConcurrentHashMap() }
+        return perIndent.computeIfAbsent(normalized) { text ->
+            val masked = masked(text)
+            val pattern = declaredRegexCache.computeIfAbsent(indent) {
+                Regex(
+                    "(?m)^ {" + it + "}" + MODIFIERS +
+                        """fun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.<>?,\s]*\.)?(\w+)\s*\("""
+                )
             }
-        }.toList()
+            pattern.findAll(masked).mapNotNull { match ->
+                declarationEnd(masked, match.range.first, requireBinding = false)?.let { end ->
+                    match.groupValues[1] to text.substring(match.range.first, end)
+                }
+            }.toList()
+        }
     }
 
     /**
@@ -75,20 +101,18 @@ internal object KotlinSourceScanner {
      */
     fun nonNestedFunctions(source: String): List<Pair<String, String>> {
         val normalized = SourceContract.normalize(source)
-        val masked = masked(normalized)
-        val pattern = Regex(
-            "(?m)^[ \\t]*" + MODIFIERS +
-                """fun\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.<>?,\s]*\.)?(\w+)\s*\("""
-        )
-        val result = mutableListOf<Pair<String, String>>()
-        var enclosedEnd = -1
-        for (match in pattern.findAll(masked)) {
-            if (match.range.first < enclosedEnd) continue
-            val end = declarationEnd(masked, match.range.first, requireBinding = false) ?: continue
-            result += match.groupValues[1] to normalized.substring(match.range.first, end)
-            enclosedEnd = end
+        return nonNestedCache.computeIfAbsent(normalized) { text ->
+            val masked = masked(text)
+            val result = mutableListOf<Pair<String, String>>()
+            var enclosedEnd = -1
+            for (match in NON_NESTED_FUN_PATTERN.findAll(masked)) {
+                if (match.range.first < enclosedEnd) continue
+                val end = declarationEnd(masked, match.range.first, requireBinding = false) ?: continue
+                result += match.groupValues[1] to text.substring(match.range.first, end)
+                enclosedEnd = end
+            }
+            result
         }
-        return result
     }
 
     fun function(
@@ -143,7 +167,7 @@ internal object KotlinSourceScanner {
             depth += line.count { it == '(' || it == '[' || it == '{' }
             depth -= line.count { it == ')' || it == ']' || it == '}' }
             if (depth < 0) return null
-            if (!sawBinding && (line.contains('=') || line.contains('{') || Regex("""\bby\b""").containsMatchIn(line))) {
+            if (!sawBinding && (line.contains('=') || line.contains('{') || BY_KEYWORD.containsMatchIn(line))) {
                 sawBinding = true
             }
             val continues = CONTINUATIONS.any { line.trimEnd().endsWith(it) }

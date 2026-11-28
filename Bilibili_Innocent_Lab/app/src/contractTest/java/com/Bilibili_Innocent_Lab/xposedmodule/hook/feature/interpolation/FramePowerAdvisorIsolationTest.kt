@@ -1,7 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -42,16 +41,16 @@ class FramePowerAdvisorIsolationTest {
         }
     }
 
-    fun theRestrictedLoaderActuallyRejectsALeakingMethodSignature() {
-        val name = UnguardedFixture::class.java.name
-        val loader = Api30LinkageLoader(javaClass.classLoader, hiddenType, name)
+    @Test
+    fun `advisor links without api31 hint manager class or bytecode refs`() {
+        val parentLoader = checkNotNull(javaClass.classLoader)
+        val fixtureName = UnguardedFixture::class.java.name
+        val fixtureLoader = Api30LinkageLoader(parentLoader, hiddenType, fixtureName)
         assertThrows(LinkageError::class.java) {
-            Class.forName(name, false, loader).declaredMethods
+            Class.forName(fixtureName, false, fixtureLoader).declaredMethods
         }
-    }
 
-    fun theAdvisorLinksWithoutAnyHintManagerClasses() {
-        val loader = Api30LinkageLoader(javaClass.classLoader, hiddenType, advisorName)
+        val loader = Api30LinkageLoader(parentLoader, hiddenType, advisorName)
         assertThrows(ClassNotFoundException::class.java) { loader.loadClass(hiddenType) }
         val advisor = Class.forName(advisorName, false, loader)
         assertSame(loader, advisor.classLoader)
@@ -60,16 +59,15 @@ class FramePowerAdvisorIsolationTest {
         val references = advisor.declaredMethods.flatMap { it.parameterTypes.toList() + it.returnType } +
             advisor.declaredFields.map { it.type }
         assertFalse(references.any { it.name.startsWith(hiddenType) })
-    }
 
-    /** 方法体里的 checkcast/invokevirtual 不进 declaredMethods；反射看不到，直接查常量池。 */
-    fun theAdvisorBytecodeNeverNamesTheHintManager() {
+        // 方法体里的 checkcast/invokevirtual 不进 declaredMethods；反射看不到，直接查常量池。
         val path = advisorName.replace('.', '/') + ".class"
-        val bytes = checkNotNull(javaClass.classLoader.getResourceAsStream(path)) { path }.use { it.readBytes() }
+        val bytes = checkNotNull(parentLoader.getResourceAsStream(path)) { path }.use { it.readBytes() }
         assertFalse(String(bytes, Charsets.ISO_8859_1).contains(hiddenType.replace('.', '/')))
     }
 
-    fun hintTypesStayInsideTheIsolationLayerBehindAVersionCheck() {
+    @Test
+    fun `hint types stay inside api31 isolation layer across all sources`() {
         val advisor = SourceContract.read("hook/feature/interpolation/FramePowerAdvisor.kt")
         assertFalse(advisor.contains("PerformanceHintManager"))
         assertFalse(advisor.contains("@SuppressLint(\"NewApi\")"))
@@ -79,32 +77,12 @@ class FramePowerAdvisorIsolationTest {
         val isolation = SourceContract.read("hook/feature/interpolation/FramePowerHintApi31.kt")
         assertTrue(isolation.contains("@RequiresApi(31)"))
         assertEquals(3, Regex("""@DoNotInline""").findAll(isolation).count())
-    }
 
-    fun onlyApi31FilesMayNameTheHintManager() {
-        var dir = checkNotNull(SourceContract.file("hook/feature/interpolation/FramePowerAdvisor.kt").canonicalFile.parentFile)
-        while (!File(dir, "src/main/java").isDirectory) {
-            dir = dir.parentFile ?: error("Could not locate the Gradle module root from $dir")
-        }
-        val sources = File(dir, "src/main/java").walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .filterNot { it.path.replace('\\', '/').contains("/.mimosa/") }
-            .toList()
-        assertTrue("Found only ${sources.size} Kotlin sources; the walk is broken", sources.size > 100)
-        val offenders = sources.filter { it.readText().contains("PerformanceHintManager") && !it.name.endsWith("Api31.kt") }
+        val sources = SourceContract.allMainKotlinSources()
+        assertTrue("Found only ${sources.size} Kotlin sources; the scan is broken", sources.size > 100)
+        val offenders = sources
+            .filter { (path, text) -> text.contains("PerformanceHintManager") && !path.endsWith("Api31.kt") }
+            .map { (path, _) -> path }
         assertTrue("API 31 type outside an isolation layer: $offenders", offenders.isEmpty())
-    }
-
-    @org.junit.Test
-    fun verifyAllCases() {
-        fun runIsolated(block: (FramePowerAdvisorIsolationTest) -> Unit) {
-            val s = FramePowerAdvisorIsolationTest()
-            block(s)
-        }
-        runIsolated { s -> s.theRestrictedLoaderActuallyRejectsALeakingMethodSignature() }
-        runIsolated { s -> s.theAdvisorLinksWithoutAnyHintManagerClasses() }
-        runIsolated { s -> s.theAdvisorBytecodeNeverNamesTheHintManager() }
-        runIsolated { s -> s.hintTypesStayInsideTheIsolationLayerBehindAVersionCheck() }
-        runIsolated { s -> s.onlyApi31FilesMayNameTheHintManager() }
     }
 }

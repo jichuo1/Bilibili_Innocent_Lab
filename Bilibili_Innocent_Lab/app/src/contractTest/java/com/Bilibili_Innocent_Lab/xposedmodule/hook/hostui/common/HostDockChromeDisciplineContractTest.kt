@@ -36,23 +36,21 @@ class HostDockChromeDisciplineContractTest {
         }
     }
 
-    fun theRestrictedLoaderActuallyRejectsALeakingMethodSignature() {
+    @Test
+    fun `shared dock clearance reader links without api 31 rounded corner and isolates version checks`() {
+        val parentLoader = checkNotNull(javaClass.classLoader)
         val name = UnguardedFixture::class.java.name
-        val loader = Api30LinkageLoader(javaClass.classLoader, name)
-        assertThrows(LinkageError::class.java) { Class.forName(name, false, loader).declaredMethods }
-    }
+        val fixtureLoader = Api30LinkageLoader(parentLoader, name)
+        assertThrows(LinkageError::class.java) { Class.forName(name, false, fixtureLoader).declaredMethods }
 
-    fun theSharedReaderLinksWithoutRoundedCorner() {
-        val loader = Api30LinkageLoader(javaClass.classLoader, readerName)
-        val reader = Class.forName(readerName, false, loader)
-        assertSame(loader, reader.classLoader)
-        assertTrue(reader.declaredMethods.isNotEmpty())
-        val references = reader.declaredMethods.flatMap { it.parameterTypes.toList() + it.returnType } +
-            reader.declaredFields.map { it.type }
+        val loader = Api30LinkageLoader(parentLoader, readerName)
+        val readerClass = Class.forName(readerName, false, loader)
+        assertSame(loader, readerClass.classLoader)
+        assertTrue(readerClass.declaredMethods.isNotEmpty())
+        val references = readerClass.declaredMethods.flatMap { it.parameterTypes.toList() + it.returnType } +
+            readerClass.declaredFields.map { it.type }
         assertFalse(references.any { it.name.startsWith("android.view.RoundedCorner") })
-    }
 
-    fun roundedCornerStaysInsideTheIsolationLayerBehindAVersionCheck() {
         val reader = SourceContract.read("hook/hostui/common/HostDockClearance.kt")
         assertFalse(reader.contains("RoundedCorner"))
         assertTrue(reader.contains("AndroidVersion.isAtLeast(AndroidVersion.S)"))
@@ -60,10 +58,7 @@ class HostDockChromeDisciplineContractTest {
         val isolation = SourceContract.read("hook/hostui/common/HostDockCornerApi31.kt")
         assertTrue(isolation.contains("@RequiresApi(31)"))
         assertTrue(isolation.contains("@DoNotInline"))
-    }
 
-    fun insetsAreReadThroughTheCompatLayerOnly() {
-        val reader = SourceContract.read("hook/hostui/common/HostDockClearance.kt")
         assertTrue(reader.contains("ViewCompat.getRootWindowInsets"))
         // 手写版本分支曾在 minSdk 27 上直接调用 API 28 的 DisplayCutout。
         for (legacy in listOf("Build.VERSION", "systemWindowInset", "displayCutout?.", "WindowInsets.Type", "android.view.WindowInsets")) {
@@ -71,7 +66,8 @@ class HostDockChromeDisciplineContractTest {
         }
     }
 
-    fun hostStackEntriesCannotLetModuleFailuresEscape() {
+    @Test
+    fun `host stack dock, fade, scroll tail, and value ledger keep guard and ownership discipline`() {
         val reader = SourceContract.read("hook/hostui/common/HostDockClearance.kt")
         assertTrue(reader.contains("HostThreadGuard.call(\"host.dock.clearance\""))
         assertTrue(reader.contains("HostThreadGuard.call(\"host.dock.side\""))
@@ -84,46 +80,22 @@ class HostDockChromeDisciplineContractTest {
         val compose = SourceContract.read("hook/hostui/chrome/HostComposeTopTabFade.kt")
         assertTrue("Module failures must fall open to the host's plain draw", compose.contains("fail(failure, onError)"))
         assertTrue("Host exceptions must keep their identity", compose.contains("throw failure.targetException"))
-    }
 
-    fun theComposeFadeFollowsTheCapsuleSwitchNotTheUnconditionalCentering() {
         val entry = SourceContract.read("hook/HookEntry.kt")
         assertTrue(entry.contains("edgeFade = prefs.getBoolean(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, false)"))
         val centering = SourceContract.read("hook/hostui/chrome/HostComposeTopTabCentering.kt")
         assertTrue(centering.contains("if (edgeFade) HostComposeTopTabFade.resolve(loader, fadeError) else null"))
         // 可选的渐隐失败不能把居中报成错误，也不能丢掉居中的位置观察。
         assertTrue(centering.contains("runCatching { fade.decorate(sized, root.state::edges, fadeError) }.onFailure(fadeError).getOrDefault(sized)"))
-    }
 
-    fun theMaskNeverPunchesThroughTheGlassAndTheStripTailStaysScrollable() {
-        val fade = SourceContract.read("hook/hostui/top/HostTopTabEdgeFade.kt")
         assertTrue(fade.contains("if (scroll.layerType != View.LAYER_TYPE_HARDWARE) return@run"))
         val island = SourceContract.read("hook/hostui/top/HostTopIslandBinding.kt")
         assertTrue(island.contains("tabsCanScrollRight = canScrollTabs(scroll, 1)"))
         assertTrue(island.contains("scroll.scrollX < scroll.tabScrollRange()"))
-    }
 
-    fun hostPropertyOverridesGoThroughTheValueLedger() {
-        val fade = SourceContract.read("hook/hostui/top/HostTopTabEdgeFade.kt")
         assertTrue(fade.contains("HostChromeValueLedger<HorizontalScrollView, Int>"))
         assertFalse(fade.contains("class Ownership"))
         val bottom = SourceContract.read("hook/hostui/bottom/HostBottomBarFxController.kt")
         assertTrue(bottom.contains("HostChromeValueLedger<TextView, Float>"))
-    }
-
-    @org.junit.Test
-    fun verifyAllCases() {
-        fun runIsolated(block: (HostDockChromeDisciplineContractTest) -> Unit) {
-            val s = HostDockChromeDisciplineContractTest()
-            block(s)
-        }
-        runIsolated { s -> s.theRestrictedLoaderActuallyRejectsALeakingMethodSignature() }
-        runIsolated { s -> s.theSharedReaderLinksWithoutRoundedCorner() }
-        runIsolated { s -> s.roundedCornerStaysInsideTheIsolationLayerBehindAVersionCheck() }
-        runIsolated { s -> s.insetsAreReadThroughTheCompatLayerOnly() }
-        runIsolated { s -> s.hostStackEntriesCannotLetModuleFailuresEscape() }
-        runIsolated { s -> s.theComposeFadeFollowsTheCapsuleSwitchNotTheUnconditionalCentering() }
-        runIsolated { s -> s.theMaskNeverPunchesThroughTheGlassAndTheStripTailStaysScrollable() }
-        runIsolated { s -> s.hostPropertyOverridesGoThroughTheValueLedger() }
     }
 }

@@ -15,12 +15,13 @@ import org.junit.Test
  * 3. `KavaMemberLookup` 将 `PluginApiBridgeClassLoader` 及其子加载器标记为不可缓存，避免泄漏进持久化 `loaderCaches`；
  * 4. `RemoteHookConfigContract.KEY_PLUGIN_INDEX_DIGEST` 受远端摘要保护、不进 `SettingsCatalog`、禁止 `LiveHookConfigState` 热更新；
  * 5. `HookEntry` 在 `pluginIndexDigest` 为空时短路，不构造或触发 `PluginBootstrap`；
- * 6. `HostReceiptHost` 保留 `AgentWiringContractTest` 锚点并独立支持 `HostReceiptWire.PLUGIN_DIAGNOSTICS`，不改核心诊断 schema v3；
+ * 6. `HostReceiptHost` 保留 `AgentSessionAndUiWiringContractTest` 锚点并独立支持 `HostReceiptWire.PLUGIN_DIAGNOSTICS`，不改核心诊断 schema v3；
  * 7. `PluginSettingsStore` / `DeclarativePluginSettingsRenderer` / `PluginRuntimeDiagnostics` 保持命名空间、UI 与遥测隔离。
  */
 class PluginSystemSecurityContractTest {
 
-    fun pluginPayloadProviderEnforcesTrustedUidReadOnlyAndManifestEntry() {
+    @Test
+    fun payloadProviderBridgeClassLoaderAndKavaCacheEnforceSandboxIsolation() {
         val manifest = SourceContract.read("src/main/AndroidManifest.xml")
         assertTrue(
             "AndroidManifest.xml must declare PluginPayloadProvider",
@@ -46,7 +47,6 @@ class PluginSystemSecurityContractTest {
             "PluginPayloadProvider must throw SecurityException on untrusted caller",
             code.contains("SecurityException")
         )
-
         assertTrue(
             "PluginPayloadProvider must declare PATH_SETTINGS = \"plugin_settings\"",
             code.contains("PATH_SETTINGS") && code.contains("\"plugin_settings\"")
@@ -63,21 +63,12 @@ class PluginSystemSecurityContractTest {
             queryCode.indexOf("Binder.getCallingUid()")
         ).filter { it >= 0 }.minOrNull() ?: -1
         val pathSettingsIdx = queryCode.indexOf("PATH_SETTINGS")
-        assertTrue(
-            "PluginPayloadProvider.query must handle PATH_SETTINGS",
-            pathSettingsIdx >= 0
-        )
-        assertTrue(
-            "PluginPayloadProvider.query must enforce caller trust",
-            enforceFirstIdx >= 0
-        )
+        assertTrue("PluginPayloadProvider.query must handle PATH_SETTINGS", pathSettingsIdx >= 0)
+        assertTrue("PluginPayloadProvider.query must enforce caller trust", enforceFirstIdx >= 0)
         val enforceForSettings = enforceFirstIdx < pathSettingsIdx ||
             queryCode.indexOf("enforceTrustedCaller(", startIndex = pathSettingsIdx) >= 0 ||
             queryCode.indexOf("Binder.getCallingUid()", startIndex = pathSettingsIdx) >= 0
-        assertTrue(
-            "PluginPayloadProvider.query must enforce trusted caller for PATH_SETTINGS",
-            enforceForSettings
-        )
+        assertTrue("PluginPayloadProvider.query must enforce trusted caller for PATH_SETTINGS", enforceForSettings)
         assertFalse(
             "PluginPayloadProvider.query must stay strictly read-only",
             queryCode.contains("MODE_WRITE_ONLY") || queryCode.contains("MODE_READ_WRITE")
@@ -93,22 +84,10 @@ class PluginSystemSecurityContractTest {
             "openFile must validate caller trust",
             openFileCode.contains("enforceTrustedCaller") || openFileCode.contains("Binder.getCallingUid()")
         )
-        assertTrue(
-            "openFile must strictly allow only read-only mode \"r\"",
-            openFileCode.contains("\"r\"")
-        )
-        assertTrue(
-            "openFile must open ParcelFileDescriptor in MODE_READ_ONLY",
-            openFileCode.contains("MODE_READ_ONLY")
-        )
-        assertFalse(
-            "openFile must never use MODE_WRITE_ONLY",
-            openFileCode.contains("MODE_WRITE_ONLY")
-        )
-        assertFalse(
-            "openFile must never use MODE_READ_WRITE",
-            openFileCode.contains("MODE_READ_WRITE")
-        )
+        assertTrue("openFile must strictly allow only read-only mode \"r\"", openFileCode.contains("\"r\""))
+        assertTrue("openFile must open ParcelFileDescriptor in MODE_READ_ONLY", openFileCode.contains("MODE_READ_ONLY"))
+        assertFalse("openFile must never use MODE_WRITE_ONLY", openFileCode.contains("MODE_WRITE_ONLY"))
+        assertFalse("openFile must never use MODE_READ_WRITE", openFileCode.contains("MODE_READ_WRITE"))
 
         for (mutator in listOf("insert", "update", "delete")) {
             val fn = KotlinSourceScanner.function(
@@ -125,41 +104,28 @@ class PluginSystemSecurityContractTest {
                     fnCode.contains("return 0")
             )
         }
-    }
 
-    fun bridgeClassLoaderBlocksHostXposedMeguvizAndResourceLeakage() {
-        val path = "plugin/sandbox/PluginApiBridgeClassLoader.kt"
-        val raw = SourceContract.read(path)
-        val code = KotlinSourceScanner.code(raw)
-
-        val headerEnd = code.indexOf("override fun loadClass").let { if (it > 0) it else code.length }
+        val bridgePath = "plugin/sandbox/PluginApiBridgeClassLoader.kt"
+        val bridgeRaw = SourceContract.read(bridgePath)
+        val bridgeCode = KotlinSourceScanner.code(bridgeRaw)
+        val headerEnd = bridgeCode.indexOf("override fun loadClass").let { if (it > 0) it else bridgeCode.length }
         assertTrue(
             "PluginApiBridgeClassLoader must pass ClassLoader(null) for dual-parent zero-leakage firewall",
             Regex("""class\s+PluginApiBridgeClassLoader\b[\s\S]*?:\s*ClassLoader\s*\(\s*null\s*\)""")
-                .containsMatchIn(code.substring(0, headerEnd))
+                .containsMatchIn(bridgeCode.substring(0, headerEnd))
         )
-
         for (blockedPrefix in listOf(
             "com.Bilibili_Innocent_Lab.",
             "io.github.libxposed.",
             "io.github.jichuo1."
         )) {
-            assertTrue(
-                "PluginApiBridgeClassLoader must block prefix '$blockedPrefix'",
-                code.contains("\"$blockedPrefix\"")
-            )
+            assertTrue("PluginApiBridgeClassLoader must block prefix '$blockedPrefix'", bridgeCode.contains("\"$blockedPrefix\""))
         }
-        assertTrue(
-            "PluginApiBridgeClassLoader must allow plugin-api prefix",
-            code.contains("com.bilab.plugin.api.")
-        )
-        assertTrue(
-            "PluginApiBridgeClassLoader must throw ClassNotFoundException when blocked",
-            code.contains("ClassNotFoundException")
-        )
+        assertTrue("PluginApiBridgeClassLoader must allow plugin-api prefix", bridgeCode.contains("com.bilab.plugin.api."))
+        assertTrue("PluginApiBridgeClassLoader must throw ClassNotFoundException when blocked", bridgeCode.contains("ClassNotFoundException"))
 
         val loadClass = KotlinSourceScanner.function(
-            listOf(path to raw),
+            listOf(bridgePath to bridgeRaw),
             "loadClass",
             "PluginApiBridgeClassLoader.loadClass"
         )
@@ -175,37 +141,26 @@ class PluginSystemSecurityContractTest {
                 loadClassCode.contains("isBlocked") ||
                 loadClassCode.contains("isAllowed")
         )
+        val hasResourceGuard = KotlinSourceScanner.functions(bridgeRaw, "getResource").isNotEmpty() ||
+            KotlinSourceScanner.functions(bridgeRaw, "findResource").isNotEmpty()
+        assertTrue("PluginApiBridgeClassLoader must guard resource lookups against host/xposed leakage", hasResourceGuard)
 
-        val hasResourceGuard = KotlinSourceScanner.functions(raw, "getResource").isNotEmpty() ||
-            KotlinSourceScanner.functions(raw, "findResource").isNotEmpty()
-        assertTrue(
-            "PluginApiBridgeClassLoader must guard resource lookups against host/xposed leakage",
-            hasResourceGuard
-        )
-    }
-
-    fun kavaMemberLookupTreatsPluginBridgeClassLoadersAsNonCacheable() {
-        val path = "runtime/KavaMemberLookup.kt"
-        val raw = SourceContract.read(path)
-
+        val lookupPath = "runtime/KavaMemberLookup.kt"
+        val lookupRaw = SourceContract.read(lookupPath)
         val isolatedCheck = KotlinSourceScanner.function(
-            listOf(path to raw),
+            listOf(lookupPath to lookupRaw),
             "isIsolatedOrDynamicLoader",
             "KavaMemberLookup.isIsolatedOrDynamicLoader"
         )
         val isolatedCode = KotlinSourceScanner.code(isolatedCheck)
-        assertTrue(
-            "isIsolatedOrDynamicLoader must inspect ClassLoader parent chain",
-            isolatedCode.contains(".parent")
-        )
+        assertTrue("isIsolatedOrDynamicLoader must inspect ClassLoader parent chain", isolatedCode.contains(".parent"))
         assertTrue(
             "isIsolatedOrDynamicLoader must detect plugin package or PluginApiBridgeClassLoader",
             isolatedCode.contains("com.Bilibili_Innocent_Lab.xposedmodule.plugin.") ||
                 isolatedCode.contains("PluginApiBridgeClassLoader")
         )
-
         val loaderCacheFn = KotlinSourceScanner.function(
-            listOf(path to raw),
+            listOf(lookupPath to lookupRaw),
             "loaderCache",
             "KavaMemberLookup.loaderCache"
         )
@@ -217,7 +172,8 @@ class PluginSystemSecurityContractTest {
         )
     }
 
-    fun remoteHookConfigProtectsPluginIndexDigestWithoutTouchingSettingsCatalogOrLiveApply() {
+    @Test
+    fun remoteDigestAndHookEntryProtectPluginBootstrapBoundary() {
         val contractPath = "settings/remote/RemoteHookConfigContract.kt"
         val contractRaw = SourceContract.read(contractPath)
         val contractCode = KotlinSourceScanner.code(contractRaw)
@@ -268,17 +224,11 @@ class PluginSystemSecurityContractTest {
             Regex("""allowed\s*(?:\+=|\.add\()\s*[^;\n]*(?:KEY_PLUGIN_INDEX_DIGEST|"plugin_index_digest")""")
                 .containsMatchIn(liveApplyCode)
         )
-    }
 
-    fun hookEntryShortCircuitsBootstrapWhenPluginIndexDigestIsEmpty() {
         val hookPath = "hook/HookEntry.kt"
         val hookRaw = SourceContract.read(hookPath)
         val hookCode = KotlinSourceScanner.code(hookRaw)
-
-        assertTrue(
-            "HookEntry must read KEY_PLUGIN_INDEX_DIGEST",
-            hookCode.contains("KEY_PLUGIN_INDEX_DIGEST")
-        )
+        assertTrue("HookEntry must read KEY_PLUGIN_INDEX_DIGEST", hookCode.contains("KEY_PLUGIN_INDEX_DIGEST"))
         assertTrue(
             "HookEntry must reference PluginBootstrap for active plugin configurations",
             hookCode.contains("PluginBootstrap")
@@ -286,10 +236,7 @@ class PluginSystemSecurityContractTest {
 
         val bootstrapCallers = KotlinSourceScanner.nonNestedFunctions(hookRaw)
             .filter { (_, body) -> KotlinSourceScanner.code(body).contains("PluginBootstrap") }
-        assertTrue(
-            "Expected at least one HookEntry function invoking PluginBootstrap",
-            bootstrapCallers.isNotEmpty()
-        )
+        assertTrue("Expected at least one HookEntry function invoking PluginBootstrap", bootstrapCallers.isNotEmpty())
 
         val emptyGuardPattern = Regex("""isEmpty\(\)|isBlank\(\)|isNotEmpty\(\)|isNotBlank\(\)""")
         val guarded = bootstrapCallers.all { (_, body) ->
@@ -314,11 +261,12 @@ class PluginSystemSecurityContractTest {
         )
     }
 
-    fun hostReceiptHostRetainsAgentWiringAllowlistAndRoutesPluginDiagnosticsIndependently() {
+    @Test
+    fun receiptsSettingsUiAndDiagnosticsStayIsolatedFromCoreStores() {
         val hostPath = "runtime/HostReceiptHost.kt"
         val hostRaw = SourceContract.read(hostPath)
         assertTrue(
-            "HostReceiptHost must preserve AgentWiringContractTest literal allowlist condition",
+            "HostReceiptHost must preserve AgentSessionAndUiWiringContractTest literal allowlist condition",
             hostRaw.contains("channel != HostReceiptWire.DIAGNOSTICS && channel !in MineComponentSnapshotCodec.ALLOWED_SURFACES")
         )
         val hostCode = KotlinSourceScanner.code(hostRaw)
@@ -357,9 +305,7 @@ class PluginSystemSecurityContractTest {
             "HostRuntimeDiagnosticsCodec must stay decoupled from plugin diagnostics",
             coreDiagCode.contains("PluginRuntimeDiagnostics") || coreDiagCode.contains("PLUGIN_DIAGNOSTICS")
         )
-    }
 
-    fun pluginSettingsUiAndDiagnosticsStayIsolatedFromCorePrivilegedStores() {
         val storeCode = KotlinSourceScanner.code(
             SourceContract.read("plugin/settings/PluginSettingsStore.kt")
         )
@@ -367,18 +313,9 @@ class PluginSystemSecurityContractTest {
             "PluginSettingsStore must enforce PluginSettingKeySpace.requireIsolatedKey",
             storeCode.contains("PluginSettingKeySpace.requireIsolatedKey(")
         )
-        assertFalse(
-            "PluginSettingsStore must never touch SettingsCatalog",
-            storeCode.contains("SettingsCatalog")
-        )
-        assertFalse(
-            "PluginSettingsStore must never touch FeaturePreferences",
-            storeCode.contains("FeaturePreferences")
-        )
-        assertFalse(
-            "PluginSettingsStore must never touch RUNTIME_API_KEYS",
-            storeCode.contains("RUNTIME_API_KEYS")
-        )
+        assertFalse("PluginSettingsStore must never touch SettingsCatalog", storeCode.contains("SettingsCatalog"))
+        assertFalse("PluginSettingsStore must never touch FeaturePreferences", storeCode.contains("FeaturePreferences"))
+        assertFalse("PluginSettingsStore must never touch RUNTIME_API_KEYS", storeCode.contains("RUNTIME_API_KEYS"))
 
         val rendererCode = KotlinSourceScanner.code(
             SourceContract.read("plugin/ui/DeclarativePluginSettingsRenderer.kt")
@@ -395,20 +332,5 @@ class PluginSystemSecurityContractTest {
             "PluginRuntimeDiagnostics must not couple to HostRuntimeDiagnosticsCodec or RUNTIME_API_KEYS",
             diagCode.contains("HostRuntimeDiagnosticsCodec") || diagCode.contains("RUNTIME_API_KEYS")
         )
-    }
-
-    @Test
-    fun verifyAllCases() {
-        fun runIsolated(block: (PluginSystemSecurityContractTest) -> Unit) {
-            val s = PluginSystemSecurityContractTest()
-            block(s)
-        }
-        runIsolated { s -> s.pluginPayloadProviderEnforcesTrustedUidReadOnlyAndManifestEntry() }
-        runIsolated { s -> s.bridgeClassLoaderBlocksHostXposedMeguvizAndResourceLeakage() }
-        runIsolated { s -> s.kavaMemberLookupTreatsPluginBridgeClassLoadersAsNonCacheable() }
-        runIsolated { s -> s.remoteHookConfigProtectsPluginIndexDigestWithoutTouchingSettingsCatalogOrLiveApply() }
-        runIsolated { s -> s.hookEntryShortCircuitsBootstrapWhenPluginIndexDigestIsEmpty() }
-        runIsolated { s -> s.hostReceiptHostRetainsAgentWiringAllowlistAndRoutesPluginDiagnosticsIndependently() }
-        runIsolated { s -> s.pluginSettingsUiAndDiagnosticsStayIsolatedFromCorePrivilegedStores() }
     }
 }

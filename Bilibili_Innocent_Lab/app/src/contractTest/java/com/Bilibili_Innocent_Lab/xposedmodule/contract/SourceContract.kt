@@ -23,6 +23,63 @@ import java.util.concurrent.ConcurrentHashMap
 object SourceContract {
     const val JAVA_ROOT = "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule"
     private val readCache = ConcurrentHashMap<String, String>()
+    private val repoReadCache = ConcurrentHashMap<String, String>()
+
+    private val gradleRootDir: File by lazy {
+        val cwd = File(".").absoluteFile.normalize()
+        generateSequence(cwd) { it.parentFile }
+            .firstOrNull { File(it, "settings.gradle.kts").isFile && File(it, "app/build.gradle.kts").isFile }
+            ?: generateSequence(cwd) { it.parentFile }
+                .map { File(it, "Bilibili_Innocent_Lab") }
+                .firstOrNull { File(it, "settings.gradle.kts").isFile && File(it, "app/build.gradle.kts").isFile }
+            ?: error("Unable to locate Gradle project root from ${cwd.absolutePath}")
+    }
+
+    private val mainJavaDir: File by lazy {
+        file("hook/HookEntry.kt").parentFile!!.parentFile!!
+    }
+
+    private val allMainKotlinCache: List<Pair<String, String>> by lazy {
+        val base = mainJavaDir
+        base.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && !it.invariantSeparatorsPath.contains("/.mimosa/") }
+            .map { f -> f.relativeTo(base).invariantSeparatorsPath }
+            .sorted()
+            .map { rel -> rel to read(rel) }
+            .toList()
+    }
+
+    fun projectRoot(): File = gradleRootDir
+
+    fun readRepoFile(relativePathFromGradleRoot: String): String =
+        repoReadCache.computeIfAbsent(relativePathFromGradleRoot) { rel ->
+            val target = File(gradleRootDir, rel)
+            if (!target.isFile) {
+                throw AssertionError("contract repo file not found: $rel (root ${gradleRootDir.absolutePath})")
+            }
+            normalize(target.readText())
+        }
+
+    fun listRepoKotlinFiles(relativeDirFromGradleRoot: String): List<Pair<String, String>> {
+        val dir = File(gradleRootDir, relativeDirFromGradleRoot)
+        if (!dir.isDirectory) {
+            throw AssertionError("contract repo dir not found: $relativeDirFromGradleRoot")
+        }
+        return dir.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .map { f -> f.relativeTo(gradleRootDir).invariantSeparatorsPath }
+            .sorted()
+            .map { rel -> rel to readRepoFile(rel) }
+            .toList()
+    }
+
+    /** Cached sorted (path-relative-to-xposedmodule, normalized text) for all `src/main/java/.../xposedmodule` Kotlin files. */
+    fun allMainKotlinSources(): List<Pair<String, String>> = allMainKotlinCache
+
+    fun mainSourcesUnder(relativeSubdir: String): List<Pair<String, String>> {
+        val prefix = relativeSubdir.trim('/').let { if (it.isEmpty()) "" else "$it/" }
+        return if (prefix.isEmpty()) allMainKotlinCache else allMainKotlinCache.filter { it.first.startsWith(prefix) }
+    }
 
     /**
      * [path] 可以是以 `src/` 开头的模块内路径，也可以是相对 [JAVA_ROOT] 的路径
@@ -38,7 +95,7 @@ object SourceContract {
 
     fun read(path: String): String = readCache.computeIfAbsent(path) { normalize(file(it).readText()) }
 
-    fun normalize(text: String): String = text.replace("\r\n", "\n")
+    fun normalize(text: String): String = if (text.indexOf('\r') < 0) text else text.replace("\r\n", "\n")
 }
 
 /** 同 [String.substringAfter]，但锚点缺失时失败而不是返回原串。 */

@@ -6,49 +6,31 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import java.io.File
+import org.junit.Test
 
 /**
  * 插件架构 L1 安全与模块边界源码契约：
- * 1. `:plugin-api` 源码严禁反向泄漏宿主包、Xposed、Lumen、Android 框架或特权常量；
+ * 1. `:plugin-api` 与 `:core-agent-protocol` 严禁反向泄漏宿主包、Xposed、Lumen、Android 框架或特权常量；
  * 2. 纯 JVM 基础模块严格使用 `kotlin.jvm` 且不引入 Android/Xposed/Lumen/`:app`，`:core-agent-protocol`
  *    仅以 `compileOnly` 引用 `org.json`（禁止 `implementation` 传递冲突）；
- * 3. `settings.gradle.kts` 纳入 `build-logic` 与 4 个基础模块；
+ * 3. `settings.gradle.kts` 纳入 `build-logic` 与基础模块；
  * 4. 宿主与 `:plugin-api` 的 R8 keep 规则保持一致且不恢复无过滤器 `-adaptresourcefilenames`；
  * 5. `AiChatCompat.kt` 与 `InsightProtocol.kt` 已接入 `CoreAiChatCompat` 解耦 `hook.feature`。
  */
 class PluginApiBoundaryContractTest {
 
-    private val projectRoot: File by lazy {
-        val cwd = File(".").absoluteFile.normalize()
-        generateSequence(cwd) { it.parentFile }
-            .firstOrNull { File(it, "settings.gradle.kts").isFile && File(it, "app/build.gradle.kts").isFile }
-            ?: generateSequence(cwd) { it.parentFile }
-                .map { File(it, "Bilibili_Innocent_Lab") }
-                .firstOrNull { File(it, "settings.gradle.kts").isFile && File(it, "app/build.gradle.kts").isFile }
-            ?: error("Unable to locate Gradle project root from ${cwd.absolutePath}")
-    }
+    private fun readRootFile(relativePath: String): String =
+        SourceContract.readRepoFile(relativePath)
 
-    private fun readRootFile(relativePath: String): String {
-        val target = File(projectRoot, relativePath)
-        assertTrue("Expected root-relative file to exist: ${target.absolutePath}", target.isFile)
-        return SourceContract.normalize(target.readText())
-    }
+    private fun listKotlinFiles(relativeDir: String): List<Pair<String, String>> =
+        SourceContract.listRepoKotlinFiles(relativeDir)
 
-    private fun listKotlinFiles(relativeDir: String): List<File> {
-        val dir = File(projectRoot, relativeDir)
-        assertTrue("Expected directory to exist: ${dir.absolutePath}", dir.isDirectory)
-        return dir.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .sortedBy { it.relativeTo(projectRoot).invariantSeparatorsPath }
-            .toList()
-    }
+    @Test
+    fun pluginApiAndCoreAgentProtocolSourcesStayIsolatedFromHostAndAndroid() {
+        val pluginApiKtFiles = listKotlinFiles("plugin-api/src/main")
+        assertTrue("plugin-api/src/main must contain Kotlin source files", pluginApiKtFiles.isNotEmpty())
 
-    fun pluginApiSourcesContainNoHostAndroidXposedLumenOrPrivilegedTokens() {
-        val ktFiles = listKotlinFiles("plugin-api/src/main")
-        assertTrue("plugin-api/src/main must contain Kotlin source files", ktFiles.isNotEmpty())
-
-        val forbiddenTokens = listOf(
+        val forbiddenPluginApiTokens = listOf(
             "com.Bilibili_Innocent_Lab",
             "io.github.libxposed",
             "io.github.jichuo1",
@@ -62,10 +44,8 @@ class PluginApiBoundaryContractTest {
             "ClassLoader"
         )
 
-        for (file in ktFiles) {
-            val rel = file.relativeTo(projectRoot).invariantSeparatorsPath
-            val raw = SourceContract.normalize(file.readText())
-            for (token in forbiddenTokens) {
+        for ((rel, raw) in pluginApiKtFiles) {
+            for (token in forbiddenPluginApiTokens) {
                 assertFalse(
                     "$rel must not reference forbidden host/framework/privileged token '$token'",
                     raw.contains(token)
@@ -77,9 +57,36 @@ class PluginApiBoundaryContractTest {
         val policyEnum = hookSpi.after("enum class PluginHookErrorPolicy").before("interface HookCallbackContext")
         assertTrue(policyEnum.contains("PROTECT_HOST"))
         assertTrue(hookSpi.contains("PluginHookErrorPolicy.PROTECT_HOST"))
+
+        val protocolKtFiles = listKotlinFiles("core-agent-protocol/src/main")
+        assertTrue("core-agent-protocol/src/main must contain Kotlin files", protocolKtFiles.isNotEmpty())
+        val names = protocolKtFiles.map { it.first.substringAfterLast('/') }.toSet()
+        assertTrue("CoreAiChatCompat.kt missing", "CoreAiChatCompat.kt" in names)
+        assertTrue("LlmHttpTransport.kt missing", "LlmHttpTransport.kt" in names)
+        assertTrue("AgentToolSpec.kt missing", "AgentToolSpec.kt" in names)
+
+        val forbiddenProtocolTokens = listOf(
+            "com.Bilibili_Innocent_Lab",
+            "io.github.libxposed",
+            "io.github.jichuo1",
+            "android.",
+            "androidx."
+        )
+        for ((rel, raw) in protocolKtFiles) {
+            val code = KotlinSourceScanner.code(raw)
+            for (token in forbiddenProtocolTokens) {
+                assertFalse("$rel must stay decoupled from $token", code.contains(token))
+            }
+        }
+        val toolSpec = KotlinSourceScanner.code(
+            readRootFile("core-agent-protocol/src/main/kotlin/com/bilab/core/agent/protocol/AgentToolSpec.kt")
+        )
+        assertTrue(toolSpec.contains("object UntrustedPluginOutputCodec"))
+        assertTrue(toolSpec.contains("fun wrapUntrustedPluginOutput("))
     }
 
-    fun pureJvmModulesUseKotlinJvmAndIsolateFromHostAndAndroidDependencies() {
+    @Test
+    fun pureJvmModuleBuildScriptsAndSettingsMaintainDependencyBoundaries() {
         val buildScripts = listOf(
             "plugin-api/build.gradle.kts",
             "core-settings-schema/build.gradle.kts",
@@ -131,9 +138,7 @@ class PluginApiBoundaryContractTest {
             Regex("""\b(?:implementation|api|runtimeOnly)\s*\([^)]*(?:test\.org\.json|org\.json)[^)]*\)""")
                 .containsMatchIn(agentProtocolBuild)
         )
-    }
 
-    fun settingsGradleRegistersBuildLogicAndAllModularSubprojects() {
         val settingsCode = KotlinSourceScanner.code(readRootFile("settings.gradle.kts"))
         assertTrue(
             "settings.gradle.kts must includeBuild(\"build-logic\")",
@@ -154,7 +159,8 @@ class PluginApiBoundaryContractTest {
         }
     }
 
-    fun proguardRulesPreservePublicPluginApiSurface() {
+    @Test
+    fun proguardKeepRulesAndAiChatCompatDelegationStayIntact() {
         val proguardFiles = listOf(
             "app/proguard-rules.pro",
             "plugin-api/src/main/resources/META-INF/proguard/bil-plugin-api.pro"
@@ -187,9 +193,7 @@ class PluginApiBoundaryContractTest {
             "app/proguard-rules.pro must preserve -adaptresourcefilecontents META-INF/xposed/java_init.list",
             appRules.contains("-adaptresourcefilecontents META-INF/xposed/java_init.list")
         )
-    }
 
-    fun aiChatCompatAndInsightProtocolDelegateToCoreAiChatCompat() {
         val aiChatCompatRaw = SourceContract.read("hook/feature/AiChatCompat.kt")
         val aiChatCompatCode = KotlinSourceScanner.code(aiChatCompatRaw)
         assertTrue(
@@ -240,48 +244,5 @@ class PluginApiBoundaryContractTest {
             "InsightProtocol must not reference legacy AiChatCompat anywhere",
             Regex("""\bAiChatCompat\.""").containsMatchIn(insightCode)
         )
-    }
-
-    fun coreAgentProtocolSourcesRemainPureJvmAndProvideExpectedComponents() {
-        val ktFiles = listKotlinFiles("core-agent-protocol/src/main")
-        assertTrue("core-agent-protocol/src/main must contain Kotlin files", ktFiles.isNotEmpty())
-        val names = ktFiles.map { it.name }.toSet()
-        assertTrue("CoreAiChatCompat.kt missing", "CoreAiChatCompat.kt" in names)
-        assertTrue("LlmHttpTransport.kt missing", "LlmHttpTransport.kt" in names)
-        assertTrue("AgentToolSpec.kt missing", "AgentToolSpec.kt" in names)
-
-        val forbidden = listOf(
-            "com.Bilibili_Innocent_Lab",
-            "io.github.libxposed",
-            "io.github.jichuo1",
-            "android.",
-            "androidx."
-        )
-        for (file in ktFiles) {
-            val rel = file.relativeTo(projectRoot).invariantSeparatorsPath
-            val code = KotlinSourceScanner.code(SourceContract.normalize(file.readText()))
-            for (token in forbidden) {
-                assertFalse("$rel must stay decoupled from $token", code.contains(token))
-            }
-        }
-        val toolSpec = KotlinSourceScanner.code(
-            readRootFile("core-agent-protocol/src/main/kotlin/com/bilab/core/agent/protocol/AgentToolSpec.kt")
-        )
-        assertTrue(toolSpec.contains("object UntrustedPluginOutputCodec"))
-        assertTrue(toolSpec.contains("fun wrapUntrustedPluginOutput("))
-    }
-
-    @org.junit.Test
-    fun verifyAllCases() {
-        fun runIsolated(block: (PluginApiBoundaryContractTest) -> Unit) {
-            val s = PluginApiBoundaryContractTest()
-            block(s)
-        }
-        runIsolated { s -> s.pluginApiSourcesContainNoHostAndroidXposedLumenOrPrivilegedTokens() }
-        runIsolated { s -> s.pureJvmModulesUseKotlinJvmAndIsolateFromHostAndAndroidDependencies() }
-        runIsolated { s -> s.settingsGradleRegistersBuildLogicAndAllModularSubprojects() }
-        runIsolated { s -> s.proguardRulesPreservePublicPluginApiSurface() }
-        runIsolated { s -> s.aiChatCompatAndInsightProtocolDelegateToCoreAiChatCompat() }
-        runIsolated { s -> s.coreAgentProtocolSourcesRemainPureJvmAndProvideExpectedComponents() }
     }
 }

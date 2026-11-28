@@ -27,10 +27,7 @@ internal class SettingsStepModel {
 
     // advancedCategoryScope 不是内容构建函数：它按分类建容器，名字在实参位置，展开只会引入分支重复的叶子。
     // 构建函数分布在 MainActivity、*Sections.kt、*Presenter.kt 与 *Dialogs.kt（例如底栏外观行、玻璃设置行），不能只扫 Sections。
-    private val builders: Map<String, String> = SettingsUiSource.settingsUiFiles().flatMap { (file, text) ->
-        SettingsUiSource.declaredFunctions(SettingsUiSource.code(text), if (file == "MainActivity.kt") 4 else 0)
-    }.filter { (name, declaration) -> name != "advancedCategoryScope" && declaration.substringBefore('{').contains("LinearSettingsScope") }
-        .toMap()
+    private val builders: Map<String, String> get() = sharedBuilders
 
     private val keyPattern = Regex("""\bkey\s*=\s*"([^"]*)"""")
     private val callPattern = Regex("""\b([A-Za-z_]\w*)\s*\(""")
@@ -151,14 +148,30 @@ internal class SettingsStepModel {
 
     companion object {
         private val deferStart = Regex("""\bdeferStep\s*\{""")
+        private val deferRangesCache = java.util.concurrent.ConcurrentHashMap<String, List<IntRange>>()
+
+        private val sharedBuilders: Map<String, String> by lazy {
+            SettingsUiSource.settingsUiFiles().flatMap { (file, text) ->
+                SettingsUiSource.declaredFunctions(text, if (file == "MainActivity.kt") 4 else 0)
+            }.filter { (name, declaration) ->
+                if (name == "advancedCategoryScope") return@filter false
+                val brace = declaration.indexOf('{')
+                val header = if (brace >= 0) declaration.substring(0, brace) else declaration
+                header.contains("LinearSettingsScope")
+            }.toMap()
+        }
+
+        private fun deferRanges(declaration: String): List<IntRange> =
+            deferRangesCache.computeIfAbsent(declaration) { text ->
+                val structure = SettingsUiSource.masked(text)
+                deferStart.findAll(structure).map { match ->
+                    (match.range.last + 1) until matching(structure, match.range.last)
+                }.toList()
+            }
 
         /** [declaration] 里下标 [index] 处的代码是否位于某个 `deferStep { … }` 块之内。 */
-        fun deferredBlockContaining(declaration: String, index: Int): Boolean {
-            val structure = SettingsUiSource.masked(declaration)
-            return deferStart.findAll(structure).any { match ->
-                index > match.range.last && index < matching(structure, match.range.last)
-            }
-        }
+        fun deferredBlockContaining(declaration: String, index: Int): Boolean =
+            deferRanges(declaration).any { index in it }
 
         /** 把所有 `deferStep { … }` 块整块去掉之后剩下的部分，也就是壳构建时会执行的代码。 */
         fun shell(declaration: String): String {

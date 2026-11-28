@@ -6,6 +6,7 @@ import java.util.zip.ZipFile
 
 /** 语义护栏读取与正式依赖同版本的官方 sources JAR；先核对模块确实委托到该类型。 */
 object LceMotionSource {
+    private val archiveEntriesCache = ConcurrentHashMap<String, Map<String, String>>()
     private val engineCache = ConcurrentHashMap<String, String>()
     private val readCache = ConcurrentHashMap<String, String>()
 
@@ -51,15 +52,28 @@ object LceMotionSource {
         val relative = key.removePrefix("core/")
         val archive = archives.split(File.pathSeparator).map(::File)
             .single { it.name.startsWith("$module-") && it.name.endsWith("-sources.jar") }
-        ZipFile(archive).use { zip ->
-            val entry = zip.getEntry("com/lumen/coacervation/engine/$relative")
-                ?: throw AssertionError("Published LCE source not found: $module/$relative")
-            SourceContract.normalize(zip.getInputStream(entry).bufferedReader().use { it.readText() })
+        val entries = archiveEntriesCache.computeIfAbsent(archive.absolutePath) {
+            ZipFile(archive).use { zip ->
+                buildMap {
+                    val enumeration = zip.entries()
+                    while (enumeration.hasMoreElements()) {
+                        val entry = enumeration.nextElement()
+                        if (!entry.isDirectory && entry.name.startsWith("com/lumen/coacervation/engine/")) {
+                            put(
+                                entry.name.removePrefix("com/lumen/coacervation/engine/"),
+                                SourceContract.normalize(zip.getInputStream(entry).bufferedReader().use { it.readText() })
+                            )
+                        }
+                    }
+                }
+            }
         }
+        entries[relative] ?: throw AssertionError("Published LCE source not found: $module/$relative")
     }
 
     fun read(path: String): String = readCache.computeIfAbsent(path) { key ->
         val host = SourceContract.read(key)
+        // Only the final filename segment is needed to match the delegate key.
         val target = delegates[key.substringAfterLast('/')] ?: return@computeIfAbsent host
         val forwarded = if (key.endsWith("SettingsPagePager.kt")) host.contains(": LumenPagePager(")
             else if (key.endsWith("ModernNavigationMotion.kt"))

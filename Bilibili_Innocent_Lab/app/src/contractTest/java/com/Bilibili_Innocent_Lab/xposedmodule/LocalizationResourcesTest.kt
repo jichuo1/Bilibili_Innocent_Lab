@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule
 
-import java.io.File
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,85 +10,62 @@ import org.w3c.dom.Element
 
 class LocalizationResourcesTest {
 
-    private val resRoot: File by lazy {
-        sequenceOf(File("src/main/res"), File("app/src/main/res"))
-            .firstOrNull(File::isDirectory)
-            ?: error("Unable to locate app/src/main/res from ${File(".").absolutePath}")
-    }
-
-    fun `all released locales have the same string keys and placeholders`() {
-        val base = readStrings(File(resRoot, "values/strings.xml"))
+    @Test
+    fun `released locales and guest browsing copy remain consistent`() {
         val translations = listOf(
-            "zh-CN" to File(resRoot, "values-zh-rCN/strings.xml"),
-            "zh-Hant" to File(resRoot, "values-b+zh+Hant/strings.xml")
+            "zh-CN" to zhCnStrings,
+            "zh-Hant" to zhHantStrings
         )
 
-        translations.forEach { (locale, file) ->
-            assertTrue("Missing released locale resource: $file", file.isFile)
-            val translated = readStrings(file)
-            assertEquals(keyDifferenceMessage(locale, base.keys, translated.keys), base.keys, translated.keys)
-            base.keys.forEach { key ->
+        translations.forEach { (locale, translated) ->
+            assertEquals(
+                keyDifferenceMessage(locale, enStrings.keys, translated.keys),
+                enStrings.keys,
+                translated.keys
+            )
+            enStrings.keys.forEach { key ->
                 assertEquals(
                     "$locale placeholder mismatch for '$key'",
-                    placeholders(base.getValue(key)),
+                    placeholders(enStrings.getValue(key)),
                     placeholders(translated.getValue(key))
                 )
             }
         }
-    }
 
-    fun `guest browsing copy states the restart boundary in every locale`() {
-        val restart = mapOf(
-            "values" to "Restart Bilibili to apply.",
-            "values-zh-rCN" to "重启哔哩哔哩后生效。",
-            "values-b+zh+Hant" to "重新啟動嗶哩嗶哩後生效。"
+        val unexpectedHan = enStrings.filterValues { HAN_REGEX.containsMatchIn(it) }.keys
+        assertTrue("Default English strings contain Han characters: $unexpectedHan", unexpectedHan.isEmpty())
+
+        assertFalse("Locale config contains an empty locale tag", "" in localeConfigLocales)
+        assertEquals(setOf("en", "zh-CN", "zh-Hant"), localeConfigLocales)
+
+        val restart = listOf(
+            Triple("values", enStrings, "Restart Bilibili to apply."),
+            Triple("values-zh-rCN", zhCnStrings, "重启哔哩哔哩后生效。"),
+            Triple("values-b+zh+Hant", zhHantStrings, "重新啟動嗶哩嗶哩後生效。")
         )
-        restart.forEach { (locale, phrase) ->
-            val strings = readStrings(File(resRoot, "$locale/strings.xml"))
+        restart.forEach { (locale, strings, phrase) ->
             listOf("no_login_enabled", "incognito_enabled", "skip_guest_onboarding").forEach { key ->
                 assertTrue(strings.getValue(key).isNotBlank())
                 assertTrue("$locale $key missing $phrase", strings.getValue("${key}_tip").endsWith(phrase))
             }
         }
-        val chinese = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
-        val browsing = chinese.getValue("no_login_enabled_tip")
+        val browsing = zhCnStrings.getValue("no_login_enabled_tip")
         listOf("保留主动登录入口", "只存于本机，不上传", "画质以游客可用为限", "以无痕为准")
             .forEach { assertTrue(it, browsing.contains(it)) }
-        val incognito = chinese.getValue("incognito_enabled_tip")
+        val incognito = zhCnStrings.getValue("incognito_enabled_tip")
         listOf("临时游客会话", "关闭并重启后恢复账号", "会话结束即丢弃", "服务端仍可能记录访问")
             .forEach { assertTrue(it, incognito.contains(it)) }
     }
 
-    fun `default English resources do not contain Han characters`() {
-        val base = readStrings(File(resRoot, "values/strings.xml"))
-        val unexpected = base.filterValues { HAN_REGEX.containsMatchIn(it) }.keys
-        assertTrue("Default English strings contain Han characters: $unexpected", unexpected.isEmpty())
-    }
-
-    fun `locale config exposes only complete released locales`() {
-        val file = File(resRoot, "xml/locales_config.xml")
-        assertTrue("Missing locale config: $file", file.isFile)
-        val document = parse(file)
-        val locales = buildSet {
-            val nodes = document.getElementsByTagName("locale")
-            repeat(nodes.length) { index ->
-                val element = nodes.item(index) as Element
-                add(element.getAttributeNS(ANDROID_NAMESPACE, "name"))
-            }
-        }
-        assertFalse("Locale config contains an empty locale tag", "" in locales)
-        assertEquals(setOf("en", "zh-CN", "zh-Hant"), locales)
-    }
-
-    fun `user terms ui and body are complete in every released locale`() {
-        val locales = mapOf(
-            "en" to File(resRoot, "values/strings.xml"),
-            "zh-CN" to File(resRoot, "values-zh-rCN/strings.xml"),
-            "zh-Hant" to File(resRoot, "values-b+zh+Hant/strings.xml")
+    @Test
+    fun `user terms privacy disclosure and telemetry formatting match policy`() {
+        val locales = listOf(
+            "en" to enStrings,
+            "zh-CN" to zhCnStrings,
+            "zh-Hant" to zhHantStrings
         )
 
-        locales.forEach { (locale, file) ->
-            val strings = readStrings(file)
+        locales.forEach { (locale, strings) ->
             assertTrue(
                 "$locale user-terms keys missing: ${USER_TERMS_KEYS - strings.keys}",
                 strings.keys.containsAll(USER_TERMS_KEYS)
@@ -105,65 +82,34 @@ class LocalizationResourcesTest {
                 strings.getValue(USER_TERMS_BODY).contains(PROJECT_URL)
             )
         }
-    }
 
-    fun `simplified Chinese terms preserve maintainer supplied core notice`() {
-        val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
-        val body = strings.getValue(USER_TERMS_BODY).replace("\\n", "\n")
+        val body = zhCnStrings.getValue(USER_TERMS_BODY).replace("\\n", "\n")
         assertEquals(SIMPLIFIED_TERMS_BODY, body)
         assertTrue(body.contains("拒绝或关闭遥测不会限制任何模块功能"))
         assertTrue(body.contains("Cloudflare Workers/D1 服务"))
         assertFalse(body.contains("境外"))
-        assertEquals("不同意并退出", strings.getValue("user_terms_decline"))
-        assertEquals("我已阅读完毕并知情同意", strings.getValue("user_terms_accept"))
-    }
+        assertEquals("不同意并退出", zhCnStrings.getValue("user_terms_decline"))
+        assertEquals("我已阅读完毕并知情同意", zhCnStrings.getValue("user_terms_accept"))
 
-    fun `telemetry benefit copy preserves voluntary choice and the current control path`() {
-        val strings = readStrings(File(resRoot, "values-zh-rCN/strings.xml"))
         listOf(USER_TERMS_BODY, "telemetry_info_body").forEach { key ->
-            val body = strings.getValue(key)
-            assertTrue(body.contains("更快了解各项功能的适配情况、定位并修复问题"))
-            assertTrue(body.contains("缩短修复与更新周期"))
-            assertTrue(body.contains("是否开启由您决定，关闭不会影响任何模块功能"))
+            val copy = zhCnStrings.getValue(key)
+            assertTrue(copy.contains("更快了解各项功能的适配情况、定位并修复问题"))
+            assertTrue(copy.contains("缩短修复与更新周期"))
+            assertTrue(copy.contains("是否开启由您决定，关闭不会影响任何模块功能"))
         }
-        assertTrue(strings.getValue(USER_TERMS_BODY).contains(
-            "项目与更新 → 匿名适配遥测 → 遥测说明与用户控制"))
-    }
+        assertTrue(
+            zhCnStrings.getValue(USER_TERMS_BODY).contains(
+                "项目与更新 → 匿名适配遥测 → 遥测说明与用户控制"
+            )
+        )
 
-    fun `Chinese telemetry summary uses full width parentheses while English keeps Latin punctuation`() {
-        for (locale in listOf("values-zh-rCN", "values-b+zh+Hant")) {
-            val label = readStrings(File(resRoot, "$locale/strings.xml")).getValue("telemetry_enabled_summary")
-            assertTrue(label.contains("（Per 24h）"))
-            assertFalse(label.contains("(Per 24h)"))
+        for ((locale, strings) in listOf("values-zh-rCN" to zhCnStrings, "values-b+zh+Hant" to zhHantStrings)) {
+            val label = strings.getValue("telemetry_enabled_summary")
+            assertTrue("$locale telemetry summary missing full-width parentheses", label.contains("（Per 24h）"))
+            assertFalse("$locale telemetry summary unexpectedly uses Latin parentheses", label.contains("(Per 24h)"))
         }
-        assertTrue(readStrings(File(resRoot, "values/strings.xml"))
-            .getValue("telemetry_enabled_summary").contains("(Per 24h)"))
+        assertTrue(enStrings.getValue("telemetry_enabled_summary").contains("(Per 24h)"))
     }
-
-    private fun readStrings(file: File): Map<String, String> {
-        assertTrue("Missing strings resource: $file", file.isFile)
-        val document = parse(file)
-        val result = linkedMapOf<String, String>()
-        val nodes = document.getElementsByTagName("string")
-        repeat(nodes.length) { index ->
-            val element = nodes.item(index) as Element
-            val name = element.getAttribute("name")
-            require(name.isNotBlank()) { "Unnamed string in $file" }
-            check(result.put(name, element.textContent) == null) {
-                "Duplicate string '$name' in $file"
-            }
-        }
-        return result
-    }
-
-    private fun parse(file: File) = DocumentBuilderFactory.newInstance().apply {
-        isNamespaceAware = true
-        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-        setFeature("http://xml.org/sax/features/external-general-entities", false)
-        setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-        setAttribute(ACCESS_EXTERNAL_DTD, "")
-        setAttribute(ACCESS_EXTERNAL_SCHEMA, "")
-    }.newDocumentBuilder().parse(file)
 
     private fun placeholders(value: String): List<String> =
         FORMAT_PLACEHOLDER.findAll(value).map { it.value }.sorted().toList()
@@ -183,6 +129,52 @@ class LocalizationResourcesTest {
         val HAN_REGEX = Regex("\\p{IsHan}")
         const val USER_TERMS_BODY = "user_terms_body"
         const val PROJECT_URL = "https://github.com/jichuo1/Bilibili_Innocent_Lab"
+
+        val documentBuilderFactory: DocumentBuilderFactory by lazy {
+            DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = true
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                setAttribute(ACCESS_EXTERNAL_DTD, "")
+                setAttribute(ACCESS_EXTERNAL_SCHEMA, "")
+            }
+        }
+
+        val enStrings: Map<String, String> by lazy { readStrings("src/main/res/values/strings.xml") }
+        val zhCnStrings: Map<String, String> by lazy { readStrings("src/main/res/values-zh-rCN/strings.xml") }
+        val zhHantStrings: Map<String, String> by lazy { readStrings("src/main/res/values-b+zh+Hant/strings.xml") }
+
+        val localeConfigLocales: Set<String> by lazy {
+            val file = SourceContract.file("src/main/res/xml/locales_config.xml")
+            assertTrue("Missing locale config: $file", file.isFile)
+            val document = documentBuilderFactory.newDocumentBuilder().parse(file)
+            buildSet {
+                val nodes = document.getElementsByTagName("locale")
+                repeat(nodes.length) { index ->
+                    val element = nodes.item(index) as Element
+                    add(element.getAttributeNS(ANDROID_NAMESPACE, "name"))
+                }
+            }
+        }
+
+        fun readStrings(relativePath: String): Map<String, String> {
+            val file = SourceContract.file(relativePath)
+            assertTrue("Missing strings resource: $file", file.isFile)
+            val document = documentBuilderFactory.newDocumentBuilder().parse(file)
+            val result = linkedMapOf<String, String>()
+            val nodes = document.getElementsByTagName("string")
+            repeat(nodes.length) { index ->
+                val element = nodes.item(index) as Element
+                val name = element.getAttribute("name")
+                require(name.isNotBlank()) { "Unnamed string in $file" }
+                check(result.put(name, element.textContent) == null) {
+                    "Duplicate string '$name' in $file"
+                }
+            }
+            return result
+        }
+
         val USER_TERMS_KEYS = setOf(
             "user_terms_dialog_title",
             USER_TERMS_BODY,
@@ -235,21 +227,5 @@ class LocalizationResourcesTest {
             "附加免责声明与风险提示详见：$PROJECT_URL",
             "请确保阅读完毕摘要内容和完整附加内容，而后决定。"
         ).joinToString("\n\n")
-    }
-
-    @org.junit.Test
-    fun verifyAllCases() {
-        fun runIsolated(block: (LocalizationResourcesTest) -> Unit) {
-            val s = LocalizationResourcesTest()
-            block(s)
-        }
-        runIsolated { s -> s.`all released locales have the same string keys and placeholders`() }
-        runIsolated { s -> s.`guest browsing copy states the restart boundary in every locale`() }
-        runIsolated { s -> s.`default English resources do not contain Han characters`() }
-        runIsolated { s -> s.`locale config exposes only complete released locales`() }
-        runIsolated { s -> s.`user terms ui and body are complete in every released locale`() }
-        runIsolated { s -> s.`simplified Chinese terms preserve maintainer supplied core notice`() }
-        runIsolated { s -> s.`telemetry benefit copy preserves voluntary choice and the current control path`() }
-        runIsolated { s -> s.`Chinese telemetry summary uses full width parentheses while English keeps Latin punctuation`() }
     }
 }

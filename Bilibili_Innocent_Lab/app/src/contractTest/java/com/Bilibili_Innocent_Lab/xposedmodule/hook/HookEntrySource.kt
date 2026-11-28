@@ -154,7 +154,9 @@ internal object HookEntrySource {
             } else if (entry.isFile && entry.name.endsWith(".kt")) {
                 val rel = "hook/feature/${entry.name}"
                 if (rel !in scannedPaths) {
-                    val text = code(SourceContract.read(rel))
+                    val raw = SourceContract.read(rel)
+                    if (freeCopyImplMarkers.none(raw::contains) && topologyMarkers.none(raw::contains)) return@forEach
+                    val text = code(raw)
                     if (freeCopyImplMarkers.any(text::contains) || topologyMarkers.any(text::contains)) {
                         offenders += rel
                     }

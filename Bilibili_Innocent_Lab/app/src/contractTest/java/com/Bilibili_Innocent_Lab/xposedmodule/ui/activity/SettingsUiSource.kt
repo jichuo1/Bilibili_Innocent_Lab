@@ -58,7 +58,7 @@ internal object SettingsUiSource {
      * 但 C7 的报错文案会给出"请改成 fun MainActivity.<name>"这种对它们而言错误的建议。
      * 收多了不危险只是失真，收少了才会脱管——两个方向都要避开。
      *
-     * 加后缀时同步更新 [SettingsUiSourceTest] 里那条"扫描集覆盖所有 MainActivity 扩展"
+     * 加后缀时同步更新 [SourceScannerContractTest] 里那条"扫描集覆盖所有 MainActivity 扩展"
      * 的断言——它是这套约定唯一的强制力来源。
      */
     // `Sections.kt`：设置页各分区的强类型构建函数（2026-10-18 起从 MainActivity 外移）。
@@ -79,14 +79,18 @@ internal object SettingsUiSource {
      *
      * 从 MainActivity 里搬东西出去，落地形态就是在新文件里写这种扩展函数。
      * 所以"有扩展但不在扫描集"正是**绕过门禁的唯一入口**，由
-     * [SettingsUiSourceTest] 断言它恒为空：新分卷要么用约定后缀命名，要么显式扩充
+     * [SourceScannerContractTest] 断言它恒为空：新分卷要么用约定后缀命名，要么显式扩充
      * [VOLUME_SUFFIXES]，没有第三条路可以悄悄溜过去。
      */
     fun unscannedMainActivityExtensions(): List<String> {
         val extension = Regex("""(?m)^(?:internal |private |public )*fun MainActivity\.""")
         return (dir.listFiles() ?: emptyArray())
             .filter { it.isFile && it.name.endsWith(".kt") && it.name != "MainActivity.kt" }
-            .filter { it.name !in volumeFileNames && extension.containsMatchIn(code(it.readText())) }
+            .filter { file ->
+                if (file.name in volumeFileNames) return@filter false
+                val raw = com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract.read("ui/activity/${file.name}")
+                raw.contains("MainActivity.") && extension.containsMatchIn(code(raw))
+            }
             .map(File::getName)
             .sorted()
     }
@@ -96,6 +100,16 @@ internal object SettingsUiSource {
     }
     private val settingsUiCache: List<Pair<String, String>> by lazy {
         listOf("MainActivity.kt" to file("MainActivity")) + volumeFileNames.map { it to file(it) }
+    }
+    private val sectionBuildersCache: List<Pair<String, String>> by lazy {
+        settingsPageFiles().flatMap { (fileName, text) ->
+            val indent = if (fileName == "MainActivity.kt") 4 else 0
+            declaredFunctions(text, indent).filter { (_, decl) ->
+                val brace = decl.indexOf('{')
+                val header = if (brace >= 0) decl.substring(0, brace) else decl
+                header.contains("LinearSettingsScope")
+            }
+        }
     }
 
     /** `ui/activity/<name>.kt` 的源码；[name] 可带或不带 `.kt`。 */
@@ -124,12 +138,7 @@ internal object SettingsUiSource {
      * 分区构建函数：名字 → 含签名的声明（已去注释）。
      * 分卷通过 `LinearSettingsScope` 接收真实父容器与强类型父参数。
      */
-    fun sectionBuilders(): List<Pair<String, String>> = settingsPageFiles().flatMap { (fileName, text) ->
-        val indent = if (fileName == "MainActivity.kt") 4 else 0
-        declaredFunctions(code(text), indent).filter { (_, decl) ->
-            decl.substringBefore('{').contains("LinearSettingsScope")
-        }
-    }
+    fun sectionBuilders(): List<Pair<String, String>> = sectionBuildersCache
 
     /** 文件名 → 源码：MainActivity 加上所有已外移分卷（弹窗与逻辑分卷）。 */
     fun settingsUiFiles(): List<Pair<String, String>> = settingsUiCache
