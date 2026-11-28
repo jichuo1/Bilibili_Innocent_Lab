@@ -99,8 +99,8 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var focusObserver: WeakReference<ViewTreeObserver>? = null
     private var backdropVersion: Long? = null
     private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener { HostThreadGuard.call("host.surface.backdrop.predraw", true) {
-        if (contentRef?.get()?.isShown == false) return@call true
         surfaces.forEach { (_, spec) -> spec.prismSurface()?.sync(spec.insetX, spec.insetY) }
+        if (contentRef?.get()?.isShown == false) return@call true
         if (viewportSource?.sync() == true) session?.notifyPositionChanged()
         // Snapshot child invalidations before the software legibility probe can draw the
         // content and consume their dirty flags later in this same pre-draw dispatch.

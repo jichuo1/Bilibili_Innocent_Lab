@@ -5,7 +5,9 @@ import android.content.ComponentCallbacks
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.util.SparseIntArray
 import android.view.View
@@ -17,12 +19,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostWallpap
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostRuntimeDiagnosticsBridge
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.MineComponentSnapshotHostBridge
+import com.lumen.coacervation.engine.host.LumenPrismGlass
 import com.lumen.coacervation.engine.host.LumenSourceAvailability
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -429,6 +433,143 @@ class HostResourceRegistryAndCacheTest {
         assertEquals("HostBackgroundPages.dispose() must release materialFills registry lease", 0, HostResourceRegistry.activeCount())
     }
 
+    @Test
+    fun hostPrismSurfaceStrongAnchorsSurviveGcAndPreventOrphanLayers() {
+        val surfaceClass = Class.forName("com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope\$Surface")
+        val prismViewClass = Class.forName("com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostPrismSurface\$PrismView")
+        val clipLeaseClass = Class.forName("com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostPrismSurface\$ClipLease")
+        val anchorClass = Class.forName("com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostPrismSurface\$HostAttachAnchor")
+
+        // 1. 兄弟 PrismView 通过 owner 强持有 HostPrismSurface；onMeasure 读取 owner 绝不因 GC 误回收。
+        val siblingSample = createAttachedPrismSiblingSample(surfaceClass, prismViewClass, clipLeaseClass)
+        assertSiblingRetainedAcrossGc(siblingSample, surfaceClass)
+        val prismView = siblingSample.parentGroup.getChildAt(0)
+        assertNotNull(prismView)
+        assertNotNull(
+            prismViewClass.getDeclaredMethod("onMeasure", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        )
+        closePrismSurface(siblingSample.prismRef)
+        assertEquals(0, siblingSample.parentGroup.childCount)
+        assertNull(prismViewClass.getDeclaredField("owner").apply { isAccessible = true }.get(prismView))
+        awaitGc(siblingSample.prismRef)
+        assertNull("Closing HostPrismSurface must release PrismView.owner for GC reclaim", siblingSample.prismRef.get())
+
+        // 2. 非白名单父容器降级分支通过 HostAttachAnchor 保活，close() 或释放宿主后一起回收。
+        val fallbackSample = createFallbackAnchorSample(anchorClass)
+        assertFallbackRetainedAcrossGc(fallbackSample)
+        assertEquals(1, fallbackSample.hostView.attachListeners.size)
+        closePrismSurface(fallbackSample.prismRef)
+        assertTrue(fallbackSample.hostView.attachListeners.isEmpty())
+        awaitGc(fallbackSample.prismRef)
+        assertNull("Closing fallback HostPrismSurface must unregister HostAttachAnchor", fallbackSample.prismRef.get())
+
+        val detachedPair = createDetachedFallbackHostAndPrism(anchorClass)
+        awaitGc(detachedPair.first)
+        awaitGc(detachedPair.second)
+        assertNull("Dropped host View and fallback HostPrismSurface must be collected together", detachedPair.first.get())
+        assertNull(detachedPair.second.get())
+
+        // 3. 残留同宿主/无主 PrismView 清理 + ClipLease 恢复 + desiredWidthForHost/desiredHeightForHost 边界。
+        val parent = TrackingStubViewGroup().apply { clipChildren = false }
+        val targetHost = AttachRecordingStubView()
+        val otherHost = AttachRecordingStubView()
+        val originalBg = ColorDrawable(Color.BLUE)
+        val marker = ColorDrawable(Color.TRANSPARENT)
+        targetHost.background = marker
+
+        val staleLease = clipLeaseClass.getDeclaredConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(true, 1)
+        val orphanLease = clipLeaseClass.getDeclaredConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(true, 1)
+        val otherLease = clipLeaseClass.getDeclaredConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(true, 1)
+        val context = alloc(RecordingApplication::class.java)
+
+        val staleView = prismViewClass.getDeclaredConstructor(Context::class.java, clipLeaseClass, View::class.java)
+            .apply { isAccessible = true }.newInstance(context, staleLease, targetHost) as View
+        val staleOwner = createPrismSurfaceStub(targetHost, parent, staleLease, staleView, originalBg, marker, closed = false)
+        prismViewClass.getDeclaredField("owner").apply { isAccessible = true }.set(staleView, staleOwner)
+
+        val orphanView = prismViewClass.getDeclaredConstructor(Context::class.java, clipLeaseClass, View::class.java)
+            .apply { isAccessible = true }.newInstance(context, orphanLease, targetHost) as View
+        val collectedHostOrphan = prismViewClass.getDeclaredConstructor(Context::class.java, clipLeaseClass, View::class.java)
+            .apply { isAccessible = true }.newInstance(context, otherLease, targetHost) as View
+        @Suppress("UNCHECKED_CAST")
+        (prismViewClass.getDeclaredField("hostRef").apply { isAccessible = true }.get(collectedHostOrphan) as WeakReference<View>).clear()
+
+        val otherView = prismViewClass.getDeclaredConstructor(Context::class.java, clipLeaseClass, View::class.java)
+            .apply { isAccessible = true }.newInstance(context, otherLease, otherHost) as View
+        val otherOwner = createPrismSurfaceStub(otherHost, parent, otherLease, otherView, ColorDrawable(Color.RED), ColorDrawable(Color.TRANSPARENT), closed = false)
+        prismViewClass.getDeclaredField("owner").apply { isAccessible = true }.set(otherView, otherOwner)
+
+        parent.children.addAll(listOf(targetHost, staleView, orphanView, collectedHostOrphan, otherView))
+        HostPrismSurface.removeStaleSiblingLayers(parent, targetHost)
+
+        assertEquals(2, parent.childCount)
+        assertSame(targetHost, parent.getChildAt(0))
+        assertSame(otherView, parent.getChildAt(1))
+        assertSame(originalBg, targetHost.background)
+        assertTrue(HostPrismSurface::class.java.getDeclaredField("closed").apply { isAccessible = true }.getBoolean(staleOwner))
+        assertNull(prismViewClass.getDeclaredField("owner").apply { isAccessible = true }.get(staleView))
+        assertFalse(HostPrismSurface::class.java.getDeclaredField("closed").apply { isAccessible = true }.getBoolean(otherOwner))
+        assertSame(otherOwner, prismViewClass.getDeclaredField("owner").apply { isAccessible = true }.get(otherView))
+
+        val isolatedParent = TrackingStubViewGroup().apply { clipChildren = false }
+        val isolatedLease = clipLeaseClass.getDeclaredConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(true, 1)
+        val isolatedOrphan = prismViewClass.getDeclaredConstructor(Context::class.java, clipLeaseClass, View::class.java)
+            .apply { isAccessible = true }.newInstance(context, isolatedLease, targetHost) as View
+        isolatedParent.children.add(isolatedOrphan)
+        HostPrismSurface.removeStaleSiblingLayers(isolatedParent, targetHost)
+        assertEquals(0, isolatedParent.childCount)
+        assertEquals(0, clipLeaseClass.getDeclaredField("users").apply { isAccessible = true }.getInt(isolatedLease))
+        assertTrue(isolatedParent.clipChildren)
+
+        val sizingSurface = createPrismSurfaceStub(targetHost, isolatedParent, null, null, null, marker, closed = false).also {
+            HostPrismSurface::class.java.getDeclaredField("lastInsetX").apply { isAccessible = true }.setFloat(it, 8f)
+            HostPrismSurface::class.java.getDeclaredField("lastInsetY").apply { isAccessible = true }.setFloat(it, 4f)
+        }
+        assertEquals(304, sizingSurface.desiredWidthForHost(320, 64))
+        assertEquals(56, sizingSurface.desiredHeightForHost(320, 64))
+        assertEquals(0, sizingSurface.desiredWidthForHost(0, 64))
+        assertEquals(0, sizingSurface.desiredHeightForHost(320, 0))
+        assertEquals(0, sizingSurface.desiredWidth(null))
+        assertEquals(0, sizingSurface.desiredHeight(null))
+        HostPrismSurface::class.java.getDeclaredField("closed").apply { isAccessible = true }.setBoolean(sizingSurface, true)
+        assertEquals(0, sizingSurface.desiredWidthForHost(320, 64))
+        assertEquals(0, sizingSurface.desiredHeightForHost(320, 64))
+
+        // 4. HostSurfaceScope.backdropPreDraw 当背景隐藏时仍须先同步 PrismView。
+        val preDrawHost = AttachRecordingStubView().apply { shownFlag = false }
+        val preDrawContent = AttachRecordingStubView().apply { shownFlag = false }
+        val preDrawParent = TrackingStubViewGroup()
+        val preDrawPrism = createPrismSurfaceStub(preDrawHost, preDrawParent, null, null, null, marker, closed = false)
+        val scope = HostSurfaceScope(preDrawHost, HostChromeColors(dark = false, accent = 0xFF336699.toInt()))
+        try {
+            HostSurfaceScope::class.java.getDeclaredField("contentRef").apply { isAccessible = true }
+                .set(scope, WeakReference<View>(preDrawContent))
+            val preDrawSurface = surfaceClass.declaredConstructors.first().apply { isAccessible = true }
+                .newInstance(com.lumen.coacervation.engine.host.LumenSurfaceOptions())
+            surfaceClass.getDeclaredField("insetX").apply { isAccessible = true }.setFloat(preDrawSurface, 14f)
+            surfaceClass.getDeclaredField("insetY").apply { isAccessible = true }.setFloat(preDrawSurface, 7f)
+            surfaceClass.getDeclaredMethod("setPrismSurface", HostPrismSurface::class.java)
+                .apply { isAccessible = true }.invoke(preDrawSurface, preDrawPrism)
+            @Suppress("UNCHECKED_CAST")
+            val surfaces = HostSurfaceScope::class.java.getDeclaredField("surfaces")
+                .apply { isAccessible = true }.get(scope) as WeakHashMap<View, Any>
+            surfaces[preDrawHost] = preDrawSurface
+
+            val listener = HostSurfaceScope::class.java.getDeclaredField("backdropPreDraw")
+                .apply { isAccessible = true }.get(scope) as ViewTreeObserver.OnPreDrawListener
+            assertTrue(listener.onPreDraw())
+            assertEquals(14f, HostPrismSurface::class.java.getDeclaredField("lastInsetX").apply { isAccessible = true }.getFloat(preDrawPrism))
+            assertEquals(7f, HostPrismSurface::class.java.getDeclaredField("lastInsetY").apply { isAccessible = true }.getFloat(preDrawPrism))
+        } finally {
+            HostPrismSurface::class.java.getDeclaredField("closed").apply { isAccessible = true }.setBoolean(preDrawPrism, true)
+            scope.close()
+        }
+    }
+
     private fun createCollectedContentSourceSample(): Pair<HostChromeContentSource, WeakReference<StubView>> {
         val contentView = alloc(StubView::class.java)
         val contentSource = alloc(HostChromeContentSource::class.java).also {
@@ -498,6 +639,111 @@ class HostResourceRegistryAndCacheTest {
         return WeakReference(bgView)
     }
 
+    private data class PrismSiblingSample(
+        val parentGroup: TrackingStubViewGroup,
+        val hostView: AttachRecordingStubView,
+        val surfaceRecord: Any,
+        val prismRef: WeakReference<HostPrismSurface>
+    )
+
+    private data class FallbackAnchorSample(
+        val hostView: AttachRecordingStubView,
+        val prismRef: WeakReference<HostPrismSurface>
+    )
+
+    private fun closedPrismGlass(): LumenPrismGlass = alloc(LumenPrismGlass::class.java).also {
+        LumenPrismGlass::class.java.getDeclaredField("closed").apply { isAccessible = true }.setBoolean(it, true)
+    }
+
+    private fun createPrismSurfaceStub(
+        hostView: View,
+        parentGroup: ViewGroup,
+        clipping: Any?,
+        layerView: View?,
+        original: Drawable?,
+        marker: ColorDrawable,
+        closed: Boolean
+    ): HostPrismSurface = alloc(HostPrismSurface::class.java).also {
+        HostPrismSurface::class.java.getDeclaredField("original").apply { isAccessible = true }.set(it, original)
+        HostPrismSurface::class.java.getDeclaredField("marker").apply { isAccessible = true }.set(it, marker)
+        HostPrismSurface::class.java.getDeclaredField("host").apply { isAccessible = true }.set(it, WeakReference(hostView))
+        HostPrismSurface::class.java.getDeclaredField("parent").apply { isAccessible = true }.set(it, WeakReference(parentGroup))
+        HostPrismSurface::class.java.getDeclaredField("clipping").apply { isAccessible = true }.set(it, clipping)
+        HostPrismSurface::class.java.getDeclaredField("layer").apply { isAccessible = true }
+            .set(it, layerView?.let { v -> WeakReference(v) })
+        HostPrismSurface::class.java.getDeclaredField("glass").apply { isAccessible = true }.set(it, closedPrismGlass())
+        HostPrismSurface::class.java.getDeclaredField("closed").apply { isAccessible = true }.setBoolean(it, closed)
+    }
+
+    private fun createAttachedPrismSiblingSample(
+        surfaceClass: Class<*>,
+        prismViewClass: Class<*>,
+        clipLeaseClass: Class<*>
+    ): PrismSiblingSample {
+        val hostView = AttachRecordingStubView()
+        val parentGroup = TrackingStubViewGroup().apply { clipChildren = false }
+        val lease = clipLeaseClass.getDeclaredConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(true, 1)
+        val context = alloc(RecordingApplication::class.java)
+        val prismView = prismViewClass.getDeclaredConstructor(Context::class.java, clipLeaseClass, View::class.java)
+            .apply { isAccessible = true }.newInstance(context, lease, hostView) as View
+        val marker = ColorDrawable(Color.TRANSPARENT)
+        val prism = createPrismSurfaceStub(hostView, parentGroup, lease, prismView, null, marker, closed = false)
+        prismViewClass.getDeclaredField("owner").apply { isAccessible = true }.set(prismView, prism)
+        parentGroup.children.add(prismView)
+        val surfaceRecord = alloc(surfaceClass).also {
+            surfaceClass.getDeclaredMethod("setPrismSurface", HostPrismSurface::class.java)
+                .apply { isAccessible = true }.invoke(it, prism)
+        }
+        return PrismSiblingSample(parentGroup, hostView, surfaceRecord, WeakReference(prism))
+    }
+
+    private fun createFallbackAnchorSample(anchorClass: Class<*>): FallbackAnchorSample {
+        val hostView = AttachRecordingStubView()
+        val parentGroup = TrackingStubViewGroup()
+        val prism = createPrismSurfaceStub(hostView, parentGroup, null, null, null, ColorDrawable(Color.TRANSPARENT), closed = false)
+        val anchor = anchorClass.getDeclaredConstructor(HostPrismSurface::class.java)
+            .apply { isAccessible = true }.newInstance(prism) as View.OnAttachStateChangeListener
+        HostPrismSurface::class.java.getDeclaredField("hostAnchor").apply { isAccessible = true }.set(prism, anchor)
+        hostView.addOnAttachStateChangeListener(anchor)
+        anchor.onViewAttachedToWindow(hostView)
+        return FallbackAnchorSample(hostView, WeakReference(prism))
+    }
+
+    private fun createDetachedFallbackHostAndPrism(anchorClass: Class<*>): Pair<WeakReference<View>, WeakReference<HostPrismSurface>> {
+        val sample = createFallbackAnchorSample(anchorClass)
+        return WeakReference<View>(sample.hostView) to sample.prismRef
+    }
+
+    private fun closePrismSurface(ref: WeakReference<HostPrismSurface>) {
+        ref.get()?.close()
+    }
+
+    private fun assertSiblingRetainedAcrossGc(sample: PrismSiblingSample, surfaceClass: Class<*>) {
+        forceGcPasses()
+        val expected = sample.prismRef.get()
+        assertNotNull("Attached PrismView.owner must retain HostPrismSurface across GC", expected)
+        assertSame(
+            expected,
+            surfaceClass.getDeclaredMethod("prismSurface").apply { isAccessible = true }.invoke(sample.surfaceRecord)
+        )
+    }
+
+    private fun assertFallbackRetainedAcrossGc(sample: FallbackAnchorSample) {
+        forceGcPasses()
+        assertNotNull("HostAttachAnchor must retain fallback HostPrismSurface across GC", sample.prismRef.get())
+    }
+
+    private fun forceGcPasses() {
+        repeat(6) {
+            System.gc()
+            System.runFinalization()
+            @Suppress("UNUSED_VARIABLE")
+            val pressure = ByteArray(64 * 1024)
+            Thread.sleep(5)
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun <T> alloc(clazz: Class<T>): T = unsafe.allocateInstance(clazz) as T
 
@@ -546,10 +792,41 @@ class HostResourceRegistryAndCacheTest {
         override fun removeOnAttachStateChangeListener(listener: OnAttachStateChangeListener?) = Unit
     }
 
+    private open class AttachRecordingStubView : StubView() {
+        var bg: Drawable? = null
+        var currentVisibility: Int = View.VISIBLE
+        val attachListeners = ArrayList<OnAttachStateChangeListener>()
+
+        override fun getBackground(): Drawable? = bg
+        override fun setBackground(background: Drawable?) { bg = background }
+        override fun getVisibility(): Int = currentVisibility
+        override fun setVisibility(visibility: Int) { currentVisibility = visibility }
+        override fun addOnAttachStateChangeListener(listener: OnAttachStateChangeListener?) {
+            if (listener != null) attachListeners += listener
+        }
+        override fun removeOnAttachStateChangeListener(listener: OnAttachStateChangeListener?) {
+            if (listener != null) attachListeners -= listener
+        }
+    }
+
     private open class StubViewGroup : ViewGroup(null) {
         override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) = Unit
         override fun addOnAttachStateChangeListener(listener: OnAttachStateChangeListener?) = Unit
         override fun removeOnAttachStateChangeListener(listener: OnAttachStateChangeListener?) = Unit
+    }
+
+    private class TrackingStubViewGroup : StubViewGroup() {
+        val children = ArrayList<View>()
+        var clipChildrenState = true
+
+        override fun getChildCount(): Int = children.size
+        override fun getChildAt(index: Int): View? = children.getOrNull(index)
+        override fun indexOfChild(child: View?): Int = children.indexOf(child)
+        override fun removeView(view: View?) {
+            if (view != null) children.remove(view)
+        }
+        override fun getClipChildren(): Boolean = clipChildrenState
+        override fun setClipChildren(clipChildren: Boolean) { clipChildrenState = clipChildren }
     }
 
     private open class StubSparseIntArray : SparseIntArray() {
