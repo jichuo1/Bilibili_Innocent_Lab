@@ -119,7 +119,7 @@ internal class HostVideoCardStyle(
     }
     private val rowDecorations = android.graphics.Rect()
     private val coverNames = setOf("cover_layout", "cover", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "ivCover")
-    private val titleNames = setOf("title", "title_layout", "video_title", "tv_title", "tvTitle")
+    private val titleNames = setOf("title", "title_layout", "title_v2", "video_title", "tv_title", "tvTitle")
     private val coverOutline = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
             outline.setRoundRect(0, 0, view.width, view.height,
@@ -320,9 +320,9 @@ internal class HostVideoCardStyle(
         val panels = ArrayList<View>()
         fun visit(view: View, depth: Int) {
             if (depth > 10 || depth > 0 && isRecycler(view.javaClass)) return
-            // 首页信息区有无 id 的纯背景 TintView，保留它会完全遮住整卡亚克力。
-            if (depth == 1 && view.id == View.NO_ID &&
-                view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView") panels += view
+            // 首页信息区的纯背景 TintView 会完全遮住整卡亚克力；普通卡常无 id，直播卡使用 bottom_background。
+            if (depth == 1 && view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView" &&
+                (view.id == View.NO_ID || resourceName(view) == "bottom_background")) panels += view
             when (resourceName(view)) {
                 "bottomContaner", "title_area" -> liveInfo = view
                 "ivCover", "inline_area" -> livePanel = true

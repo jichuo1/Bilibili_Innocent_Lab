@@ -96,38 +96,9 @@ internal class HostComposeChromeApi private constructor(
 
     companion object {
         internal fun resolveSetModifier(loader: ClassLoader, modifier: Class<*>): Method {
-            val node = requireNotNull(Lookup.classOrNull(loader, "androidx.compose.ui.node.ComposeUiNode"))
-            val implClass = Lookup.classOrNull(loader, "androidx.compose.ui.node.LayoutNode") ?: run {
-                val companionClass = Lookup.classOrNull(loader, "androidx.compose.ui.node.ComposeUiNode\$Companion")
-                    ?: requireNotNull(Lookup.fieldOrNull(node, "Companion")?.type)
-                val companionField = Lookup.fieldOrNull(node, "Companion")
-                    ?: requireNotNull(Lookup.declaredFields(node, makeAccessible = true).singleOrNull { it.type == companionClass })
-                val companion = requireNotNull(companionField.get(null))
-                val function0 = Lookup.classOrNull(loader, "kotlin.jvm.functions.Function0")
-                val getConstructor = Lookup.methodOrNull(companion.javaClass, "getConstructor")
-                    ?: Lookup.declaredMethods(companion.javaClass, makeAccessible = true).singleOrNull {
-                        it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
-                            (function0 != null && function0.isAssignableFrom(it.returnType) ||
-                                it.returnType.name == "kotlin.jvm.functions.Function0")
-                    } ?: error("Missing host Compose ABI ${companion.javaClass.name}.getConstructor")
-                val constructorFn = requireNotNull(getConstructor.invoke(companion))
-                val invoke = Lookup.methodOrNull(getConstructor.returnType, "invoke")
-                    ?: Lookup.methods(constructorFn.javaClass, includeSuperclasses = true, makeAccessible = true).firstOrNull {
-                        it.name == "invoke" && it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
-                            !it.isBridge && !it.isSynthetic
-                    } ?: Lookup.methods(constructorFn.javaClass, includeSuperclasses = true, makeAccessible = true).first {
-                        it.name == "invoke" && it.parameterCount == 0 && !Modifier.isStatic(it.modifiers)
-                    }
-                val temp = requireNotNull(invoke.invoke(constructorFn))
-                temp.javaClass
-            }
-            require(!implClass.isInterface && !Modifier.isAbstract(implClass.modifiers) && node.isAssignableFrom(implClass)) {
-                "Invalid ComposeUiNode implementation: ${implClass.name}"
-            }
-            return Lookup.methods(implClass, includeSuperclasses = true, makeAccessible = true).singleOrNull {
-                it.name == "setModifier" && !Modifier.isAbstract(it.modifiers) && !Modifier.isStatic(it.modifiers) &&
-                    it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(modifier))
-            } ?: error("Missing concrete host Compose ABI ${implClass.name}.setModifier")
+            return requireNotNull(HostComposeLayoutNodeAccess.resolve(loader, modifier)) {
+                "Missing concrete host Compose ABI ComposeUiNode.setModifier"
+            }.setModifier
         }
 
         fun resolve(loader: ClassLoader, onError: (Throwable) -> Unit = {}): HostComposeChromeApi? = runCatching {
@@ -175,7 +146,7 @@ internal class HostComposeChromeApi private constructor(
                     it.returnType == modifier && it.parameterTypes.contentEquals(arrayOf(modifier, Float::class.javaPrimitiveType!!))
             }?.invoke(null, empty, 1f)
             val node = type("androidx.compose.ui.node.ComposeUiNode")
-            // 绝不直接 Hook ComposeUiNode 接口抽象方法：始终定位具体 LayoutNode.setModifier(Modifier)。
+            // 绝不直接 Hook ComposeUiNode 接口抽象方法：始终通过 HostComposeLayoutNodeAccess 定位具体 LayoutNode.setModifier(Modifier)。
             val applyModifier = resolveSetModifier(loader, modifier)
             val drawScope = type("androidx.compose.ui.graphics.drawscope.DrawScope")
             val drawContext = type("androidx.compose.ui.graphics.drawscope.DrawContext")

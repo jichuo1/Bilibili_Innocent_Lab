@@ -1,18 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostStatusBarContrast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
-import android.view.Window
-import android.view.WindowInsetsController
-import androidx.core.view.WindowCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.lumen.coacervation.engine.model.LumenPalette
@@ -66,8 +60,8 @@ internal class HostTopFusionBinding private constructor(
     private var materialDark = isDark
     private var materialColors: HostChromeColors? = null
     private var preserveHostArtwork = false
-    private var originalLightStatus: Boolean? = null
-    private var appliedLightStatus: Boolean? = null
+    private var wallpaper = false
+    private val statusContrast = HostStatusBarContrast()
 
     companion object {
         fun attach(
@@ -222,65 +216,23 @@ internal class HostTopFusionBinding private constructor(
             backdrop?.onVisualMovement()
         }
         band.updateDocking(dockingProgress, top)
-        // 装扮图上的原生状态栏前景由宿主管理；滚动后背景变成模块玻璃，要切回材质的前景深浅。
-        if (preserveHostArtwork && dockingProgress < .5f) {
-            val currentLight = readLightStatusBars()
-            if (currentLight != null) {
-                if (originalLightStatus == null) originalLightStatus = currentLight
-                val light = !materialDark
-                if (currentLight != light) writeLightStatusBars(light)
-                appliedLightStatus = light
-            }
-        } else restoreStatusBar()
+        // 回顶且保留宿主装扮图时，装扮图上的原生状态栏前景由宿主管理；模块壁纸和滚动后的
+        // 玻璃/静态材质都不知道宿主原图，必须按材质深浅接管同一块状态栏前景。
+        if (wallpaper || dockingProgress < .5f) statusContrast.apply(container, materialDark)
+        else restoreStatusBar()
         return true
     }
 
-    private fun restoreStatusBar() {
-        val original = originalLightStatus ?: return
-        // 宿主切页后已设置自己的前景时不覆盖；只恢复本绑定仍持有的状态。
-        if (readLightStatusBars() == appliedLightStatus) writeLightStatusBars(original)
-        originalLightStatus = null
-        appliedLightStatus = null
-    }
-
-    private fun readLightStatusBars(): Boolean? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val controller = container.windowInsetsController ?: return null
-            return (controller.systemBarsAppearance and WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS) != 0
-        }
-        val window = resolveWindow(container.context) ?: return null
-        return WindowCompat.getInsetsController(window, container).isAppearanceLightStatusBars
-    }
-
-    private fun writeLightStatusBars(light: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val controller = container.windowInsetsController ?: return
-            controller.setSystemBarsAppearance(
-                if (light) WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS else 0,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-            )
-            return
-        }
-        val window = resolveWindow(container.context) ?: return
-        WindowCompat.getInsetsController(window, container).isAppearanceLightStatusBars = light
-    }
-
-    private fun resolveWindow(context: Context): Window? {
-        var current: Context? = context
-        while (current is ContextWrapper) {
-            if (current is Activity) return current.window
-            current = current.baseContext
-        }
-        return (current as? Activity)?.window
-    }
+    private fun restoreStatusBar() = statusContrast.restore(container)
 
     /** 深浅色/主题切换后刷新融合带的色罩（采样纹理只带 alpha 曲线，不受影响）。 */
-    fun refreshMaterial(colors: HostChromeColors, preserveHostArtwork: Boolean = false) {
+    fun refreshMaterial(colors: HostChromeColors, preserveHostArtwork: Boolean = false, wallpaper: Boolean = false) {
         val isDark = colors.dark
-        if (colors == materialColors && this.preserveHostArtwork == preserveHostArtwork) return
+        if (colors == materialColors && this.preserveHostArtwork == preserveHostArtwork && this.wallpaper == wallpaper) return
         materialColors = colors
         materialDark = isDark
         this.preserveHostArtwork = preserveHostArtwork
+        this.wallpaper = wallpaper
         band.updateMaterial(
             colors.palette(), preserveHostArtwork
         )

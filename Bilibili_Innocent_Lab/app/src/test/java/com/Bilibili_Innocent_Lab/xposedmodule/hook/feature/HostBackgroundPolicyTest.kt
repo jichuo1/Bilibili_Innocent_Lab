@@ -1,5 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPagePolicy
@@ -11,6 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarSc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarTabSlots
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome.HomeChromeSemanticsPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostStatusBarContrast
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.overlays.HostCopyBubblePlacement
 import com.bilibili.lib.ui.util.MultipleThemeUtils
 import org.junit.Assert.*
@@ -111,12 +113,32 @@ class HostBackgroundPolicyTest {
 
     fun composeButtonsAndInvalidGeometryKeepTheirBackgrounds() {
         assertTrue(HostBackgroundPagePolicy.pageRectangle(1080f, 2300f, 1080))
+        assertTrue(HostBackgroundPagePolicy.pageRectangle(1080f, 222f, 1080))
         assertTrue(HostBackgroundPagePolicy.pageRectangle(1000f, 80f, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(140f, 60f, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(Float.NaN, 60f, 1080))
+        assertFalse(HostBackgroundPagePolicy.pageRectangle(140f, 1600f, 1080))
+        assertFalse(HostBackgroundPagePolicy.pageRectangle(Float.NaN, 1600f, 1080))
         assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, Float.POSITIVE_INFINITY, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, 0f, 1080))
-        assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, 100f, 0))
+        assertFalse(HostBackgroundPagePolicy.pageRectangle(1080f, 1600f, 0))
+    }
+
+    fun fixedComposeEdgeChromeIsSeparatedFromScrollingPanels() {
+        val density = 2.75f
+        assertTrue(HostBackgroundPagePolicy.fixedEdgeChrome(222f, 2340, density, 0f))
+        assertTrue(HostBackgroundPagePolicy.fixedEdgeChrome(122f, 2340, density, 2218f))
+        assertFalse("A scrolling comment panel must not become fixed chrome", HostBackgroundPagePolicy.fixedEdgeChrome(893f, 2340, density, 1f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(1886f, 2340, density, 0f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(277f, 2340, density, 0f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(80f, 2340, density, 0f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(122f, 2340, density, 1000f))
+        assertFalse(HostBackgroundPagePolicy.fixedEdgeChrome(Float.NaN, 2340, density, 0f))
+    }
+
+    fun wallpaperPagesClearAnyVisibleSystemBarTint() {
+        assertTrue(HostBackgroundPagePolicy.systemBarNeedsTransparency(0xff06083d.toInt()))
+        assertTrue(HostBackgroundPagePolicy.systemBarNeedsTransparency(0xffffffff.toInt()))
+        assertTrue(HostBackgroundPagePolicy.systemBarNeedsTransparency(0x80ffffff.toInt()))
+        assertFalse(HostBackgroundPagePolicy.systemBarNeedsTransparency(0x00ffffff))
+        assertFalse(HostBackgroundPagePolicy.systemBarNeedsTransparency(0))
     }
 
     fun nativeComposePanelsKeepBusinessColorsAndThinLines() {
@@ -144,6 +166,8 @@ class HostBackgroundPolicyTest {
         runIsolated { s -> s.artworkAndTranslucentSurfacesAreNotPlainPageFills() }
         runIsolated { s -> s.nativeWindowsCoverUnlistedPagesAndKeepImmersiveWindows() }
         runIsolated { s -> s.composeButtonsAndInvalidGeometryKeepTheirBackgrounds() }
+        runIsolated { s -> s.fixedComposeEdgeChromeIsSeparatedFromScrollingPanels() }
+        runIsolated { s -> s.wallpaperPagesClearAnyVisibleSystemBarTint() }
         runIsolated { s -> s.nativeComposePanelsKeepBusinessColorsAndThinLines() }
 
         HostBackgroundWorldCases().verifyAllCases()
@@ -154,6 +178,7 @@ class HostBackgroundPolicyTest {
         HostContentSemanticClassifierCases().verifyAllCases()
         HostCopyBubblePlacementCases().verifyAllCases()
         HostBackgroundThemeCases().verifyAllCases()
+        HostStatusBarContrastCases().verifyAllCases()
     }
 }
 
@@ -643,5 +668,68 @@ private class HostBackgroundThemeCases {
         runIsolated { s -> s.webProcessUsesTheSamePolicyButUnrelatedProcessesRemainUntouched() }
         runIsolated { s -> s.missingThemeApiLeavesNoHooksInstalled() }
         runIsolated { s -> s.originalThemeReadFailureIsNotSilenced() }
+    }
+}
+
+private class HostStatusBarContrastCases {
+    private val view = View(null)
+
+    fun applyAndRestorePreserveOriginalAndAdoptLateHostChanges() {
+        var lightStatus = false
+        var writes = 0
+        val contrast = HostStatusBarContrast({ lightStatus }, { _, light -> writes++; lightStatus = light })
+
+        contrast.apply(view, darkContent = false)
+        assertTrue(lightStatus)
+        assertEquals(1, writes)
+
+        // 幂等重复写入不触发多余控制器写操作。
+        contrast.apply(view, darkContent = false)
+        assertEquals(1, writes)
+
+        contrast.restore(view)
+        assertFalse(lightStatus)
+        assertEquals(2, writes)
+
+        // 若宿主切页时晚到覆盖了状态栏前景，再次 apply 应采纳宿主新值并在恢复时还原到新值。
+        contrast.apply(view, darkContent = true)
+        assertFalse(lightStatus)
+        lightStatus = true
+        contrast.apply(view, darkContent = true)
+        assertFalse(lightStatus)
+        contrast.restore(view)
+        assertTrue(lightStatus)
+    }
+
+    fun externalOverwriteBeforeRestoreIsNotClobberedAndMissingControllerFailsOpen() {
+        var lightStatus = false
+        val contrast = HostStatusBarContrast({ lightStatus }, { _, light -> lightStatus = light })
+
+        contrast.apply(view, darkContent = false)
+        assertTrue(lightStatus)
+        lightStatus = false // 宿主已主动接管。
+        contrast.apply(view, darkContent = false)
+        assertTrue(lightStatus)
+        contrast.apply(view, darkContent = true)
+        assertFalse(lightStatus)
+        // 恢复前若状态又被宿主改成与 appliedLightStatus 不同的值，则不覆盖。
+        lightStatus = true
+        contrast.restore(view)
+        assertTrue(lightStatus)
+
+        var writes = 0
+        val nullController = HostStatusBarContrast({ null }, { _, _ -> writes++ })
+        nullController.apply(view, darkContent = false)
+        nullController.restore(view)
+        assertEquals(0, writes)
+    }
+
+    fun verifyAllCases() {
+        fun runIsolated(block: (HostStatusBarContrastCases) -> Unit) {
+            val s = HostStatusBarContrastCases()
+            block(s)
+        }
+        runIsolated { s -> s.applyAndRestorePreserveOriginalAndAdoptLateHostChanges() }
+        runIsolated { s -> s.externalOverwriteBeforeRestoreIsNotClobberedAndMissingControllerFailsOpen() }
     }
 }

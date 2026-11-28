@@ -171,6 +171,16 @@ class HomeChromeComposeLocatorTest {
             HostComposeChromeApi.resolveSetModifier(brokenLoader, modBroken)
         }
         assertNull(HostComposeChromeApi.resolve(brokenLoader))
+
+        // AndroidComposeView.getRoot() 可在不调用损坏构造器的情况下直接解析具体 LayoutNode。
+        val rootLoader = phase5ComposeHostLoader(baseLoader, hideLayoutNode = true, brokenConstructor = true, provideGetRoot = true)
+        val modRoot = rootLoader.loadClass("androidx.compose.ui.Modifier")
+        val resolvedRoot = HostComposeLayoutNodeAccess.resolve(rootLoader, modRoot)
+        assertNotNull(resolvedRoot)
+        assertEquals("renamed.compose.LayoutNodeImpl", resolvedRoot!!.owner.name)
+        assertFalse(Modifier.isAbstract(resolvedRoot.setModifier.modifiers))
+        assertEquals("renamed.compose.LayoutNodeImpl", HostComposeChromeApi.resolveSetModifier(rootLoader, modRoot).declaringClass.name)
+        assertEquals("renamed.compose.LayoutNodeImpl", HostComposeTopTabCentering.resolvedSetModifier(rootLoader)?.declaringClass?.name)
     }
 
     fun `HostComposeChromeApi and TopTabCentering survive 2-param fillMaxSize relaxed BiliImage nullable RowKt and probed 6-field RootFill`() {

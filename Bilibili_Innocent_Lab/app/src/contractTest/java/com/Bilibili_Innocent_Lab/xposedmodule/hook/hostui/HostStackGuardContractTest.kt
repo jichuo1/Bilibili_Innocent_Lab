@@ -177,7 +177,7 @@ class HostStackGuardContractTest {
         val workerEntries = mapOf(
             "background/HostBackgroundPageHooks.kt" to listOf(
                 "host.background.page.post", "host.background.list.post",
-                "host.background.comment.post", "host.background.native.post"
+                "host.background.comment.post", "host.background.native.resume"
             ),
             "background/HostBackgroundScene.kt" to listOf(
                 "host.background.scene.worker", "host.background.scene.retry", "host.background.scene.publish"

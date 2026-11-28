@@ -21,6 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPageHooks
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostComposeDrawScopeAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostDetailOverlay
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostPageChrome
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardMaterialScope
@@ -50,6 +51,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -480,6 +482,53 @@ class HostUiPerfHardeningTest {
         assertFalse(MonetColors.canQueryWallpaperColors(sdkInt = 29, wallpaperSupported = false))
     }
 
+    fun `HostComposeDrawScopeAccess resolves obfuscated shared draw scope and falls back safely`() {
+        val baseLoader = requireNotNull(javaClass.classLoader)
+        val obfuscatedLoader = phase5ComposeHostLoader(
+            baseLoader,
+            hideLayoutNode = false,
+            includeKntrTheme = true,
+            obfuscateDrawScope = true
+        )
+        val resolved = HostComposeDrawScopeAccess.resolve(obfuscatedLoader)
+        assertNotNull(resolved)
+        resolved!!
+        assertEquals("renamed.compose.DrawScopeImpl", resolved.scope.name)
+        assertEquals(resolved.scope, resolved.draw.declaringClass)
+        assertNotNull(resolved.drawContext)
+        assertNotNull(resolved.canvas)
+        assertNotNull(resolved.nativeCanvas)
+        val scopeInstance = resolved.scope.getDeclaredConstructor().newInstance()
+        val drawCtx = resolved.drawContext!!.invoke(scopeInstance)
+        val composeCanvas = resolved.canvas!!.invoke(drawCtx)
+        assertTrue(resolved.nativeCanvas!!.invoke(null, composeCanvas) is Canvas)
+        // JVM android.jar 未启用 returnDefaultValues，Matrix/Canvas 桩抛 Stub 异常时需故障开放返回 NaN/null。
+        assertTrue(resolved.translationY(scopeInstance).isNaN())
+        assertNull(resolved.translation(scopeInstance))
+
+        val registrar = PlayerPortTestRegistrar()
+        val env = HookEnvironment(
+            "tv.danmaku.bili", obfuscatedLoader, HookPointRegistry(obfuscatedLoader), registrar,
+            { _, _ -> }, { _, _ -> }, { _, _ -> }
+        )
+        val controller = HostBackgroundController(HostBackgroundConfig(preset = HostBackgroundPreset.STARRY), {})
+        val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(obfuscatedLoader)) {}
+        assertTrue(HostBackgroundPageHooks.install(env, pages) > 0)
+        assertTrue("host_background.compose_fill" in registrar.hooks)
+        assertEquals("renamed.compose.DrawScopeImpl", registrar.hooks.getValue("host_background.compose_fill").member.declaringClass.name)
+
+        // 当 AndroidComposeView 不存在 getSharedDrawScope 且 LayoutNodeDrawScope 无 drawContext 时回退安全。
+        val legacyLoader = phase5ComposeHostLoader(baseLoader, hideLayoutNode = false)
+        val fallback = HostComposeDrawScopeAccess.resolve(legacyLoader)
+        assertNotNull(fallback)
+        fallback!!
+        assertEquals("androidx.compose.ui.node.LayoutNodeDrawScope", fallback.scope.name)
+        assertNull(fallback.drawContext)
+        val legacyScope = fallback.scope.getDeclaredConstructor().newInstance()
+        assertTrue(fallback.translationY(legacyScope).isNaN())
+        assertNull(fallback.translation(legacyScope))
+    }
+
     @Test
     fun verifyAllCases() {
         fun runIsolated(block: (HostUiPerfHardeningTest) -> Unit) {
@@ -500,6 +549,7 @@ class HostUiPerfHardeningTest {
         runIsolated { s -> s.`HostPageChrome trimCaches prunes unattached targets and closes detached host`() }
         runIsolated { s -> s.`HostBackgroundPageHooks supports kntr bilitheme and obfuscated comment3 section header`() }
         runIsolated { s -> s.`oem predictive back inset clamping and monet wallpaper gates hold`() }
+        runIsolated { s -> s.`HostComposeDrawScopeAccess resolves obfuscated shared draw scope and falls back safely`() }
     }
 }
 
@@ -510,8 +560,16 @@ internal fun phase5ComposeHostLoader(
     use2ParamFillMaxSize: Boolean = true,
     omitRowKt: Boolean = false,
     includeKntrTheme: Boolean = false,
-    includeObfuscatedComment3: Boolean = false
+    includeObfuscatedComment3: Boolean = false,
+    obfuscateDrawScope: Boolean = false,
+    provideGetRoot: Boolean = false
 ): ClassLoader {
+    val composeViewTemplate = when {
+        obfuscateDrawScope && provideGetRoot -> TplAndroidComposeViewFull::class.java
+        obfuscateDrawScope -> TplAndroidComposeViewWithSharedScope::class.java
+        provideGetRoot -> if (brokenConstructor) TplAndroidComposeViewWithBrokenNodeRoot::class.java else TplAndroidComposeViewWithRoot::class.java
+        else -> TplAndroidComposeView::class.java
+    }
     val templates = linkedMapOf<String, Class<*>>(
         "androidx.compose.ui.Modifier" to TplModifier::class.java,
         "androidx.compose.ui.Modifier\$Companion" to TplModifier.Companion::class.java,
@@ -532,7 +590,7 @@ internal fun phase5ComposeHostLoader(
         "androidx.compose.runtime.Composer" to TplComposer::class.java,
         "androidx.compose.runtime.CompositionLocal" to TplCompositionLocal::class.java,
         "androidx.compose.ui.platform.AndroidCompositionLocals_androidKt" to TplAndroidLocalsKt::class.java,
-        "androidx.compose.ui.platform.AndroidComposeView" to TplAndroidComposeView::class.java,
+        "androidx.compose.ui.platform.AndroidComposeView" to composeViewTemplate,
         "androidx.compose.ui.node.LayoutNodeDrawScope" to TplLayoutNodeDrawScope::class.java,
         "androidx.compose.runtime.SnapshotIntStateKt" to TplSnapshotIntStateKt::class.java,
         "androidx.compose.runtime.IntState" to TplIntState::class.java,
@@ -559,9 +617,15 @@ internal fun phase5ComposeHostLoader(
         "renamed.compose.BgElement6" to TplBgElement6::class.java
     )
     if (hideLayoutNode) {
-        templates["renamed.compose.LayoutNodeImpl"] = TplLayoutNode::class.java
+        templates["renamed.compose.LayoutNodeImpl"] =
+            if (brokenConstructor) TplBrokenNodeLayoutNode::class.java else TplLayoutNode::class.java
     } else {
-        templates["androidx.compose.ui.node.LayoutNode"] = TplLayoutNode::class.java
+        templates["androidx.compose.ui.node.LayoutNode"] =
+            if (brokenConstructor) TplBrokenNodeLayoutNode::class.java else TplLayoutNode::class.java
+    }
+    if (obfuscateDrawScope) {
+        templates["renamed.compose.DrawScopeImpl"] = TplObfuscatedDrawScope::class.java
+        templates["renamed.compose.DrawContextImpl"] = TplDrawContextImpl::class.java
     }
     templates["androidx.compose.foundation.layout.SizeKt"] =
         if (use2ParamFillMaxSize) TplSizeKtNoDefault::class.java else TplSizeKtDefault::class.java
@@ -593,6 +657,7 @@ internal fun phase5ComposeHostLoader(
 
     val hiddenNames = buildSet {
         if (hideLayoutNode) add("androidx.compose.ui.node.LayoutNode")
+        if (obfuscateDrawScope) add("androidx.compose.ui.node.LayoutNodeDrawScope")
         if (omitRowKt) add("androidx.compose.foundation.layout.RowKt")
         if (includeObfuscatedComment3) add("com.bilibili.app.comment3.data.model.r")
         if (includeKntrTheme) {
@@ -693,12 +758,21 @@ internal class TplLayoutNode : TplComposeUiNode {
     override fun setModifier(mod: TplModifier) { m = mod }
     override fun getModifier(): TplModifier = m
 }
+internal class TplBrokenNodeLayoutNode : TplBrokenComposeUiNode {
+    private var m: TplModifier = TplModifier.Companion
+    override fun setModifier(mod: TplModifier) { m = mod }
+    override fun getModifier(): TplModifier = m
+}
 internal interface TplDrawScope {
     fun `getSize-NH-jbRc`(): Long
     fun getDrawContext(): TplDrawContext
 }
 internal interface TplContentDrawScope : TplDrawScope {
     fun drawContent()
+}
+internal class TplDrawContextImpl : TplDrawContext {
+    private val canvas = TplCanvas()
+    override fun getCanvas(): TplCanvas = canvas
 }
 internal interface TplDrawContext { fun getCanvas(): TplCanvas }
 internal class TplCanvas
@@ -716,6 +790,23 @@ internal object TplAndroidLocalsKt {
     @JvmStatic fun getLocalView(): TplCompositionLocal = local
 }
 internal class TplAndroidComposeView { fun dispatchDraw(c: Canvas) = Unit }
+internal class TplAndroidComposeViewWithRoot {
+    fun dispatchDraw(c: Canvas) = Unit
+    fun getRoot(): TplLayoutNode = TplLayoutNode()
+}
+internal class TplAndroidComposeViewWithBrokenNodeRoot {
+    fun dispatchDraw(c: Canvas) = Unit
+    fun getRoot(): TplBrokenNodeLayoutNode = TplBrokenNodeLayoutNode()
+}
+internal class TplAndroidComposeViewWithSharedScope {
+    fun dispatchDraw(c: Canvas) = Unit
+    fun getSharedDrawScope(): TplObfuscatedDrawScope = TplObfuscatedDrawScope()
+}
+internal class TplAndroidComposeViewFull {
+    fun dispatchDraw(c: Canvas) = Unit
+    fun getRoot(): TplLayoutNode = TplLayoutNode()
+    fun getSharedDrawScope(): TplObfuscatedDrawScope = TplObfuscatedDrawScope()
+}
 internal interface TplIntState { fun getIntValue(): Int }
 internal interface TplMutableIntState : TplIntState { fun setIntValue(v: Int) }
 internal class TplMutableIntStateImpl(private var v: Int) : TplMutableIntState {
@@ -775,6 +866,11 @@ internal object TplKntrBiliThemeKt {
 }
 internal class TplBiliColors { fun `getBg1-0d7_KjU`(): Long = 0L }
 internal class TplLayoutNodeDrawScope {
+    fun `drawRect-n-J9OG0`(color: Long, topLeft: Long, size: Long, alpha: Float, style: Any?, filter: Any?, blendMode: Int) = Unit
+}
+internal class TplObfuscatedDrawScope {
+    private val drawContext: TplDrawContext = TplDrawContextImpl()
+    fun getDrawContext(): TplDrawContext = drawContext
     fun `drawRect-n-J9OG0`(color: Long, topLeft: Long, size: Long, alpha: Float, style: Any?, filter: Any?, blendMode: Int) = Unit
 }
 internal class TplFragment {

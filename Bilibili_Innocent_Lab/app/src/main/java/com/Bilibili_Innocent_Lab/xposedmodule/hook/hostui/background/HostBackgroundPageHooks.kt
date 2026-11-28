@@ -225,41 +225,38 @@ internal object HostBackgroundPageHooks {
                         .map { it.name }.toList())
                 }
                 val root = activity.window?.decorView as? ViewGroup ?: return@after
-                root.post {
-                    HostThreadGuard.run("host.background.native.post") {
-                        if (!root.isAttachedToWindow) return@run
-                        val window = activity.window
-                        if (mediaDetail) {
-                            pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
-                            return@run
-                        }
-                        // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
-                        if (Build.VERSION.SDK_INT < 35) {
-                            @Suppress("DEPRECATION")
-                            if (HostBackgroundPagePolicy.neutral(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
-                            @Suppress("DEPRECATION")
-                            if (HostBackgroundPagePolicy.neutral(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            window.isStatusBarContrastEnforced = false
-                            window.isNavigationBarContrastEnforced = false
-                        }
-                        // 窗口原点涵盖状态栏和原生工具栏，避免窗口白底透出；夜空预设的系统栏文字保持可读。
-                        if (pages.requiresNight) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                window.insetsController?.setSystemBarsAppearance(
-                                    0,
-                                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                                )
-                            } else {
-                                @Suppress("DEPRECATION")
-                                root.systemUiVisibility = root.systemUiVisibility and
-                                    (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
-                            }
-                        }
+                HostThreadGuard.run("host.background.native.resume") {
+                    val window = activity.window
+                    if (mediaDetail) {
                         pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
+                        return@run
                     }
+                    // 非沉浸式旧页面的 Decor 背景会避开不透明系统栏；先让窗口取消这块白色占位。
+                    if (Build.VERSION.SDK_INT < 35) {
+                        @Suppress("DEPRECATION")
+                        if (HostBackgroundPagePolicy.systemBarNeedsTransparency(window.statusBarColor)) window.statusBarColor = Color.TRANSPARENT
+                        @Suppress("DEPRECATION")
+                        if (HostBackgroundPagePolicy.systemBarNeedsTransparency(window.navigationBarColor)) window.navigationBarColor = Color.TRANSPARENT
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        window.isStatusBarContrastEnforced = false
+                        window.isNavigationBarContrastEnforced = false
+                    }
+                    // 窗口原点涵盖状态栏和原生工具栏，避免窗口白底透出；夜空预设的系统栏文字保持可读。
+                    if (pages.requiresNight) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            window.insetsController?.setSystemBarsAppearance(
+                                0,
+                                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            root.systemUiVisibility = root.systemUiVisibility and
+                                (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
+                        }
+                    }
+                    pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE, window)
                 }
             }
         }
@@ -269,8 +266,7 @@ internal object HostBackgroundPageHooks {
     /** 已接入页的纯色底板透出壁纸；媒体子树、描边和小型控件保持原样。 */
     private fun installCompose(environment: HookEnvironment): Int = runCatching {
         val loader = environment.classLoader ?: return@runCatching 0
-        val view = KavaMemberLookup.classOrNull(loader, "androidx.compose.ui.platform.AndroidComposeView") ?: return@runCatching 0
-        val scope = KavaMemberLookup.classOrNull(loader, "androidx.compose.ui.node.LayoutNodeDrawScope") ?: return@runCatching 0
+        val access = HostComposeDrawScopeAccess.resolve(loader) ?: return@runCatching 0
         val colorSources = listOf(
             "com.bilibili.compose.theme.BiliColors" to "host_background.compose_color",
             "kntr.common.bilitheme.BiliColors" to "host_background.compose_color.kntr"
@@ -284,14 +280,9 @@ internal object HostBackgroundPageHooks {
             }.getOrNull()
         }
         if (colorSources.isEmpty()) return@runCatching 0
-        val draw = scope.declaredMethods.singleOrNull {
-            matchesComposeName(it.name, "drawRect") && it.parameterCount == 7 &&
-                it.parameterTypes.take(3).all { p -> p == Long::class.javaPrimitiveType }
-        } ?: return@runCatching 0
-        val dispatch = KavaMemberLookup.methodOrNull(view, "dispatchDraw", Canvas::class.java) ?: return@runCatching 0
         val backgroundColors = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
         val fillTypes = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
-        data class DrawPage(val width: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
+        data class DrawPage(val width: Int, val height: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
         val scopes = ThreadLocal.withInitial { java.util.ArrayDeque<DrawPage>() }
         var installedCount = 0
         for ((hookId, bg) in colorSources) {
@@ -300,14 +291,15 @@ internal object HostBackgroundPageHooks {
             }
             installedCount++
         }
-        environment.registrar.exact("host_background.compose_scope", dispatch.declaringClass, dispatch.name, *dispatch.parameterTypes) {
+        environment.registrar.exact("host_background.compose_scope", access.dispatch.declaringClass, access.dispatch.name, *access.dispatch.parameterTypes) {
             before {
                 val node = instance as? View
                 val kind = node?.let(HostBackgroundPages::kind)
                 val supported = node != null && kind != null && kind != HostBackgroundPagePolicy.Kind.DYNAMIC && !HostBackgroundPages.protectedAncestor(node)
                 val preserveCards = node?.let { commentOwnerActivity(it.context) }?.javaClass?.name ==
                     HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
-                scopes.get()?.push(DrawPage(if (supported) node.width else 0, node?.resources?.displayMetrics?.density ?: 1f,
+                scopes.get()?.push(DrawPage(if (supported) node.width else 0, if (supported) node.height else 0,
+                    node?.resources?.displayMetrics?.density ?: 1f,
                     kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT, preserveCards))
             }
             after {
@@ -316,7 +308,7 @@ internal object HostBackgroundPageHooks {
                 if (stack.isEmpty()) scopes.remove()
             }
         }
-        environment.registrar.exact("host_background.compose_fill", draw.declaringClass, draw.name, *draw.parameterTypes) {
+        environment.registrar.exact("host_background.compose_fill", access.draw.declaringClass, access.draw.name, *access.draw.parameterTypes) {
             before {
                 val page = scopes.get()?.peek() ?: return@before
                 // SrcOver=3；遮罩的 DstIn 等混合方式不能按页面底板跳过。
@@ -324,16 +316,19 @@ internal object HostBackgroundPageHooks {
                 val style = argOrNull(4)?.javaClass ?: return@before
                 // Fill 在宿主中会被混淆；它是无实例字段的单例，Stroke 则携带线宽等实例字段。
                 if (!fillTypes.getOrPut(style) {
-                        style.superclass == draw.parameterTypes[4] && style.declaredFields.all { java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                        style.superclass == access.draw.parameterTypes[4] && style.declaredFields.all { java.lang.reflect.Modifier.isStatic(it.modifiers) }
                     }) return@before
                 val color = argOrNull(0) as? Long ?: return@before
                 // 侧边中心用 Bg2 铺页面，Bg1 绘制内容面板：圆角顶盖和矩形正文是独立节点。
                 // 必须一起保留 Bg1，否则只剩白色顶盖，正文和底部填充被壁纸挖空。
                 if (page.preserveCards && color in backgroundColors) return@before
                 val packed = argOrNull(2) as? Long ?: return@before
+                val width = Float.fromBits((packed ushr 32).toInt())
                 val height = Float.fromBits(packed.toInt())
                 if (color !in backgroundColors && !(page.native && HostBackgroundPagePolicy.nativeComposePanel(color, height, page.density))) return@before
-                if (HostBackgroundPagePolicy.pageRectangle(Float.fromBits((packed ushr 32).toInt()), height, page.width)) result = null
+                if (!HostBackgroundPagePolicy.pageRectangle(width, height, page.width)) return@before
+                val y = instance?.let(access::translationY) ?: Float.NaN
+                if (!HostBackgroundPagePolicy.fixedEdgeChrome(height, page.height, page.density, y)) result = null
             }
         }
         return installedCount + 2
