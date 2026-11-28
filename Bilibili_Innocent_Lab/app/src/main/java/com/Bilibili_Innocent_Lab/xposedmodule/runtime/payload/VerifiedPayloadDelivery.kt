@@ -676,7 +676,7 @@ internal object SecurePayloadStore {
         try {
             Os.chmod(path.toString(), mode)
         } catch (failure: RuntimeException) {
-            if (failure.message == "Stub!") {
+            if (isAndroidUnitTestStubException(failure)) {
                 try {
                     if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
                         Files.setPosixFilePermissions(
@@ -705,6 +705,14 @@ internal object SecurePayloadStore {
                 failure
             )
         }
+    }
+
+    /** 仅识别 Android 单元测试 Stub / AGP mockable-android 抛出的精确 [RuntimeException] 桩异常。 */
+    internal fun isAndroidUnitTestStubException(failure: RuntimeException): Boolean {
+        if (failure::class.java != RuntimeException::class.java) return false
+        val message = failure.message ?: return false
+        return message == "Stub!" ||
+            (message.startsWith("Method ") && message.contains(" not mocked"))
     }
 
     /**

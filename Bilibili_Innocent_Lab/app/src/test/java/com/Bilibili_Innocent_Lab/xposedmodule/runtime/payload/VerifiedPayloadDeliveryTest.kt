@@ -459,6 +459,24 @@ class VerifiedPayloadDeliveryTest {
         } finally {
             pool.shutdownNow()
         }
+
+        // 仅 exact RuntimeException("Stub!" | "Method ... not mocked...") 允许在单测环境回退 POSIX 权限
+        assertTrue(SecurePayloadStore.isAndroidUnitTestStubException(RuntimeException("Stub!")))
+        assertTrue(
+            SecurePayloadStore.isAndroidUnitTestStubException(
+                RuntimeException(
+                    "Method chmod in android.system.Os not mocked. See https://developer.android.com/r/studio-ui/build/not-mocked for details."
+                )
+            )
+        )
+        assertFalse(SecurePayloadStore.isAndroidUnitTestStubException(RuntimeException("Permission denied")))
+        assertFalse(SecurePayloadStore.isAndroidUnitTestStubException(RuntimeException()))
+        assertFalse(SecurePayloadStore.isAndroidUnitTestStubException(SecurityException("Stub!")))
+        assertFalse(
+            SecurePayloadStore.isAndroidUnitTestStubException(
+                IllegalStateException("Method chmod in android.system.Os not mocked.")
+            )
+        )
     }
 
     @Test
