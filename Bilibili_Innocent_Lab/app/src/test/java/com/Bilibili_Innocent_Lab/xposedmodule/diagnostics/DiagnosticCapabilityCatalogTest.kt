@@ -213,6 +213,7 @@ class DiagnosticCapabilityCatalogTest {
         assertTrue(introduced.all { it in 1..DiagnosticCapabilityCatalog.VERSION })
     }
 
+    @org.junit.Test
     fun serverCatalogIsAProjectionOfTheAndroidDirectoryNotASecondManualRegistry() {
         val file = File("../../server/src/analytics/capability-catalog.json")
         // 服务端目录仅保留在本地；公开仓库仍运行所有 Android 目录完整性测试。
@@ -293,7 +294,6 @@ class DiagnosticCapabilityCatalogTest {
         runIsolated { s -> s.codecPreferenceAndDecodeModeHaveIndependentCapabilityLeaves() }
         runIsolated { s -> s.bufferStrategyAndPreloadRemainSeparateRuntimeCapabilities() }
         runIsolated { s -> s.bumpingTheCatalogVersionRequiresAtLeastOneEntryIntroducedAtThatVersion() }
-        runIsolated { s -> s.serverCatalogIsAProjectionOfTheAndroidDirectoryNotASecondManualRegistry() }
         runIsolated { s -> s.allLeafCapabilitiesFitOneBoundedReportWithoutDroppingTheTail() }
         runIsolated { s -> s.unverifiedAndPartialStatesSurviveTheHostProtocolWithoutBecomingInstalled() }
     }

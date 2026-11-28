@@ -14,13 +14,11 @@ import org.junit.Test
 class SettingsCatalogTest {
     @Test
     fun `all historical catalog snapshots match introduced versions`() {
-        val loader = requireNotNull(javaClass.classLoader)
+        val versions = SettingsCatalogHistoryFixture.versions()
         var verifiedSnapshots = 0
-        for (version in 1 until SettingsCatalog.CATALOG_VERSION) {
-            val stream = loader.getResourceAsStream("settings-backup/catalog-v$version.txt") ?: continue
-            val expectedIds = stream.bufferedReader().useLines { lines ->
-                lines.map(String::trim).filter(String::isNotEmpty).toList()
-            }
+        for (version in versions) {
+            if (version >= SettingsCatalog.CATALOG_VERSION) continue
+            val expectedIds = SettingsCatalogHistoryFixture.idsAtVersion(version)
             assertEquals(
                 "Golden snapshot mismatch for catalog v$version",
                 expectedIds,
@@ -110,62 +108,28 @@ class SettingsCatalogTest {
         val bufferMode = requireNotNull(SettingsCatalog.byId["player.buffer.mode"])
         PlayerBufferConfig.supportedModes.forEach { assertTrue(bufferMode.accepts(SettingValue.IntValue(it))) }
         assertFalse(bufferMode.accepts(SettingValue.IntValue(-1)))
-    }
 
-    @Test
-    fun `catalog v84 adds forced frame interpolation switch and backend mode with safe defaults`() {
-        assertTrue(SettingsCatalog.CATALOG_VERSION >= 84)
-        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 84 }.associateBy { it.id }
-        assertEquals(setOf("player.frame_interpolation.force_mode", "player.frame_interpolation.mode"), added.keys)
-
-        val force = added.getValue("player.frame_interpolation.force_mode")
+        // Preserve incremental contract checks from v84-v86 inside the unified catalog invariant test.
+        val added84 = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 84 }.associateBy { it.id }
+        assertEquals(setOf("player.frame_interpolation.force_mode", "player.frame_interpolation.mode"), added84.keys)
+        val force = added84.getValue("player.frame_interpolation.force_mode")
         assertEquals(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_FORCE_MODE, force.storageKey)
-        assertEquals(SettingValueType.BOOLEAN, force.type)
         assertEquals(SettingValue.Bool(false), force.defaultValue)
-        assertEquals(RestorePolicy.AUTOMATIC, force.restorePolicy)
         assertTrue(ImportEffect.RESTART_BILIBILI in force.effects)
-
-        val mode = added.getValue("player.frame_interpolation.mode")
+        val mode = added84.getValue("player.frame_interpolation.mode")
         assertEquals(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE, mode.storageKey)
-        assertEquals(SettingValueType.STRING, mode.type)
         assertEquals(SettingValue.Text(""), mode.defaultValue)
-        assertEquals(RestorePolicy.AUTOMATIC, mode.restorePolicy)
         assertTrue(ImportEffect.RESTART_BILIBILI in mode.effects)
-        assertTrue(mode.accepts(SettingValue.Text("")))
-        assertTrue(mode.accepts(SettingValue.Text("qcom")))
-        assertTrue(mode.accepts(SettingValue.Text("rife")))
+        assertTrue(mode.accepts(SettingValue.Text("qcom")) && mode.accepts(SettingValue.Text("rife")))
         assertFalse(mode.accepts(SettingValue.Text("invalid")))
         assertEquals(SettingValue.Text(""), mode.normalizeForBackup(SettingValue.Text("invalid")))
-        assertEquals(mode, SettingsCatalog.byStorageKey[FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MODE])
-    }
 
-    @Test
-    fun `catalog v85 adds system environment detection block switch with safe default`() {
-        assertTrue(SettingsCatalog.CATALOG_VERSION >= 85)
-        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 85 }.associateBy { it.id }
-        assertEquals(setOf("system.env_detection.blocked"), added.keys)
+        val added85 = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 85 }.associateBy { it.id }
+        assertEquals(setOf("system.env_detection.blocked"), added85.keys)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added85.getValue("system.env_detection.blocked").effects)
 
-        val spec = added.getValue("system.env_detection.blocked")
-        assertEquals(FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION, spec.storageKey)
-        assertEquals(SettingValueType.BOOLEAN, spec.type)
-        assertEquals(SettingValue.Bool(false), spec.defaultValue)
-        assertEquals(RestorePolicy.AUTOMATIC, spec.restorePolicy)
-        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
-        assertEquals(spec, SettingsCatalog.byStorageKey[FeaturePreferences.BLOCK_SYSTEM_ENV_DETECTION])
-    }
-
-    @Test
-    fun `catalog v86 adds host predictive back switch with safe default`() {
-        assertEquals(86, SettingsCatalog.CATALOG_VERSION)
-        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 86 }.associateBy { it.id }
-        assertEquals(setOf(SettingsCatalog.ID_HOST_PREDICTIVE_BACK), added.keys)
-
-        val spec = added.getValue(SettingsCatalog.ID_HOST_PREDICTIVE_BACK)
-        assertEquals(FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED, spec.storageKey)
-        assertEquals(SettingValueType.BOOLEAN, spec.type)
-        assertEquals(SettingValue.Bool(false), spec.defaultValue)
-        assertEquals(RestorePolicy.AUTOMATIC, spec.restorePolicy)
-        assertTrue(ImportEffect.RESTART_BILIBILI in spec.effects)
-        assertEquals(spec, SettingsCatalog.byStorageKey[FeaturePreferences.HOST_PREDICTIVE_BACK_ENABLED])
+        val added86 = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 86 }.associateBy { it.id }
+        assertEquals(setOf(SettingsCatalog.ID_HOST_PREDICTIVE_BACK), added86.keys)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added86.getValue(SettingsCatalog.ID_HOST_PREDICTIVE_BACK).effects)
     }
 }

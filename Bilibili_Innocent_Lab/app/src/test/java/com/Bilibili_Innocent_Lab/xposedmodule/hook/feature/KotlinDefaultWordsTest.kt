@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bapis.bilibili.app.interfaces.v1.DefaultWordsReply
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
@@ -160,6 +161,42 @@ class KotlinDefaultWordsTest {
         assertEquals(original.wire.route, (sink.value as OpaqueWords).wire.route)
     }
 
+    interface Callback4 { fun onNext(v: Any?) }
+    class LegacyKSearchMoss {
+        @Suppress("UNUSED_PARAMETER")
+        fun defaultWords(req: Any, s: SerializationStrategy<*>, d: DeserializationStrategy<*>, h: Callback4) = Unit
+    }
+
+    fun supports4ParamLegacyAcrossJsonRoundtrip() {
+        val mossName = KotlinDefaultWordsLocator.MOSS
+        val loader = TestRenamingClassLoader(
+            parent = requireNotNull(javaClass.classLoader),
+            templates = mapOf(mossName to LegacyKSearchMoss::class.java)
+        )
+        val m = requireNotNull(KotlinDefaultWordsLocator.direct(loader))
+        val point = KotlinDefaultWordsLocator.point(m)
+        assertEquals(4, point.paramClassNames?.size)
+        assertNotNull(KotlinDefaultWordsLocator.resolve(loader, point))
+
+        val diag = VersionAdapter.AdaptDiagnostic("stub", VersionAdapter.AdaptState.FOUND, "ok")
+        val result = VersionAdapter.AdaptResult(
+            biliVersionCode = 9000000, ts = 100L,
+            commentLow = null, commentHigh = null, mineEntry = null,
+            pause = VersionAdapter.PausePoints(emptyList(), null, null, null),
+            banner = null, homeTopBar = VersionAdapter.HomeTopBarPoints(null, null, null, emptyList(), point),
+            mineVip = null, blockUpdate = null, dynamicTabs = null, fullNumbers = null,
+            playerPortrait = null, playerInteractiveOverlays = null, pgcAutoActivityPopup = null,
+            playerStatusBar = null, homeRecommendFeed = null, videoRelate = null, homeTabs = null,
+            homeComponents = null, mineComponents = null, mineAccountMine = null, storyFeed = null,
+            bottomBar = null, playerQuality = null, teenagersMode = null, commentPurify = null,
+            commentFilter = null, commentTopology = null, commentSection = null, splashAds = null,
+            hostFingerprint = "fp",
+            protocolFingerprint = "protocol-v1:1:000000000000000000000000",
+            diagnostics = listOf(diag)
+        )
+        assertNotNull(VersionAdapter.AdaptResult.fromJson(result.toJson()))
+    }
+
     private companion object { const val ID = "home.top_bar.search_default_words.kotlin" }
 
     @org.junit.Test
@@ -176,5 +213,6 @@ class KotlinDefaultWordsTest {
         runIsolated { s -> s.missingKotlinClassKeepsTheJavaBoundaries() }
         runIsolated { s -> s.failedKotlinRegistrationRemainsVisibleWithoutDiscardingJavaHooks() }
         runIsolated { s -> s.cachedRenamedOwnerAndMethodInstallWithoutTheStableMossClass() }
+        runIsolated { s -> s.supports4ParamLegacyAcrossJsonRoundtrip() }
     }
 }

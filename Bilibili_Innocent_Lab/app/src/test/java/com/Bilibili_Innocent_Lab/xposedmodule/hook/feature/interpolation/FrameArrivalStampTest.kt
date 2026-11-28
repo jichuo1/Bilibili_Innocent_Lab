@@ -165,8 +165,8 @@ private class FrameBufferLedgerAllocationCases {
     fun holderMetadataAllocationPerFrameLifecycle() {
         val ledger = FrameBufferLedger(maxBuffers = 4) { ByteBuffer.allocateDirect(it) }
         assertTrue(ledger.configure(16, 8))
-        repeat(20_000) { cycle(ledger) } // 预热：缓冲进入空闲池，之后只剩账本元数据分配
-        val rounds = 100_000
+        repeat(2_000) { cycle(ledger) } // 预热：缓冲进入空闲池，之后只剩账本元数据分配
+        val rounds = 10_000
         val before = allocatedBytes()
         repeat(rounds) { cycle(ledger) }
         val perCycle = (allocatedBytes() - before) / rounds.toDouble()

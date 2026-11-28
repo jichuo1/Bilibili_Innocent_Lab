@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerCapabilityAccess
 import com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply
 import com.bapis.bilibili.playershared.ArcConf
@@ -7,6 +9,12 @@ import com.bapis.bilibili.playershared.PlayArcConf
 import com.bapis.bilibili.app.playurl.v1.ArcConf as LegacyArc
 import com.bapis.bilibili.app.playurl.v1.PlayArcConf as LegacyConfig
 import com.bapis.bilibili.app.playurl.v1.PlayViewReply
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -168,6 +176,68 @@ class PlayerCapabilityAccessTest {
         assertEquals(0, cached.memoizedHashCode)
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    fun `PlayViewUnite unlocks capability via Wire-First without Java Moss`() {
+        val capReg = PlayerPortTestRegistrar()
+        val capLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> = when (name) {
+                "com.bapis.bilibili.app.playerunite.v1.PlayerMoss",
+                "com.bapis.bilibili.app.playurl.v1.PlayURLMoss" -> throw ClassNotFoundException(name)
+                else -> super.loadClass(name, resolve)
+            }
+        }
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        val capResult = PlayerCapabilityFeatureInstaller(
+            PlayerCapabilityOptions(background = true, smallWindow = false, cast = false),
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod)
+        ).install(HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = capLoader,
+            hookPoints = HookPointRegistry(capLoader),
+            registrar = capReg,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { _, _ -> }
+        ))
+        assertTrue(capResult is FeatureInstallResult.Installed)
+        val lockedUnite = PlayViewUniteReply(
+            PlayArcConf(mapOf(PlayerCapability.BACKGROUND.wireId to ArcConf(blocked = true, allowed = false))),
+            video = true
+        )
+        var capOut: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { capOut = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val descriptor = WireStrippedDescriptor("bilibili.app.playerunite.v1", "Player", "PlayViewUnite")
+        capReg.invoke("kmp.grpc.wire.channel", GrpcEngine(emptyList()), arrayOf(Service("host"), descriptor, ByteArray(0), handler, null)) { passed ->
+            (passed[3] as Handler).onNext(lockedUnite.toByteArray())
+            null
+        }
+        val unlockedUnite = PlayViewUniteReply.parseFrom(requireNotNull(capOut))
+        val unlockedBg = unlockedUnite.getPlayArcConf().getArcConfsMap()[PlayerCapability.BACKGROUND.wireId]!!
+        assertFalse(unlockedBg.getDisabled())
+        assertTrue(unlockedBg.getIsSupport())
+        assertTrue(lockedUnite.getPlayArcConf().getArcConfsMap()[PlayerCapability.BACKGROUND.wireId]!!.getDisabled())
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (PlayerCapabilityAccessTest) -> Unit) {
@@ -180,5 +250,6 @@ class PlayerCapabilityAccessTest {
         runIsolated { s -> s.`legacy copy retains unselected configuration and default identities`() }
         runIsolated { s -> s.`empty capability selection and unavailable reply produce no access plan`() }
         runIsolated { s -> s.`resolve allows copy only reply without inplace setter and inplace apply invalidates proto cache`() }
+        runIsolated { s -> s.`PlayViewUnite unlocks capability via Wire-First without Java Moss`() }
     }
 }

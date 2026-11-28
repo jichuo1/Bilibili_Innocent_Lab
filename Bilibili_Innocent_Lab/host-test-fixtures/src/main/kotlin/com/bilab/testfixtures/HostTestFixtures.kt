@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.Deflater
 import java.util.zip.ZipEntry
@@ -118,66 +117,4 @@ object TestElf16KbBuilder {
 
         return bytes
     }
-}
-
-/**
- * Thread-safe typed in-memory key-value store for unit tests.
- */
-class InMemoryKeyValueStore(initial: Map<String, Any> = emptyMap()) {
-    private val store = ConcurrentHashMap<String, Any>().apply {
-        putAll(initial)
-    }
-
-    fun getBoolean(key: String, defaultValue: Boolean = false): Boolean =
-        store[key] as? Boolean ?: defaultValue
-
-    fun getInt(key: String, defaultValue: Int = 0): Int =
-        store[key] as? Int ?: defaultValue
-
-    fun getLong(key: String, defaultValue: Long = 0L): Long =
-        store[key] as? Long ?: defaultValue
-
-    fun getFloat(key: String, defaultValue: Float = 0f): Float =
-        store[key] as? Float ?: defaultValue
-
-    fun getString(key: String, defaultValue: String? = null): String? =
-        store[key] as? String ?: defaultValue
-
-    @Suppress("UNCHECKED_CAST")
-    fun getStringSet(key: String, defaultValue: Set<String>? = null): Set<String>? =
-        (store[key] as? Set<String>)?.toSet() ?: defaultValue
-
-    fun putBoolean(key: String, value: Boolean) {
-        store[key] = value
-    }
-
-    fun putInt(key: String, value: Int) {
-        store[key] = value
-    }
-
-    fun putLong(key: String, value: Long) {
-        store[key] = value
-    }
-
-    fun putFloat(key: String, value: Float) {
-        store[key] = value
-    }
-
-    fun putString(key: String, value: String) {
-        store[key] = value
-    }
-
-    fun putStringSet(key: String, value: Set<String>) {
-        store[key] = value.toSet()
-    }
-
-    fun contains(key: String): Boolean = store.containsKey(key)
-
-    fun remove(key: String): Any? = store.remove(key)
-
-    fun clear() = store.clear()
-
-    fun keys(): Set<String> = store.keys.toSet()
-
-    fun snapshot(): Map<String, Any> = store.toMap()
 }

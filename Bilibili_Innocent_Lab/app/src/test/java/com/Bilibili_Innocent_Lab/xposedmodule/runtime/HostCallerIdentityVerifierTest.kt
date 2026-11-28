@@ -21,8 +21,30 @@ class HostCallerIdentityVerifierTest {
         HostCallerIdentityVerifier.resetAuditForTests()
     }
 
+    private inline fun runIsolated(block: () -> Unit) {
+        HostCallerIdentityVerifier.resetAuditForTests()
+        try {
+            block()
+        } finally {
+            HostCallerIdentityVerifier.resetAuditForTests()
+        }
+    }
+
     @Test
-    fun sameUserExactUidAllowedWithoutCrossUserAudit() {
+    fun verifyHostUidAcceptsAuthorizedUsersAndRejectsMismatchedCallers() {
+        runIsolated { sameUserExactUidAllowedWithoutCrossUserAudit() }
+        runIsolated { sameUserOtherUidStrictlyRejected() }
+        runIsolated { crossUserCloneAndWorkProfileWithMatchingAppIdAllowedAndAudited() }
+        runIsolated { crossUserIsolatedProcessAndMismatchedAppIdAndNonAppUidRejected() }
+    }
+
+    @Test
+    fun verifyProviderAndPendingIntentEnforcePrivilegeAndSenderConsistency() {
+        runIsolated { privilegedShellOnlyAllowedWhenExplicitlyEnabledForReadProvider() }
+        runIsolated { pendingIntentVerificationEnforcesSenderConsistencyAndCrossUserClone() }
+    }
+
+    private fun sameUserExactUidAllowedWithoutCrossUserAudit() {
         val result = HostCallerIdentityVerifier.verifyHostUid(
             callerUid = 10_250,
             primaryHostUid = 10_250,
@@ -37,8 +59,7 @@ class HostCallerIdentityVerifierTest {
         assertNull(HostCallerIdentityVerifier.lastCrossUserAudit())
     }
 
-    @Test
-    fun sameUserOtherUidStrictlyRejected() {
+    private fun sameUserOtherUidStrictlyRejected() {
         val result = HostCallerIdentityVerifier.verifyHostUid(
             callerUid = 10_086,
             primaryHostUid = 10_250,
@@ -52,8 +73,7 @@ class HostCallerIdentityVerifierTest {
         assertEquals(0L, HostCallerIdentityVerifier.crossUserAuditCount())
     }
 
-    @Test
-    fun crossUserCloneAndWorkProfileWithMatchingAppIdAllowedAndAudited() {
+    private fun crossUserCloneAndWorkProfileWithMatchingAppIdAllowedAndAudited() {
         val recorded = mutableListOf<HostCallerIdentityVerifier.CrossUserAuditRecord>()
         HostCallerIdentityVerifier.auditRecorder = { recorded += it }
 
@@ -84,8 +104,7 @@ class HostCallerIdentityVerifierTest {
         assertEquals("work_profile", HostCallerIdentityVerifier.lastCrossUserAudit()?.auditTag)
     }
 
-    @Test
-    fun crossUserIsolatedProcessAndMismatchedAppIdAndNonAppUidRejected() {
+    private fun crossUserIsolatedProcessAndMismatchedAppIdAndNonAppUidRejected() {
         // 隔离进程 UID (90_000..99_999)
         val isolatedUser0 = HostCallerIdentityVerifier.verifyHostUid(90_123, 10_250)
         assertFalse(isolatedUser0.allowed)
@@ -131,8 +150,7 @@ class HostCallerIdentityVerifierTest {
         assertEquals(0L, HostCallerIdentityVerifier.crossUserAuditCount())
     }
 
-    @Test
-    fun privilegedShellOnlyAllowedWhenExplicitlyEnabledForReadProvider() {
+    private fun privilegedShellOnlyAllowedWhenExplicitlyEnabledForReadProvider() {
         // 高敏写入接口仅调用 verifyHostUid：shell/root/self 一律拒绝
         for (privileged in listOf(0, 1000, 2000)) {
             assertFalse(HostCallerIdentityVerifier.verifyHostUid(privileged, 10_250).allowed)
@@ -168,8 +186,7 @@ class HostCallerIdentityVerifierTest {
         )
     }
 
-    @Test
-    fun pendingIntentVerificationEnforcesSenderConsistencyAndCrossUserClone() {
+    private fun pendingIntentVerificationEnforcesSenderConsistencyAndCrossUserClone() {
         val target = HostRuntimeDiagnosticsQueryContract.TARGET_PACKAGE
         // Android 14+ 发送者与 creatorUid 一致（含分身）放行
         val cloneAllowed = HostCallerIdentityVerifier.verifyPendingIntentIdentity(

@@ -1,10 +1,24 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.content.Context
+import android.os.Bundle
+import android.view.View
+import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
+import com.bapis.bilibili.app.interfaces.v1.DefaultWordsReply
 import com.bilibili.lib.homepage.startdust.menu.a
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -236,6 +250,111 @@ class HomeTopBarFeatureInstallerTest {
         assertEquals(listOf("java.util.List", "kotlin.coroutines.Continuation"), compose.paramClassNames)
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    private fun wireEnginePoint(): VersionAdapter.HookPoint {
+        val method = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        return KmpGrpcWireAdapter.point(method)
+    }
+
+    fun `default words filter cleans reply over Wire-First`() {
+        val topReg = PlayerPortTestRegistrar()
+        val loader = requireNotNull(javaClass.classLoader)
+        HomeTopBarFeatureInstaller(
+            hideGameMenu = false,
+            hideSearchDefaultWord = true,
+            points = null,
+            kmpGrpcWireEngine = wireEnginePoint()
+        ).install(
+            HookEnvironment(
+                processName = "tv.danmaku.bili",
+                classLoader = loader,
+                hookPoints = HookPointRegistry(loader),
+                registrar = topReg,
+                logInfo = { _, _ -> },
+                logError = { _, _ -> errors += 1 },
+                reportStatus = { _, _ -> }
+            )
+        )
+        var received: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { received = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val descriptor = WireStrippedDescriptor("bilibili.app.interface.v1", "Search", "DefaultWords")
+        val args = arrayOf<Any?>(Service("host"), descriptor, ByteArray(0), handler, null)
+        topReg.invoke("kmp.grpc.wire.channel", GrpcEngine(emptyList()), args) { passed ->
+            (passed[3] as Handler).onNext(DefaultWordsReply("hot show", "hot word", "hot val", "route").toByteArray())
+            null
+        }
+        val cleanedWords = DefaultWordsReply.parseFrom(requireNotNull(received))
+        assertEquals("", cleanedWords.getShow())
+        assertEquals("", cleanedWords.getWord())
+        assertEquals("", cleanedWords.getValue())
+    }
+
+    interface TemplateHintModel {
+        fun getShow(): String
+        fun getAnimationTimeMilli(): Long
+        fun enableAnimation(): Boolean
+        fun isShowFront(): Boolean
+    }
+    class SwitchTextView(context: Context) : TextView(context)
+    class TemplateBaseMainFrameFragment {
+        @Suppress("unused")
+        private var searchBox: SwitchTextView? = null
+        @Suppress("UNUSED_PARAMETER")
+        fun onViewCreated(view: View, savedInstanceState: Bundle?) = Unit
+    }
+    class TemplateMainFragment {
+        @Suppress("UNUSED_PARAMETER")
+        fun obfuscatedBind(hint: TemplateHintModel?) = Unit
+    }
+
+    fun `locateHomeTopBar matches default word entry with arbitrary method and interface names`() {
+        val mainName = "tv.danmaku.bili.ui.main2.MainFragment"
+        val baseName = "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment"
+        val hintName = "x.y.Z"
+        val loader = TestRenamingClassLoader(
+            javaClass.classLoader!!,
+            templates = mapOf(
+                baseName to TemplateBaseMainFrameFragment::class.java,
+                mainName to TemplateMainFragment::class.java,
+                hintName to TemplateHintModel::class.java
+            ),
+            replacements = mapOf(
+                TemplateHintModel::class.java.name.replace('.', '/') to hintName.replace('.', '/')
+            ),
+            hiddenPrefixes = setOf(
+                "com.bilibili.lib.homepage.startdust.menu.a",
+                "tv.danmaku.bili.home.components.topbar.",
+                KotlinDefaultWordsLocator.MOSS
+            )
+        )
+        val points = requireNotNull(VersionAdapter.locateHomeTopBar(loader))
+        assertEquals(baseName, points.baseOnViewCreated?.className)
+        assertEquals("searchBox", points.baseOnViewCreated?.viewField)
+        val entry = points.defaultWordMethods.single()
+        assertEquals(mainName, entry.className)
+        assertEquals("obfuscatedBind", entry.methodName)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HomeTopBarFeatureInstallerTest) -> Unit) {
@@ -257,5 +376,7 @@ class HomeTopBarFeatureInstallerTest {
         runIsolated { s -> s.`either layer alone still counts as ready`() }
         runIsolated { s -> s.`losing both layers is reported instead of passing silently`() }
         runIsolated { s -> s.`the locator picks the typed invoke and never the bridge overload`() }
+        runIsolated { s -> s.`default words filter cleans reply over Wire-First`() }
+        runIsolated { s -> s.`locateHomeTopBar matches default word entry with arbitrary method and interface names`() }
     }
 }

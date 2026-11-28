@@ -2,12 +2,19 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.bapis.bilibili.app.interfaces.v1.*
 import com.bapis.bilibili.main.community.reply.v1.ReplyInfo
 import com.bapis.bilibili.polymer.app.search.v1.*
 import com.bilibili.lib.moss.api.MossResponseHandler
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -134,6 +141,55 @@ class IndependentCoverageRegressionTest {
         assertSame(rules, rules.available(true, true))
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    fun `search purify filters SearchAll payload over Wire-First`() {
+        val searchReg = PlayerPortTestRegistrar()
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        SearchPurifyFeatureInstaller(
+            removeCommercial = true,
+            keywordFilterEnabled = false,
+            rawKeywords = "",
+            authorFilterEnabled = false,
+            rawAuthorRules = "",
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod)
+        ).install(env.copy(registrar = searchReg))
+        var searchOut: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { searchOut = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val descriptor = WireStrippedDescriptor("bilibili.polymer.app.search.v1", "Search", "SearchAll")
+        searchReg.invoke(
+            "kmp.grpc.wire.channel",
+            GrpcEngine(emptyList()),
+            arrayOf(Service("host"), descriptor, ByteArray(0), handler, null)
+        ) { passed ->
+            (passed[3] as Handler).onNext(
+                SearchAllResponse(listOf(Item(true, SearchAv("ad")), Item(false, SearchAv("normal")))).toByteArray()
+            )
+            null
+        }
+        val cleanedSearch = SearchAllResponse.parseFrom(requireNotNull(searchOut))
+        assertEquals(listOf("normal"), cleanedSearch.getItemList().map { it.getAv().getTitle() })
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (IndependentCoverageRegressionTest) -> Unit) {
@@ -149,5 +205,6 @@ class IndependentCoverageRegressionTest {
         runIsolated { s -> s.`category search reuses judgments without mutating its original list`() }
         runIsolated { s -> s.`missing Story music reader does not disable working advertisement filter`() }
         runIsolated { s -> s.`author paths are independently restricted without changing rule semantics`() }
+        runIsolated { s -> s.`search purify filters SearchAll payload over Wire-First`() }
     }
 }

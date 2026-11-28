@@ -1,5 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TestHookRegistrar
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationBackend.Status
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameMediaPolicy.Audio
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameMediaPolicy.AudioKind
@@ -19,13 +23,19 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FramePr
 import java.nio.ByteBuffer
 import java.util.PriorityQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class FrameMediaPolicyTest {
+    @get:Rule
+    val tempFolder = TemporaryFolder()
     private val epoch = FrameTimeline.Epoch(1, 2, 3, 4, 5)
     private fun signal() = Signal("video/avc", "avc1.640028", Transfer.SDR, Standard.BT709,
         Range.LIMITED, 8, Evidence.NO, Evidence.NO)
@@ -354,6 +364,155 @@ class FrameMediaPolicyTest {
         FramePreparationRetryCases().verifyAllCases()
         FramePresentationRecoveryCases().verifyAllCases()
         FrameProcessingSizeCases().verifyAllCases()
+        verifiesPowerAdvisorAudioTrackAndDisplayPolicy()
+    }
+
+    private fun verifiesPowerAdvisorAudioTrackAndDisplayPolicy() {
+        // FramePowerAdvisor refreshes asynchronously and handles API 27 battery and API 35 thresholds.
+        run {
+            val pendingTasks = ArrayDeque<Runnable>()
+            val manualExecutor = Executor { runnable -> pendingTasks.addLast(runnable) }
+            val samplerCalls = AtomicInteger(0)
+            var currentSample = FramePowerAdvisor.ThermalSample(headroom = 0.65f, severeStatus = false, batteryC = 37.0f)
+            val advisor = FramePowerAdvisor(
+                context = null,
+                targetNs = 16_666_666L,
+                thermalSampler = {
+                    samplerCalls.incrementAndGet()
+                    currentSample
+                },
+                thermalExecutor = manualExecutor
+            )
+            assertNull(advisor.thermalHeadroom(0L))
+            assertEquals(0, samplerCalls.get())
+            assertEquals(1, pendingTasks.size)
+            assertNull(advisor.thermalHeadroom(500_000_000L))
+            assertEquals(1, pendingTasks.size)
+            pendingTasks.removeFirst().run()
+            assertEquals(1, samplerCalls.get())
+            assertEquals(0.65f, advisor.thermalHeadroom(600_000_000L)!!, 0.0001f)
+            assertNull(FrameThermalControl.pauseHeadroom(true) { advisor.thermalHeadroom(700_000_000L) })
+
+            currentSample = FramePowerAdvisor.ThermalSample(headroom = Float.NaN, severeStatus = false, batteryC = 43.2f)
+            assertEquals(0.65f, advisor.thermalHeadroom(1_500_000_000L)!!, 0.0001f)
+            assertEquals(1, pendingTasks.size)
+            pendingTasks.removeFirst().run()
+            assertEquals(2, samplerCalls.get())
+            assertEquals(1.0f, FrameThermalControl.pauseHeadroom(true) { advisor.thermalHeadroom(1_600_000_000L) }!!, 0.0001f)
+            advisor.close()
+            assertNull(advisor.thermalHeadroom(3_000_000_000L))
+
+            assertNull(FramePowerAdvisor.computeEffectiveHeadroom(FramePowerAdvisor.ThermalSample(Float.NaN, false, 42.9f)))
+            assertEquals(1.0f, FramePowerAdvisor.computeEffectiveHeadroom(FramePowerAdvisor.ThermalSample(Float.NaN, false, 43.0f))!!, 0.0001f)
+            assertEquals(0.85f, FramePowerAdvisor.computeEffectiveHeadroom(FramePowerAdvisor.ThermalSample(0.68f, false, 35.0f, 0.80f))!!, 0.0001f)
+            assertEquals(0.75f, FramePowerAdvisor.computeEffectiveHeadroom(FramePowerAdvisor.ThermalSample(0.90f, false, 35.0f, 1.20f))!!, 0.0001f)
+            assertNull(FrameThermalControl.pauseHeadroom(true, threshold = 0.90f) { 0.89f })
+            assertEquals(0.90f, FrameThermalControl.pauseHeadroom(true, threshold = 0.90f) { 0.90f }!!, 0.0001f)
+        }
+
+        // AudioTrack registration helper filters non-media, offload, and invalid formats.
+        run {
+            assertTrue(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                true, false, android.media.AudioAttributes.USAGE_MEDIA, android.media.AudioManager.STREAM_MUSIC, 2, 2, 48_000
+            ))
+            assertTrue(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                true, false, android.media.AudioAttributes.USAGE_UNKNOWN, android.media.AudioManager.STREAM_MUSIC, 4, 1, 44_100
+            ))
+            assertTrue(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                true, false, null, android.media.AudioManager.STREAM_MUSIC, 2, 2, 48_000
+            ))
+            assertFalse(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                false, false, android.media.AudioAttributes.USAGE_MEDIA, android.media.AudioManager.STREAM_MUSIC, 2, 2, 48_000
+            ))
+            assertFalse(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                true, true, android.media.AudioAttributes.USAGE_MEDIA, android.media.AudioManager.STREAM_MUSIC, 2, 2, 48_000
+            ))
+            assertFalse(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                true, false, android.media.AudioAttributes.USAGE_ALARM, android.media.AudioManager.STREAM_ALARM, 2, 2, 48_000
+            ))
+            assertFalse(FrameInterpolationFeatureInstaller.canRegisterAudioTrack(
+                true, false, android.media.AudioAttributes.USAGE_MEDIA, android.media.AudioManager.STREAM_MUSIC, 5, 2, 48_000
+            ))
+        }
+
+        // FrameInterpolationFeatureInstaller gates processes and matches fractional display refresh rates.
+        run {
+            fun env(process: String) = HookEnvironment(
+                processName = process,
+                classLoader = javaClass.classLoader,
+                hookPoints = HookPointRegistry(javaClass.classLoader),
+                registrar = TestHookRegistrar,
+                logInfo = { _, _ -> },
+                logError = { _, _ -> },
+                reportStatus = { _, _ -> }
+            )
+            val installer = FrameInterpolationFeatureInstaller(
+                enabled = true,
+                verificationAllowed = false,
+                moduleApk = tempFolder.newFile("fake.apk")
+            )
+            assertEquals(FeatureInstallResult.Skipped("non-main-process"), installer.install(env("tv.danmaku.bili:download")))
+            assertEquals(FeatureInstallResult.Skipped("non-main-process"), installer.install(env("tv.danmaku.bili:web")))
+
+            val ntscModes = listOf(
+                FrameInterpolationFeatureInstaller.DisplayModeCandidate(1, 1440, 3200, 60.0f),
+                FrameInterpolationFeatureInstaller.DisplayModeCandidate(2, 1440, 3200, 89.91f),
+                FrameInterpolationFeatureInstaller.DisplayModeCandidate(3, 1440, 3200, 119.88f),
+                FrameInterpolationFeatureInstaller.DisplayModeCandidate(4, 1080, 2400, 120.0f)
+            )
+            assertEquals(3, FrameInterpolationFeatureInstaller.selectPreferredDisplayModeId(ntscModes, 1440, 3200, 120))
+            assertEquals(2, FrameInterpolationFeatureInstaller.selectPreferredDisplayModeId(ntscModes, 1440, 3200, 90))
+
+            val panel144 = listOf(
+                FrameInterpolationFeatureInstaller.DisplayModeCandidate(10, 1080, 2400, 60.0f),
+                FrameInterpolationFeatureInstaller.DisplayModeCandidate(11, 1080, 2400, 144.0f)
+            )
+            assertEquals(11, FrameInterpolationFeatureInstaller.selectPreferredDisplayModeId(panel144, 1080, 2400, 120))
+            assertEquals(11, FrameInterpolationFeatureInstaller.selectPreferredDisplayModeId(panel144, 1080, 2400, 72))
+            assertEquals(0, FrameInterpolationFeatureInstaller.selectPreferredDisplayModeId(panel144.take(1), 1080, 2400, 120))
+        }
+
+        // FrameCaptureBridge null displayModes & FrameSourceCadence thread safety.
+        run {
+            assertEquals(emptyList<Float>(), FrameCaptureBridge.displayModes(null))
+            val cadence = FrameSourceCadence(targetFps = 60)
+            val pool = Executors.newFixedThreadPool(2)
+            val start = CountDownLatch(1)
+            try {
+                val writer = pool.submit<Unit> {
+                    start.await(5, TimeUnit.SECONDS)
+                    for (i in 1..4000) {
+                        cadence.add(i * 33_333L)
+                        if (i % 500 == 0) cadence.reset()
+                    }
+                }
+                val reader = pool.submit<Unit> {
+                    start.await(5, TimeUnit.SECONDS)
+                    repeat(4000) {
+                        cadence.verdict()
+                        cadence.sourceFps()
+                        cadence.describe()
+                    }
+                }
+                start.countDown()
+                writer.get(10, TimeUnit.SECONDS)
+                reader.get(10, TimeUnit.SECONDS)
+            } finally {
+                pool.shutdownNow()
+            }
+        }
+
+        // FrameVsyncGrid ring buffer keeps accurate period across window wraparound.
+        run {
+            val period120 = 8_333_333L
+            val grid = FrameVsyncGrid(period120)
+            var t = 1_000_000L
+            repeat(64) { index ->
+                t += if (index % 9 == 4) period120 * 2 else period120
+                assertTrue(grid.onVsync(t))
+            }
+            assertEquals(period120, grid.periodNs)
+        }
     }
 }
 
@@ -773,9 +932,9 @@ private class FrameProcessingSizeCases {
             val result = FrameProcessingSize.fit(w, h, budget, long, short) ?: return@repeat
             val widthLimit = if (w >= h) long else short
             val heightLimit = if (w >= h) short else long
-            assertTrue("$w x $h -> $result", result.width in 64..minOf(w, widthLimit))
-            assertTrue("$w x $h -> $result", result.height in 64..minOf(h, heightLimit))
-            assertTrue("$result", result.width % 2 == 0 && result.height % 2 == 0 && result.pixels <= budget)
+            if (!(result.width in 64..minOf(w, widthLimit))) fail("$w x $h -> $result")
+            if (!(result.height in 64..minOf(h, heightLimit))) fail("$w x $h -> $result")
+            if (!(result.width % 2 == 0 && result.height % 2 == 0 && result.pixels <= budget)) fail("$result")
         }
     }
 

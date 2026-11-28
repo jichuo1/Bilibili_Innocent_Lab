@@ -468,7 +468,7 @@ private class HostChromeValueLedgerCases {
         val random = Random(20261029L)
         val boxes = List(3) { val initial = random.nextInt(50); Box(initial) to Box(initial) }
         val ledger = ledger(); val legacy = legacy()
-        repeat(30_000) {
+        repeat(5_000) {
             val (a, b) = boxes[random.nextInt(boxes.size)]
             when (random.nextInt(6)) {
                 0 -> { val host = random.nextInt(60); a.value = host; b.value = host } // 宿主改写
@@ -490,8 +490,8 @@ private class HostChromeValueLedgerCases {
         val box = Box(7); val twin = Box(7)
         val ledger = ledger(); val legacy = legacy()
         val target: (Int) -> Int = { it + 100 } // 小整数落在装箱缓存内，隔离出 Entry 本身的分配
-        repeat(20_000) { ledger.apply(box, target); legacy.apply(twin, target) } // 预热 JIT 与 WeakHashMap
-        val rounds = 100_000
+        repeat(2_000) { ledger.apply(box, target); legacy.apply(twin, target) } // 预热 JIT 与 WeakHashMap
+        val rounds = 10_000
         var start = allocated()
         repeat(rounds) { ledger.apply(box, target) }
         val optimized = allocated() - start

@@ -61,8 +61,7 @@ class AgentToolCatalogTest {
         assertEquals(RestorePolicy.MANUAL, setting.restorePolicy)
         assertEquals(47, setting.introducedCatalogVersion)
         assertEquals(listOf(AgentPreferences.CATALOG_ID), SettingsCatalog.specs.filter { it.introducedCatalogVersion == 47 }.map { it.id })
-        val golden = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v47.txt"))
-            .bufferedReader().use { it.readLines() }
+        val golden = com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalogHistoryFixture.idsAtVersion(47)
         assertEquals(golden, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 47 }.map { it.id }.sorted())
     }
 

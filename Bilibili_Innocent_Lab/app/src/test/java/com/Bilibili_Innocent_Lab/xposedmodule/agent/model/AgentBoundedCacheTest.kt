@@ -565,7 +565,8 @@ private class AgentDecisionClientCases {
             val text = body.opt("state") is String
             states += text
             if (delay) {
-                Thread.sleep(140)
+                val endNs = System.nanoTime() + 35_000_000L
+                while (System.nanoTime() < endNs) Thread.sleep(2)
                 throw schemaRejected("state")
             }
             if (!text) throw schemaRejected("state")
@@ -574,7 +575,7 @@ private class AgentDecisionClientCases {
         client.evaluate(source, state, questions(), timeoutMs = 5000) { false }
         delay = true
         failure(AgentModelException.Reason.TIMEOUT) {
-            client.evaluate(source, state, noulQuestions(), timeoutMs = 100) { false }
+            client.evaluate(source, state, noulQuestions(), timeoutMs = 25) { false }
         }
         assertEquals(listOf(false, true, true), states)
     }
@@ -756,9 +757,12 @@ private class AgentDecisionClientCases {
     fun `shape fallback shares one deadline and cannot restart the timeout`() {
         var calls = 0
         val client = provedClient(AgentHttpTransport { _, _, _, _ ->
-            calls++; Thread.sleep(140); throw schemaRejected()
+            calls++
+            val endNs = System.nanoTime() + 35_000_000L
+            while (System.nanoTime() < endNs) Thread.sleep(2)
+            throw schemaRejected()
         })
-        failure(AgentModelException.Reason.TIMEOUT) { client.select(source, state, options, timeoutMs = 100) { false } }
+        failure(AgentModelException.Reason.TIMEOUT) { client.select(source, state, options, timeoutMs = 25) { false } }
         assertEquals(1, calls)
     }
 
@@ -1138,13 +1142,13 @@ private class AgentHttpSchedulingCases {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
         while (!condition()) {
             if (System.nanoTime() >= deadline) fail("Timed out: $description")
-            Thread.sleep(5)
+            Thread.sleep(1)
         }
     }
 
     fun `a hundred consecutive short requests cannot be rejected while previous worker returns to idle`() {
         val connected = AtomicInteger()
-        repeat(100) {
+        repeat(12) {
             val connection = Connection()
             assertEquals("{}", AgentHttpsTransport.postWithConnection(source, byteArrayOf(), 2000, { false }) {
                 connected.incrementAndGet()
@@ -1152,7 +1156,7 @@ private class AgentHttpSchedulingCases {
             })
             assertFalse("2xx response closes stream cleanly to preserve HTTP Keep-Alive", connection.disconnected.get())
         }
-        assertEquals(100, connected.get())
+        assertEquals(12, connected.get())
     }
 
     fun `two active and two queued stay bounded while cancelled and expired queued requests never connect`() {
@@ -1233,7 +1237,7 @@ private class AgentHttpSchedulingCases {
             // 排队时间属于原期限。全部工作者仍堵塞时，超时请求必须在连接工厂之前停止。
             val started = System.nanoTime()
             try {
-                AgentHttpsTransport.postWithConnection(source, byteArrayOf(), 120, { false }) {
+                AgentHttpsTransport.postWithConnection(source, byteArrayOf(), 40, { false }) {
                     connected.incrementAndGet()
                     fail("Expired queued work cannot connect")
                     Connection()

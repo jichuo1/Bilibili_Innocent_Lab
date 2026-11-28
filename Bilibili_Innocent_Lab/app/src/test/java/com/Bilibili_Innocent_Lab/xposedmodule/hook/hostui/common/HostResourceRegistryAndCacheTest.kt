@@ -28,6 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sun.misc.Unsafe
+import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
 import java.lang.reflect.Proxy
 import java.net.URLClassLoader
@@ -50,236 +51,256 @@ class HostResourceRegistryAndCacheTest {
     }
 
     @Test
-    fun registryLeasesAutoUnregisterAndDispatchBySeverityWithoutBreakingLegacyUiHiddenContract() {
-        val observed = ArrayList<HostTrimSeverity>()
-        var legacyModerate = 0
-        var legacyCritical = 0
-        HostMemoryPressureBridge.registerTrimCallbacks(
-            onModerate = { legacyModerate++ },
-            onCritical = { legacyCritical++ }
-        )
-
-        val lease = HostMemoryPressureBridge.registerResource("test-cache") { severity ->
-            observed += severity
-        }
-        val sibling = HostResourceRegistry.register("sibling", onTrim = { })
-        assertEquals(2, HostResourceRegistry.activeCount())
-
-        // UI_HIDDEN 只驱动 HostResourceRegistry HIDDEN，绝不触发旧的 moderate/critical 回调。
-        @Suppress("DEPRECATION")
-        HostMemoryPressureBridge.handleTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
-        assertEquals(listOf(HostTrimSeverity.HIDDEN), observed)
-        assertEquals(0, legacyModerate)
-        assertEquals(0, legacyCritical)
-
-        HostMemoryPressureBridge.dispatchModerate()
-        HostMemoryPressureBridge.dispatchCritical()
-        assertEquals(
-            listOf(HostTrimSeverity.HIDDEN, HostTrimSeverity.MODERATE, HostTrimSeverity.CRITICAL),
-            observed
-        )
-
-        // 关闭租约需幂等并立即注销。
-        lease.close()
-        lease.close()
-        assertEquals(1, HostResourceRegistry.activeCount())
-
-        HostMemoryPressureBridge.dispatchModerate()
-        assertEquals(3, observed.size)
-
-        sibling.close()
-        assertEquals(0, HostResourceRegistry.activeCount())
-    }
-
-    @Test
-    fun registryIsolatesExceptionsAndSelfClosingDuringDispatch() {
-        val log = ArrayList<String>()
-        lateinit var selfClosingLease: AutoCloseable
-        val throwingLease = HostResourceRegistry.register("throwing", onTrim = {
-            log += "throwing"
-            error("simulated trim failure")
-        })
-        selfClosingLease = HostResourceRegistry.register("self-closing", onTrim = {
-            log += "self-closing"
-            selfClosingLease.close()
-        })
-        val tailLease = HostResourceRegistry.register("tail", onTrim = {
-            log += "tail"
-        })
-
-        val count = HostResourceRegistry.dispatch(HostTrimSeverity.MODERATE)
-        assertEquals(3, count)
-        assertEquals(listOf("throwing", "self-closing", "tail"), log)
-        assertEquals(2, HostResourceRegistry.activeCount())
-
-        // 已被关闭的 selfClosingLease 不再收到下一轮裁剪。
-        log.clear()
-        HostResourceRegistry.dispatch(HostTrimSeverity.CRITICAL)
-        assertEquals(listOf("throwing", "tail"), log)
-
-        throwingLease.close()
-        tailLease.close()
-    }
-
-    @Test
-    fun boundedClassCacheEnforcesLruCapAndTrimSeveritiesAndClosesLease() {
-        val c1 = SampleTypeA::class.java
-        val c2 = SampleTypeB::class.java
-        val c3 = SampleTypeC::class.java
-        val c4 = SampleTypeD::class.java
-        val c5 = SampleTypeE::class.java
-        val c6 = SampleTypeF::class.java
-        val c7 = SampleTypeG::class.java
-        val c8 = SampleTypeH::class.java
-
-        BoundedClassCache<String>(maxEntries = 3, registerTrim = false).use { lru ->
-            lru.put(c1, "v1")
-            lru.put(c2, "v2")
-            lru.put(c3, "v3")
-            // 刷新 c1 为最新访问，插入 c4 应驱逐最久未使用的 c2。
-            assertEquals("v1", lru.get(c1))
-            lru.put(c4, "v4")
-            assertEquals(3, lru.size)
-            assertNull(lru.get(c2))
-            assertEquals("v1", lru.get(c1))
-            assertEquals("v3", lru.get(c3))
-            assertEquals("v4", lru.get(c4))
-        }
-
-        val cache = BoundedClassCache<String>(maxEntries = 8, tag = "bounded-test")
-        assertEquals(1, HostResourceRegistry.activeCount())
-        listOf(c1, c2, c3, c4, c5, c6, c7, c8).forEachIndexed { idx, cls ->
-            cache.put(cls, "v$idx")
-        }
-        assertEquals(8, cache.size)
-
-        @Suppress("DEPRECATION")
-        HostMemoryPressureBridge.handleTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
-        assertEquals(4, cache.size)
-        // 默认 50% 保留最新访问的 4 项（c5..c8）。
-        assertNull(cache.get(c1))
-        assertEquals("v7", cache.get(c8))
-
-        HostMemoryPressureBridge.dispatchModerate()
-        assertEquals(1, cache.size)
-
-        HostMemoryPressureBridge.dispatchCritical()
-        assertEquals(0, cache.size)
-
-        cache.close()
-        assertEquals(0, HostResourceRegistry.activeCount())
-    }
-
-    @Test
-    fun boundedClassCacheSupportsNullableNegativeCachingAndGuardsInvalidValues() {
-        BoundedClassCache<String>(maxEntries = 8, registerTrim = false).use { cache ->
-            var computeCount = 0
-            val first = cache.getOrPutNullable(SampleTypeA::class.java) {
-                computeCount++
-                null
-            }
-            val second = cache.getOrPutNullable(SampleTypeA::class.java) {
-                computeCount++
-                "should-not-run"
-            }
-            assertNull(first)
-            assertNull(second)
-            assertEquals(1, computeCount)
-            assertTrue(cache.containsKey(SampleTypeA::class.java))
-        }
-
-        BoundedClassCache<Any>(maxEntries = 4, registerTrim = false).use { rawCache ->
-            assertThrows(IllegalArgumentException::class.java) {
-                rawCache.put(SampleTypeA::class.java, URLClassLoader(emptyArray(), javaClass.classLoader))
-            }
-            val unsafeField = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }
-            val unsafe = unsafeField.get(null) as Unsafe
-            val fakeView = unsafe.allocateInstance(View::class.java) as View
-            assertThrows(IllegalArgumentException::class.java) {
-                rawCache.put(SampleTypeB::class.java, fakeView)
-            }
-        }
-    }
-
-    @Test
-    fun boundedClassCacheDoesNotStronglyRetainDynamicClassOrClassLoader() {
-        val cache = BoundedClassCache<String>(maxEntries = 16, registerTrim = false)
+    fun verifyResourceRegistryDispatchAndBridgeIntegration() {
+        // registryLeasesAutoUnregisterAndDispatchBySeverityWithoutBreakingLegacyUiHiddenContract
         try {
-            val (loaderRef, classRef) = populateWithDynamicProxyClass(cache)
-            assertTrue(cache.size >= 1)
+            val observed = ArrayList<HostTrimSeverity>()
+            var legacyModerate = 0
+            var legacyCritical = 0
+            HostMemoryPressureBridge.registerTrimCallbacks(
+                onModerate = { legacyModerate++ },
+                onCritical = { legacyCritical++ }
+            )
 
-            // 触发 GC 与弱键清理；缓存只能弱持有 Class，不可阻止动态 ClassLoader 卸载。
-            for (attempt in 0 until 20) {
-                if (classRef.get() == null && loaderRef.get() == null) break
-                System.gc()
-                System.runFinalization()
-                val sink = ArrayList<ByteArray>(32)
-                repeat(8) { sink += ByteArray(64 * 1024) }
-                Thread.sleep(25)
-                cache.expungeStale()
-            }
-            cache.expungeStale()
-            assertNull("WeakClassKey must not retain dynamic Class", classRef.get())
-            assertNull("WeakClassKey must not retain dynamic ClassLoader", loaderRef.get())
-            assertEquals(0, cache.size)
+            val lease = HostMemoryPressureBridge.registerResource("test-cache") { severity -> observed += severity }
+            val sibling = HostResourceRegistry.register("sibling", onTrim = { })
+            assertEquals(2, HostResourceRegistry.activeCount())
+
+            @Suppress("DEPRECATION")
+            HostMemoryPressureBridge.handleTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+            assertEquals(listOf(HostTrimSeverity.HIDDEN), observed)
+            assertEquals(0, legacyModerate)
+            assertEquals(0, legacyCritical)
+
+            HostMemoryPressureBridge.dispatchModerate()
+            HostMemoryPressureBridge.dispatchCritical()
+            assertEquals(
+                listOf(HostTrimSeverity.HIDDEN, HostTrimSeverity.MODERATE, HostTrimSeverity.CRITICAL),
+                observed
+            )
+
+            lease.close()
+            lease.close()
+            assertEquals(1, HostResourceRegistry.activeCount())
+
+            HostMemoryPressureBridge.dispatchModerate()
+            assertEquals(3, observed.size)
+
+            sibling.close()
+            assertEquals(0, HostResourceRegistry.activeCount())
         } finally {
+            HostMemoryPressureBridge.resetForTests()
+        }
+
+        // registryIsolatesExceptionsAndSelfClosingDuringDispatch
+        run {
+            val log = ArrayList<String>()
+            lateinit var selfClosingLease: AutoCloseable
+            val throwingLease = HostResourceRegistry.register("throwing", onTrim = {
+                log += "throwing"
+                error("simulated trim failure")
+            })
+            selfClosingLease = HostResourceRegistry.register("self-closing", onTrim = {
+                log += "self-closing"
+                selfClosingLease.close()
+            })
+            val tailLease = HostResourceRegistry.register("tail", onTrim = { log += "tail" })
+
+            val count = HostResourceRegistry.dispatch(HostTrimSeverity.MODERATE)
+            assertEquals(3, count)
+            assertEquals(listOf("throwing", "self-closing", "tail"), log)
+            assertEquals(2, HostResourceRegistry.activeCount())
+
+            log.clear()
+            HostResourceRegistry.dispatch(HostTrimSeverity.CRITICAL)
+            assertEquals(listOf("throwing", "tail"), log)
+
+            throwingLease.close()
+            tailLease.close()
+        }
+
+        // installedBridgeDispatchesUiHiddenEvenWithActivePressureAdapterAndUnregistersOnReset
+        try {
+            val registered = ArrayList<ComponentCallbacks>()
+            val unregistered = ArrayList<ComponentCallbacks>()
+            val app = allocateRecordingApp(registered, unregistered)
+            val observed = ArrayList<HostTrimSeverity>()
+            var legacyModerate = 0
+            var legacyCritical = 0
+
+            HostMemoryPressureBridge.registerTrimCallbacks(
+                onModerate = { legacyModerate++ },
+                onCritical = { legacyCritical++ }
+            )
+            val cache = BoundedClassCache<String>(maxEntries = 4, tag = "ui-hidden-cache")
+            listOf(
+                SampleTypeA::class.java,
+                SampleTypeB::class.java,
+                SampleTypeC::class.java,
+                SampleTypeD::class.java
+            ).forEachIndexed { idx, cls -> cache.put(cls, "v$idx") }
+            val lease = HostResourceRegistry.register("ui-hidden-observer", onTrim = { observed += it })
+
+            try {
+                HostMemoryPressureBridge.install(app)
+                assertEquals(2, registered.size)
+
+                @Suppress("DEPRECATION")
+                registered.toList().forEach {
+                    (it as ComponentCallbacks2).onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+                }
+                assertEquals(listOf(HostTrimSeverity.HIDDEN), observed)
+                assertEquals(0, legacyModerate)
+                assertEquals(0, legacyCritical)
+                assertEquals(2, cache.size)
+
+                HostMemoryPressureBridge.resetForTests()
+                assertTrue(registered.isEmpty())
+                assertEquals(2, unregistered.size)
+            } finally {
+                lease.close()
+                cache.close()
+            }
+        } finally {
+            HostMemoryPressureBridge.resetForTests()
+            recordedAppCallbacks = null
+            unregisteredAppCallbacks = null
+        }
+
+        // bridgeExecutorsEnableCoreThreadTimeoutWithPositiveKeepAlive
+        run {
+            val executors = listOf(
+                HostRuntimeDiagnosticsBridge::class.java.getDeclaredField("versionSignalExecutor")
+                    .apply { isAccessible = true }.get(HostRuntimeDiagnosticsBridge) as ThreadPoolExecutor,
+                HostRuntimeDiagnosticsBridge::class.java.getDeclaredField("persistenceExecutor")
+                    .apply { isAccessible = true }.get(HostRuntimeDiagnosticsBridge) as ThreadPoolExecutor,
+                MineComponentSnapshotHostBridge::class.java.getDeclaredField("persistenceExecutor")
+                    .apply { isAccessible = true }.get(MineComponentSnapshotHostBridge) as ThreadPoolExecutor
+            )
+            for (executor in executors) {
+                assertTrue("Bridge executor should allow core thread timeout", executor.allowsCoreThreadTimeOut())
+                assertTrue("Bridge executor keepAliveTime must be > 0", executor.getKeepAliveTime(TimeUnit.MILLISECONDS) > 0L)
+            }
+        }
+    }
+
+    @Test
+    fun verifyBoundedClassCacheSemanticsAndClassLoaderReclaim() {
+        // boundedClassCacheEnforcesLruCapAndTrimSeveritiesAndClosesLease
+        try {
+            val c1 = SampleTypeA::class.java
+            val c2 = SampleTypeB::class.java
+            val c3 = SampleTypeC::class.java
+            val c4 = SampleTypeD::class.java
+            val c5 = SampleTypeE::class.java
+            val c6 = SampleTypeF::class.java
+            val c7 = SampleTypeG::class.java
+            val c8 = SampleTypeH::class.java
+
+            BoundedClassCache<String>(maxEntries = 3, registerTrim = false).use { lru ->
+                lru.put(c1, "v1")
+                lru.put(c2, "v2")
+                lru.put(c3, "v3")
+                assertEquals("v1", lru.get(c1))
+                lru.put(c4, "v4")
+                assertEquals(3, lru.size)
+                assertNull(lru.get(c2))
+                assertEquals("v1", lru.get(c1))
+                assertEquals("v3", lru.get(c3))
+                assertEquals("v4", lru.get(c4))
+            }
+
+            val cache = BoundedClassCache<String>(maxEntries = 8, tag = "bounded-test")
+            assertEquals(1, HostResourceRegistry.activeCount())
+            listOf(c1, c2, c3, c4, c5, c6, c7, c8).forEachIndexed { idx, cls -> cache.put(cls, "v$idx") }
+            assertEquals(8, cache.size)
+
+            @Suppress("DEPRECATION")
+            HostMemoryPressureBridge.handleTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+            assertEquals(4, cache.size)
+            assertNull(cache.get(c1))
+            assertEquals("v7", cache.get(c8))
+
+            HostMemoryPressureBridge.dispatchModerate()
+            assertEquals(1, cache.size)
+
+            HostMemoryPressureBridge.dispatchCritical()
+            assertEquals(0, cache.size)
+
             cache.close()
+            assertEquals(0, HostResourceRegistry.activeCount())
+        } finally {
+            HostMemoryPressureBridge.resetForTests()
+        }
+
+        // boundedClassCacheSupportsNullableNegativeCachingAndGuardsInvalidValues
+        run {
+            BoundedClassCache<String>(maxEntries = 8, registerTrim = false).use { cache ->
+                var computeCount = 0
+                val first = cache.getOrPutNullable(SampleTypeA::class.java) {
+                    computeCount++
+                    null
+                }
+                val second = cache.getOrPutNullable(SampleTypeA::class.java) {
+                    computeCount++
+                    "should-not-run"
+                }
+                assertNull(first)
+                assertNull(second)
+                assertEquals(1, computeCount)
+                assertTrue(cache.containsKey(SampleTypeA::class.java))
+            }
+
+            BoundedClassCache<Any>(maxEntries = 4, registerTrim = false).use { rawCache ->
+                assertThrows(IllegalArgumentException::class.java) {
+                    rawCache.put(SampleTypeA::class.java, URLClassLoader(emptyArray(), javaClass.classLoader))
+                }
+                val unsafeField = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }
+                val unsafe = unsafeField.get(null) as Unsafe
+                val fakeView = unsafe.allocateInstance(View::class.java) as View
+                assertThrows(IllegalArgumentException::class.java) {
+                    rawCache.put(SampleTypeB::class.java, fakeView)
+                }
+            }
+        }
+
+        // boundedClassCacheDoesNotStronglyRetainDynamicClassOrClassLoader
+        run {
+            val cache = BoundedClassCache<String>(maxEntries = 16, registerTrim = false)
+            try {
+                val queue = ReferenceQueue<Any>()
+                val (loaderRef, classRef) = populateWithDynamicProxyClass(cache, queue)
+                assertTrue(cache.size >= 1)
+
+                for (attempt in 0 until 20) {
+                    if (classRef.get() == null && loaderRef.get() == null) break
+                    System.gc()
+                    System.runFinalization()
+                    val sink = ArrayList<ByteArray>(8)
+                    repeat(4) { sink += ByteArray(32 * 1024) }
+                    queue.remove(5L)
+                    cache.expungeStale()
+                }
+                cache.expungeStale()
+                assertNull("WeakClassKey must not retain dynamic Class", classRef.get())
+                assertNull("WeakClassKey must not retain dynamic ClassLoader", loaderRef.get())
+                assertEquals(0, cache.size)
+            } finally {
+                cache.close()
+            }
         }
     }
 
     @Suppress("DEPRECATION")
     private fun populateWithDynamicProxyClass(
-        cache: BoundedClassCache<String>
+        cache: BoundedClassCache<String>,
+        queue: ReferenceQueue<Any>
     ): Pair<WeakReference<ClassLoader>, WeakReference<Class<*>>> {
         val loader = URLClassLoader(emptyArray(), javaClass.classLoader)
         val proxyClass = Proxy.getProxyClass(loader, Runnable::class.java)
         cache.put(proxyClass, "dynamic-marker")
         assertEquals("dynamic-marker", cache.get(proxyClass))
-        return WeakReference<ClassLoader>(loader) to WeakReference<Class<*>>(proxyClass)
-    }
-
-    @Test
-    fun installedBridgeDispatchesUiHiddenEvenWithActivePressureAdapterAndUnregistersOnReset() {
-        val registered = ArrayList<ComponentCallbacks>()
-        val unregistered = ArrayList<ComponentCallbacks>()
-        val app = allocateRecordingApp(registered, unregistered)
-        val observed = ArrayList<HostTrimSeverity>()
-        var legacyModerate = 0
-        var legacyCritical = 0
-
-        HostMemoryPressureBridge.registerTrimCallbacks(
-            onModerate = { legacyModerate++ },
-            onCritical = { legacyCritical++ }
-        )
-        val cache = BoundedClassCache<String>(maxEntries = 4, tag = "ui-hidden-cache")
-        listOf(
-            SampleTypeA::class.java,
-            SampleTypeB::class.java,
-            SampleTypeC::class.java,
-            SampleTypeD::class.java
-        ).forEachIndexed { idx, cls -> cache.put(cls, "v$idx") }
-        val lease = HostResourceRegistry.register("ui-hidden-observer", onTrim = { observed += it })
-
-        try {
-            HostMemoryPressureBridge.install(app)
-            assertEquals(2, registered.size)
-
-            @Suppress("DEPRECATION")
-            registered.toList().forEach {
-                (it as ComponentCallbacks2).onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
-            }
-            assertEquals(listOf(HostTrimSeverity.HIDDEN), observed)
-            assertEquals(0, legacyModerate)
-            assertEquals(0, legacyCritical)
-            assertEquals(2, cache.size)
-
-            HostMemoryPressureBridge.resetForTests()
-            assertTrue(registered.isEmpty())
-            assertEquals(2, unregistered.size)
-        } finally {
-            lease.close()
-            cache.close()
-        }
+        return WeakReference<ClassLoader>(loader, queue) to WeakReference<Class<*>>(proxyClass, queue)
     }
 
     @Test
@@ -291,7 +312,7 @@ class HostResourceRegistryAndCacheTest {
         }
         val (contentSource, contentViewRef) = createCollectedContentSourceSample()
         awaitGc(contentViewRef)
-        assertNull("HostChromeContentSource must allow coordinateView collection", contentViewRef.get())
+        assertTrue("HostChromeContentSource must allow coordinateView collection", contentViewRef.get() == null)
         assertNull(contentSource.coordinateViewOrNull)
         assertEquals(LumenSourceAvailability.TEMPORARILY_UNAVAILABLE, contentSource.availability)
 
@@ -303,8 +324,8 @@ class HostResourceRegistryAndCacheTest {
         val (chromeKeeper, bandRef, pageRootRef) = createPageChromeSample()
         awaitGc(bandRef)
         awaitGc(pageRootRef)
-        assertNull("HostPageChrome must not retain statusBand strongly", bandRef.get())
-        assertNull("HostPageChrome must not retain root via statusBand", pageRootRef.get())
+        assertTrue("HostPageChrome must not retain statusBand strongly", bandRef.get() == null)
+        assertTrue("HostPageChrome must not retain root via statusBand", pageRootRef.get() == null)
         assertNotNull(chromeKeeper)
 
         // 3. HostSurfaceScope$Surface & HostPrismSurface: prismSurface 弱引用 + detach() 显式清理。
@@ -360,8 +381,8 @@ class HostResourceRegistryAndCacheTest {
         }
         awaitGc(cardViewRef)
         awaitGc(retainedDrawableRef)
-        assertNull("State.surface must not pin card View", cardViewRef.get())
-        assertNull("Retained surface Drawable should be reclaimable", retainedDrawableRef.get())
+        assertTrue("State.surface must not pin card View", cardViewRef.get() == null)
+        assertTrue("Retained surface Drawable should be reclaimable", retainedDrawableRef.get() == null)
         // 触发 WeakHashMap 清理并验证 trimCaches 安全执行且清空已回收状态。
         assertEquals(0, cardStates.size)
         cardStyle.trimCaches()
@@ -373,7 +394,7 @@ class HostResourceRegistryAndCacheTest {
         val ownedMap = weakMapClass.getDeclaredConstructor().apply { isAccessible = true }.newInstance() as MutableMap<View, Drawable>
         val bgViewRef = populateWeakDrawableMap(ownedMap)
         awaitGc(bgViewRef)
-        assertNull("WeakDrawableMap must not retain View via Drawable", bgViewRef.get())
+        assertTrue("WeakDrawableMap must not retain View via Drawable", bgViewRef.get() == null)
         assertTrue(ownedMap.isEmpty())
 
         val pageClass = Class.forName("com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages\$Page")
@@ -477,33 +498,17 @@ class HostResourceRegistryAndCacheTest {
         return WeakReference(bgView)
     }
 
-    @Test
-    fun bridgeExecutorsEnableCoreThreadTimeoutWithPositiveKeepAlive() {
-        val executors = listOf(
-            HostRuntimeDiagnosticsBridge::class.java.getDeclaredField("versionSignalExecutor")
-                .apply { isAccessible = true }.get(HostRuntimeDiagnosticsBridge) as ThreadPoolExecutor,
-            HostRuntimeDiagnosticsBridge::class.java.getDeclaredField("persistenceExecutor")
-                .apply { isAccessible = true }.get(HostRuntimeDiagnosticsBridge) as ThreadPoolExecutor,
-            MineComponentSnapshotHostBridge::class.java.getDeclaredField("persistenceExecutor")
-                .apply { isAccessible = true }.get(MineComponentSnapshotHostBridge) as ThreadPoolExecutor
-        )
-        for (executor in executors) {
-            assertTrue("Bridge executor should allow core thread timeout", executor.allowsCoreThreadTimeOut())
-            assertTrue("Bridge executor keepAliveTime must be > 0", executor.getKeepAliveTime(TimeUnit.MILLISECONDS) > 0L)
-        }
-    }
-
     @Suppress("UNCHECKED_CAST")
     private fun <T> alloc(clazz: Class<T>): T = unsafe.allocateInstance(clazz) as T
 
     private fun awaitGc(ref: WeakReference<*>) {
-        repeat(25) {
+        for (attempt in 0 until 30) {
             if (ref.get() == null) return
             System.gc()
             System.runFinalization()
             @Suppress("UNUSED_VARIABLE")
-            val pressure = ByteArray(64 * 1024)
-            Thread.sleep(20)
+            val pressure = ByteArray(32 * 1024)
+            Thread.sleep(5)
         }
     }
 

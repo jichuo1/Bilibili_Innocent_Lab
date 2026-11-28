@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bilibili.lib.homepage.mine.MenuGroupV2
 import org.junit.Assert.*
 import org.junit.Test
@@ -280,6 +281,59 @@ class MineComponentModelBoundaryTest {
         assertEquals(listOf(132L), value.directRenderGroups().single().directRenderItems().map { it.id })
     }
 
+    class TemplateAccountMine(@JvmField val sectionListV2: List<Any> = emptyList())
+    class TemplateMenuItem
+    open class TemplateRecyclerAdapter
+    class TemplateQ3Adapter : TemplateRecyclerAdapter()
+    class TemplateMineFragment(
+        @JvmField val z9List: List<Any> = emptyList(),
+        @JvmField val q3Adapter: TemplateQ3Adapter = TemplateQ3Adapter()
+    ) {
+        fun m1(a: TemplateAccountMine) = Unit
+        fun m2(a: TemplateAccountMine) = Unit
+        fun m3(a: TemplateAccountMine) = Unit
+        fun m4(a: TemplateAccountMine) = Unit
+        fun m5(a: TemplateAccountMine) = Unit
+        fun wg(a: TemplateAccountMine, refresh: Boolean) = Unit
+        class InnerClick {
+            fun customClick(item: TemplateMenuItem) = Unit
+        }
+    }
+
+    fun `locateMineEntry and MineComponentFilter handle 5 one-arg plus unique 2-arg build and renamed fields`() {
+        val fragName = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment"
+        val accountName = "tv.danmaku.bili.ui.main2.api.AccountMine"
+        val itemName = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
+        val clickName = "$fragName\$InnerClick"
+        val adapterName = "q3AdapterCls"
+        val loader = TestRenamingClassLoader(
+            javaClass.classLoader!!,
+            templates = mapOf(
+                fragName to TemplateMineFragment::class.java,
+                clickName to TemplateMineFragment.InnerClick::class.java,
+                accountName to TemplateAccountMine::class.java,
+                itemName to TemplateMenuItem::class.java,
+                adapterName to TemplateQ3Adapter::class.java
+            ),
+            replacements = mapOf(
+                TemplateMineFragment.InnerClick::class.java.name.replace('.', '/') to clickName.replace('.', '/'),
+                TemplateMineFragment::class.java.name.replace('.', '/') to fragName.replace('.', '/'),
+                TemplateAccountMine::class.java.name.replace('.', '/') to accountName.replace('.', '/'),
+                TemplateMenuItem::class.java.name.replace('.', '/') to itemName.replace('.', '/'),
+                TemplateQ3Adapter::class.java.name.replace('.', '/') to adapterName,
+                TemplateRecyclerAdapter::class.java.name.replace('.', '/') to "androidx/recyclerview/widget/RecyclerView\$Adapter"
+            )
+        )
+        val entry = requireNotNull(VersionAdapter.locateMineEntry(loader, allowModuleInstance = true))
+        val build = entry.buildMethods.single()
+        assertEquals("wg", build.methodName)
+        assertEquals(listOf(accountName, "boolean"), build.paramClassNames)
+        assertEquals("z9List", entry.groupListField)
+        assertEquals("q3Adapter", entry.adapterField)
+        assertEquals("customClick", entry.clickMethod.methodName)
+        assertEquals(clickName, entry.clickMethod.className)
+    }
+
     companion object {
         private fun oldItem(title: String, id: Long, uri: String = "bili://$id") =
             com.bilibili.lib.homepage.mine.MenuGroup.Item(title).also {
@@ -322,5 +376,6 @@ class MineComponentModelBoundaryTest {
         runIsolated { s -> s.`missing standard settings constructor safely restores one populated group without false applied evidence`() }
         runIsolated { s -> s.`instance AccountMine consumer filters its first argument and preserves settings`() }
         runIsolated { s -> s.`failed constructor unwinds its depth without processing a partial model`() }
+        runIsolated { s -> s.`locateMineEntry and MineComponentFilter handle 5 one-arg plus unique 2-arg build and renamed fields`() }
     }
 }

@@ -17,6 +17,10 @@ import org.junit.Test
  */
 class BlockUpdateExceptionPolicyTest {
 
+    class FakeUpdateSupplier {
+        fun checkUpdate() = Unit
+    }
+
     private val loader = javaClass.classLoader!!
     private val point = VersionAdapter.HookPoint(
         className = "tv.danmaku.bili.update.internal.UpdateChecker",
@@ -137,6 +141,63 @@ class BlockUpdateExceptionPolicyTest {
         assertTrue(errors.none { it.startsWith("block_update_caller") })
     }
 
+    fun `installer retries supplier layer idempotently without duplicating caller hooks`() {
+        val portRegistrar = PlayerPortTestRegistrar()
+        val adaptedAttempts = mutableListOf<String>()
+        val trackingRegistrar = object : HookRegistrar by portRegistrar {
+            override fun adapted(
+                id: String,
+                point: VersionAdapter.HookPoint,
+                exceptionPolicy: HookExceptionPolicy,
+                block: ModernMemberHookCreator.() -> Unit
+            ) {
+                adaptedAttempts += id
+            }
+        }
+        val stages = mutableListOf<FeatureRuntimeStage>()
+        val retryStatuses = linkedMapOf<String, String>()
+        val env = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = loader,
+            hookPoints = HookPointRegistry(loader),
+            registrar = trackingRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { k, v -> retryStatuses[k] = v },
+            runtimeEvidence = { _, stage, _ -> stages += stage }
+        )
+        var supplierPoint: VersionAdapter.HookPoint? = null
+        val installer = BlockUpdateFeatureInstaller(
+            enabled = true,
+            point = null,
+            pointProvider = { supplierPoint }
+        )
+
+        val run1 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(3, run1.hookCount)
+        assertEquals(false, run1.complete)
+        assertTrue(installer.requiresAdaptationRetry)
+        assertEquals("caller-only", retryStatuses["block_update_status"])
+        assertEquals(3, portRegistrar.registrationAttempts.size)
+        assertTrue(adaptedAttempts.isEmpty())
+
+        supplierPoint = VersionAdapter.HookPoint(FakeUpdateSupplier::class.java.name, "checkUpdate", emptyList())
+        val run2 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(4, run2.hookCount)
+        assertTrue(run2.complete)
+        assertEquals(false, installer.requiresAdaptationRetry)
+        assertEquals("success", retryStatuses["block_update_status"])
+        assertEquals(3, portRegistrar.registrationAttempts.size)
+        assertEquals(listOf("update.block.check"), adaptedAttempts)
+        assertTrue(FeatureRuntimeStage.ADAPTED in stages)
+
+        val run3 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(4, run3.hookCount)
+        assertTrue(run3.complete)
+        assertEquals(3, portRegistrar.registrationAttempts.size)
+        assertEquals(listOf("update.block.check"), adaptedAttempts)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (BlockUpdateExceptionPolicyTest) -> Unit) {
@@ -148,5 +209,6 @@ class BlockUpdateExceptionPolicyTest {
         runIsolated { s -> s.`the caller layer still installs when the supplier point is missing`() }
         runIsolated { s -> s.`the force update recovery entry is deliberately left alone`() }
         runIsolated { s -> s.`a host without the update helper keeps the supplier layer only`() }
+        runIsolated { s -> s.`installer retries supplier layer idempotently without duplicating caller hooks`() }
     }
 }

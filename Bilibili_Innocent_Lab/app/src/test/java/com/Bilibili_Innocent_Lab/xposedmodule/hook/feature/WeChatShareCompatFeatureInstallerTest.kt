@@ -2,8 +2,12 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.invoke
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareClasses
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareCompatAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.WeChatShareVersionProfile
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bilibili.socialize.share.core.BiliShareConfiguration
 import com.tencent.mm.opensdk.openapi.BaseWXApiImplV10
 import com.tencent.mm.opensdk.openapi.WXAPIFactory
@@ -199,6 +203,133 @@ class WeChatShareCompatFeatureInstallerTest {
         assertNull(WeChatShareVersionProfile.forVersion(9130400))
     }
 
+    class FakeNonZeroArgModernWx(
+        @Suppress("UNUSED_PARAMETER") context: android.content.Context,
+        @Suppress("UNUSED_PARAMETER") type: WeChatShareType
+    ) {
+        @JvmField val api: com.tencent.mm.opensdk.openapi.IWXAPI? = null
+        @Suppress("UNUSED_PARAMETER")
+        fun initialize(mode: Int): Boolean = true
+    }
+
+    fun `drifted profile falls back to cached classes and retries idempotently`() {
+        val baseLoader = requireNotNull(javaClass.classLoader)
+        val driftedLoader = TestRenamingClassLoader(parent = baseLoader, hiddenNames = setOf("gz0.a"))
+        val cachedClasses = WeChatShareClasses(
+            legacyOwner = "kz3.a",
+            legacyInitialize = "t",
+            modernOwner = "kntr.common.share.common.handler.wx.k",
+            modernInitialize = "j",
+            usesLegacyConstructors = true
+        )
+        assertNull(WeChatShareCompatAccess.locate(driftedLoader, 9130500, cached = null))
+        assertNotNull(WeChatShareCompatAccess.locate(driftedLoader, 9130500, cached = cachedClasses))
+
+        val portRegistrar = PlayerPortTestRegistrar()
+        val statuses = linkedMapOf<String, String>()
+        val retryStages = mutableListOf<FeatureRuntimeStage>()
+        val env = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = driftedLoader,
+            hookPoints = HookPointRegistry(driftedLoader),
+            registrar = portRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { k, v -> statuses[k] = v },
+            runtimeEvidence = { _, stage, _ -> retryStages += stage }
+        )
+
+        val installer = WeChatShareCompatFeatureInstaller(
+            enabled = true,
+            cachedClasses = null,
+            hostVersionCode = { 9130500 }
+        )
+        assertEquals(FeatureInstallResult.Skipped("missing-verified-share-structure"), installer.install(env))
+        assertTrue(installer.requiresAdaptationRetry)
+        assertTrue(portRegistrar.registrationAttempts.isEmpty())
+
+        installer.updateAdaptedClasses(cachedClasses)
+        val run2 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(3, run2.hookCount)
+        assertTrue(run2.complete)
+        assertFalse(installer.requiresAdaptationRetry)
+        assertEquals("success", statuses["wechat_share_compat_status"])
+        assertEquals(3, portRegistrar.registrationAttempts.size)
+        assertTrue(FeatureRuntimeStage.ADAPTED in retryStages)
+
+        val run3 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(3, run3.hookCount)
+        assertTrue(run3.complete)
+        assertEquals(3, portRegistrar.registrationAttempts.size)
+    }
+
+    fun `partial profile drift falls back to complete cache and discover rejects parameterized initialize`() {
+        val baseLoader = requireNotNull(javaClass.classLoader)
+        val partialLoader = TestRenamingClassLoader(
+            parent = baseLoader,
+            hiddenNames = setOf("kntr.common.share.common.handler.wx.k")
+        )
+        val directPartial = requireNotNull(WeChatShareCompatAccess.locate(partialLoader, 8890400, cached = null))
+        assertEquals(1, directPartial.wrappers.size)
+        assertEquals(2, directPartial.expectedWrappers)
+
+        val completeCache = WeChatShareClasses(
+            legacyOwner = "kz3.a",
+            legacyInitialize = "t",
+            modernOwner = "FlatWave1WeChatWrapper",
+            modernInitialize = "m",
+            usesLegacyConstructors = true
+        )
+        val preferredCache = requireNotNull(WeChatShareCompatAccess.locate(partialLoader, 8890400, cached = completeCache))
+        assertEquals(2, preferredCache.wrappers.size)
+
+        val portRegistrar = PlayerPortTestRegistrar()
+        val env = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = partialLoader,
+            hookPoints = HookPointRegistry(partialLoader),
+            registrar = portRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { _, _ -> }
+        )
+        val installer = WeChatShareCompatFeatureInstaller(
+            enabled = true,
+            cachedClasses = null,
+            hostVersionCode = { 8890400 }
+        )
+        val run1 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(2, run1.hookCount)
+        assertFalse(run1.complete)
+        assertTrue(installer.requiresAdaptationRetry)
+        assertEquals(2, portRegistrar.registrationAttempts.size)
+
+        installer.updateAdaptedClasses(completeCache)
+        val run2 = installer.install(env) as FeatureInstallResult.Installed
+        assertEquals(3, run2.hookCount)
+        assertTrue(run2.complete)
+        assertFalse(installer.requiresAdaptationRetry)
+        assertEquals(3, portRegistrar.registrationAttempts.size)
+        assertEquals(
+            listOf("wechat.share.factory", "wechat.share.legacy", "wechat.share.kntr"),
+            portRegistrar.registrationAttempts.map { it.first }
+        )
+
+        val wxBadLoader = TestRenamingClassLoader(
+            parent = baseLoader,
+            templates = mapOf("kntr.common.share.common.handler.wx.BadModern" to FakeNonZeroArgModernWx::class.java)
+        )
+        val legacyInit = wxBadLoader.loadClass("kz3.a").getMethod("t")
+        val badModernInit = wxBadLoader.loadClass("kntr.common.share.common.handler.wx.BadModern")
+            .getMethod("initialize", Int::class.javaPrimitiveType)
+        assertNull(
+            WeChatShareCompatAccess.discover(
+                wxBadLoader,
+                DexAssistResult.Candidates(listOf(legacyInit, badModernInit))
+            )
+        )
+    }
+
     private class Chain(private val member: Executable, private val receiver: Any?,
         private val arguments: Array<Any?>, private val original: (Array<Any?>) -> Any?) : XposedInterface.Chain {
         override fun getExecutable(): Executable = member
@@ -234,5 +365,7 @@ class WeChatShareCompatFeatureInstallerTest {
         runIsolated { s -> s.`newer host uses its verified wrappers and leaves unrelated instances alone`() }
         runIsolated { s -> s.`newer host reports partial when the legacy share signature cannot be verified`() }
         runIsolated { s -> s.`audited profile includes the locally verified build and distinguishes nearby variants`() }
+        runIsolated { s -> s.`drifted profile falls back to cached classes and retries idempotently`() }
+        runIsolated { s -> s.`partial profile drift falls back to complete cache and discover rejects parameterized initialize`() }
     }
 }

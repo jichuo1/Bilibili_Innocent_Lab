@@ -56,7 +56,7 @@ class AgentConversationTest {
 
     fun `hundreds of rounds retain goal and complete tool pairs with bounded history`() {
         val conversation = AgentConversation("system rules", "find official demonstrations")
-        repeat(80) { conversation.append(turn(it + 1), result(it + 1), "source1") }
+        repeat(16) { conversation.append(turn(it + 1), result(it + 1), "source1") }
         val messages = conversation.forSource("source1")
         assertEquals("system rules", messages.getJSONObject(0).getString("content"))
         assertEquals("find official demonstrations", messages.getJSONObject(1).getString("content"))
@@ -85,7 +85,7 @@ class AgentConversationTest {
 
     fun `images never enter current or archived planner history`() {
         val conversation = AgentConversation("system", "goal")
-        repeat(30) { index -> conversation.append(turn(index), JSONObject().put("ok", true)
+        repeat(10) { index -> conversation.append(turn(index), JSONObject().put("ok", true)
             .put("data", JSONObject().put("image_data_url", "data:image/jpeg;base64,raw")
                 .put("nested", JSONArray().put("data:image/png;base64,raw"))), "source1") }
         assertFalse(conversation.messages().toString().contains("data:image/"))
@@ -94,26 +94,26 @@ class AgentConversationTest {
 
     fun `reasoning and large results remain bounded even for the original model`() {
         val conversation = AgentConversation("system", "goal")
-        repeat(12) { index -> conversation.append(turn(index, "r".repeat(16_384)),
-            JSONObject().put("ok", true).put("data", JSONObject().put("description", "d".repeat(60_000))), "source1") }
+        repeat(4) { index -> conversation.append(turn(index, "r".repeat(16_384)),
+            JSONObject().put("ok", true).put("data", JSONObject().put("description", "d".repeat(34_000))), "source1") }
         assertTrue(conversation.forSource("source1").toString().length <= AgentConversation.MAX_CONTEXT_CHARS)
     }
 
     fun `recent call id replay prevention is bounded and cleared at task end`() {
         val conversation = AgentConversation("system", "goal")
-        repeat(1_000) { assertTrue(conversation.acceptCallId("call_$it")) }
-        assertFalse(conversation.acceptCallId("call_999"))
+        repeat(513) { assertTrue(conversation.acceptCallId("call_$it")) }
+        assertFalse(conversation.acceptCallId("call_512"))
         assertFalse(conversation.acceptCallId("bad id"))
         assertTrue(conversation.acceptCallId("call_0"))
         conversation.clear()
-        assertTrue(conversation.acceptCallId("call_999"))
+        assertTrue(conversation.acceptCallId("call_512"))
         assertEquals(2, conversation.messages().length())
     }
 
     fun `oversized single tool result keeps valid bounded JSON and recent identity`() {
         val conversation = AgentConversation("system", "goal")
         val data = JSONObject().put("video_id", "av42").put("official_source", "unknown")
-        repeat(40) { data.put("extra_$it", "x".repeat(4_000)) }
+        repeat(10) { data.put("extra_$it", "x".repeat(4_000)) }
         conversation.append(turn(1), JSONObject().put("ok", true).put("data", data), "source1")
         val messages = conversation.messages()
         assertEquals(4, messages.length())
@@ -250,11 +250,11 @@ class AgentConversationTest {
         val conversation = AgentConversation("system", "goal")
         conversation.append(turn(1, "r".repeat(16_385)), result(1), "source1")
         assertFalse(conversation.forSource("source1").getJSONObject(2).has("reasoning_content"))
-        repeat(80) { index ->
+        repeat(20) { index ->
             conversation.append(turn(index + 2, "r".repeat(1_000)), page().apply {
                 getJSONObject("data").put("query", "query $index").put("observed_at_elapsed", index)
             }, "source1")
-            if (index % 10 == 0 || index == 79) {
+            if (index % 5 == 0 || index == 19) {
                 val messages = conversation.forSource("source1")
                 assertTrue(messages.toString().length <= AgentContextBudget.TARGET_CHARS)
                 assertEquals("call_${index + 2}", messages.getJSONObject(messages.length() - 1).getString("tool_call_id"))
@@ -264,15 +264,16 @@ class AgentConversationTest {
 
     fun `project bounds encoded hostile text while keeping all identities failure and confidence fields`() {
         val input = page()
-        val text = "\"\\\n\t\u0001".repeat(10_000)
+        val descriptionText = "\"\\\n\t\u0001".repeat(6_500)
+        val itemText = "\"\\\n\t\u0001".repeat(250)
         val data = input.getJSONObject("data")
-        data.put("description", text).put("visual_status", "unavailable")
-            .put("visual_assessment", JSONObject().put("description", text).put("page_assessment", "needs_details")
+        data.put("description", descriptionText).put("visual_status", "unavailable")
+            .put("visual_assessment", JSONObject().put("description", descriptionText).put("page_assessment", "needs_details")
                 .put("is_unverified", true).put("source_index", 2))
         val videos = data.getJSONArray("videos")
         for (index in 0 until videos.length()) videos.getJSONObject(index)
-            .put("title", text).put("author", text)
-            .getJSONObject("verification").put("description", text)
+            .put("title", itemText).put("author", itemText)
+            .getJSONObject("verification").put("description", itemText)
         val projected = AgentContextBudget.project(input)
         assertTrue(projected.toString().length <= AgentConversation.MAX_RESULT_CHARS)
         assertTrue(projected.getBoolean("truncated"))

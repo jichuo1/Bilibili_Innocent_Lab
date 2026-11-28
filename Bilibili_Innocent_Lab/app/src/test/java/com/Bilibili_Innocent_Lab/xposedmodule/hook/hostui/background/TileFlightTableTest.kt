@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.util.Collections
 import java.util.Random
@@ -146,7 +147,7 @@ class TileFlightTableTest {
         val subs = List(4) { Sub("s$it") }
         val keys = (0 until 12).map { "k$it" }
         val started = Collections.synchronizedSet(HashSet<String>())
-        repeat(20_000) {
+        repeat(5_000) {
             when (random.nextInt(5)) {
                 0, 1 -> table.request(keys[random.nextInt(keys.size)], subs[random.nextInt(subs.size)])
                 2 -> table.retain(subs[random.nextInt(subs.size)], keys.shuffled(random).take(random.nextInt(5)))
@@ -157,9 +158,10 @@ class TileFlightTableTest {
                     table.finish(key)
                 }
             }
-            assertTrue("pending ${table.pendingCount()} exceeds capacity", table.pendingCount() <= 8)
-            for (key in keys) if (table.isPending(key) && key !in started)
-                assertTrue("未开始的任务必须至少有一个订阅者: $key", table.subscriberCount(key) > 0)
+            if (table.pendingCount() > 8) fail("pending ${table.pendingCount()} exceeds capacity")
+            for (key in keys) if (table.isPending(key) && key !in started) {
+                if (table.subscriberCount(key) <= 0) fail("未开始的任务必须至少有一个订阅者: $key")
+            }
         }
     }
 

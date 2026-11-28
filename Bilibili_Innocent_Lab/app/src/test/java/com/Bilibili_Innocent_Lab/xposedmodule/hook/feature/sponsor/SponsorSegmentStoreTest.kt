@@ -7,14 +7,16 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class SponsorSegmentStoreTest {
+    @get:Rule
     val folder = TemporaryFolder()
+    private lateinit var caseRoot: File
     private var time = 1_000_000L
     private val video = SponsorVideoId("BV1pVWu6ZEzn", 43486676261)
     private val segments = listOf(SponsorSegment("a6447b58b813db92", 74_636, 103_813, 566_000),
         SponsorSegment("b-2_x", 200_000, 210_000, 0))
-    private fun store(root: File = folder.root, maxEntries: Int = SponsorSegmentStore.MAX_ENTRIES) =
+    private fun store(root: File = caseRoot, maxEntries: Int = SponsorSegmentStore.MAX_ENTRIES) =
         SponsorSegmentStore(root, maxEntries = maxEntries) { time }
-    private fun directory() = File(folder.root, SponsorSegmentStore.DIRECTORY)
+    private fun directory() = File(caseRoot, SponsorSegmentStore.DIRECTORY)
     private fun entries() = directory().listFiles().orEmpty().filter { it.name.endsWith(".json") }
 
     fun aWrittenEntryReadsBackWithItsSavedTime() {
@@ -63,8 +65,8 @@ class SponsorSegmentStoreTest {
 
     fun theEntryLimitEvictsTheOldestWrites() {
         assertEquals(256, SponsorSegmentStore.MAX_ENTRIES)
-        val limit = 8
-        val total = limit + 5
+        val limit = 3
+        val total = limit + 3
         val limitedStore = store(maxEntries = limit)
         repeat(total) { index ->
             time = 1_000_000L + index * 1_000L
@@ -85,14 +87,14 @@ class SponsorSegmentStoreTest {
 
     fun purgeRemovesOnlyTheCacheDirectoryContent() {
         store().write(video, segments)
-        val sibling = File(folder.root, "keep.txt").apply { writeText("keep") }
+        val sibling = File(caseRoot, "keep.txt").apply { writeText("keep") }
         store().purge()
         assertFalse(directory().exists()); assertTrue(sibling.exists())
         store().purge() // 目录不存在时也不抛
     }
 
     fun anUnwritableRootIsASilentNoOp() {
-        val notADirectory = folder.newFile("occupied")
+        val notADirectory = File(caseRoot, "occupied").apply { writeText("") }
         val broken = store(notADirectory)
         broken.write(video, segments)
         assertNull(broken.read(video))
@@ -102,13 +104,9 @@ class SponsorSegmentStoreTest {
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (SponsorSegmentStoreTest) -> Unit) {
-            val s = SponsorSegmentStoreTest()
-            s.folder.create()
-            try {
-                block(s)
-            } finally {
-                s.folder.delete()
-            }
+            caseRoot = folder.newFolder()
+            time = 1_000_000L
+            block(this)
         }
         runIsolated { s -> s.aWrittenEntryReadsBackWithItsSavedTime() }
         runIsolated { s -> s.theDiskNeverShowsTheVideoIdentityAndEachPartHasItsOwnFile() }

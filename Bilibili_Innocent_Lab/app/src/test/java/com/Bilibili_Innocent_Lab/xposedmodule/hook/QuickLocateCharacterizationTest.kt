@@ -7,7 +7,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
@@ -19,10 +21,14 @@ import java.io.File
  * 诊断详情按分隔符拆开排序、协议摘要只保留条目数。这些顺序在旧实现里本来就没有语义保证；
  * 缺失/多出的点、诊断 id 或状态变化、条目数变化都会被检出。
  *
- * 基线由改动前的实现生成；期望变化时（宿主夹具或规则版本变更）删除资源后重跑，候选文件写到
- * `app/build/golden-candidates/`，人工核对后再复制回 `src/test/resources/golden/`。
+ * 基线由改动前的实现生成；期望变化时（宿主夹具或规则版本变更）删除资源后重跑，候选文件写入
+ * `TemporaryFolder` 临时目录的 `golden-candidates/`，人工核对后再复制回 `src/test/resources/golden/`。
  */
 class QuickLocateCharacterizationTest {
+    @Rule
+    @JvmField
+    val tempFolder = TemporaryFolder()
+
     private val fixtureLoader: ClassLoader = ClassLoader.getSystemClassLoader()
     private val emptyLoader: ClassLoader = object : ClassLoader(null) {}
 
@@ -125,8 +131,7 @@ class QuickLocateCharacterizationTest {
     private fun assertGolden(resource: String, actual: JSONObject) {
         val stream = javaClass.classLoader.getResourceAsStream(resource)
         if (stream == null) {
-            val candidate = File("build/golden-candidates/${resource.substringAfterLast('/')}")
-            candidate.parentFile.mkdirs()
+            val candidate = File(tempFolder.newFolder("golden-candidates"), resource.substringAfterLast('/'))
             candidate.writeText(canonical(actual), Charsets.UTF_8)
             fail("缺少基线资源 $resource；候选已写入 ${candidate.absolutePath}")
         }
@@ -195,17 +200,13 @@ class QuickLocateCharacterizationTest {
 
     @org.junit.Test
     fun verifyAllCases() {
-        fun runIsolated(block: (QuickLocateCharacterizationTest) -> Unit) {
-            val s = QuickLocateCharacterizationTest()
-            block(s)
-        }
-        runIsolated { s -> s.`fixture host quick locate result matches the pre-plan baseline`() }
-        runIsolated { s -> s.`host without any known class yields no result`() }
-        runIsolated { s -> s.`fixture result is not trivially empty so the baseline is meaningful`() }
-        runIsolated { s -> s.`normalization ignores enumeration order but not content`() }
-        runIsolated { s -> s.`a role prefix belongs to its list and not to whichever element comes first`() }
-        runIsolated { s -> s.`role lists still catch a missing element a moved element or a swapped role`() }
-        runIsolated { s -> s.`every diagnostic detail of the baseline survives another enumeration order of its lists`() }
-        runIsolated { s -> s.`comma separated roles keep their element association`() }
+        `fixture host quick locate result matches the pre-plan baseline`()
+        `host without any known class yields no result`()
+        `fixture result is not trivially empty so the baseline is meaningful`()
+        `normalization ignores enumeration order but not content`()
+        `a role prefix belongs to its list and not to whichever element comes first`()
+        `role lists still catch a missing element a moved element or a swapped role`()
+        `every diagnostic detail of the baseline survives another enumeration order of its lists`()
+        `comma separated roles keep their element association`()
     }
 }

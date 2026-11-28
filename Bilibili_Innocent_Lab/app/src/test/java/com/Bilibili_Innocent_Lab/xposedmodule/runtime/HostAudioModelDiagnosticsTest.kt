@@ -1,10 +1,28 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentScanEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineComponentSnapshotCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecForceFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecPreference
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerDecodeMode
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortTestRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
+import com.bapis.bilibili.app.playerunite.v1.CodeType
+import com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq
+import com.bapis.bilibili.app.playerunite.v1.VideoVod
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -32,6 +50,63 @@ class HostAudioModelDiagnosticsTest {
         }
     }
 
+    fun `player codec force resolves direct grpc wire surface even when kmpGrpcWireEngine is null`() {
+        val wireLoader = TestRenamingClassLoader(
+            parent = javaClass.classLoader!!,
+            templates = mapOf(KmpGrpcWireAdapter.ENGINE to GrpcEngine::class.java)
+        )
+        val direct = KmpGrpcWireAdapter.resolve(wireLoader, null)
+        assertNotNull("cold cache null hook point must still resolve direct wire surface", direct)
+
+        val registrar = PlayerPortTestRegistrar()
+        val environment = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = wireLoader,
+            hookPoints = HookPointRegistry(wireLoader),
+            registrar = registrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { _, _ -> }
+        )
+        val result = PlayerCodecForceFeatureInstaller(
+            codecPreferenceValue = PlayerCodecPreference.AV1.value,
+            decodeModeValue = PlayerDecodeMode.FOLLOW_HOST.value,
+            kmpGrpcWireEngine = null
+        ).install(environment)
+
+        assertEquals(FeatureInstallResult.Installed(5), result)
+        assertTrue(
+            "PlayerCodecForce must install KmpGrpcWireChannel directly on cold cache",
+            registrar.hooks.containsKey("kmp.grpc.wire.channel")
+        )
+
+        val engineClass = wireLoader.loadClass(KmpGrpcWireAdapter.ENGINE)
+        val engineInstance = engineClass.getConstructor(List::class.java).newInstance(emptyList<Any>())
+        val descriptor = Descriptor(
+            "bilibili.app.playerunite.v1",
+            "Player",
+            "PlayViewUnite",
+            PlayViewUniteReq::class,
+            DummyStrategy
+        )
+        val sink = object : Handler {
+            override fun onNext(bytes: ByteArray?) = Unit
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val sourceBytes = PlayViewUniteReq(VideoVod(CodeType.CODE_UNKNOWN, 16)).toByteArray()
+        val wireBytes = registrar.invoke(
+            "kmp.grpc.wire.channel",
+            engineInstance,
+            arrayOf(Service("grpc.biliapi.net"), descriptor, sourceBytes, sink, null)
+        ) { args -> args[2] as ByteArray } as ByteArray
+        val rewritten = PlayViewUniteReq.parseFrom(wireBytes)
+        assertEquals(CodeType.CODEAV1, rewritten.getVod().getPreferCodecType())
+        assertEquals(2064, rewritten.getVod().getFnval())
+    }
+
+    private object DummyStrategy : SerializationStrategy<Any>
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HostAudioModelDiagnosticsTest) -> Unit) {
@@ -41,6 +116,7 @@ class HostAudioModelDiagnosticsTest {
         runIsolated { s -> s.`live model readiness survives the diagnostic wire`() }
         runIsolated { s -> s.`old receipts stay readable without claiming model readiness`() }
         runIsolated { s -> s.`arbitrary text and non-string model states are rejected`() }
+        runIsolated { s -> s.`player codec force resolves direct grpc wire surface even when kmpGrpcWireEngine is null`() }
     
         HostClassLoaderIdentityCases().`same named classes resolve and match only inside their host loader`()
         HostProcessWakePolicyCases().verifyAllCases()

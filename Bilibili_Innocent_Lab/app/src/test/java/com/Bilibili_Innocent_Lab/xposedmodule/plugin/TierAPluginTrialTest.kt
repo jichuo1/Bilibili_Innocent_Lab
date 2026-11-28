@@ -63,8 +63,29 @@ class TierAPluginTrialTest {
         initialAdaptResult = { null }
     )
 
+    private inline fun runIsolated(block: () -> Unit) {
+        HostMemoryPressureBridge.resetForTests()
+        FreeCopyRuntimeConfig.freeCopyLightCache = null
+        FreeCopyGestureState.clearDescTouchSession(resetHandled = true)
+        FreeCopyGestureState.clearCommentTouchSession(resetHandled = true)
+        try {
+            block()
+        } finally {
+            HostMemoryPressureBridge.resetForTests()
+            FreeCopyRuntimeConfig.freeCopyLightCache = null
+            FreeCopyGestureState.clearDescTouchSession(resetHandled = true)
+            FreeCopyGestureState.clearCommentTouchSession(resetHandled = true)
+        }
+    }
+
     @Test
-    fun freeCopyTierAModuleManifestPassesValidationAndMatchesDeclarativeHookTier() {
+    fun verifyAllCases() {
+        runIsolated { freeCopyTierAModuleManifestPassesValidationAndMatchesDeclarativeHookTier() }
+        runIsolated { createInstallerProducesRealFreeCopyFeatureInstallerAndInstallsViaCoordinator() }
+        runIsolated { pluginResourceScopeForwardsTrimAndUnregistersLeasesIdempotentlyOnClose() }
+    }
+
+    private fun freeCopyTierAModuleManifestPassesValidationAndMatchesDeclarativeHookTier() {
         val module: TierAFeatureModule = FreeCopyTierAModule
         val manifest = module.manifest
 
@@ -86,8 +107,7 @@ class TierAPluginTrialTest {
         )
     }
 
-    @Test
-    fun createInstallerProducesRealFreeCopyFeatureInstallerAndInstallsViaCoordinator() {
+    private fun createInstallerProducesRealFreeCopyFeatureInstallerAndInstallsViaCoordinator() {
         val scope = HostPluginResourceScope(FreeCopyTierAModule.manifest.id)
         val installer = FreeCopyTierAModule.createInstaller(
             deps = sampleDeps(comment = false, description = false, title = true),
@@ -129,8 +149,7 @@ class TierAPluginTrialTest {
         assertEquals(0, HostResourceRegistry.activeCount())
     }
 
-    @Test
-    fun pluginResourceScopeForwardsTrimAndUnregistersLeasesIdempotentlyOnClose() {
+    private fun pluginResourceScopeForwardsTrimAndUnregistersLeasesIdempotentlyOnClose() {
         assertEquals(0, HostResourceRegistry.activeCount())
 
         val scope = HostPluginResourceScope(FreeCopyTierAModule.manifest.id)

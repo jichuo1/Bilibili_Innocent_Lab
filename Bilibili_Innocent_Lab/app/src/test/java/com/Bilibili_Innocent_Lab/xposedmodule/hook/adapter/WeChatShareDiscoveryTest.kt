@@ -46,6 +46,26 @@ class WeChatShareDiscoveryTest {
         assertTrue(WeChatShareCompatAccess.refreshCache(true, true, false, false, false))
         assertFalse(WeChatShareCompatAccess.refreshCache(true, true, false, false, true))
         assertFalse(WeChatShareCompatAccess.refreshCache(true, true, false, true, false))
+
+        var probes = 0
+        fun failOnLambda(): Boolean {
+            probes++
+            return true
+        }
+        assertFalse(WeChatShareCompatAccess.refreshCache(false, ::failOnLambda, ::failOnLambda, ::failOnLambda, ::failOnLambda))
+        assertEquals("disabled feature must not evaluate refreshCache lambdas", 0, probes)
+
+        var directChecked = 0
+        assertFalse(
+            WeChatShareCompatAccess.refreshCache(
+                enabled = true,
+                applicable = { true },
+                directFound = { directChecked++; false },
+                cachedFound = { true },
+                attempted = { false }
+            )
+        )
+        assertEquals("valid cached hit must short-circuit directFound lambda", 0, directChecked)
     }
 
     fun flattenedModernWrapperInRootPackageIsDiscoveredByConstructorAndReturnAbi() {

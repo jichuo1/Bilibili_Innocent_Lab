@@ -39,7 +39,25 @@ import kotlin.random.Random
 class AgentProtocolAndPerfTest {
 
     @Test
-    fun aiChatCompatAndInsightProtocolDelegateToCoreAiChatCompat() {
+    fun protocolDelegationAndLoopbackEndpointSecurity() {
+        aiChatCompatAndInsightProtocolDelegateToCoreAiChatCompat()
+        agentHttpsTransportDelegatesBoundedReadAliveAndSharedPool()
+        loopbackHttpAndBlankApiKeyAreAllowedOnlyForLoopbackEndpoints()
+    }
+
+    @Test
+    fun authorizationCacheAndSubtreeAggregationPerformance() {
+        configVersionCacheReusesWithinWindowAndInvalidatesOnChangeOrExpiry()
+        bottomUpSubtreeAggregationMatchesQuadraticPrefixReference()
+    }
+
+    @Test
+    fun semanticHttpPostAndAccessibilityScreenshotPolicies() {
+        semanticHttpPostOmitsEmptyAuthHeaderAndMapsCleartextBlocked()
+        accessibilityRestrictedSettingsAndScreenshotFailureDecisions()
+    }
+
+    private fun aiChatCompatAndInsightProtocolDelegateToCoreAiChatCompat() {
         assertEquals(CoreAiChatCompat.LADDER.size, AiChatCompat.LADDER.size)
         for (index in CoreAiChatCompat.LADDER.indices) {
             assertEquals(CoreAiChatCompat.variant(index).label, AiChatCompat.variant(index).label)
@@ -67,8 +85,7 @@ class AgentProtocolAndPerfTest {
         assertTrue(wrapped.contains("&lt;/untrusted_plugin_output>"))
     }
 
-    @Test
-    fun agentHttpsTransportDelegatesBoundedReadAliveAndSharedPool() {
+    private fun agentHttpsTransportDelegatesBoundedReadAliveAndSharedPool() {
         assertTrue(LlmHttpTransport.sharedWorkers.allowsCoreThreadTimeOut())
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
         assertEquals("abc", AgentHttpsTransport.readBounded(ByteArrayInputStream("abc".toByteArray()), 3, deadline) { false })
@@ -95,8 +112,7 @@ class AgentProtocolAndPerfTest {
         }
     }
 
-    @Test
-    fun configVersionCacheReusesWithinWindowAndInvalidatesOnChangeOrExpiry() {
+    private fun configVersionCacheReusesWithinWindowAndInvalidatesOnChangeOrExpiry() {
         val entry = AgentAuthorizationCacheEntry()
         val lock = Any()
         var version = 1L
@@ -177,8 +193,7 @@ class AgentProtocolAndPerfTest {
         assertEquals(12_500L, entry.checkedAtMs)
     }
 
-    @Test
-    fun bottomUpSubtreeAggregationMatchesQuadraticPrefixReference() {
+    private fun bottomUpSubtreeAggregationMatchesQuadraticPrefixReference() {
         val tree = UiScanNodeSpec(
             path = "0",
             label = "",
@@ -326,8 +341,7 @@ class AgentProtocolAndPerfTest {
         }
     }
 
-    @Test
-    fun loopbackHttpAndBlankApiKeyAreAllowedOnlyForLoopbackEndpoints() {
+    private fun loopbackHttpAndBlankApiKeyAreAllowedOnlyForLoopbackEndpoints() {
         val localSource = AgentModelSource.from(
             index = 1,
             endpoint = "http://127.0.0.1:11434",
@@ -381,8 +395,7 @@ class AgentProtocolAndPerfTest {
         assertFalse(remoteDisabledJudge.enabled)
     }
 
-    @Test
-    fun semanticHttpPostOmitsEmptyAuthHeaderAndMapsCleartextBlocked() {
+    private fun semanticHttpPostOmitsEmptyAuthHeaderAndMapsCleartextBlocked() {
         val headers = linkedMapOf<String, String>()
         val okConn = object : HttpURLConnection(URL("http://127.0.0.1:11434/v1/chat/completions")) {
             override fun connect() {}
@@ -439,8 +452,7 @@ class AgentProtocolAndPerfTest {
         }
     }
 
-    @Test
-    fun accessibilityRestrictedSettingsAndScreenshotFailureDecisions() {
+    private fun accessibilityRestrictedSettingsAndScreenshotFailureDecisions() {
         assertFalse(AgentAccessibility.mayRequireRestrictedSettingsUnlock(32))
         assertTrue(AgentAccessibility.mayRequireRestrictedSettingsUnlock(33))
         assertTrue(AgentAccessibility.shouldSuggestRestrictedSettings(33, AgentAccessibility.State.DISABLED, isSideloaded = true))

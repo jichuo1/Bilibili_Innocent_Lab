@@ -1,15 +1,22 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.view.View
+import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeRecommendEarlyLoadAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistEngine
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.earlyload.RecyclerFixtures
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bilibili.pegasus.widget.LoadMoreListenerFixtures
 import d571
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
+import java.util.IdentityHashMap
 import kotlin.coroutines.Continuation
 import op2
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -70,61 +77,6 @@ class HomeRecommendEarlyLoadTest {
         @Suppress("UNUSED_PARAMETER") cont: Continuation<*>
     )
 
-    private class ContinuationRenamingClassLoader(
-        parent: ClassLoader,
-        private val templates: Map<String, Class<*>>,
-        private val replacements: Map<String, String>
-    ) : ClassLoader(parent) {
-        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
-            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
-            val loaded = findLoadedClass(name) ?: run {
-                val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
-                    .use { it.readBytes() }
-                val rewritten = rewriteConstantPool(raw, replacements)
-                defineClass(name, rewritten, 0, rewritten.size)
-            }
-            if (resolve) resolveClass(loaded)
-            loaded
-        }
-
-        private fun rewriteConstantPool(raw: ByteArray, replacements: Map<String, String>): ByteArray {
-            val input = DataInputStream(ByteArrayInputStream(raw))
-            val out = ByteArrayOutputStream()
-            val output = DataOutputStream(out)
-            output.writeInt(input.readInt())
-            output.writeShort(input.readUnsignedShort())
-            output.writeShort(input.readUnsignedShort())
-            val count = input.readUnsignedShort()
-            output.writeShort(count)
-            var index = 1
-            while (index < count) {
-                val tag = input.readUnsignedByte()
-                output.writeByte(tag)
-                if (tag == 1) {
-                    var value = input.readUTF()
-                    replacements.entries.sortedByDescending { it.key.length }.forEach { (k, v) ->
-                        value = value.replace(k, v)
-                    }
-                    output.writeUTF(value)
-                } else {
-                    val length = when (tag) {
-                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
-                        5, 6 -> 8
-                        7, 8, 16, 19, 20 -> 2
-                        15 -> 3
-                        else -> error("Unsupported CP tag: $tag")
-                    }
-                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
-                    if (tag == 5 || tag == 6) index++
-                }
-                index++
-            }
-            output.write(input.readBytes())
-            output.flush()
-            return out.toByteArray()
-        }
-    }
-
     private fun resolveRelocated(initFeedsName: String, loader: ClassLoader = this.loader) =
         PegasusLoadMoreShape.resolveRelocatedListener(
             loader = loader,
@@ -166,7 +118,7 @@ class HomeRecommendEarlyLoadTest {
         assertNull(resolveRelocated(TemplateInitFeedsAmbiguous::class.java.name))
         assertNull(resolveRelocated(TemplateInitFeedsWrongShape::class.java.name))
 
-        val defaultContinuationLoader = ContinuationRenamingClassLoader(
+        val defaultContinuationLoader = TestRenamingClassLoader(
             parent = loader,
             templates = mapOf(
                 PegasusLoadMoreShape.PEGASUS_FRAGMENT to TemplatePegasusFragment::class.java,
@@ -332,6 +284,285 @@ class HomeRecommendEarlyLoadTest {
                 environment(PlayerPortTestRegistrar(HomeRecommendEarlyLoadFeatureInstaller.LISTENER_HOOK_ID))))
     }
 
+    open class FakeEarlyLoadRecyclerView : ViewGroup(null) {
+        open class OnScrollListener
+        interface OnChildAttachStateChangeListener {
+            fun onChildViewAttachedToWindow(view: View)
+            fun onChildViewDetachedFromWindow(view: View)
+        }
+        abstract class Adapter {
+            abstract fun getItemCount(): Int
+        }
+
+        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) = Unit
+
+        @Suppress("UNUSED_PARAMETER")
+        fun addOnScrollListener(listener: OnScrollListener) = Unit
+
+        fun addOnChildAttachStateChangeListener(listener: OnChildAttachStateChangeListener) {
+            recordAttach(this, listener)
+        }
+
+        fun getAdapter(): Adapter? = null
+        @Suppress("UNUSED_PARAMETER")
+        fun getChildAdapterPosition(child: View): Int = -1
+        fun isComputingLayout(): Boolean = false
+        fun getLayoutManager(): Any? = null
+
+        companion object {
+            val attachCounts = IdentityHashMap<Any, Int>()
+            fun recordAttach(receiver: Any, @Suppress("UNUSED_PARAMETER") listener: Any) {
+                synchronized(attachCounts) {
+                    attachCounts[receiver] = (attachCounts[receiver] ?: 0) + 1
+                }
+            }
+        }
+    }
+
+    class RelocatedEarlyLoadListener(
+        @JvmField val callback: RecyclerFixtures.Function0 = RecyclerFixtures.MergedCallback(),
+        @JvmField var enabled: Boolean = true,
+        @JvmField var lead: Int = 2
+    ) : FakeEarlyLoadRecyclerView.OnScrollListener(), FakeEarlyLoadRecyclerView.OnChildAttachStateChangeListener {
+        override fun onChildViewAttachedToWindow(view: View) = Unit
+        override fun onChildViewDetachedFromWindow(view: View) = Unit
+    }
+
+    class ValidRootListener(
+        @JvmField val callback: () -> Unit = {},
+        @JvmField var enabled: Boolean = true,
+        @JvmField var lead: Int = 2
+    ) : androidx.recyclerview.widget.RecyclerView.OnScrollListener(),
+        androidx.recyclerview.widget.RecyclerView.OnChildAttachStateChangeListener {
+        override fun onChildViewAttachedToWindow(view: View) = Unit
+        override fun onChildViewDetachedFromWindow(view: View) = Unit
+    }
+
+    class ValidRootListener2(
+        @JvmField val callback: () -> Unit = {},
+        @JvmField var enabled: Boolean = true,
+        @JvmField var lead: Int = 2
+    ) : androidx.recyclerview.widget.RecyclerView.OnScrollListener(),
+        androidx.recyclerview.widget.RecyclerView.OnChildAttachStateChangeListener {
+        override fun onChildViewAttachedToWindow(view: View) = Unit
+        override fun onChildViewDetachedFromWindow(view: View) = Unit
+    }
+
+    class MissingFunction0Listener :
+        androidx.recyclerview.widget.RecyclerView.OnScrollListener(),
+        androidx.recyclerview.widget.RecyclerView.OnChildAttachStateChangeListener {
+        @JvmField var enabled: Boolean = true
+        @JvmField var lead: Int = 2
+        override fun onChildViewAttachedToWindow(view: View) = Unit
+        override fun onChildViewDetachedFromWindow(view: View) = Unit
+    }
+
+    class NoiseScrollOnlyListener(
+        @JvmField val callback: RecyclerFixtures.Function0 = RecyclerFixtures.MergedCallback(),
+        @JvmField var enabled: Boolean = true,
+        @JvmField var lead: Int = 2
+    ) : FakeEarlyLoadRecyclerView.OnScrollListener()
+
+    class DummyPegasusFragment
+
+    class TemplateInitFeedsForValidRoot(
+        @Suppress("UNUSED_PARAMETER") fragment: DummyPegasusFragment,
+        @Suppress("UNUSED_PARAMETER") listener: ValidRootListener,
+        @Suppress("UNUSED_PARAMETER") cont: Continuation<*>
+    )
+
+    private fun allocateView(cls: Class<*>): ViewGroup {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val theUnsafe = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null)
+        return unsafeClass.getMethod("allocateInstance", Class::class.java).invoke(theUnsafe, cls) as ViewGroup
+    }
+
+    fun `adapter verification, LoadMoreWatcher replay, adaptation retry, and cache merge`() {
+        val baseLoader = loader
+        assertTrue(HomeRecommendEarlyLoadAdapter.allowedClassName("zag1"))
+        assertTrue(HomeRecommendEarlyLoadAdapter.allowedClassName("com.example.FastLoader"))
+        assertFalse(HomeRecommendEarlyLoadAdapter.allowedClassName("androidx.recyclerview.widget.RecyclerView"))
+        assertFalse(HomeRecommendEarlyLoadAdapter.allowedClassName("[Lzag1;"))
+        assertFalse(HomeRecommendEarlyLoadAdapter.allowedClassName(""))
+        assertFalse(HomeRecommendEarlyLoadAdapter.allowedClassName("123bad"))
+        assertTrue(HomeRecommendEarlyLoadAdapter.verify(baseLoader, ValidRootListener::class.java))
+        assertFalse(HomeRecommendEarlyLoadAdapter.verify(baseLoader, MissingFunction0Listener::class.java))
+
+        val baseResult = VersionAdapter.AdaptResult(
+            biliVersionCode = 9210100, ts = 1L,
+            commentLow = null, commentHigh = null, mineEntry = null,
+            pause = VersionAdapter.PausePoints(emptyList(), null, null, null),
+            banner = null, homeTopBar = null, mineVip = null, blockUpdate = null,
+            dynamicTabs = null, fullNumbers = null, playerPortrait = null,
+            playerInteractiveOverlays = null, pgcAutoActivityPopup = null, playerStatusBar = null,
+            homeRecommendFeed = null, videoRelate = null, homeTabs = null, homeComponents = null,
+            mineComponents = null, mineAccountMine = null, storyFeed = null, bottomBar = null,
+            playerQuality = null, teenagersMode = null, commentPurify = null, commentFilter = null,
+            commentTopology = null, commentSection = null, splashAds = null,
+            hostFingerprint = "fp", protocolFingerprint = "protocol-v1:1:000000000000000000000000",
+            diagnostics = emptyList()
+        )
+        val jsonWithNull = baseResult.toJson()
+        assertFalse(jsonWithNull.has("home_recommend_early_load_listener"))
+        assertNull(VersionAdapter.AdaptResult.fromJson(jsonWithNull)?.homeRecommendEarlyLoadListener)
+        val jsonWithListener = baseResult.copy(homeRecommendEarlyLoadListener = "x9a").toJson()
+        assertEquals("x9a", jsonWithListener.getString("home_recommend_early_load_listener"))
+        assertEquals("x9a", VersionAdapter.AdaptResult.fromJson(jsonWithListener)?.homeRecommendEarlyLoadListener)
+
+        val corruptedJson = baseResult.toJson().put("home_recommend_early_load_listener", JSONObject.NULL)
+        assertNull(VersionAdapter.AdaptResult.fromJson(corruptedJson))
+
+        val cachedFound = baseResult.copy(
+            homeRecommendEarlyLoadListener = "ValidListener",
+            domainRuleVersions = com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapterContract.DOMAIN_RULE_VERSIONS,
+            diagnostics = listOf(VersionAdapter.AdaptDiagnostic(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC, VersionAdapter.AdaptState.FOUND, "ok"))
+        )
+        val mergedFound = requireNotNull(VersionAdapter.mergeRuntimeWithCached(baseResult, cachedFound))
+        assertEquals("ValidListener", mergedFound.homeRecommendEarlyLoadListener)
+        assertTrue(mergedFound.diagnostics.any {
+            it.id == HomeRecommendEarlyLoadAdapter.DIAGNOSTIC && it.state == VersionAdapter.AdaptState.FOUND
+        })
+
+        val missingDiag = VersionAdapter.AdaptDiagnostic(HomeRecommendEarlyLoadAdapter.DIAGNOSTIC, VersionAdapter.AdaptState.MISSING, "no-match")
+        val mergedMissing = requireNotNull(VersionAdapter.mergeRuntimeWithCached(
+            baseResult,
+            baseResult.copy(
+                domainRuleVersions = com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapterContract.DOMAIN_RULE_VERSIONS,
+                diagnostics = listOf(missingDiag)
+            )
+        ))
+        assertNull(mergedMissing.homeRecommendEarlyLoadListener)
+        assertTrue(AdaptAssistGate.isAttemptedInCache(missingDiag))
+        assertTrue(mergedMissing.diagnostics.any {
+            it.id == HomeRecommendEarlyLoadAdapter.DIAGNOSTIC && it.state == VersionAdapter.AdaptState.MISSING
+        })
+
+        val noInitFeedsLoader = TestRenamingClassLoader(
+            parent = baseLoader,
+            hiddenNames = setOf(PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION)
+        )
+        val oversizedSession = DexAssistSession(
+            DexAssistEngine { DexAssistResult.Candidates(emptyList(), List(33) { ValidRootListener::class.java }) },
+            listOf("test.apk"), noInitFeedsLoader, setOf(HomeRecommendEarlyLoadAdapter.query)
+        )
+        assertNull(HomeRecommendEarlyLoadAdapter.locate(noInitFeedsLoader, oversizedSession, enabled = true, cached = null, planned = true))
+        val ambiguousSession = DexAssistSession(
+            DexAssistEngine { DexAssistResult.Candidates(emptyList(), listOf(ValidRootListener::class.java, ValidRootListener2::class.java)) },
+            listOf("test.apk"), noInitFeedsLoader, setOf(HomeRecommendEarlyLoadAdapter.query)
+        )
+        assertNull(HomeRecommendEarlyLoadAdapter.locate(noInitFeedsLoader, ambiguousSession, enabled = true, cached = null, planned = true))
+        val uniqueSession = DexAssistSession(
+            DexAssistEngine { DexAssistResult.Candidates(emptyList(), listOf(ValidRootListener::class.java, MissingFunction0Listener::class.java)) },
+            listOf("test.apk"), noInitFeedsLoader, setOf(HomeRecommendEarlyLoadAdapter.query)
+        )
+        assertEquals(ValidRootListener::class.java.name,
+            HomeRecommendEarlyLoadAdapter.locate(noInitFeedsLoader, uniqueSession, enabled = true, cached = null, planned = true))
+
+        val watcherNames = HomeRecommendEarlyLoadFeatureInstaller.HostNames(
+            recyclerView = FakeEarlyLoadRecyclerView::class.java.name,
+            gridLayoutManager = RecyclerFixtures.GridLayoutManager::class.java.name,
+            function0 = RecyclerFixtures.Function0::class.java.name
+        )
+        val access = requireNotNull(HomeRecommendEarlyLoadFeatureInstaller.RecyclerAccess.resolve(baseLoader, watcherNames))
+        val stages = mutableListOf<FeatureRuntimeStage>()
+        val watcher = HomeRecommendEarlyLoadFeatureInstaller.LoadMoreWatcher(
+            recycler = access,
+            environment = environment(evidence = { _, stage, _ -> stages += stage }),
+            initialRelocatedListener = null,
+            initialAwaitingRelocated = true
+        )
+        val views = List(9) { allocateView(FakeEarlyLoadRecyclerView::class.java) }
+        val relocated = RelocatedEarlyLoadListener()
+        watcher.onScrollListenerAdded(views[0], relocated)
+        assertNull(watcher.shapeOf(RelocatedEarlyLoadListener::class.java))
+        assertEquals(1, watcher.pendingCandidateCountForTest())
+        watcher.onScrollListenerAdded(allocateView(FakeEarlyLoadRecyclerView::class.java), NoiseScrollOnlyListener())
+        assertEquals(1, watcher.pendingCandidateCountForTest())
+        for (i in 1 until views.size) watcher.onScrollListenerAdded(views[i], relocated)
+        assertEquals(8, watcher.pendingCandidateCountForTest())
+
+        synchronized(FakeEarlyLoadRecyclerView.attachCounts) { FakeEarlyLoadRecyclerView.attachCounts.clear() }
+        watcher.updateRelocatedListener(RelocatedEarlyLoadListener::class.java)
+        assertEquals(0, watcher.pendingCandidateCountForTest())
+        assertNotNull(watcher.shapeOf(RelocatedEarlyLoadListener::class.java))
+        assertEquals(1, FakeEarlyLoadRecyclerView.attachCounts[views[0]])
+        assertEquals(1, FakeEarlyLoadRecyclerView.attachCounts[views[7]])
+        assertNull(FakeEarlyLoadRecyclerView.attachCounts[views[8]])
+        assertTrue(FeatureRuntimeStage.OBSERVED in stages)
+
+        val pegasusLoader = TestRenamingClassLoader(
+            parent = baseLoader,
+            templates = mapOf(PegasusLoadMoreShape.PEGASUS_FRAGMENT to DummyPegasusFragment::class.java),
+            hiddenNames = setOf(PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION)
+        )
+        var cachedRelocatedName: String? = null
+        val installerRegistrar = PlayerPortTestRegistrar()
+        val installerEnv = environment(registrar = installerRegistrar, classLoader = pegasusLoader)
+        val earlyInstaller = HomeRecommendEarlyLoadFeatureInstaller(
+            enabled = true,
+            cachedRelocatedListenerProvider = { cachedRelocatedName }
+        )
+        assertEquals(FeatureInstallResult.Installed(1), earlyInstaller.install(installerEnv))
+        assertTrue(earlyInstaller.requiresAdaptationRetry)
+        assertEquals(1, installerRegistrar.registrationAttempts.size)
+        cachedRelocatedName = ValidRootListener::class.java.name
+        assertEquals(FeatureInstallResult.Installed(1), earlyInstaller.install(installerEnv))
+        assertFalse(earlyInstaller.requiresAdaptationRetry)
+        assertEquals(1, installerRegistrar.registrationAttempts.size)
+
+        val cachedAttemptedInstaller = HomeRecommendEarlyLoadFeatureInstaller(
+            enabled = true, cachedRelocatedListenerProvider = { null }, adaptationAttemptedInCache = true
+        )
+        assertEquals(FeatureInstallResult.Installed(1), cachedAttemptedInstaller.install(installerEnv))
+        assertFalse(cachedAttemptedInstaller.requiresAdaptationRetry)
+
+        val awaitingInstaller = HomeRecommendEarlyLoadFeatureInstaller(
+            enabled = true, cachedRelocatedListenerProvider = { null }, adaptationAttemptedInCache = false
+        )
+        assertEquals(FeatureInstallResult.Installed(1), awaitingInstaller.install(installerEnv))
+        assertTrue(awaitingInstaller.requiresAdaptationRetry)
+        awaitingInstaller.finishAdaptationWait()
+        assertFalse(awaitingInstaller.requiresAdaptationRetry)
+
+        val directLoader = TestRenamingClassLoader(
+            parent = baseLoader,
+            templates = mapOf(
+                PegasusLoadMoreShape.PEGASUS_FRAGMENT to DummyPegasusFragment::class.java,
+                PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION to TemplateInitFeedsForValidRoot::class.java
+            ),
+            replacements = mapOf(
+                DummyPegasusFragment::class.java.name.replace('.', '/') to
+                    PegasusLoadMoreShape.PEGASUS_FRAGMENT.replace('.', '/'),
+                TemplateInitFeedsForValidRoot::class.java.name.replace('.', '/') to
+                    PegasusLoadMoreShape.INIT_FEEDS_CONTINUATION.replace('.', '/')
+            )
+        )
+        val directAccess = requireNotNull(HomeRecommendEarlyLoadFeatureInstaller.RecyclerAccess.resolve(directLoader, watcherNames))
+        val directWatcher = HomeRecommendEarlyLoadFeatureInstaller.LoadMoreWatcher(
+            recycler = directAccess,
+            environment = environment(classLoader = directLoader),
+            initialRelocatedListener = RelocatedEarlyLoadListener::class.java,
+            initialAwaitingRelocated = false
+        )
+        assertNotNull(directWatcher.shapeOf(RelocatedEarlyLoadListener::class.java))
+        directWatcher.updateRelocatedListener(null)
+        assertNotNull(directWatcher.shapeOf(RelocatedEarlyLoadListener::class.java))
+
+        val awaitingWatcher = HomeRecommendEarlyLoadFeatureInstaller.LoadMoreWatcher(
+            recycler = directAccess,
+            environment = environment(classLoader = directLoader),
+            initialRelocatedListener = null,
+            initialAwaitingRelocated = true
+        )
+        awaitingWatcher.onScrollListenerAdded(allocateView(FakeEarlyLoadRecyclerView::class.java), relocated)
+        assertNull(awaitingWatcher.shapeOf(RelocatedEarlyLoadListener::class.java))
+        assertEquals(1, awaitingWatcher.pendingCandidateCountForTest())
+        awaitingWatcher.updateRelocatedListener(null)
+        assertEquals(0, awaitingWatcher.pendingCandidateCountForTest())
+        awaitingWatcher.onScrollListenerAdded(allocateView(FakeEarlyLoadRecyclerView::class.java), relocated)
+        assertEquals(0, awaitingWatcher.pendingCandidateCountForTest())
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HomeRecommendEarlyLoadTest) -> Unit) {
@@ -352,5 +583,6 @@ class HomeRecommendEarlyLoadTest {
         runIsolated { s -> s.`a missing or reshaped list boundary fails closed`() }
         runIsolated { s -> s.`the production names resolve against the real androidx list and kotlin function types`() }
         runIsolated { s -> s.`a registration failure is reported and not counted as installed`() }
+        runIsolated { s -> s.`adapter verification, LoadMoreWatcher replay, adaptation retry, and cache merge`() }
     }
 }

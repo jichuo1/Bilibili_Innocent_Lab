@@ -1,10 +1,23 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome
 
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.HomeChromeAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostBottomBarFxFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostTopBarFxFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerPortTestRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostOgvCardHooks
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.ComposeChangedMask
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.phase5ComposeHostLoader
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import org.junit.Assert.*
 import org.junit.Test
+import java.lang.reflect.Modifier
 
 class HomeChromeComposeLocatorTest {
     fun `independent tab layout accepts native old and optimized restart ABIs only`() {
@@ -137,6 +150,115 @@ class HomeChromeComposeLocatorTest {
         assertFalse(HomeChromeComposeLocator.topContentStaticValues(types) { args[it] })
     }
 
+    fun `setModifier resolves concrete LayoutNode method directly and via Companion constructor fallback`() {
+        val baseLoader = requireNotNull(javaClass.classLoader)
+        val loaderDirect = phase5ComposeHostLoader(baseLoader, hideLayoutNode = false, use2ParamFillMaxSize = false, omitRowKt = false)
+        val modDirect = loaderDirect.loadClass("androidx.compose.ui.Modifier")
+        val resolvedDirect = HostComposeChromeApi.resolveSetModifier(loaderDirect, modDirect)
+        assertFalse(Modifier.isAbstract(resolvedDirect.modifiers))
+        assertFalse(Modifier.isStatic(resolvedDirect.modifiers))
+        assertEquals("androidx.compose.ui.node.LayoutNode", resolvedDirect.declaringClass.name)
+
+        val loaderRenamed = phase5ComposeHostLoader(baseLoader, hideLayoutNode = true, use2ParamFillMaxSize = true, omitRowKt = true)
+        val modRenamed = loaderRenamed.loadClass("androidx.compose.ui.Modifier")
+        val resolvedFallback = HostComposeChromeApi.resolveSetModifier(loaderRenamed, modRenamed)
+        assertFalse(Modifier.isAbstract(resolvedFallback.modifiers))
+        assertEquals("renamed.compose.LayoutNodeImpl", resolvedFallback.declaringClass.name)
+
+        val brokenLoader = phase5ComposeHostLoader(baseLoader, hideLayoutNode = true, brokenConstructor = true)
+        val modBroken = brokenLoader.loadClass("androidx.compose.ui.Modifier")
+        assertThrows(IllegalArgumentException::class.java) {
+            HostComposeChromeApi.resolveSetModifier(brokenLoader, modBroken)
+        }
+        assertNull(HostComposeChromeApi.resolve(brokenLoader))
+    }
+
+    fun `HostComposeChromeApi and TopTabCentering survive 2-param fillMaxSize relaxed BiliImage nullable RowKt and probed 6-field RootFill`() {
+        val errors = mutableListOf<Throwable>()
+        val loader = phase5ComposeHostLoader(requireNotNull(javaClass.classLoader), hideLayoutNode = true, use2ParamFillMaxSize = true, omitRowKt = true)
+        val api = requireNotNull(HostComposeChromeApi.resolve(loader) { errors += it })
+        assertTrue("unexpected errors: $errors", errors.isEmpty())
+        assertNull(api.rowPolicy)
+        assertTrue(api.backdropImagesReady)
+        assertFalse(Modifier.isAbstract(api.applyModifier.modifiers))
+        assertEquals("renamed.compose.LayoutNodeImpl", api.applyModifier.declaringClass.name)
+
+        val marker = loader.loadClass("androidx.compose.foundation.layout.SizeKt")
+            .getDeclaredMethod("fillMaxSize", loader.loadClass("androidx.compose.ui.Modifier"), Float::class.javaPrimitiveType)
+            .invoke(null, loader.loadClass("androidx.compose.ui.Modifier").getField("Companion").get(null), 1f)!!
+        assertTrue(api.fillsBackdrop(marker))
+
+        val tabSetModifier = HostComposeTopTabCentering.resolvedSetModifier(loader)
+        assertNotNull(tabSetModifier)
+        assertFalse(Modifier.isAbstract(tabSetModifier!!.modifiers))
+        assertEquals("renamed.compose.LayoutNodeImpl", tabSetModifier.declaringClass.name)
+
+        val bgClass = loader.loadClass("androidx.compose.foundation.BackgroundKt")
+        val modClass = loader.loadClass("androidx.compose.ui.Modifier")
+        val empty = modClass.getField("Companion").get(null)!!
+        val shapeClass = loader.loadClass("androidx.compose.ui.graphics.Shape")
+        val rectShape = loader.loadClass("androidx.compose.ui.graphics.RectangleShapeKt")
+            .getDeclaredMethod("getRectangleShape").invoke(null)!!
+        val sixFieldFill = bgClass.declaredMethods.single { matchesComposeName(it.name, "background") }
+            .invoke(null, empty, 0xFF112233L shl 32, rectShape)!!
+        val rootFill = HostChromeRootFill(
+            loader.loadClass("androidx.compose.ui.Modifier\$Element"),
+            loader.loadClass("androidx.compose.ui.graphics.Brush"),
+            shapeClass,
+            loader.loadClass("kotlin.jvm.functions.Function1"),
+            empty,
+            bgClass.declaredMethods.single { matchesComposeName(it.name, "background") },
+            rectShape
+        )
+        assertTrue(rootFill.matches(sixFieldFill))
+        assertFalse(rootFill.matches(empty))
+        val cleared = rootFill.transparent(sixFieldFill)!!
+        assertEquals(sixFieldFill.javaClass, cleared.javaClass)
+    }
+
+    fun `matchesComposeName and ComposeChangedMask prevent overload and bitshift corruption`() {
+        assertTrue(matchesComposeName("background", "background"))
+        assertTrue(matchesComposeName("background-bw27NRU", "background"))
+        assertTrue(matchesComposeName("getBg1-0d7_KjU", "getBg1"))
+        assertTrue(matchesComposeName("drawRect-n-J9OG0", "drawRect"))
+        assertFalse(matchesComposeName("background\$default", "background"))
+        assertFalse(matchesComposeName("background-bw27NRU\$default", "background"))
+        assertFalse(matchesComposeName("backgroundColor", "background"))
+
+        assertEquals(0b0010_0000, ComposeChangedMask.clearSlots(0b0010_1110, 0))
+        assertEquals(0b0010_0101, ComposeChangedMask.markUncertain(0b0010_1111, 0))
+        assertEquals(0x7FF and (0b1110 shl 6).inv(), ComposeChangedMask.clearSlots(0x7FF, 2))
+        val before = 0b0010_0100_1001
+        assertEquals(before, ComposeChangedMask.clearSlots(before, 10, 11, -1))
+        assertEquals(before, ComposeChangedMask.markUncertain(before, 10, 15))
+    }
+
+    fun `HostOgvCardHooks Api resolves exact parameter types despite overloads and HostTopBar skips missing rowPolicy check`() {
+        val loader = phase5ComposeHostLoader(requireNotNull(javaClass.classLoader), hideLayoutNode = false, use2ParamFillMaxSize = true, omitRowKt = true)
+        val ogvResult = HostOgvCardHooks.install(
+            HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), PlayerPortTestRegistrar(), { _, _ -> }, { _, _ -> }, { _, _ -> }),
+            HostVideoCardHostAccess(loader),
+            16,
+            HostCardMaterial.ORIGINAL,
+            emptyMap(),
+            {}
+        )
+        assertNotNull(ogvResult)
+
+        val registrar = PlayerPortTestRegistrar()
+        val env = HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), registrar, { _, _ -> }, { _, _ -> }, { _, _ -> })
+        val topRes = HostTopBarFxFeatureInstaller(true, true, null).install(env)
+        assertTrue(topRes is FeatureInstallResult.Installed)
+        val bottomRes = HostBottomBarFxFeatureInstaller(true, true, null).install(env)
+        assertTrue(bottomRes is FeatureInstallResult.Skipped)
+
+        assertFalse(
+            HostComposeChromeHooks.install(
+                env, "bottom", emptyMap(), true, true, HostChromeAppearance(), null, {}, {}, {}
+            )
+        )
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (HomeChromeComposeLocatorTest) -> Unit) {
@@ -155,7 +277,11 @@ class HomeChromeComposeLocatorTest {
         runIsolated { s -> s.`repackaged and future flattened root chrome accept valid Compose ABIs across R8 renames`() }
         runIsolated { s -> s.`flattened tabs lambda allows widened functions across builds while requiring modern captures`() }
         runIsolated { s -> s.`old static content allows null divider while requiring native tabs and captures`() }
-    
+        runIsolated { s -> s.`setModifier resolves concrete LayoutNode method directly and via Companion constructor fallback`() }
+        runIsolated { s -> s.`HostComposeChromeApi and TopTabCentering survive 2-param fillMaxSize relaxed BiliImage nullable RowKt and probed 6-field RootFill`() }
+        runIsolated { s -> s.`matchesComposeName and ComposeChangedMask prevent overload and bitshift corruption`() }
+        runIsolated { s -> s.`HostOgvCardHooks Api resolves exact parameter types despite overloads and HostTopBar skips missing rowPolicy check`() }
+
         HostChromeAttachmentCases().verifyAllCases()
         HostChromeBackdropPaintCases().verifyAllCases()
         HostChromeBackdropRecoveryCases().verifyAllCases()

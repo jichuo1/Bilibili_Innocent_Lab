@@ -15,7 +15,19 @@ import java.util.concurrent.atomic.AtomicInteger
 class HostReceiptThrottleAndWireTest {
 
     @Test
-    fun `executor enables core thread timeout with bounded queue and daemon name`() {
+    fun executorThrottleAndStartupTraceBehaviors() {
+        `executor enables core thread timeout with bounded queue and daemon name`()
+        `refresh throttle enforces 30s cooldown, coalesces dirty resumes, and preserves force bypass`()
+        `inline StartupTraceRecorder measure tracks nested spans, failures, and non-local return`()
+    }
+
+    @Test
+    fun sharedPacketAndPayloadGzipCompressionRoundTrip() {
+        `shared receipt packet encodes once across concurrent dual channels and short circuits after primary success`()
+        `payload gzip compression triggers above 64KiB and round trips within 256KiB oneway budget`()
+    }
+
+    private fun `executor enables core thread timeout with bounded queue and daemon name`() {
         val executor = HostReceiptWire.executor("bil-test-wire")
         try {
             assertTrue(executor.allowsCoreThreadTimeOut())
@@ -41,8 +53,7 @@ class HostReceiptThrottleAndWireTest {
         }
     }
 
-    @Test
-    fun `refresh throttle enforces 30s cooldown, coalesces dirty resumes, and preserves force bypass`() {
+    private fun `refresh throttle enforces 30s cooldown, coalesces dirty resumes, and preserves force bypass`() {
         var now = 1_000L
         val throttle = RefreshThrottle(cooldownMs = 30_000L, clock = { now })
 
@@ -95,8 +106,7 @@ class HostReceiptThrottleAndWireTest {
         assertFalse(throttle.complete(succeeded = true))
     }
 
-    @Test
-    fun `shared receipt packet encodes once across concurrent dual channels and short circuits after primary success`() {
+    private fun `shared receipt packet encodes once across concurrent dual channels and short circuits after primary success`() {
         val encodeCount = AtomicInteger(0)
         val packet = SharedReceiptPacket(
             builder = {
@@ -137,8 +147,7 @@ class HostReceiptThrottleAndWireTest {
         assertEquals("ok", deferred.getOrBuild())
     }
 
-    @Test
-    fun `inline StartupTraceRecorder measure tracks nested spans, failures, and non-local return`() {
+    private fun `inline StartupTraceRecorder measure tracks nested spans, failures, and non-local return`() {
         var tick = 100L
         val recorder = StartupTraceRecorder(clock = { tick += 10L; tick }, mainThread = { true }, roots = setOf("root"))
         fun helperWithNonLocalReturn(): String {
@@ -164,8 +173,7 @@ class HostReceiptThrottleAndWireTest {
         assertEquals(1, rootRow.getInt("failures"))
     }
 
-    @Test
-    fun `payload gzip compression triggers above 64KiB and round trips within 256KiB oneway budget`() {
+    private fun `payload gzip compression triggers above 64KiB and round trips within 256KiB oneway budget`() {
         val belowThreshold = "a".repeat(HostReceiptWire.GZIP_THRESHOLD_BYTES)
         val encodedPlain = HostReceiptWire.encodePayload(belowThreshold)
         assertTrue(encodedPlain is HostReceiptWire.EncodedPayload.Plain)

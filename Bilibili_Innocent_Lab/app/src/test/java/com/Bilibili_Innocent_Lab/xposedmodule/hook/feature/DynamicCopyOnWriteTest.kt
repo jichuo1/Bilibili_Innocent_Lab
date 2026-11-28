@@ -1,7 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bapis.bilibili.app.dynamic.v2.*
+import com.google.android.material.tabs.TabLayout
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -69,6 +72,45 @@ class DynamicCopyOnWriteTest {
         assertSame(DynAllReply.getDefaultInstance(), purify(DynAllReply.getDefaultInstance()))
     }
 
+    open class TemplateBaseTabLayout
+    class TemplateMediatorTabLayout : TemplateBaseTabLayout()
+    class TemplateDynamicTabItemRenamed(@JvmField val id: Int, @JvmField val titleCol: String, @JvmField val nameCol: String)
+    class TemplateDynamicTabItemAmbiguous(@JvmField val a1: String, @JvmField val b1: String, @JvmField val c1: String)
+    class TemplateMediatorFragment {
+        fun fetchTabs(): List<TemplateDynamicTabItemRenamed> = emptyList()
+    }
+    class TemplateMediatorFragmentAmbiguous {
+        fun fetchTabs(): List<TemplateDynamicTabItemAmbiguous> = emptyList()
+    }
+
+    fun `locateDynamicTabs resolves unique non-ab 2 String fields and rejects 3 String fields`() {
+        val fragName = "com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"
+        val tabName = "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
+        val tabLayoutSuper = TabLayout::class.java.name.replace('.', '/')
+        val okLoader = TestRenamingClassLoader(
+            parent = javaClass.classLoader!!,
+            templates = mapOf(
+                fragName to TemplateMediatorFragment::class.java,
+                tabName to TemplateMediatorTabLayout::class.java
+            ),
+            replacements = mapOf(TemplateBaseTabLayout::class.java.name.replace('.', '/') to tabLayoutSuper)
+        )
+        val ok = requireNotNull(VersionAdapter.locateDynamicTabs(okLoader))
+        assertEquals("fetchTabs", ok.listGetter.methodName)
+        assertEquals("titleCol", ok.itemTitleField)
+        assertEquals("nameCol", ok.itemNameField)
+
+        val badLoader = TestRenamingClassLoader(
+            parent = javaClass.classLoader!!,
+            templates = mapOf(
+                fragName to TemplateMediatorFragmentAmbiguous::class.java,
+                tabName to TemplateMediatorTabLayout::class.java
+            ),
+            replacements = mapOf(TemplateBaseTabLayout::class.java.name.replace('.', '/') to tabLayoutSuper)
+        )
+        assertNull(VersionAdapter.locateDynamicTabs(badLoader))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DynamicCopyOnWriteTest) -> Unit) {
@@ -79,5 +121,6 @@ class DynamicCopyOnWriteTest {
         runIsolated { s -> s.`UP list failure cannot clear either original list change positions or remove topic`() }
         runIsolated { s -> s.`UP list copies preserve two rows and continuously renumber without touching source`() }
         runIsolated { s -> s.`unchanged and default replies preserve identity`() }
+        runIsolated { s -> s.`locateDynamicTabs resolves unique non-ab 2 String fields and rejects 3 String fields`() }
     }
 }

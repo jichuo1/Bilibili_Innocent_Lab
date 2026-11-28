@@ -139,20 +139,33 @@ class HostLayerNeutralPlanTest {
             val viewHeight = 40 + random.nextInt(300)
             val before = original.layers.map { it.copy() }
             val plan = HostLayerNeutralPlan.of(original, viewWidth, viewHeight, 12)
-            assertEquals("规划不得修改原件", before, original.layers)
+            if (before != original.layers) assertEquals("规划不得修改原件", before, original.layers)
             val (changed, expected) = legacy(original, viewWidth, viewHeight, 12)
-            assertEquals("changed 与是否有计划一致: $list", changed, plan != null)
+            if (changed != (plan != null)) assertEquals("changed 与是否有计划一致: $list", changed, plan != null)
             if (plan == null) {
                 sawNoPlan++
             } else {
                 sawPlan++
                 val actual = original.copy().also { apply(it, plan) }
-                assertEquals("复制品最终结构一致: $list", expected.layers, actual.layers)
+                if (expected.layers != actual.layers) assertEquals("复制品最终结构一致: $list", expected.layers, actual.layers)
             }
         }
         // 随机集合应同时覆盖两种结果，避免恒真比较。
         assertTrue("有计划的样本: $sawPlan", sawPlan > 500)
         assertTrue("无计划的样本: $sawNoPlan", sawNoPlan > 500)
+    }
+
+    fun `opusChromeStatusBarAppearanceRestoresOriginalOnCloseOnlyWhenOwned`() {
+        val state = HostOpusChrome.StatusBarAppearanceState()
+        state.captureOriginalIfUnset(currentLight = false)
+        state.markApplied(light = true)
+        assertEquals(false, state.consumeRestoreTarget(currentLight = true))
+        assertNull(state.consumeRestoreTarget(currentLight = true))
+
+        // 若宿主自己已经改写回深色，则不覆盖宿主后续状态。
+        state.captureOriginalIfUnset(currentLight = false)
+        state.markApplied(light = true)
+        assertNull(state.consumeRestoreTarget(currentLight = false))
     }
 
     @org.junit.Test
@@ -168,5 +181,6 @@ class HostLayerNeutralPlanTest {
         runIsolated { s -> s.lineTallerThanTheLimitFallsBackToClearingFullSizeLayers() }
         runIsolated { s -> s.alreadyProcessedBorderedInputIsIdempotent() }
         runIsolated { s -> s.planMatchesTheCopyFirstLogicOnRandomLayerSets() }
+        runIsolated { s -> s.`opusChromeStatusBarAppearanceRestoresOriginalOnCloseOnlyWhenOwned`() }
     }
 }

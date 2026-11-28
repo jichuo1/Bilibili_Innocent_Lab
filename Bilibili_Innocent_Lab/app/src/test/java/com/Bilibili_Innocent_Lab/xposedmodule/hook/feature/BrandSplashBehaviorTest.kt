@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import FlatWave1BrandStorage
 import android.app.Application
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import org.junit.Assert.*
 import org.junit.Test
 import sun.misc.Unsafe
@@ -233,6 +234,57 @@ class BrandSplashBehaviorTest {
         assertNotNull(BrandSplashStorageAccess.resolve(renamedStorageLoader))
     }
 
+    class TemplateMutableState
+    class TemplateState
+    object TemplateIntrinsics { @JvmStatic fun getCOROUTINE_SUSPENDED(): Any = Any() }
+    class TemplateResultFailure
+    class TemplateRenamedExit(@JvmField val `$a`: () -> Unit) {
+        @JvmField var label = 0
+        @JvmField var `$b`: TemplateMutableState? = null
+        @JvmField var `$c`: TemplateMutableState? = null
+        @JvmField var `$d`: TemplateMutableState? = null
+        @JvmField var `$e`: TemplateState? = null
+        fun invokeSuspend(value: Any?): Any? = value
+    }
+    class TemplateBrokenSingleMutableExit(@JvmField val `$onExit`: () -> Unit) {
+        @JvmField var label = 0
+        @JvmField var `$customLogoReady$delegate`: TemplateMutableState? = null
+        @JvmField var `$currentOnShow`: TemplateState? = null
+        fun invokeSuspend(value: Any?): Any? = value
+    }
+
+    fun `brand splash constructor and obfuscated exit coroutine resolve safely while keeping broken exit rejected`() {
+        val state = "androidx.compose.runtime.MutableState"
+        val intState = "androidx.compose.runtime.MutableIntState"
+        val prefix = listOf("Img", "Model", "androidx.compose.ui.unit.Density", "Res", state)
+        assertTrue(brandSplashDrawConstructorAbi(prefix + listOf(state, state), "Img", "Model", "Res"))
+        assertTrue(brandSplashDrawConstructorAbi(prefix + listOf(intState, state, state), "Img", "Model", "Res"))
+        assertTrue(brandSplashDrawConstructorAbi(prefix + listOf(intState, state, state, state), "Img", "Model", "Res"))
+        assertFalse(brandSplashDrawConstructorAbi(prefix + listOf(state, intState, state), "Img", "Model", "Res"))
+        assertFalse(brandSplashDrawConstructorAbi(prefix + listOf(state), "Img", "Model", "Res"))
+        assertFalse(brandSplashDrawConstructorAbi(prefix + listOf(state, "java.lang.String"), "Img", "Model", "Res"))
+
+        val renamingLoader = TestRenamingClassLoader(
+            loader,
+            templates = mapOf(
+                BrandSplashKntrAccess.CURRENT_EXIT to TemplateRenamedExit::class.java,
+                BrandSplashKntrAccess.BITMAP_EXIT to TemplateBrokenSingleMutableExit::class.java,
+                "kotlin.coroutines.intrinsics.IntrinsicsKt" to TemplateIntrinsics::class.java,
+                "kotlin.Result\$Failure" to TemplateResultFailure::class.java,
+                "androidx.compose.runtime.MutableState" to TemplateMutableState::class.java,
+                "androidx.compose.runtime.State" to TemplateState::class.java
+            ),
+            replacements = mapOf(
+                TemplateMutableState::class.java.name.replace('.', '/') to "androidx/compose/runtime/MutableState",
+                TemplateState::class.java.name.replace('.', '/') to "androidx/compose/runtime/State"
+            )
+        )
+        val exit = BrandSplashKntrAccess.exit(renamingLoader)
+        assertNotNull(exit)
+        assertEquals(BrandSplashKntrAccess.CURRENT_EXIT, exit!!.owner.name)
+        assertTrue(exit.waitsForImages)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (BrandSplashBehaviorTest) -> Unit) {
@@ -257,5 +309,6 @@ class BrandSplashBehaviorTest {
         runIsolated { s -> s.equivalentWriteRetriesAnEmptyCacheButDoesNotDecodeAnIdleImageAgain() }
         runIsolated { s -> s.bitmapSamplingKeepsNarrowAndRoundedUpDimensionsWithinThePixelBudget() }
         runIsolated { s -> s.compactPageAbiAndStorageResolveByStructureAcrossObfuscatedNames() }
+        runIsolated { s -> s.`brand splash constructor and obfuscated exit coroutine resolve safely while keeping broken exit rejected`() }
     }
 }

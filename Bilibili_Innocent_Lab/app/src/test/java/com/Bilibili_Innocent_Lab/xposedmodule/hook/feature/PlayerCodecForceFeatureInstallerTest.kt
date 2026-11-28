@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.bapis.bilibili.app.playurl.v1.PlayURLMoss
 import com.bapis.bilibili.app.playurl.v1.PlayViewReq
 import com.bapis.bilibili.app.playerunite.v1.CodeType
@@ -8,8 +9,15 @@ import com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq
 import com.bapis.bilibili.app.playerunite.v1.PlayerMoss
 import com.bapis.bilibili.app.playerunite.v1.VideoVod
 import com.bilibili.lib.moss.api.MossResponseHandler
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -181,6 +189,54 @@ class PlayerCodecForceFeatureInstallerTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
+    private object DummyWireStrategy : SerializationStrategy<Any>
+
+    fun `wire-first on PlayViewUnite rewrites requests and null engine preserves baseline counts`() {
+        val baselineReg = PlayerPortTestRegistrar()
+        assertEquals(
+            FeatureInstallResult.Installed(4),
+            PlayerCodecForceFeatureInstaller(
+                PlayerCodecPreference.AV1.value,
+                PlayerDecodeMode.FOLLOW_HOST.value,
+                kmpGrpcWireEngine = null
+            ).install(environment(baselineReg))
+        )
+
+        val wirePoint = KmpGrpcWireAdapter.point(GrpcEngine::class.java.declaredMethods.single { it.name == "a" })
+        val wireReg = PlayerPortTestRegistrar()
+        assertEquals(
+            FeatureInstallResult.Installed(5),
+            PlayerCodecForceFeatureInstaller(
+                PlayerCodecPreference.AV1.value,
+                PlayerDecodeMode.FOLLOW_HOST.value,
+                kmpGrpcWireEngine = wirePoint
+            ).install(environment(wireReg))
+        )
+        assertTrue(wireReg.hooks.containsKey("kmp.grpc.wire.channel"))
+
+        val descriptor = Descriptor("bilibili.app.playerunite.v1", "Player", "PlayViewUnite", String::class, DummyWireStrategy)
+        val srcReq = PlayViewUniteReq(VideoVod(CodeType.CODE_UNKNOWN, 16), "keep-field")
+        var forwardedReq: PlayViewUniteReq? = null
+        val sink = object : Handler {
+            override fun onNext(bytes: ByteArray?) = Unit
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        wireReg.invoke(
+            "kmp.grpc.wire.channel",
+            GrpcEngine(emptyList()),
+            arrayOf(Service("grpc.biliapi.net"), descriptor, srcReq.toByteArray(), sink, null)
+        ) { callArgs ->
+            forwardedReq = PlayViewUniteReq.parseFrom(callArgs[2] as ByteArray)
+            (callArgs[3] as Handler).onNext(ByteArray(0))
+            null
+        }
+        assertNotNull(forwardedReq)
+        assertEquals(CodeType.CODEAV1, forwardedReq!!.getVod().getPreferCodecType())
+        assertEquals(2064, forwardedReq!!.getVod().getFnval())
+        assertEquals("keep-field", forwardedReq!!.unrelated)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (PlayerCodecForceFeatureInstallerTest) -> Unit) {
@@ -193,5 +249,6 @@ class PlayerCodecForceFeatureInstallerTest {
         runIsolated { s -> s.`decode mode registers bundle and native option guards`() }
         runIsolated { s -> s.`coordinator records codec and decode leaves without unverified overwrite`() }
         runIsolated { s -> s.`follow host installs nothing`() }
+        runIsolated { s -> s.`wire-first on PlayViewUnite rewrites requests and null engine preserves baseline counts`() }
     }
 }

@@ -1,10 +1,17 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.WireColorful
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.WireElem
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire.WireReply
 import com.bapis.bilibili.community.service.dm.v1.*
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -126,6 +133,61 @@ class DanmakuCopyOnWriteTest {
         assertEquals(listOf<Int?>(0, 0), recoloredOnly.elems.map { it.colorful })
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    fun `wire-first cleans danmaku payload without Java DMMoss`() {
+        val dmReg = PlayerPortTestRegistrar()
+        val dmLoader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> =
+                if (name == "com.bapis.bilibili.community.service.dm.v1.DMMoss") throw ClassNotFoundException(name)
+                else super.loadClass(name, resolve)
+        }
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        val dmRes = DanmakuPurifyFeatureInstaller(
+            weightFilterEnabled = true,
+            minimumWeight = 5,
+            removeVipColorful = false,
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod)
+        ).install(HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = dmLoader,
+            hookPoints = HookPointRegistry(dmLoader),
+            registrar = dmReg,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { _, _ -> }
+        ))
+        assertEquals(FeatureInstallResult.Installed(3, complete = true), dmRes)
+        var received: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { received = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val dmPayload = DmSegMobileReply(elems = listOf(DanmakuElem(2), DanmakuElem(8)))
+        val descriptor = WireStrippedDescriptor("bilibili.community.service.dm.v1", "DM", "DmSegMobile")
+        dmReg.invoke("kmp.grpc.wire.channel", GrpcEngine(emptyList()), arrayOf(Service("host"), descriptor, ByteArray(0), handler, null)) { passed ->
+            (passed[3] as Handler).onNext(dmPayload.toByteArray())
+            null
+        }
+        assertEquals(listOf(8), DmSegMobileReply.parseFrom(requireNotNull(received)).getElemsList().map { it.getWeight() })
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (DanmakuCopyOnWriteTest) -> Unit) {
@@ -139,5 +201,6 @@ class DanmakuCopyOnWriteTest {
         runIsolated { s -> s.`weight filtering and colour neutralization compose on the same list`() }
         runIsolated { s -> s.`no matching rule and absent weight preserve identity and do not report an error`() }
         runIsolated { s -> s.wireFastPathFollowsLiveRulesWithoutSnapshotLeakage() }
+        runIsolated { s -> s.`wire-first cleans danmaku payload without Java DMMoss`() }
     }
 }

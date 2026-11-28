@@ -35,7 +35,10 @@ class SemanticSourcesTest {
     /** 批量/补发类断言假设一题一文本；拆题后一题 = 一条 × 一条规则，取一条规则保持题数 = 条目数。 */
     private val rules = SemanticPresets.COMMENT.take(1)
 
-    val temp = TemporaryFolder()
+    @get:Rule
+    val sharedRoot = TemporaryFolder()
+    private var injectedTemp: TemporaryFolder? = null
+    private val temp: TemporaryFolder get() = injectedTemp ?: sharedRoot
 
     fun reset() = SemanticJudge.resetLearnedVariants()
 
@@ -350,6 +353,7 @@ class SemanticSourcesTest {
     fun `a slow source is hedged by another and the first success wins`() {
         val pool = SemanticSourcePool(listOf(source(1), source(2)))
         pool.slotsFor(pool.sources)[0].latencyMs = 100.0 // 平常很快 → 300 ms 没回来就对冲
+        val releaseSlow = CountDownLatch(1)
         val executor = java.util.concurrent.Executors.newCachedThreadPool()
         val calls = java.util.Collections.synchronizedList(mutableListOf<String>())
         val reports = mutableListOf<SemanticBatchReport>()
@@ -357,18 +361,22 @@ class SemanticSourcesTest {
             hedgeExecutor = { task -> executor.execute(task); true },
             transport = { body, key, _ ->
                 calls += key
-                if (key == "key1") Thread.sleep(2_000)
+                if (key == "key1") releaseSlow.await(2_000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 200 to answers(body, block = if (key == "key1") 0.1 else 0.9)
             },
             sourcePool = pool)
-        val started = System.currentTimeMillis()
-        val verdicts = judge.evaluate(listOf("一", "二"), SemanticMode.WAIT) { r, _, _ -> reports += r }
-        val elapsed = System.currentTimeMillis() - started
-        executor.shutdown()
-        assertEquals(List(2) { SemanticVerdict.BLOCK }, verdicts) // 用的是 2 号的结果
-        assertTrue("elapsed=$elapsed", elapsed < 1_500)
-        assertEquals(listOf("key1", "key2"), calls.toList())
-        assertTrue(reports.single().extras().contains("hedge=1"))
+        try {
+            val started = System.currentTimeMillis()
+            val verdicts = judge.evaluate(listOf("一", "二"), SemanticMode.WAIT) { r, _, _ -> reports += r }
+            val elapsed = System.currentTimeMillis() - started
+            assertEquals(List(2) { SemanticVerdict.BLOCK }, verdicts) // 用的是 2 号的结果
+            assertTrue("elapsed=$elapsed", elapsed < 1_500)
+            assertEquals(listOf("key1", "key2"), calls.toList())
+            assertTrue(reports.single().extras().contains("hedge=1"))
+        } finally {
+            releaseSlow.countDown()
+            executor.shutdownNow()
+        }
     }
 
     fun `no hedge is sent when the first source answers in time`() {
@@ -558,7 +566,7 @@ class SemanticSourcesTest {
         SemanticJudge("unused", rules, background = { it.run(); true }, transport = transport,
             sourcePool = pool, sourceRoute = listOf(pool.sources[1])).evaluate(listOf("一"), SemanticMode.WAIT)
         val file = File(File(root, "bil_semantic"), SemanticJudge.LEARNED_FILE)
-        repeat(100) { if (!file.isFile || !file.readText().contains("t ")) Thread.sleep(20) }
+        repeat(500) { if (!file.isFile || !file.readText().contains("t ")) Thread.sleep(2) }
         assertTrue(file.readText().lines().any { it.startsWith("t ${pool.sources[0].learnKey} ") })
 
         // "重启"：新的来源池（同一来源身份）读回可信度。
@@ -634,17 +642,12 @@ class SemanticSourcesTest {
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (SemanticSourcesTest) -> Unit) {
-            val s = SemanticSourcesTest()
-            s.temp.create()
+            val s = SemanticSourcesTest().apply { injectedTemp = this@SemanticSourcesTest.sharedRoot }
+            s.reset()
             try {
-                s.reset()
-                try {
-                    block(s)
-                } finally {
-                    s.clear()
-                }
+                block(s)
             } finally {
-                s.temp.delete()
+                s.clear()
             }
         }
         runIsolated { s -> s.`all eight configured sources survive settings and source eight can be fixed`() }

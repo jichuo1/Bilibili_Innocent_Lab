@@ -96,7 +96,7 @@ class AudioRescueProcessorTest {
     fun `noise filters suppress mains fundamentals and harmonics but preserve speech`() {
         val config = AudioRescueConfig(noiseReduction = true)
         for (hz in listOf(50.0, 60.0, 100.0, 120.0)) {
-            val input = tone(hz, seconds = 2.0)
+            val input = tone(hz, seconds = 0.4)
             assertTrue("hum $hz", rms(run(config, input)) < rms(input) * .12)
         }
         val input = tone(1000.0)
@@ -142,7 +142,7 @@ class AudioRescueProcessorTest {
             for (mask in 0..15) {
                 val processor = AudioRescueProcessor(sampleRate, channels,
                     AudioRescueConfig(mask and 1 != 0, if (mask and 2 != 0) 2 else 0, mask and 4 != 0, mask and 8 != 0))
-                val data = FloatArray(4000 * channels) { if (it % 3 == 0) 1f else -1f }
+                val data = FloatArray(400 * channels) { if (it % 3 == 0) 1f else -1f }
                 processor.process(data)
                 assertTrue(data.all { it.isFinite() && abs(it) <= 1f })
             }

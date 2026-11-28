@@ -90,6 +90,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
@@ -97,6 +98,7 @@ import java.security.PrivateKey
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -139,19 +141,43 @@ class PluginSystemEndToEndTest {
         density = 3.0f
     )
 
-    private fun createEcdsaSigner(): Triple<TrustedSigner, PrivateKey, TrustedSignerRegistry> {
-        val kpg = KeyPairGenerator.getInstance("EC")
-        kpg.initialize(ECGenParameterSpec("secp256r1"))
-        val kp = kpg.generateKeyPair()
-        val pubEncoded = kp.public.encoded
-        val pubSha = PluginSignatureVerifier.computePublicKeySha256(pubEncoded)
-        val signer = TrustedSigner(
-            keyId = "test-ecdsa-key",
-            algorithm = TrustedSignerRegistry.ALGORITHM_ECDSA_SHA256,
-            publicKeyBase64 = Base64.getEncoder().encodeToString(pubEncoded),
-            publicKeySha256 = pubSha
-        )
-        return Triple(signer, kp.private, TrustedSignerRegistry(listOf(signer)))
+    private inline fun runIsolated(block: () -> Unit) {
+        PluginRuntimeDiagnostics.resetForTests()
+        KavaMemberLookup.resetForTests()
+        try {
+            block()
+        } finally {
+            PluginRuntimeDiagnostics.resetForTests()
+            KavaMemberLookup.resetForTests()
+        }
+    }
+
+    private fun createEcdsaSigner(): Triple<TrustedSigner, PrivateKey, TrustedSignerRegistry> = ecSignerTriple
+
+    companion object {
+        private val ecSignerTriple: Triple<TrustedSigner, PrivateKey, TrustedSignerRegistry> by lazy {
+            val kpg = KeyPairGenerator.getInstance("EC")
+            kpg.initialize(ECGenParameterSpec("secp256r1"))
+            val kp = kpg.generateKeyPair()
+            val pubEncoded = kp.public.encoded
+            val pubSha = PluginSignatureVerifier.computePublicKeySha256(pubEncoded)
+            val signer = TrustedSigner(
+                keyId = "test-ecdsa-key",
+                algorithm = TrustedSignerRegistry.ALGORITHM_ECDSA_SHA256,
+                publicKeyBase64 = Base64.getEncoder().encodeToString(pubEncoded),
+                publicKeySha256 = pubSha
+            )
+            Triple(signer, kp.private, TrustedSignerRegistry(listOf(signer)))
+        }
+
+        private val ed25519KeyPair by lazy {
+            KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        }
+
+        private val ed25519WrongKey32 by lazy {
+            KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+                .public.encoded.copyOfRange(12, 44)
+        }
     }
 
     private fun buildSignedCodeBilp(
@@ -288,7 +314,42 @@ class PluginSystemEndToEndTest {
     }
 
     @Test
-    fun tierBDeclarativeBundleEndToEndFiltersContentValidatesDexQueriesAndRendersIsolatedSettings() {
+    fun tierBDeclarativeBundleEndToEndTest() =
+        runIsolated { tierBDeclarativeBundleEndToEndFiltersContentValidatesDexQueriesAndRendersIsolatedSettings() }
+
+    @Test
+    fun emptyPluginIndexDigestFastPathTest() =
+        runIsolated { emptyPluginIndexDigestShortCircuitsWithZeroOverhead() }
+
+    @Test
+    fun bilpContainerVerificationTest() =
+        runIsolated { bilpContainerRejectsZipTraversalAndUnaligned4KbElfAndSignatureTampering() }
+
+    @Test
+    fun ed25519VerifierCrossCheckTest() =
+        runIsolated { ed25519PureVerifierCrossChecksAgainstJdk17AndRejectsTampering() }
+
+    @Test
+    fun tierCSandboxIsolationAndFirewallTest() =
+        runIsolated { tierCSandboxEnforcesFirewallRefValidationCircuitBreakerCrashLoopAndGcCollectability() }
+
+    @Test
+    fun dualParentBridgeClassLoaderIsolationTest() =
+        runIsolated { dualParentPluginApiBridgeClassLoaderRoutesAllowedHostPrefixAndBlocksInternals() }
+
+    @Test
+    fun hostHookCallbackContextMutationTest() =
+        runIsolated { hostHookCallbackContextTracksArgMutationSyncAfterResultAndOverride() }
+
+    @Test
+    fun danmakuFaultStormCircuitBreakerTest() =
+        runIsolated { danmakuBatchFilterFaultStormTripsPluginFaultCircuitBreaker() }
+
+    @Test
+    fun hostAgentPluginToolBridgeTest() =
+        runIsolated { hostAgentPluginToolBridgeListsAndInvokesWithUntrustedOutputEscaping() }
+
+    private fun tierBDeclarativeBundleEndToEndFiltersContentValidatesDexQueriesAndRendersIsolatedSettings() {
         val pluginId = "com.example.tierb.purify"
         val hostVersion = 9_210_000L
         val bilpBytes = buildTierBDeclarativeBilp(pluginId)
@@ -426,8 +487,7 @@ class PluginSystemEndToEndTest {
         assertFalse(snapshot.containsKey(RemoteHookConfigContract.KEY_AI_INSIGHT_API_KEY))
     }
 
-    @Test
-    fun bilpContainerRejectsZipTraversalAndUnaligned4KbElfAndSignatureTampering() {
+    private fun bilpContainerRejectsZipTraversalAndUnaligned4KbElfAndSignatureTampering() {
         val (signer, privateKey, registry) = createEcdsaSigner()
 
         // 1. Zip path traversal must fail with INVALID_PACKAGE
@@ -531,8 +591,7 @@ class PluginSystemEndToEndTest {
         assertEquals(PluginQuarantineReason.SIGNATURE_MISMATCH, sigEx.reason)
     }
 
-    @Test
-    fun emptyPluginIndexDigestShortCircuitsWithZeroOverhead() {
+    private fun emptyPluginIndexDigestShortCircuitsWithZeroOverhead() {
         val emptyDoc = PluginIndexDocument(entries = emptyList())
         assertEquals("", PluginIndexCodec.expectedRemoteDigest(emptyDoc))
         assertEquals("", PluginIndexCodec.activeDigest(emptyDoc))
@@ -572,10 +631,38 @@ class PluginSystemEndToEndTest {
         assertEquals(3, HostRuntimeDiagnosticsCodec.CURRENT_SCHEMA_VERSION)
     }
 
-    @Test
-    fun tierCSandboxEnforcesFirewallRefValidationCircuitBreakerCrashLoopAndGcCollectability() {
+    private fun tierCSandboxEnforcesFirewallRefValidationCircuitBreakerCrashLoopAndGcCollectability() {
         val pluginId = "com.example.tierc.sandboxed"
         val (signer, privateKey, registry) = createEcdsaSigner()
+
+        val refQueue = ReferenceQueue<ClassLoader>()
+        val loaderRef = runTierCSandboxLifecycleAndReturnLoaderRef(
+            pluginId = pluginId,
+            signer = signer,
+            privateKey = privateKey,
+            registry = registry,
+            refQueue = refQueue
+        )
+
+        var collected = loaderRef.get() == null
+        val gcDeadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (!collected && System.nanoTime() < gcDeadlineNs) {
+            System.gc()
+            System.runFinalization()
+            if (refQueue.remove(20L) === loaderRef || loaderRef.get() == null) {
+                collected = true
+            }
+        }
+        assertTrue("Unloaded Tier-C plugin ClassLoader must be garbage-collectable", collected)
+    }
+
+    private fun runTierCSandboxLifecycleAndReturnLoaderRef(
+        pluginId: String,
+        signer: TrustedSigner,
+        privateKey: PrivateKey,
+        registry: TrustedSignerRegistry,
+        refQueue: ReferenceQueue<ClassLoader>
+    ): WeakReference<ClassLoader> {
 
         // 1. ClassLoader firewall & KavaMemberLookup non-cacheability
         val bridge = PluginApiBridgeClassLoader(javaClass.classLoader!!)
@@ -675,7 +762,7 @@ class PluginSystemEndToEndTest {
                 assertFalse(KavaMemberLookup.isCacheableLoader(child))
                 // Verify KavaMemberLookup still does not retain child ClassLoader
                 KavaMemberLookup.classOrNull(child, SampleFaultingTierCPlugin::class.java.name)
-                createdLoaderRef = WeakReference(child)
+                createdLoaderRef = WeakReference(child, refQueue)
                 child
             }
         )
@@ -782,24 +869,11 @@ class PluginSystemEndToEndTest {
         registeredBefore = null
         installedHandles.clear()
 
-        val loaderRef = requireNotNull(createdLoaderRef)
-        var collected = false
-        for (attempt in 0 until 25) {
-            if (loaderRef.get() == null) {
-                collected = true
-                break
-            }
-            System.gc()
-            System.runFinalization()
-            Thread.sleep(20)
-        }
-        assertTrue("Unloaded Tier-C plugin ClassLoader must be garbage-collectable", collected)
+        return requireNotNull(createdLoaderRef)
     }
 
-    @Test
-    fun ed25519PureVerifierCrossChecksAgainstJdk17AndRejectsTampering() {
-        val kpg = KeyPairGenerator.getInstance("Ed25519")
-        val kp = kpg.generateKeyPair()
+    private fun ed25519PureVerifierCrossChecksAgainstJdk17AndRejectsTampering() {
+        val kp = ed25519KeyPair
         val spki = kp.public.encoded
         assertEquals(44, spki.size)
         val rawPublicKey32 = spki.copyOfRange(12, 44)
@@ -831,7 +905,7 @@ class PluginSystemEndToEndTest {
         assertFalse(Ed25519PureVerifier.verify(rawPublicKey32, message, tamperedSigS))
 
         // Wrong public key
-        val wrongKey32 = kpg.generateKeyPair().public.encoded.copyOfRange(12, 44)
+        val wrongKey32 = ed25519WrongKey32
         assertFalse(Ed25519PureVerifier.verify(wrongKey32, message, signature64))
 
         // Invalid key / signature lengths
@@ -839,8 +913,7 @@ class PluginSystemEndToEndTest {
         assertFalse(Ed25519PureVerifier.verify(rawPublicKey32, message, signature64.copyOf(63)))
     }
 
-    @Test
-    fun dualParentPluginApiBridgeClassLoaderRoutesAllowedHostPrefixAndBlocksInternals() {
+    private fun dualParentPluginApiBridgeClassLoaderRoutesAllowedHostPrefixAndBlocksInternals() {
         val hostLookupCalls = mutableListOf<String>()
         val fakeHostClassLoader = object : ClassLoader(null) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
@@ -885,8 +958,7 @@ class PluginSystemEndToEndTest {
         assertFalse("com.example.host2.BypassAttempt" in hostLookupCalls)
     }
 
-    @Test
-    fun hostHookCallbackContextTracksArgMutationSyncAfterResultAndOverride() {
+    private fun hostHookCallbackContextTracksArgMutationSyncAfterResultAndOverride() {
         val registrar = SandboxedPluginHookRegistrar("com.example.ctx", PluginHookBridge.NO_OP)
         val memberRef = registrar.issueMemberRef(
             ownerClassName = "tv.danmaku.bili.SampleModel",
@@ -928,8 +1000,7 @@ class PluginSystemEndToEndTest {
         assertTrue(throwingCtx.hasThrowable())
     }
 
-    @Test
-    fun danmakuBatchFilterFaultStormTripsPluginFaultCircuitBreaker() {
+    private fun danmakuBatchFilterFaultStormTripsPluginFaultCircuitBreaker() {
         val pluginId = "com.example.faulty.danmaku"
         val clock = FakeClock(2_000_000L)
         val trippedIds = mutableListOf<String>()
@@ -975,8 +1046,7 @@ class PluginSystemEndToEndTest {
         }
     }
 
-    @Test
-    fun hostAgentPluginToolBridgeListsAndInvokesWithUntrustedOutputEscaping() {
+    private fun hostAgentPluginToolBridgeListsAndInvokesWithUntrustedOutputEscaping() {
         val pluginId = "com.example.agent.bridge"
         val agentTools = SandboxedPluginAgentTools()
         try {

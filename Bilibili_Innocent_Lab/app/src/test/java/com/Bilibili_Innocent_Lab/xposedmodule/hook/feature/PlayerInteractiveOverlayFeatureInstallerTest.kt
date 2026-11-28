@@ -2,6 +2,15 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.bapis.bilibili.app.view.v1.VideoGuide
+import com.bapis.bilibili.app.view.v1.ViewProgressReply
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -143,6 +152,53 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         assertEquals("success", status())
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    fun `wire-first strips ViewProgress video guide without moss methods`() {
+        val interReg = PlayerPortTestRegistrar()
+        val overlayPoints = locatedPoints().copy(mossExecutes = emptyList(), mossAsync = emptyList())
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        val interRes = PlayerInteractiveOverlayFeatureInstaller(
+            enabled = true,
+            points = overlayPoints,
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod)
+        ).install(environment.copy(registrar = interReg))
+        assertTrue(interRes is FeatureInstallResult.Installed)
+        var guideOut: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { guideOut = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val descriptor = WireStrippedDescriptor("bilibili.app.view.v1", "View", "ViewProgress")
+        interReg.invoke(
+            "kmp.grpc.wire.channel",
+            GrpcEngine(emptyList()),
+            arrayOf(Service("host"), descriptor, ByteArray(0), handler, null)
+        ) { passed ->
+            (passed[3] as Handler).onNext(
+                ViewProgressReply(VideoGuide(setOf("clearAttention", "clearCardsSecond"))).toByteArray()
+            )
+            null
+        }
+        assertTrue(ViewProgressReply.parseFrom(requireNotNull(guideOut)).getVideoGuide().fields.isEmpty())
+    }
+
     private companion object {
         const val CHANNEL = "player_interactive_overlay_status"
     }
@@ -159,5 +215,6 @@ class PlayerInteractiveOverlayFeatureInstallerTest {
         runIsolated { s -> s.`a family whose whitelist cannot resolve is reported as partial`() }
         runIsolated { s -> s.`command danmaku is not claimed when neither getter rewrite nor moss clear works`() }
         runIsolated { s -> s.`command danmaku falls back to the moss boundary when the default instance is missing`() }
+        runIsolated { s -> s.`wire-first strips ViewProgress video guide without moss methods`() }
     }
 }

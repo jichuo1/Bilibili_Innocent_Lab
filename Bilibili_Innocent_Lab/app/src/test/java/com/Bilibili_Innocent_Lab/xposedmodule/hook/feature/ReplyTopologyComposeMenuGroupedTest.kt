@@ -16,6 +16,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyThreadKey
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -25,14 +26,18 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import sun.misc.Unsafe
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.lang.reflect.Constructor
 
 class ReplyTopologyComposeMenuGroupedTest {
 
+    class FixtureCompositionLocal
+    object FixtureAndroidLocals {
+        private val localView = FixtureCompositionLocal()
+        @JvmStatic
+        fun getLocalView(): FixtureCompositionLocal = localView
+    }
+    interface FixtureComposer {
+        fun consume(key: FixtureCompositionLocal): Any?
+    }
     class FixturePaddingValues
     open class FixturePainter
 
@@ -54,7 +59,7 @@ class ReplyTopologyComposeMenuGroupedTest {
         fun d(
             items: List<*>,
             onDismiss: (Any?) -> Unit,
-            composer: ReplyTopology920AdaptationTest.FixtureComposer,
+            composer: FixtureComposer,
             changed: Int
         ) = Unit
 
@@ -64,7 +69,7 @@ class ReplyTopologyComposeMenuGroupedTest {
             entry: FixtureRootEntry,
             onClick: () -> Unit,
             modifier: Modifier,
-            composer: ReplyTopology920AdaptationTest.FixtureComposer,
+            composer: FixtureComposer,
             changed: Int
         ) = Unit
     }
@@ -77,7 +82,7 @@ class ReplyTopologyComposeMenuGroupedTest {
             onDismiss: (Any?) -> Unit,
             modifier: Modifier,
             padding: FixturePaddingValues,
-            composer: ReplyTopology920AdaptationTest.FixtureComposer,
+            composer: FixtureComposer,
             changed: Int,
             defaultFlag: Int
         ) = Unit
@@ -89,7 +94,7 @@ class ReplyTopologyComposeMenuGroupedTest {
             padding: FixturePaddingValues,
             selected: Boolean,
             modifier: Modifier,
-            composer: ReplyTopology920AdaptationTest.FixtureComposer,
+            composer: FixtureComposer,
             changed: Int
         ) = Unit
     }
@@ -106,68 +111,13 @@ class ReplyTopologyComposeMenuGroupedTest {
             modifier: Modifier,
             trail: FixturePainter,
             accent: Boolean,
-            composer: ReplyTopology920AdaptationTest.FixtureComposer,
+            composer: FixtureComposer,
             changed: Int,
             defaultFlag: Int
         ) = Unit
     }
 
     object FixtureCommentModel
-
-    private class RenamingLoader(
-        parent: ClassLoader,
-        private val templates: Map<String, Class<*>>,
-        private val replacements: Map<String, String>,
-        private val hiddenPrefixes: Set<String> = emptySet()
-    ) : ClassLoader(parent) {
-        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
-            if (hiddenPrefixes.any(name::startsWith)) throw ClassNotFoundException(name)
-            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
-            val loaded = findLoadedClass(name) ?: rewriteConstantPool(template).let { bytes ->
-                defineClass(name, bytes, 0, bytes.size)
-            }
-            if (resolve) resolveClass(loaded)
-            loaded
-        }
-
-        private fun rewriteConstantPool(template: Class<*>): ByteArray {
-            val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class")).use { it.readBytes() }
-            val input = DataInputStream(ByteArrayInputStream(raw))
-            val outBuffer = ByteArrayOutputStream()
-            val output = DataOutputStream(outBuffer)
-            output.writeInt(input.readInt())
-            output.writeShort(input.readUnsignedShort())
-            output.writeShort(input.readUnsignedShort())
-            val count = input.readUnsignedShort()
-            output.writeShort(count)
-            var index = 1
-            while (index < count) {
-                val tag = input.readUnsignedByte()
-                output.writeByte(tag)
-                if (tag == 1) {
-                    var rewritten = input.readUTF()
-                    replacements.entries.sortedByDescending { it.key.length }.forEach { (oldInternal, newInternal) ->
-                        rewritten = rewritten.replace(oldInternal, newInternal)
-                    }
-                    output.writeUTF(rewritten)
-                } else {
-                    val length = when (tag) {
-                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
-                        5, 6 -> 8
-                        7, 8, 16, 19, 20 -> 2
-                        15 -> 3
-                        else -> error("Unsupported classfile constant tag: $tag")
-                    }
-                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
-                    if (tag == 5 || tag == 6) index++
-                }
-                index++
-            }
-            output.write(input.readBytes())
-            output.flush()
-            return outBuffer.toByteArray()
-        }
-    }
 
     private fun hostLoader(
         entryClassName: String = "wmo1",
@@ -178,9 +128,9 @@ class ReplyTopologyComposeMenuGroupedTest {
     ): ClassLoader {
         fun internal(cls: Class<*>) = cls.name.replace('.', '/')
         val templates = linkedMapOf<String, Class<*>>(
-            "androidx.compose.ui.platform.AndroidCompositionLocals_androidKt" to ReplyTopology920AdaptationTest.FixtureAndroidLocals::class.java,
-            "androidx.compose.runtime.CompositionLocal" to ReplyTopology920AdaptationTest.FixtureCompositionLocal::class.java,
-            "androidx.compose.runtime.Composer" to ReplyTopology920AdaptationTest.FixtureComposer::class.java,
+            "androidx.compose.ui.platform.AndroidCompositionLocals_androidKt" to FixtureAndroidLocals::class.java,
+            "androidx.compose.runtime.CompositionLocal" to FixtureCompositionLocal::class.java,
+            "androidx.compose.runtime.Composer" to FixtureComposer::class.java,
             "androidx.compose.ui.graphics.painter.Painter" to FixturePainter::class.java,
             "androidx.compose.foundation.layout.PaddingValues" to FixturePaddingValues::class.java,
             entryClassName to FixtureRootEntry::class.java,
@@ -188,9 +138,9 @@ class ReplyTopologyComposeMenuGroupedTest {
             "kntr.common.bilitheme.compose.bottomsheet.a" to FixtureLegacyBottomType::class.java
         )
         val replacements = linkedMapOf(
-            internal(ReplyTopology920AdaptationTest.FixtureAndroidLocals::class.java) to "androidx/compose/ui/platform/AndroidCompositionLocals_androidKt",
-            internal(ReplyTopology920AdaptationTest.FixtureCompositionLocal::class.java) to "androidx/compose/runtime/CompositionLocal",
-            internal(ReplyTopology920AdaptationTest.FixtureComposer::class.java) to "androidx/compose/runtime/Composer",
+            internal(FixtureAndroidLocals::class.java) to "androidx/compose/ui/platform/AndroidCompositionLocals_androidKt",
+            internal(FixtureCompositionLocal::class.java) to "androidx/compose/runtime/CompositionLocal",
+            internal(FixtureComposer::class.java) to "androidx/compose/runtime/Composer",
             internal(FixturePainter::class.java) to "androidx/compose/ui/graphics/painter/Painter",
             internal(FixturePaddingValues::class.java) to "androidx/compose/foundation/layout/PaddingValues",
             internal(FixtureRootEntry::class.java) to entryClassName.replace('.', '/'),
@@ -213,7 +163,7 @@ class ReplyTopologyComposeMenuGroupedTest {
             templates[CommentComposeMenuAdapter.COMMENT_MODEL] = FixtureCommentModel::class.java
             replacements[internal(FixtureCommentModel::class.java)] = CommentComposeMenuAdapter.COMMENT_MODEL.replace('.', '/')
         }
-        return RenamingLoader(
+        return TestRenamingClassLoader(
             parent = requireNotNull(javaClass.classLoader),
             templates = templates,
             replacements = replacements
@@ -449,10 +399,8 @@ class ReplyTopologyComposeMenuGroupedTest {
         val legacyPoints = CommentComposeMenuAdapter.locate(legacyOnlyLoader, legacySession, enabled = true, cached = null, planned = true)
         assertNotNull(legacyPoints?.legacyRow)
         assertTrue(CommentComposeMenuAdapter.resolve(legacyOnlyLoader, legacyPoints).isComplete())
-    }
 
-    @Test
-    fun `AdaptResult round trips optional compose menu and kmp grpc wire points and tolerates absent keys`() {
+        // AdaptResult round trips optional compose menu and kmp grpc wire points and tolerates absent keys.
         val loader = hostLoader(
             entryClassName = "wmo1",
             bubbleClassName = "kntr.common.comment.common.ui.moremenu.MoreMenuBubbleKt",
@@ -475,7 +423,6 @@ class ReplyTopologyComposeMenuGroupedTest {
         assertEquals(direct, parsed!!.commentComposeMenu)
         assertEquals(wirePoint, parsed.kmpGrpcWireEngine)
 
-        // Old cached JSON without these keys must still deserialize cleanly with null values.
         json.remove("comment_compose_menu")
         json.remove("kmp_grpc_wire_engine")
         val legacyParsed = VersionAdapter.AdaptResult.fromJson(json)

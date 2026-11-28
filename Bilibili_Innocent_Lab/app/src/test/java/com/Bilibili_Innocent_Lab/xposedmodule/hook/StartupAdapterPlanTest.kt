@@ -70,6 +70,59 @@ class StartupAdapterPlanTest {
         assertTrue("COMMENT_PURIFY" in excluded)
     }
 
+    fun subprocessProfileMatrixSeparatesMainIjkAndBackgroundProcesses() {
+        val emptyConfig = SnapshotHookConfigSource(emptyMap(), 1L)
+        for (proc in listOf(
+            "tv.danmaku.bili",
+            "tv.danmaku.bili:ijkservice",
+            "tv.danmaku.bili:web",
+            "tv.danmaku.bili:download",
+            "tv.danmaku.bili:pushservice",
+            "tv.danmaku.bili:unknown"
+        )) {
+            assertTrue(
+                "excludedForProcess(..., nPatchRuntime=false) contract must stay empty",
+                StartupAdapterPlan.excludedForProcess(emptyConfig, proc, false).isEmpty()
+            )
+        }
+
+        val main = StartupAdapterPlan.processProfile("tv.danmaku.bili")
+        assertEquals(StartupAdapterPlan.ProcessRole.MAIN, main.role)
+        assertTrue(main.isMainProcess)
+        assertTrue(main.runVersionAdapter)
+        assertTrue(main.installMainProcessUiAndFeed)
+        assertTrue(main.installIncognitoPrivacy)
+        assertTrue(main.installPlayerAvAndCodecs)
+        assertTrue(main.installComponentLibraryBlock)
+
+        val ijk = StartupAdapterPlan.processProfile("tv.danmaku.bili:ijkservice")
+        assertEquals(StartupAdapterPlan.ProcessRole.IJK_SERVICE, ijk.role)
+        assertFalse(ijk.isMainProcess)
+        assertFalse(ijk.runVersionAdapter)
+        assertFalse(ijk.installMainProcessUiAndFeed)
+        assertTrue(ijk.installIncognitoPrivacy)
+        assertTrue(ijk.installPlayerAvAndCodecs)
+        assertTrue(ijk.installComponentLibraryBlock)
+
+        for (proc in listOf(
+            "tv.danmaku.bili:web" to StartupAdapterPlan.ProcessRole.WEB,
+            "tv.danmaku.bili:download" to StartupAdapterPlan.ProcessRole.DOWNLOAD,
+            "tv.danmaku.bili:pushservice" to StartupAdapterPlan.ProcessRole.BACKGROUND_SERVICE,
+            "tv.danmaku.bili:channel" to StartupAdapterPlan.ProcessRole.BACKGROUND_SERVICE,
+            "tv.danmaku.bili:daemon" to StartupAdapterPlan.ProcessRole.BACKGROUND_SERVICE,
+            "tv.danmaku.bili:other" to StartupAdapterPlan.ProcessRole.UNKNOWN_SUBPROCESS
+        )) {
+            val profile = StartupAdapterPlan.processProfile(proc.first)
+            assertEquals(proc.second, profile.role)
+            assertFalse(profile.isMainProcess)
+            assertFalse(profile.runVersionAdapter)
+            assertFalse(profile.installMainProcessUiAndFeed)
+            assertTrue(profile.installIncognitoPrivacy)
+            assertFalse(profile.installPlayerAvAndCodecs)
+            assertTrue(profile.installComponentLibraryBlock)
+        }
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (StartupAdapterPlanTest) -> Unit) {
@@ -82,5 +135,6 @@ class StartupAdapterPlanTest {
         runIsolated { s -> s.knownChildrenSkipOnlyAuditedMainConsumersWithoutReadingTheirConfiguration() }
         runIsolated { s -> s.standardFrameworkAndUnknownProcessesKeepCompleteLookupWithoutConfigReads() }
         runIsolated { s -> s.mainProcessRetainsComplexRelateLookupAndEnabledQuality() }
+        runIsolated { s -> s.subprocessProfileMatrixSeparatesMainIjkAndBackgroundProcesses() }
     }
 }

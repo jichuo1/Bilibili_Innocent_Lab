@@ -11,6 +11,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 class RoamingCacheTest {
+    @Rule
+    @JvmField
     val temporary = TemporaryFolder()
     private val identity = RoamingCacheIdentity("host-a", "roaming-a", 8902100, 170, "1.7.0", 0)
     private fun cache(timestamp: Long = 1000, access: Boolean = true): ByteArray {
@@ -42,23 +44,25 @@ class RoamingCacheTest {
             ByteArray(RoamingHookInfo.MAX_BYTES + 1), byteArrayOf(42, 100, 1))) assertNull(RoamingHookInfo.parse(data))
     }
     fun `minimal and partial hook groups cannot be backed up`() {
-        val store = RoamingCacheStore(temporary.root)
+        val store = RoamingCacheStore(temporary.newFolder())
         assertFalse(store.save(RoamingHookInfo.number(1, 1000), identity))
         assertFalse(store.save(RoamingHookInfo.fields(cache()).filter { it.number !in 11..12 }
             .flatMap { it.raw.toList() }.toByteArray(), identity))
         assertNull(store.restore(identity))
     }
     fun `missing file restores matching complete backup and refreshes install timestamp`() {
-        val store = RoamingCacheStore(temporary.root)
-        val file = File(temporary.root, "hookinfo.pb")
+        val dir = temporary.newFolder()
+        val store = RoamingCacheStore(dir)
+        val file = File(dir, "hookinfo.pb")
         assertTrue(store.save(cache(), identity))
         assertEquals(RoamingCacheStatus.REUSED, store.prepare(file, identity, 5000, 2000))
         assertEquals(5000L, RoamingHookInfo.parse(file.readBytes())!!.timestamp)
         assertArrayEquals(file.readBytes(), store.restore(identity))
     }
     fun `repack time change reuses only exact previously proven analysis bytes`() {
-        val store = RoamingCacheStore(temporary.root)
-        val file = temporary.newFile("hookinfo.pb").apply { writeBytes(cache()) }
+        val dir = temporary.newFolder()
+        val store = RoamingCacheStore(dir)
+        val file = File(dir, "hookinfo.pb").apply { writeBytes(cache()) }
         assertTrue(store.save(file.readBytes(), identity))
         assertEquals(RoamingCacheStatus.REUSED, store.prepare(file, identity, 9000, 9001))
         assertEquals(9001L, RoamingHookInfo.parse(file.readBytes())!!.timestamp)
@@ -76,24 +80,27 @@ class RoamingCacheTest {
         }
     }
     fun `corrupt active cache rebuilds instead of silently restoring a valid backup`() {
-        val store = RoamingCacheStore(temporary.root)
+        val dir = temporary.newFolder()
+        val store = RoamingCacheStore(dir)
         assertTrue(store.save(cache(), identity))
-        val file = temporary.newFile("hookinfo.pb").apply { writeBytes(byteArrayOf(42, 99)) }
+        val file = File(dir, "hookinfo.pb").apply { writeBytes(byteArrayOf(42, 99)) }
         assertEquals(RoamingCacheStatus.REBUILDING, store.prepare(file, identity, 0, 2000))
         assertFalse(file.exists()); assertNull(store.restore(identity))
     }
     fun `damaged backup is rejected and cannot refresh stale active bytes`() {
-        val store = RoamingCacheStore(temporary.root)
+        val dir = temporary.newFolder()
+        val store = RoamingCacheStore(dir)
         assertTrue(store.save(cache(), identity))
-        val backup = File(temporary.root, "bil-roaming-complete-v1")
+        val backup = File(dir, "bil-roaming-complete-v1")
         backup.writeBytes(backup.readBytes().also { it[it.lastIndex] = 1 })
-        val file = temporary.newFile("hookinfo.pb").apply { writeBytes(cache()) }
+        val file = File(dir, "hookinfo.pb").apply { writeBytes(cache()) }
         assertNull(store.restore(identity))
         assertEquals(RoamingCacheStatus.REBUILDING, store.prepare(file, identity, 5000, 6000))
     }
     fun `fresh and stale untracked caches both require analysis before minting provenance`() {
-        val store = RoamingCacheStore(temporary.root)
-        val file = temporary.newFile("hookinfo.pb").apply { writeBytes(cache()) }
+        val dir = temporary.newFolder()
+        val store = RoamingCacheStore(dir)
+        val file = File(dir, "hookinfo.pb").apply { writeBytes(cache()) }
         assertEquals(RoamingCacheStatus.REBUILDING, store.prepare(file, identity, 900, 2000))
         assertFalse(file.exists())
         assertFalse(store.hasBackup())
@@ -101,8 +108,9 @@ class RoamingCacheTest {
         assertEquals(RoamingCacheStatus.REBUILDING, store.prepare(file, identity, 1001, 2000))
     }
     fun `zip identity ignores paths and timestamps but notices dex native and resource changes`() {
+        val dir = temporary.newFolder()
         fun apk(name: String, dex: String = "code", native: String = "native", resource: String = "ui") =
-            temporary.newFile(name).also { file -> ZipOutputStream(file.outputStream()).use { zip ->
+            File(dir, name).also { file -> ZipOutputStream(file.outputStream()).use { zip ->
                 for ((path, text) in mapOf("classes.dex" to dex, "lib/arm64-v8a/libx.so" to native, "resources.arsc" to resource)) {
                     zip.putNextEntry(ZipEntry(path)); zip.write(text.toByteArray()); zip.closeEntry()
                 }
@@ -114,7 +122,8 @@ class RoamingCacheTest {
             assertNotEquals(first, RoamingArchiveIdentity.inspect(listOf(file), false))
     }
     fun `outer loader changes preserve origin identity and malformed archives stay unknown`() {
-        fun patched(name: String, loader: String) = temporary.newFile(name).also { file ->
+        val dir = temporary.newFolder()
+        fun patched(name: String, loader: String) = File(dir, name).also { file ->
             ZipOutputStream(file.outputStream()).use { zip ->
                 for ((path, text) in mapOf("classes.dex" to loader, "assets/npatch/origin.apk" to "original")) {
                     zip.putNextEntry(ZipEntry(path)); zip.write(text.toByteArray()); zip.closeEntry()
@@ -125,17 +134,27 @@ class RoamingCacheTest {
         val second = patched("b.apk", "two")
         assertEquals(RoamingArchiveIdentity.inspect(listOf(first), true), RoamingArchiveIdentity.inspect(listOf(second), true))
         assertNull(RoamingArchiveIdentity.inspect(listOf(first), false))
-        assertNull(RoamingArchiveIdentity.inspect(listOf(temporary.newFile("bad.apk")), true))
+        assertNull(RoamingArchiveIdentity.inspect(listOf(File(dir, "bad.apk").apply { writeBytes(byteArrayOf()) }), true))
         assertNull(RoamingArchiveIdentity.inspect(emptyList(), true))
     }
-    fun `supported resource-heavy host can have more than twenty thousand zip entries`() {
-        val file = temporary.newFile("large-host.apk")
-        ZipOutputStream(BufferedOutputStream(file.outputStream(), 65536)).use { zip ->
+    fun `supported resource-heavy host passes up to entry limit and rejects overflow`() {
+        val dir = temporary.newFolder()
+        val file = File(dir, "within-limit-host.apk")
+        ZipOutputStream(BufferedOutputStream(file.outputStream())).use { zip ->
             zip.setLevel(Deflater.NO_COMPRESSION)
             zip.putNextEntry(ZipEntry("classes.dex")); zip.write("host".toByteArray()); zip.closeEntry()
-            repeat(24658) { index -> zip.putNextEntry(ZipEntry("res/item-$index")); zip.closeEntry() }
+            repeat(49) { index -> zip.putNextEntry(ZipEntry("res/item-$index")); zip.closeEntry() }
         }
-        assertNotNull(RoamingArchiveIdentity.inspect(listOf(file), true))
+        assertNotNull(RoamingArchiveIdentity.inspect(listOf(file), allowOrigin = true, maxEntries = 50))
+        assertNotNull(RoamingArchiveIdentity.inspect(listOf(file), allowOrigin = true))
+
+        val overflow = File(dir, "overflow-host.apk")
+        ZipOutputStream(BufferedOutputStream(overflow.outputStream())).use { zip ->
+            zip.setLevel(Deflater.NO_COMPRESSION)
+            zip.putNextEntry(ZipEntry("classes.dex")); zip.write("host".toByteArray()); zip.closeEntry()
+            repeat(50) { index -> zip.putNextEntry(ZipEntry("res/item-$index")); zip.closeEntry() }
+        }
+        assertNull(RoamingArchiveIdentity.inspect(listOf(overflow), allowOrigin = true, maxEntries = 50))
     }
     fun `real upstream analysis fixture completes without losing any original hook field`() {
         val data = requireNotNull(javaClass.getResourceAsStream("/roaming/official-1.7.0-host-8.90.2.pb")).use { it.readBytes() }
@@ -150,28 +169,19 @@ class RoamingCacheTest {
 
     @org.junit.Test
     fun verifyAllCases() {
-        fun runIsolated(block: (RoamingCacheTest) -> Unit) {
-            val s = RoamingCacheTest()
-            s.temporary.create()
-            try {
-                block(s)
-            } finally {
-                s.temporary.delete()
-            }
-        }
-        runIsolated { s -> s.`refresh keeps all hook bytes and unknown fields while replacing every old timestamp`() }
-        runIsolated { s -> s.`access key completion parses nested protobuf and is idempotent regardless of suffix`() }
-        runIsolated { s -> s.`corrupt or oversized wire data never becomes a complete cache`() }
-        runIsolated { s -> s.`minimal and partial hook groups cannot be backed up`() }
-        runIsolated { s -> s.`missing file restores matching complete backup and refreshes install timestamp`() }
-        runIsolated { s -> s.`repack time change reuses only exact previously proven analysis bytes`() }
-        runIsolated { s -> s.`content and version and reset changes each invalidate even fresh same-code caches`() }
-        runIsolated { s -> s.`corrupt active cache rebuilds instead of silently restoring a valid backup`() }
-        runIsolated { s -> s.`damaged backup is rejected and cannot refresh stale active bytes`() }
-        runIsolated { s -> s.`fresh and stale untracked caches both require analysis before minting provenance`() }
-        runIsolated { s -> s.`zip identity ignores paths and timestamps but notices dex native and resource changes`() }
-        runIsolated { s -> s.`outer loader changes preserve origin identity and malformed archives stay unknown`() }
-        runIsolated { s -> s.`supported resource-heavy host can have more than twenty thousand zip entries`() }
-        runIsolated { s -> s.`real upstream analysis fixture completes without losing any original hook field`() }
+        `refresh keeps all hook bytes and unknown fields while replacing every old timestamp`()
+        `access key completion parses nested protobuf and is idempotent regardless of suffix`()
+        `corrupt or oversized wire data never becomes a complete cache`()
+        `minimal and partial hook groups cannot be backed up`()
+        `missing file restores matching complete backup and refreshes install timestamp`()
+        `repack time change reuses only exact previously proven analysis bytes`()
+        `content and version and reset changes each invalidate even fresh same-code caches`()
+        `corrupt active cache rebuilds instead of silently restoring a valid backup`()
+        `damaged backup is rejected and cannot refresh stale active bytes`()
+        `fresh and stale untracked caches both require analysis before minting provenance`()
+        `zip identity ignores paths and timestamps but notices dex native and resource changes`()
+        `outer loader changes preserve origin identity and malformed archives stay unknown`()
+        `supported resource-heavy host passes up to entry limit and rejects overflow`()
+        `real upstream analysis fixture completes without losing any original hook field`()
     }
 }

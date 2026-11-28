@@ -233,9 +233,14 @@ class GuestIgnetLibraryResponsesTest {
 
     fun aStreamThatNeverEndsFailsTheWriteInsteadOfHangingTheHost() {
         assertEquals(3000L, GuestIgnetLibraryResponses.DRAIN_TIMEOUT_MS)
-        val provider = IgHttpRequest.StreamDataProvider { Thread.sleep(2_000); null }
-        val registrar = installed(drainTimeoutMs = 50L)
-        val response = registrar.execute(registrar.build(post("https://api.bilibili.com/x/v3/fav/tab/dels", null).streamDataProvider(provider)))
+        val release = java.util.concurrent.CountDownLatch(1)
+        val provider = IgHttpRequest.StreamDataProvider { release.await(2, java.util.concurrent.TimeUnit.SECONDS); null }
+        val registrar = installed(drainTimeoutMs = 5L)
+        val response = try {
+            registrar.execute(registrar.build(post("https://api.bilibili.com/x/v3/fav/tab/dels", null).streamDataProvider(provider)))
+        } finally {
+            release.countDown()
+        }
         assertEquals(GuestIgnetLibraryResponses.WRITE_FAILED, registrar.body(response))
         assertTrue(asked.isEmpty())
         assertEquals("/x/v3/fav/tab/dels", statuses["guest_ignet_library_failed"])

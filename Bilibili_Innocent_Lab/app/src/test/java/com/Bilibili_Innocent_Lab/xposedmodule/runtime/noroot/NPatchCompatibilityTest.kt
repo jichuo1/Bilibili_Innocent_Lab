@@ -1,7 +1,20 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot
 
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.StartupAdapterPlan
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapterContract
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapterTest
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptAssistGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptCoverage
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptDomain
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.AdaptPlanner
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PointFamily
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.SnapshotHookConfigSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NPatchRemoteGateway.SyncResult
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -67,6 +80,81 @@ class NPatchCompatibilityTest {
             NPatchCompatibility.assess(baseline.copy(patch = patch.copy(signatureLevel = 3, loaderVersionCode = 846))))
     }
 
+    fun `npatch warm cache is preserved when excluded is nonempty and non-sync domains are stale`() {
+        val defaultConfig = SnapshotHookConfigSource(
+            RemoteHookConfigContract.resolveSourceValues(emptyMap<String, Any>()),
+            revision = 1L
+        )
+        val excluded = StartupAdapterPlan.excludedForProcess(
+            defaultConfig,
+            processName = "tv.danmaku.bili",
+            nPatchRuntime = true
+        )
+        assertTrue("NPatch main process normally has non-empty exclusions", excluded.isNotEmpty())
+
+        val adaptPlan = AdaptPlanner.build(defaultConfig)
+        val base = VersionAdapterTest().result().copy(
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS,
+            kmpGrpcWireEngine = VersionAdapter.HookPoint(
+                "wire.Engine",
+                "a",
+                listOf("java.lang.Object", "[B", "java.lang.Object", "java.lang.Object")
+            )
+        )
+        val fullCoverage = AdaptCoverage(
+            PointFamily.entries.associateWith {
+                if (base.hasPoint(it)) {
+                    AdaptAssistGate.Attempt.FOUND
+                } else {
+                    AdaptAssistGate.Attempt.CONCLUSIVE_MISSING
+                }
+            }
+        )
+        val cached = base.copy(coverage = fullCoverage)
+        val snapshot = VersionAdapter.StartupCacheSnapshot(
+            identity = VersionAdapter.HostIdentity(
+                versionCode = cached.biliVersionCode,
+                fingerprint = cached.hostFingerprint
+            ),
+            resetTimestamp = 0L,
+            cached = cached
+        )
+        assertNotNull(snapshot.usableCache(highCandidateExists = true, plan = adaptPlan))
+        assertTrue(HookEntry.isWarmCacheFreshForPlan(cached, adaptPlan))
+
+        // 仅非同步域（如 KMP_WIRE / PLAYER_SPEED）或计划未请求的 SPLASH 域过期时，热缓存仍命中，
+        // mergeRuntimeWithCached 会自动剥离过期域而保留计划内同步点位。
+        assertFalse(adaptPlan.needs(PointFamily.SPLASH_ADS))
+        val staleBackgroundOnly = cached.copy(
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS + mapOf(
+                AdaptDomain.KMP_WIRE.key to -1,
+                AdaptDomain.PLAYER_SPEED.key to -1,
+                AdaptDomain.SPLASH.key to -1
+            )
+        )
+        assertTrue(HookEntry.isWarmCacheFreshForPlan(staleBackgroundOnly, adaptPlan))
+        val merged = requireNotNull(VersionAdapter.mergeRuntimeWithCached(runtime = null, cached = staleBackgroundOnly))
+        assertNull(merged.kmpGrpcWireEngine)
+        assertNotNull(merged.commentHigh)
+
+        // 若当前同步计划命中的域（如 COMMENT 或已启用的 SPLASH）规则过期，则拒绝热缓存命中。
+        val staleComment = cached.copy(
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS + (AdaptDomain.COMMENT.key to -1)
+        )
+        assertFalse(HookEntry.isWarmCacheFreshForPlan(staleComment, adaptPlan))
+
+        val splashEnabledPlan = AdaptPlanner.build(
+            SnapshotHookConfigSource(
+                RemoteHookConfigContract.resolveSourceValues(
+                    mapOf(FeaturePreferences.PURIFY_SPLASH_ADS to true)
+                ),
+                revision = 2L
+            )
+        )
+        assertTrue(splashEnabledPlan.needs(PointFamily.SPLASH_ADS))
+        assertFalse(HookEntry.isWarmCacheFreshForPlan(staleBackgroundOnly, splashEnabledPlan))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (NPatchCompatibilityTest) -> Unit) {
@@ -78,6 +166,7 @@ class NPatchCompatibilityTest {
         runIsolated { s -> s.untestedVersionsLevelsAndAbisStayUnverified() }
         runIsolated { s -> s.buildsWithoutDeviceEvidenceAreNotVerifiedLoaders() }
         runIsolated { s -> s.embeddedUpperBoundIsSpecificToPinnedPatcher() }
+        runIsolated { s -> s.`npatch warm cache is preserved when excluded is nonempty and non-sync domains are stale`() }
     
         NPatchEmbeddedBuildCases().verifyAllCases()
         NPatchHealthCases().verifyAllCases()

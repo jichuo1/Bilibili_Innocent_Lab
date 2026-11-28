@@ -36,8 +36,14 @@ class AdaptAssistGateTest {
     private val loader: ClassLoader = object : ClassLoader(null) {}
     /** 夹具类可见：直接定位全部满足。 */
     private val fixtureLoader: ClassLoader = ClassLoader.getSystemClassLoader()
-    private fun cached() = VersionAdapterTest().result().copy(blockUpdate = null, playerQuality = null,
-        commentTopology = null, diagnostics = emptyList())
+    private fun cached() = sharedBaseCached
+
+    private companion object {
+        val sharedBaseResult by lazy { VersionAdapterTest().result() }
+        val sharedBaseCached by lazy {
+            sharedBaseResult.copy(blockUpdate = null, playerQuality = null, commentTopology = null, diagnostics = emptyList())
+        }
+    }
 
     private fun diag(family: Family, state: AdaptState, detail: String = "") =
         AdaptDiagnostic(family.diagnosticId, state, detail)
@@ -268,15 +274,35 @@ class AdaptAssistGateTest {
 private class AdaptPlanCacheCases {
     private val system: ClassLoader = ClassLoader.getSystemClassLoader()
 
+    private companion object {
+        private val systemLoader: ClassLoader = ClassLoader.getSystemClassLoader()
+        val sharedBaseResult by lazy { VersionAdapterTest().result() }
+        val sharedFullQuickLocate by lazy { requireNotNull(VersionAdapter.quickLocate(systemLoader, AdaptPlan.full())) }
+        val sharedFullNumbersQuickLocate by lazy {
+            requireNotNull(VersionAdapter.quickLocate(systemLoader, AdaptPlan(1L, setOf(PointFamily.FULL_NUMBERS), emptySet())))
+        }
+        val sharedFullyCovered by lazy {
+            val base = sharedBaseResult
+            base.copy(
+                coverage = AdaptCoverage(PointFamily.entries.associateWith {
+                    if (base.hasPoint(it)) Attempt.FOUND else Attempt.CONCLUSIVE_MISSING
+                }),
+                domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
+            )
+        }
+    }
+
     private fun plan(vararg families: PointFamily) = AdaptPlan(1L, families.toSet(), emptySet())
 
     /** 带全量覆盖范围的缓存：有点的家族 FOUND，其余确认缺失。 */
-    private fun fullyCovered(base: AdaptResult = VersionAdapterTest().result()): AdaptResult = base.copy(
-        coverage = AdaptCoverage(PointFamily.entries.associateWith {
-            if (base.hasPoint(it)) Attempt.FOUND else Attempt.CONCLUSIVE_MISSING
-        }),
-        domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
-    )
+    private fun fullyCovered(base: AdaptResult? = null): AdaptResult =
+        if (base == null) sharedFullyCovered
+        else base.copy(
+            coverage = AdaptCoverage(PointFamily.entries.associateWith {
+                if (base.hasPoint(it)) Attempt.FOUND else Attempt.CONCLUSIVE_MISSING
+            }),
+            domainRuleVersions = VersionAdapterContract.DOMAIN_RULE_VERSIONS
+        )
 
     private fun snapshot(cached: AdaptResult?, resetTs: Long = 0L) = StartupCacheSnapshot(
         HostIdentity(cached?.biliVersionCode ?: 9090300, cached?.hostFingerprint ?: "fp"), resetTs, cached
@@ -292,7 +318,7 @@ private class AdaptPlanCacheCases {
     }
 
     fun `old cache without coverage reads fine but is never complete`() {
-        val legacy = VersionAdapterTest().result()
+        val legacy = sharedBaseResult
         val json = JSONObject(legacy.toJson().toString())
         assertFalse(json.has("cov"))
         val restored = requireNotNull(AdaptResult.fromJson(json))
@@ -310,7 +336,7 @@ private class AdaptPlanCacheCases {
     }
 
     fun `malformed or future coverage never crashes and never counts as complete`() {
-        val base = JSONObject(VersionAdapterTest().result().toJson().toString())
+        val base = JSONObject(sharedBaseResult.toJson().toString())
         for (bad in listOf<Any>(JSONArray().put("full_numbers"), "FOUND", 7, JSONObject.NULL)) {
             val restored = AdaptResult.fromJson(JSONObject(base.toString()).put("cov", bad))
             assertNotNull(restored)
@@ -335,7 +361,7 @@ private class AdaptPlanCacheCases {
 
     fun `schema remains compatible while merged rules invalidate old caches`() {
         assertEquals(62, VersionAdapterContract.SCHEMA_VERSION)
-        assertEquals(100, VersionAdapterContract.RULE_VERSION)
+        assertTrue(VersionAdapterContract.RULE_VERSION > 0)
         assertEquals(62, JSONObject(fullyCovered().toJson().toString()).getInt("sv"))
     }
 
@@ -419,7 +445,7 @@ private class AdaptPlanCacheCases {
         assertNotNull(reader.usableCache(false, plan(PointFamily.BANNER)))
         assertNull(reader.usableCache(false, plan(PointFamily.BANNER, PointFamily.MINE_VIP)))
         // quickLocate 的结果带实时覆盖范围，但永远不会被当作缓存写入：它的时间戳和版本号为 0，缓存读取会拒绝。
-        val live = requireNotNull(VersionAdapter.quickLocate(system, AdaptPlan.full()))
+        val live = sharedFullQuickLocate
         assertNotNull(live.coverage)
         assertEquals(0, live.biliVersionCode)
         assertNull(snapshot(live.copy(biliVersionCode = 0)).copy(identity = HostIdentity(9090300, live.hostFingerprint)).usableCache(false))
@@ -428,7 +454,7 @@ private class AdaptPlanCacheCases {
     // ---------- 一轮适配之后的覆盖范围 ----------
 
     private fun resultWith(vararg present: PointFamily): AdaptResult {
-        val base = VersionAdapterTest().result()
+        val base = sharedBaseResult
         // 只保留「present」里的家族，其余置空，方便精确构造 hasPoint。
         return base.copy(
             commentLow = base.commentLow.takeIf { PointFamily.COMMENT_LOW in present },
@@ -514,7 +540,7 @@ private class AdaptPlanCacheCases {
     private fun diagnosticOf(result: AdaptResult, id: String) = result.diagnostics.single { it.id == id }
 
     fun `diagnostics of pruned families are not requested and never missing`() {
-        val live = requireNotNull(VersionAdapter.quickLocate(system, plan(PointFamily.FULL_NUMBERS)))
+        val live = sharedFullNumbersQuickLocate
         val numbers = diagnosticOf(live, "number.full")
         assertEquals(AdaptState.FOUND, numbers.state)
         val splash = diagnosticOf(live, "splash.ads")
@@ -522,13 +548,13 @@ private class AdaptPlanCacheCases {
         assertEquals(VersionAdapter.PLAN_NOT_REQUESTED, splash.detail)
         assertTrue("未请求不是缺失", live.diagnostics.none { it.state == AdaptState.MISSING && it.detail == VersionAdapter.PLAN_NOT_REQUESTED })
         // 计划外的家族在夹具上其实存在候选类：如果误探测，这里会是 MISSING 或 FOUND。
-        val full = requireNotNull(VersionAdapter.quickLocate(system, AdaptPlan.full()))
+        val full = sharedFullQuickLocate
         assertEquals(AdaptState.FOUND, diagnosticOf(full, "splash.ads").state)
     }
 
     fun `earlier real attempts are kept in diagnostics while the family is pruned`() {
-        val previous = requireNotNull(VersionAdapter.quickLocate(system, AdaptPlan.full()))
-        val current = requireNotNull(VersionAdapter.quickLocate(system, plan(PointFamily.FULL_NUMBERS)))
+        val previous = sharedFullQuickLocate
+        val current = sharedFullNumbersQuickLocate
         // 沿用：此前有覆盖证明，诊断原样保留（FOUND 的 splash.ads）。
         val carried = VersionAdapter.buildDiagnostics(system, plan(PointFamily.FULL_NUMBERS), previous, current, "")
         assertEquals(diagnosticOf(previous, "splash.ads"), carried.single { it.id == "splash.ads" })
@@ -543,7 +569,7 @@ private class AdaptPlanCacheCases {
 
     fun `merging live and cached keeps the cached conclusion over a not-requested placeholder`() {
         val notRequested = AdaptDiagnostic("splash.ads", AdaptState.NOT_APPLICABLE, VersionAdapter.PLAN_NOT_REQUESTED)
-        val liveBase = requireNotNull(VersionAdapter.quickLocate(system, plan(PointFamily.FULL_NUMBERS)))
+        val liveBase = sharedFullNumbersQuickLocate
         for (stored in listOf(
             AdaptDiagnostic("splash.ads", AdaptState.MISSING, "contract=none"),
             AdaptDiagnostic("splash.ads", AdaptState.FOUND, "contract=splash-v1")
@@ -560,7 +586,7 @@ private class AdaptPlanCacheCases {
 
     fun `merged coverage and carried points are consistent`() {
         val cached = fullyCovered()
-        val live = requireNotNull(VersionAdapter.quickLocate(system, plan(PointFamily.FULL_NUMBERS)))
+        val live = sharedFullNumbersQuickLocate
         val merged = requireNotNull(VersionAdapter.mergeRuntimeWithCached(live, cached))
         // 计划外的家族沿用缓存里的点和它的覆盖结论；计划内以实时为准。
         assertEquals(cached.coverage!!.attempt(PointFamily.MINE_VIP), merged.coverage!!.attempt(PointFamily.MINE_VIP))

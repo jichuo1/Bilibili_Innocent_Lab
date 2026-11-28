@@ -24,6 +24,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class InsightCommentTextTest {
+    @get:Rule
+    val temporary = TemporaryFolder()
+
     @Test fun `legacy paragraph separators disappear while ordinary braces and quotations survive`() {
         val raw = "资源\n来源为已读评论。},{\n\n学习方法\n讨论先听后看。} , {"
         val clean = InsightCommentText.cleanLegacy(raw)
@@ -39,7 +42,7 @@ class InsightCommentTextTest {
         InsightContextClientCases().verifyAllCases()
         InsightNativeChaptersCases().verifyAllCases()
         InsightProtocolCases().verifyAllCases()
-        InsightRepositoryCases().verifyAllCases()
+        InsightRepositoryCases(temporary).verifyAllCases()
     }
 }
 
@@ -520,8 +523,7 @@ private class InsightProtocolCases {
     }
 }
 
-private class InsightRepositoryCases {
-    val temporary = TemporaryFolder()
+private class InsightRepositoryCases(private val temporary: TemporaryFolder) {
     private val source = AgentModelSource(1, "https://example.test/v1", "secret", "model")
     private val video = InsightVideo("BV1xx411c7mD", 123)
     private val input = InsightContext(video, 900, "title", "desc", listOf(InsightCue(0.0, 300.0, "opening"), InsightCue(300.0, 600.0, "method"), InsightCue(600.0, 900.0, "ending")))
@@ -849,15 +851,7 @@ private class InsightRepositoryCases {
     }
 
     fun verifyAllCases() {
-        fun runIsolated(block: (InsightRepositoryCases) -> Unit) {
-            val s = InsightRepositoryCases()
-            s.temporary.create()
-            try {
-                block(s)
-            } finally {
-                s.temporary.delete()
-            }
-        }
+        fun runIsolated(block: (InsightRepositoryCases) -> Unit) = block(this)
         runIsolated { s -> s.`old comment cache is cleaned in memory without rewriting the file or requesting a model`() }
         runIsolated { s -> s.`comment retry refreshes an empty context even without a host snapshot revision`() }
         runIsolated { s -> s.`comment formatting repair is bounded and only a clean response is cached`() }

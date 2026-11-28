@@ -53,10 +53,14 @@ class TextNormalizationPrecisionTest {
 
     fun `cover play counts are parsed exactly for every two decimal value`() {
         for ((suffix, multiplier) in listOf("万" to 10_000L, "亿" to 100_000_000L)) {
+            val perHundredth = multiplier / 100L
             for (hundredths in 1 until 100_000) {
+                val expected = hundredths.toLong() * perHundredth
                 val text = BigDecimal.valueOf(hundredths.toLong(), 2).stripTrailingZeros().toPlainString()
-                val expected = BigDecimal(text).multiply(BigDecimal.valueOf(multiplier)).toLong()
-                assertEquals("$text$suffix", expected, VideoPlayCountReader.parseCoverText("$text$suffix"))
+                val actual = VideoPlayCountReader.parseCoverText(text + suffix)
+                if (actual != expected) {
+                    assertEquals(text + suffix, expected, actual)
+                }
             }
         }
         assertEquals(11_300L, VideoPlayCountReader.parseCoverText("1.13万播放"))

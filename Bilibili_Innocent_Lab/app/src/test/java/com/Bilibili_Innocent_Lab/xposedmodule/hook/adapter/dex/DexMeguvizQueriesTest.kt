@@ -10,23 +10,32 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLoc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.NormalQualityLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SystemEnvironmentAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult.Reason
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DetailUnitedPresentationPurifyPolicy
+import io.github.jichuo1.dexmeguviz.DecisionReason
+import io.github.jichuo1.dexmeguviz.EntityPredicate
+import io.github.jichuo1.dexmeguviz.EntityRelation
+import io.github.jichuo1.dexmeguviz.EntityTextField
+import io.github.jichuo1.dexmeguviz.ExecutionStatus
+import io.github.jichuo1.dexmeguviz.GraphExpression
+import io.github.jichuo1.dexmeguviz.GraphPredicate
+import io.github.jichuo1.dexmeguviz.GraphQuery
+import io.github.jichuo1.dexmeguviz.TextOperation
 import io.github.jichuo1.dexmeguviz.TypeUseOpcode
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 目录完整性护栏：每个 [DexAssistQuery] 枚举都必须产出非空、可解析且带实际 where 条件的规则。
- *
- * 历史上 configure 是语句 when，新增枚举漏写分支只会静默得到空规则（where 为空对象），
- * 运行时与"无命中"无法区分。现在 configure 改表达式 when 由编译器穷尽，本测试再锁运行时形态：
- * 多规则型（PLAYER_SPEED_MENU/STORY_QUALITY_DEFAULT/COMMENT_REPLY_MAPPER）不得退化成单条空规则。
+ * 目录完整性护栏与图结果完整性门禁：每个 [DexAssistQuery] 必须产出非空且有界的规则或图计划，
+ * 并校验 QueryIR 序列化、分块限额、slot 规范化与双通道失败合成逻辑。
  */
 class DexMeguvizQueriesTest {
-    fun `every query produces bounded rules with a non-empty where condition`() {
+    private fun everyQueryProducesBoundedRules() {
         for (query in DexAssistQuery.entries) {
             val rules = DexMeguvizQueries.rules(query)
             val graphs = DexMeguvizQueries.graphPlans(query)
@@ -39,7 +48,6 @@ class DexMeguvizQueriesTest {
                 assertEquals("$query#$index max_results", DexMeguvizQueries.MAX_MATCHES + 1, rule.getInt("max_results"))
                 val where = rule.getJSONObject("where")
                 assertTrue("$query#$index where must not be empty", where.length() > 0)
-                // MethodBatchQuery 与 NativeEngine.queryMethods 仅接受 query:v1:，顶层 composite 键会触发 query:v10: 拒绝。
                 for (compositeKey in listOf("any", "all", "not")) {
                     assertFalse("$query#$index top-level where must not contain $compositeKey", where.has(compositeKey))
                 }
@@ -48,7 +56,7 @@ class DexMeguvizQueriesTest {
         assertEquals("catalog size is pinned so additions update this guard deliberately", 60, DexAssistQuery.entries.size)
     }
 
-    fun `multi-rule queries keep their fan-out rules`() {
+    private fun multiRuleAndDescriptorQueries() {
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.PLAYER_SPEED_MENU).size > 1)
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.STORY_QUALITY_DEFAULT).size > 1)
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.COMMENT_REPLY_MAPPER).size > 1)
@@ -134,28 +142,22 @@ class DexMeguvizQueriesTest {
         assertEquals(4, guestRule1Where.getJSONArray("parameters").length())
         assertTrue(guestCoreRules[0].toString(Charsets.UTF_8).contains(GuestPlayerCoreAdapter.MEDIA_ITEM_PARAMS.replace('.', '/')))
         assertTrue(guestCoreRules[1].toString(Charsets.UTF_8).contains(GuestPlayerCoreAdapter.MEDIA_ITEM.replace('.', '/')))
-    }
 
-    fun `compose menu and grpc wire queries avoid obfuscated method names`() {
         val wireRules = DexMeguvizQueries.rules(DexAssistQuery.KMP_GRPC_WIRE_ENGINE)
         assertEquals(1, wireRules.size)
         val wireText = wireRules.single().toString(Charsets.UTF_8)
         val wireWhere = JSONObject(wireText).getJSONObject("where")
         assertFalse(wireWhere.has("name"))
         assertFalse(wireWhere.has("owner"))
-        KmpGrpcWireAdapter.ENTRY_MARKS.forEach { token ->
-            assertTrue("Missing KMP wire token $token", wireText.contains(token))
-        }
+        KmpGrpcWireAdapter.ENTRY_MARKS.forEach { token -> assertTrue("Missing KMP wire token $token", wireText.contains(token)) }
         val wirePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.KMP_GRPC_WIRE_ENGINE)
         assertEquals(1, wirePlans.size)
         assertTrue(wirePlans.single().fallbackOnly)
         assertEquals(DexMeguvizGraphPlans.TAG_KMP_GRPC_WIRE_ENGINE, wirePlans.single().tag)
         val wireGraphIr = decodeQueryIr(wirePlans.single().toQueryIrJson())
-        assertTrue(wireGraphIr.contains("onNext"))
-        assertTrue(wireGraphIr.contains("([B)"))
+        assertTrue(wireGraphIr.contains("onNext") && wireGraphIr.contains("([B)"))
 
-        val composeText = DexMeguvizQueries.rules(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU)
-            .joinToString("\n") { it.toString(Charsets.UTF_8) }
+        val composeText = DexMeguvizQueries.rules(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU).joinToString("\n") { it.toString(Charsets.UTF_8) }
         for (mark in listOf(
             CommentComposeMenuAdapter.BUBBLE_TRACE_MARK,
             CommentComposeMenuAdapter.GROUPED_TRACE_MARK,
@@ -164,50 +166,34 @@ class DexMeguvizQueriesTest {
         )) {
             assertTrue("Missing compose menu trace $mark", composeText.contains(mark))
         }
-    }
 
-    fun `system environment queries match static descriptors and semantic constants without method names`() {
         val rootRules = DexMeguvizQueries.rules(DexAssistQuery.SYSTEM_ENV_ROOT_RESULT)
         val hookRules = DexMeguvizQueries.rules(DexAssistQuery.SYSTEM_ENV_HOOK_RESULT)
         assertEquals(1, rootRules.size)
         assertEquals(1, hookRules.size)
-
         val rootText = rootRules.single().toString(Charsets.UTF_8)
         val hookText = hookRules.single().toString(Charsets.UTF_8)
         val rootWhere = JSONObject(rootText).getJSONObject("where")
         val hookWhere = JSONObject(hookText).getJSONObject("where")
-
-        assertFalse("SYSTEM_ENV_ROOT_RESULT must not pin obfuscated method name", rootWhere.has("name"))
-        assertFalse("SYSTEM_ENV_HOOK_RESULT must not pin obfuscated method name", hookWhere.has("name"))
-        assertFalse("SYSTEM_ENV_ROOT_RESULT must not match shared /system/bin/su helper", rootText.contains("/system/bin/su"))
-        assertFalse("SYSTEM_ENV_HOOK_RESULT must not match shared /system/bin/su helper", hookText.contains("/system/bin/su"))
+        assertFalse(rootWhere.has("name"))
+        assertFalse(hookWhere.has("name"))
+        assertFalse(rootText.contains("/system/bin/su"))
+        assertFalse(hookText.contains("/system/bin/su"))
         assertTrue(rootText.contains("Ljava/util/Set;"))
-        SystemEnvironmentAdapter.ENV_STRINGS.forEach { token ->
-            assertTrue("Missing ENV_STRINGS token $token", rootText.contains(token))
-        }
-        SystemEnvironmentAdapter.HOOK_STRINGS.forEach { token ->
-            assertTrue("Missing HOOK_STRINGS token $token", hookText.contains(token))
-        }
-    }
+        SystemEnvironmentAdapter.ENV_STRINGS.forEach { assertTrue("Missing ENV_STRINGS token $it", rootText.contains(it)) }
+        SystemEnvironmentAdapter.HOOK_STRINGS.forEach { assertTrue("Missing HOOK_STRINGS token $it", hookText.contains(it)) }
 
-    fun `owner member and declaration rules address exact descriptors`() {
         val member = JSONObject(DexMeguvizQueries.ownerMembers("Lcom/example/Owner;").toString(Charsets.UTF_8))
         assertEquals("Lcom/example/Owner;", member.getJSONObject("where").getString("owner"))
-        val declaration = JSONObject(
-            DexMeguvizQueries.declaration("Lcom/example/Owner;", "run", "(I)V").toString(Charsets.UTF_8)
-        ).getJSONObject("where")
+        val declaration = JSONObject(DexMeguvizQueries.declaration("Lcom/example/Owner;", "run", "(I)V").toString(Charsets.UTF_8)).getJSONObject("where")
         assertEquals("Lcom/example/Owner;", declaration.getString("owner"))
         assertEquals("run", declaration.getString("name"))
         assertEquals("(I)V", declaration.getString("prototype"))
-        val byProto = JSONObject(
-            DexMeguvizQueries.methodByNameAndPrototype("q0", "(I)V").toString(Charsets.UTF_8)
-        ).getJSONObject("where")
+        val byProto = JSONObject(DexMeguvizQueries.methodByNameAndPrototype("q0", "(I)V").toString(Charsets.UTF_8)).getJSONObject("where")
         assertFalse(byProto.has("owner"))
         assertEquals("q0", byProto.getString("name"))
         assertEquals("(I)V", byProto.getString("prototype"))
-    }
 
-    fun `home recommend early load listener query covers PegasusFragment scroll+attach fanout and 3-arg continuation lambda`() {
         val earlyLoadRules = DexMeguvizQueries.rules(DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER)
         assertEquals(2, earlyLoadRules.size)
         val texts = earlyLoadRules.map { it.toString(Charsets.UTF_8) }
@@ -224,17 +210,13 @@ class DexMeguvizQueriesTest {
             "\"value\":\"$text\""
         }
 
-    fun `graph plans serialize bounded valid QueryIR JSON without fragile package or arity locks`() {
-
+    private fun graphPlansAndQueryIrVerification() {
         for (query in DexAssistQuery.entries) {
             val plans = DexMeguvizQueries.graphPlans(query)
             for (plan in plans) {
                 val jsonText = plan.toQueryIrJson()
                 assertTrue("${plan.tag} must serialize non-blank QueryIR", jsonText.isNotBlank())
-                assertTrue(
-                    "${plan.tag} QueryIR must stay under 64 KiB",
-                    jsonText.toByteArray(Charsets.UTF_8).size <= 65536
-                )
+                assertTrue("${plan.tag} QueryIR must stay under 64 KiB", jsonText.toByteArray(Charsets.UTF_8).size <= 65536)
                 val ir = JSONObject(jsonText)
                 assertTrue("${plan.tag} max_results bounded", ir.getInt("max_results") <= DexMeguvizQueries.MAX_MATCHES + 1)
                 assertTrue("${plan.tag} max_work bounded", ir.getLong("max_work") <= DexMeguvizGraphPlans.GRAPH_MAX_WORK)
@@ -248,42 +230,20 @@ class DexMeguvizQueriesTest {
             }
         }
 
-        val earlyLoad = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER).single().toQueryIrJson()
-        )
-        assertTrue(earlyLoad.contains("RecyclerView\$OnScrollListener"))
-        assertTrue(earlyLoad.contains("RecyclerView\$OnChildAttachStateChangeListener"))
+        val earlyLoad = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER).single().toQueryIrJson())
+        assertTrue(earlyLoad.contains("RecyclerView\$OnScrollListener") && earlyLoad.contains("RecyclerView\$OnChildAttachStateChangeListener"))
         assertFalse(earlyLoad.contains("PegasusFragment"))
 
-        val replyMapper = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_REPLY_MAPPER).single().toQueryIrJson()
-        )
-        assertTrue(replyMapper.contains("ReplyInfo"))
-        assertTrue(replyMapper.contains("CommentItem"))
-        assertTrue(replyMapper.contains("getId"))
-        assertTrue(replyMapper.contains("getContent"))
-        assertTrue(replyMapper.contains("\"min\":1"))
-        assertTrue(replyMapper.contains("\"max\":8"))
+        val replyMapper = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_REPLY_MAPPER).single().toQueryIrJson())
+        assertTrue(replyMapper.contains("ReplyInfo") && replyMapper.contains("CommentItem") && replyMapper.contains("getId") && replyMapper.contains("getContent"))
+        assertTrue(replyMapper.contains("\"min\":1") && replyMapper.contains("\"max\":8"))
         assertFalse(replyMapper.contains("comment3/data/source"))
 
-        val sponsorScope = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.SPONSOR_CONTAINER_SCOPE).single().toQueryIrJson()
-        )
-        assertTrue(sponsorScope.contains("SuspendLambda"))
-        assertTrue(sponsorScope.contains("Landroid/content/Context;"))
-        assertTrue(sponsorScope.contains("Ltv/danmaku/biliplayerv2/PlayerContainer;"))
-        assertTrue(sponsorScope.contains("group_by_owner"))
-        assertTrue(sponsorScope.contains("semi_join"))
+        val sponsorScope = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.SPONSOR_CONTAINER_SCOPE).single().toQueryIrJson())
+        assertTrue(sponsorScope.contains("SuspendLambda") && sponsorScope.contains("Landroid/content/Context;") && sponsorScope.contains("Ltv/danmaku/biliplayerv2/PlayerContainer;") && sponsorScope.contains("group_by_owner") && sponsorScope.contains("semi_join"))
 
-        val sponsorWrapper = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.SPONSOR_PLAYER_WRAPPER).single().toQueryIrJson()
-        )
-        assertTrue(sponsorWrapper.contains("seekTo"))
-        assertTrue(sponsorWrapper.contains("(IZ)V"))
-        assertTrue(sponsorWrapper.contains("IPlayerCoreService"))
-        assertTrue(sponsorWrapper.contains("CoroutineScope"))
-        assertTrue(sponsorWrapper.contains("group_by_owner"))
-        assertTrue(sponsorWrapper.contains("semi_join"))
+        val sponsorWrapper = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.SPONSOR_PLAYER_WRAPPER).single().toQueryIrJson())
+        assertTrue(sponsorWrapper.contains("seekTo") && sponsorWrapper.contains("(IZ)V") && sponsorWrapper.contains("IPlayerCoreService") && sponsorWrapper.contains("CoroutineScope") && sponsorWrapper.contains("group_by_owner") && sponsorWrapper.contains("semi_join"))
 
         val speedPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.PLAYER_SPEED_MENU)
         assertEquals(2, speedPlans.size)
@@ -297,101 +257,60 @@ class DexMeguvizQueriesTest {
         assertTrue(speedOpenJson.contains("\"opcode\":${TypeUseOpcode.NEW_INSTANCE.code}"))
         assertFalse(speedOpenJson.contains("\"param_count\":9"))
 
-        val composePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU)
-        val composeJson = decodeQueryIr(composePlans.first().toQueryIrJson())
+        val composeJson = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU).first().toQueryIrJson())
         assertTrue(composeJson.contains("PaddingValues"))
         assertFalse(composeJson.contains("kntr/common/comment"))
 
-        val dividerJson = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.PEGASUS_DIVIDER).single().toQueryIrJson()
-        )
-        assertTrue(dividerJson.contains("ItemDecoration"))
-        assertTrue(dividerJson.contains("Landroid/graphics/Paint;"))
-        assertTrue(dividerJson.contains("Landroid/graphics/RectF;"))
-        assertTrue(dividerJson.contains("Landroid/content/Context;"))
-        assertTrue(dividerJson.contains("onDrawOver"))
-        assertTrue(dividerJson.contains("group_by_owner"))
-        assertTrue(dividerJson.contains("semi_join"))
+        val dividerJson = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.PEGASUS_DIVIDER).single().toQueryIrJson())
+        assertTrue(dividerJson.contains("ItemDecoration") && dividerJson.contains("Landroid/graphics/Paint;") && dividerJson.contains("Landroid/graphics/RectF;") && dividerJson.contains("Landroid/content/Context;") && dividerJson.contains("onDrawOver") && dividerJson.contains("group_by_owner") && dividerJson.contains("semi_join"))
 
         assertTrue(DexMeguvizQueries.graphPlans(DexAssistQuery.SEARCH_HOME_STATE).isEmpty())
         assertTrue(DexMeguvizQueries.graphPlans(DexAssistQuery.PLAYER_END_PAGE_MERGER).isEmpty())
 
-        val replyBindingJson = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE).single().toQueryIrJson()
-        )
-        assertTrue(replyBindingJson.contains("ViewBinding"))
-        assertTrue(replyBindingJson.contains("TintImageView"))
-        assertTrue(replyBindingJson.contains("TintTextView"))
-        assertTrue(replyBindingJson.contains("ConstraintLayout"))
-        assertTrue(replyBindingJson.contains("LinearLayout"))
-        assertTrue(replyBindingJson.contains("group_by_owner"))
+        val replyBindingJson = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE).single().toQueryIrJson())
+        assertTrue(replyBindingJson.contains("ViewBinding") && replyBindingJson.contains("TintImageView") && replyBindingJson.contains("TintTextView") && replyBindingJson.contains("ConstraintLayout") && replyBindingJson.contains("LinearLayout") && replyBindingJson.contains("group_by_owner"))
         val replyMethodIr = decodeQueryIr(DexMeguvizGraphPlans.commentReplyMethodsForBinding("La/b;").toQueryIrJson())
-        assertTrue(replyMethodIr.contains("CommentItem"))
-        assertTrue(replyMethodIr.contains("La/b;"))
+        assertTrue(replyMethodIr.contains("CommentItem") && replyMethodIr.contains("La/b;"))
 
-        val storyDefaultJson = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.STORY_QUALITY_DEFAULT).single().toQueryIrJson()
-        )
-        assertTrue(storyDefaultJson.contains("PlayerSettingHelper"))
-        assertTrue(storyDefaultJson.contains("getDefaultQuality"))
+        val storyDefaultJson = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.STORY_QUALITY_DEFAULT).single().toQueryIrJson())
+        assertTrue(storyDefaultJson.contains("PlayerSettingHelper") && storyDefaultJson.contains("getDefaultQuality"))
         assertFalse(storyDefaultJson.contains("com/bilibili/video/story/player/quality"))
         assertFalse(JSONObject(storyDefaultJson).getJSONObject("where").has("owner"))
 
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.COMMENT_QUICK_REPLY_COLLECTOR).isEmpty())
-        val quickReplyJson = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_QUICK_REPLY_COLLECTOR).single().toQueryIrJson()
-        )
-        assertTrue(quickReplyJson.contains("PublishDialogIntent;"))
-        assertTrue(quickReplyJson.contains("Lkotlin/coroutines/Continuation;"))
+        val quickReplyJson = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_QUICK_REPLY_COLLECTOR).single().toQueryIrJson())
+        assertTrue(quickReplyJson.contains("PublishDialogIntent;") && quickReplyJson.contains("Lkotlin/coroutines/Continuation;"))
 
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.PAUSED_AD_COUNTDOWN).isEmpty())
         val pausedCountdownPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.PAUSED_AD_COUNTDOWN)
         assertEquals(2, pausedCountdownPlans.size)
         assertEquals(DexMeguvizGraphPlans.TAG_PAUSED_AD_COUNTDOWN, pausedCountdownPlans[0].tag)
         val pausedCountdownJson = decodeQueryIr(pausedCountdownPlans[0].toQueryIrJson())
-        assertTrue(pausedCountdownJson.contains("PausedPageService"))
-        assertTrue(pausedCountdownJson.contains("KPauseBar"))
-        assertTrue(pausedCountdownJson.contains("\"label\""))
-        assertTrue(pausedCountdownJson.contains("invokeSuspend"))
-        assertTrue(pausedCountdownJson.contains("group_by_owner"))
+        assertTrue(pausedCountdownJson.contains("PausedPageService") && pausedCountdownJson.contains("KPauseBar") && pausedCountdownJson.contains("\"label\"") && pausedCountdownJson.contains("invokeSuspend") && pausedCountdownJson.contains("group_by_owner"))
         assertEquals(DexMeguvizGraphPlans.TAG_PAUSED_AD_COUNTDOWN_USES, pausedCountdownPlans[1].tag)
         val pausedCountdownUsesJson = decodeQueryIr(pausedCountdownPlans[1].toQueryIrJson())
-        assertTrue(pausedCountdownUsesJson.contains("IVDPausedPage"))
-        assertTrue(pausedCountdownUsesJson.contains("getCountDownView"))
-        assertTrue(pausedCountdownUsesJson.contains("invokeSuspend"))
+        assertTrue(pausedCountdownUsesJson.contains("IVDPausedPage") && pausedCountdownUsesJson.contains("getCountDownView") && pausedCountdownUsesJson.contains("invokeSuspend"))
         assertFalse(pausedCountdownUsesJson.contains("KPauseBar"))
 
         val pausedApiRule = DexMeguvizQueries.rules(DexAssistQuery.PAUSED_AD_REQUEST_API).single().toString(Charsets.UTF_8)
         assertTrue(pausedApiRule.contains("ContinuationImpl"))
         assertEquals(16, JSONObject(pausedApiRule).getJSONObject("where").getJSONArray("parameters").length())
-        val pausedApiGraph = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.PAUSED_AD_REQUEST_API).single().toQueryIrJson()
-        )
-        assertTrue(pausedApiGraph.contains("(JJLcom/bapis/bilibili/app/viewunite/v1/KTabType;"))
-        assertTrue(pausedApiGraph.contains("ContinuationImpl;)Ljava/lang/Object;"))
+        val pausedApiGraph = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.PAUSED_AD_REQUEST_API).single().toQueryIrJson())
+        assertTrue(pausedApiGraph.contains("(JJLcom/bapis/bilibili/app/viewunite/v1/KTabType;") && pausedApiGraph.contains("ContinuationImpl;)Ljava/lang/Object;"))
 
         assertTrue(DexMeguvizQueries.rules(DexAssistQuery.BRAND_SPLASH_KNTR_EXIT).isEmpty())
         val exitPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_EXIT)
         assertEquals(2, exitPlans.size)
         val exitCurrent = decodeQueryIr(exitPlans[0].toQueryIrJson())
-        assertTrue(exitCurrent.contains("Lkotlin/jvm/functions/Function0;"))
-        assertTrue(exitCurrent.contains("Landroidx/compose/runtime/MutableState;"))
-        assertTrue(exitCurrent.contains("Landroidx/compose/runtime/State;"))
-        assertTrue(exitCurrent.contains("\"I\""))
+        assertTrue(exitCurrent.contains("Lkotlin/jvm/functions/Function0;") && exitCurrent.contains("Landroidx/compose/runtime/MutableState;") && exitCurrent.contains("Landroidx/compose/runtime/State;") && exitCurrent.contains("\"I\""))
         assertFalse(exitCurrent.contains("\$onExit"))
         val exitLegacy = decodeQueryIr(exitPlans[1].toQueryIrJson())
-        assertTrue(exitLegacy.contains("BrandSplashPageKt\$BrandSplashPage\$"))
-        assertTrue(exitLegacy.contains("invokeSuspend"))
+        assertTrue(exitLegacy.contains("BrandSplashPageKt\$BrandSplashPage\$") && exitLegacy.contains("invokeSuspend"))
 
         val pageRule = DexMeguvizQueries.rules(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE).single().toString(Charsets.UTF_8)
         assertTrue(pageRule.contains(BrandSplashKntrAdapter.PAGE_TRACE_MARK))
-        val pagePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE)
-        val pageGraph = decodeQueryIr(pagePlans.first().toQueryIrJson())
-        assertTrue(pageGraph.contains(BrandSplashKntrAdapter.PAGE_TRACE_MARK))
-        assertTrue(pageGraph.contains("Lkotlin/jvm/functions/Function0;"))
-        assertTrue(pageGraph.contains("Ljava/lang/String;"))
-        assertTrue(pageGraph.contains("Landroidx/compose/ui/Modifier;"))
-        assertTrue(pageGraph.contains("Landroidx/compose/runtime/Composer;"))
+        val pageGraph = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE).first().toQueryIrJson())
+        assertTrue(pageGraph.contains(BrandSplashKntrAdapter.PAGE_TRACE_MARK) && pageGraph.contains("Lkotlin/jvm/functions/Function0;") && pageGraph.contains("Ljava/lang/String;") && pageGraph.contains("Landroidx/compose/ui/Modifier;") && pageGraph.contains("Landroidx/compose/runtime/Composer;"))
 
         val homeTabRule = DexMeguvizQueries.rules(DexAssistQuery.HOME_TAB_RESOURCE).single().toString(Charsets.UTF_8)
         assertTrue(homeTabRule.contains("HomeFragmentV2"))
@@ -400,13 +319,10 @@ class DexMeguvizQueriesTest {
         assertEquals(DexMeguvizGraphPlans.TAG_HOME_TAB_RESOURCE, homeTabPlans[0].tag)
         assertEquals(DexMeguvizGraphPlans.TAG_HOME_TAB_RESOURCE_MODEL, homeTabPlans[1].tag)
         val homeTabBuildGraph = decodeQueryIr(homeTabPlans[0].toQueryIrJson())
-        assertTrue(homeTabBuildGraph.contains("Ltv/danmaku/bili/ui/main2/HomeFragmentV2;"))
-        assertTrue(homeTabBuildGraph.contains("(Ljava/util/List;)Ljava/util/List;"))
+        assertTrue(homeTabBuildGraph.contains("Ltv/danmaku/bili/ui/main2/HomeFragmentV2;") && homeTabBuildGraph.contains("(Ljava/util/List;)Ljava/util/List;"))
         val homeTabModelGraph = decodeQueryIr(homeTabPlans[1].toQueryIrJson())
         assertTrue(homeTabModelGraph.contains(HomeTabResourceAdapter.EQUALS_ANCHOR))
-    }
 
-    fun `batch 3 graph plans serialize bounded QueryIR JSON with structural anchors`() {
         for (q in listOf(
             DexAssistQuery.AI_PLAYLIST_DIRECTOR,
             DexAssistQuery.FOLLOW_UP_RECOMMEND_BODY,
@@ -416,93 +332,168 @@ class DexMeguvizQueriesTest {
         )) {
             assertTrue("$q flat rules should be empty", DexMeguvizQueries.rules(q).isEmpty())
         }
+        val aiDirectorGraph = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.AI_PLAYLIST_DIRECTOR).single().toQueryIrJson())
+        assertTrue(aiDirectorGraph.contains("PlaylistDirectorSerialOperationsService") && aiDirectorGraph.contains("switchToNext") && aiDirectorGraph.contains("hasNext"))
 
-        val aiDirectorGraph = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.AI_PLAYLIST_DIRECTOR).single().toQueryIrJson()
-        )
-        assertTrue(aiDirectorGraph.contains("PlaylistDirectorSerialOperationsService"))
-        assertTrue(aiDirectorGraph.contains("switchToNext"))
-        assertTrue(aiDirectorGraph.contains("hasNext"))
-
-        val followUpPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.FOLLOW_UP_RECOMMEND_BODY)
-        assertEquals(2, followUpPlans.size)
-        val followUpGraphs = followUpPlans.joinToString("\n") { decodeQueryIr(it.toQueryIrJson()) }
-        assertTrue(followUpGraphs.contains("RecommendUpRepository"))
-        assertTrue(followUpGraphs.contains("Lkotlin/coroutines/Continuation;"))
-        assertTrue(followUpGraphs.contains("\"kind\":\"constructor\""))
+        val followUpGraphs = DexMeguvizQueries.graphPlans(DexAssistQuery.FOLLOW_UP_RECOMMEND_BODY).joinToString("\n") { decodeQueryIr(it.toQueryIrJson()) }
+        assertTrue(followUpGraphs.contains("RecommendUpRepository") && followUpGraphs.contains("Lkotlin/coroutines/Continuation;") && followUpGraphs.contains("\"kind\":\"constructor\"") && followUpGraphs.contains("\"min\":2") && followUpGraphs.contains("\"max\":4") && followUpGraphs.contains("Lkotlin/coroutines/Continuation;)V"))
 
         val relatePlans = DexMeguvizQueries.graphPlans(DexAssistQuery.DETAIL_RELATE_GAME_COMPONENT)
         assertEquals(2, relatePlans.size)
         assertEquals(DexMeguvizGraphPlans.TAG_DETAIL_RELATE_GAME_IN_PKG, relatePlans[0].tag)
         val relateInPkg = decodeQueryIr(relatePlans[0].toQueryIrJson())
-        assertTrue(relateInPkg.contains("com/bilibili/ship/theseus/united/page/intro/module/relate/game/"))
-        assertTrue(relateInPkg.contains("Landroid/content/Context;"))
-        assertTrue(relateInPkg.contains("Landroid/view/LayoutInflater;"))
-        assertTrue(relateInPkg.contains("Landroid/view/ViewGroup;"))
+        assertTrue(relateInPkg.contains("com/bilibili/ship/theseus/united/page/intro/module/relate/game/") && relateInPkg.contains("Landroid/content/Context;") && relateInPkg.contains("Landroid/view/LayoutInflater;") && relateInPkg.contains("Landroid/view/ViewGroup;"))
         assertEquals(DexMeguvizGraphPlans.TAG_DETAIL_RELATE_GAME_BIND_USES, relatePlans[1].tag)
         val relateBindUses = decodeQueryIr(relatePlans[1].toQueryIrJson())
-        assertTrue(relateBindUses.contains("Ltv/danmaku/bili/widget/ratingbar/ReviewRatingBar;"))
-        assertTrue(relateBindUses.contains("setRating"))
-        assertTrue(relateBindUses.contains("foreign_link_from_spmid"))
-        assertTrue(relateBindUses.contains("content_id"))
-        assertTrue(relateBindUses.contains("from_spmid"))
-        assertTrue(relateBindUses.contains("Lkotlin/coroutines/Continuation;"))
+        assertTrue(relateBindUses.contains("Ltv/danmaku/bili/widget/ratingbar/ReviewRatingBar;") && relateBindUses.contains("setRating") && relateBindUses.contains("foreign_link_from_spmid") && relateBindUses.contains("content_id") && relateBindUses.contains("from_spmid") && relateBindUses.contains("Lkotlin/coroutines/Continuation;"))
         assertFalse(relateBindUses.contains("com/bilibili/ship/theseus/united/page/intro/module/relate/game/"))
 
-        val legacyStoryGraph = decodeQueryIr(
-            DexMeguvizQueries.graphPlans(DexAssistQuery.LEGACY_STORY_DANMAKU_BIND).single().toQueryIrJson()
-        )
+        val legacyStoryGraph = decodeQueryIr(DexMeguvizQueries.graphPlans(DexAssistQuery.LEGACY_STORY_DANMAKU_BIND).single().toQueryIrJson())
         assertTrue(legacyStoryGraph.contains("StoryAbsController"))
 
-        val longPressPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS)
-        assertEquals(2, longPressPlans.size)
-        val longPressGraphs = longPressPlans.joinToString("\n") { decodeQueryIr(it.toQueryIrJson()) }
-        assertTrue(longPressGraphs.contains("TripleSpeedService"))
-        assertTrue(longPressGraphs.contains("()Ljava/lang/Float;"))
-    }
+        val longPressGraphs = DexMeguvizQueries.graphPlans(DexAssistQuery.PLAYER_SPEED_THESEUS2_LONG_PRESS).joinToString("\n") { decodeQueryIr(it.toQueryIrJson()) }
+        assertTrue(longPressGraphs.contains("TripleSpeedService") && longPressGraphs.contains("()Ljava/lang/Float;"))
 
-    fun `archive snapshot skip policy avoids duplicate tier1 scan when planned requires tier2`() {
         for (query in DexAssistQuery.entries) {
             val expectedDirect = query == DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE ||
                 DexMeguvizQueries.graphPlans(query).any { !it.fallbackOnly }
             assertEquals("$query requiresArchiveSnapshot mismatch", expectedDirect, DexMeguvizGraphPlans.requiresArchiveSnapshot(query))
         }
         assertFalse(DexMeguvizGraphPlans.requiresArchiveSnapshot(emptySet()))
-        assertEquals(
-            DexMeguvizAssistEngine.ScanStrategy.TIER1_THEN_OPTIONAL_TIER2,
-            DexMeguvizAssistEngine.scanStrategy(emptySet())
-        )
+        assertEquals(DexMeguvizAssistEngine.ScanStrategy.TIER1_THEN_OPTIONAL_TIER2, DexMeguvizAssistEngine.scanStrategy(emptySet()))
         assertEquals(
             DexMeguvizAssistEngine.ScanStrategy.TIER1_THEN_OPTIONAL_TIER2,
             DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.PEGASUS_DIVIDER, DexAssistQuery.COMMENT_COMPOSE_MORE_MENU))
         )
-        assertEquals(
-            DexMeguvizAssistEngine.ScanStrategy.DIRECT_TIER2_SNAPSHOT,
-            DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE))
-        )
-        val nonFallbackQuery = DexAssistQuery.entries.first { q ->
-            DexMeguvizQueries.graphPlans(q).any { !it.fallbackOnly }
-        }
+        assertEquals(DexMeguvizAssistEngine.ScanStrategy.DIRECT_TIER2_SNAPSHOT, DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.COMMENT_REPLY_BUTTON_NATIVE)))
+        val nonFallbackQuery = DexAssistQuery.entries.first { q -> DexMeguvizQueries.graphPlans(q).any { !it.fallbackOnly } }
         assertEquals(
             DexMeguvizAssistEngine.ScanStrategy.DIRECT_TIER2_SNAPSHOT,
             DexMeguvizAssistEngine.scanStrategy(setOf(DexAssistQuery.PEGASUS_DIVIDER, nonFallbackQuery))
         )
     }
 
-    @org.junit.Test
-    fun verifyAllCases() {
-        fun runIsolated(block: (DexMeguvizQueriesTest) -> Unit) {
-            val s = DexMeguvizQueriesTest()
-            block(s)
+    private fun phase3GraphLaneAndTier1FallbackPolicy() {
+        val snapshot = "snap-1"
+        assertNull(DexGraphResultPolicy.failureForEntity(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.SOURCE_SCOPE_INCOMPLETE.ordinal, 0L, 100, 100, 3))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.failureForEntity(snapshot, "other", ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 0L, 10, 10, 1))
+        assertEquals(Reason.TOO_MANY_MATCHES, DexGraphResultPolicy.failureForEntity(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.RESULT_LIMIT.ordinal, 0L, 10, 10, 1))
+        assertEquals(Reason.TOO_MANY_MATCHES, DexGraphResultPolicy.failureForEntity(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 0L, 10, 10, DexGraphResultPolicy.MAX_MATCHES + 1))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.failureForEntity(snapshot, snapshot, ExecutionStatus.BUDGET_EXCEEDED.ordinal, DecisionReason.NONE.ordinal, 0L, 10, 10, 1))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.failureForEntity(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 1L, 10, 10, 1))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.failureForEntity(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 0L, 9, 10, 1))
+
+        assertNull(DexGraphResultPolicy.failureForGraph(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.SOURCE_SCOPE_INCOMPLETE.ordinal, 0L, 4))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.failureForGraph(snapshot, snapshot, ExecutionStatus.CORRUPT_INPUT.ordinal, DecisionReason.NONE.ordinal, 0L, 0))
+        assertEquals(Reason.TOO_MANY_MATCHES, DexGraphResultPolicy.failureForGraph(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 0L, DexGraphResultPolicy.MAX_MATCHES + 1))
+
+        assertNull(DexGraphResultPolicy.failureForMethodType(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 0L, 50, 50, 1))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.failureForMethodType(snapshot, snapshot, ExecutionStatus.COMPLETE.ordinal, DecisionReason.NONE.ordinal, 0L, 49, 50, 1))
+
+        assertEquals(Reason.TOO_MANY_MATCHES, DexGraphResultPolicy.resolveOutcomeFailure(Reason.TOO_MANY_MATCHES, null, hasCandidates = true, bindFailures = 0))
+        assertEquals(Reason.TOO_MANY_MATCHES, DexGraphResultPolicy.resolveOutcomeFailure(null, Reason.TOO_MANY_MATCHES, hasCandidates = true, bindFailures = 0))
+        assertEquals(Reason.TOO_MANY_MATCHES to null, DexMeguvizAssistEngine.applyGraphRejection(null, null, Reason.TOO_MANY_MATCHES))
+        assertEquals(null to Reason.NO_MATCH, DexMeguvizAssistEngine.applyGraphRejection(null, null, Reason.NO_MATCH))
+        assertNull(DexGraphResultPolicy.resolveOutcomeFailure(null, Reason.QUERY_FAILED, hasCandidates = true, bindFailures = 0))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.resolveOutcomeFailure(null, Reason.QUERY_FAILED, hasCandidates = false, bindFailures = 0))
+        assertEquals(Reason.TOO_MANY_MATCHES, DexGraphResultPolicy.resolveOutcomeFailure(null, Reason.TOO_MANY_MATCHES, hasCandidates = false, bindFailures = 0))
+        assertEquals(Reason.QUERY_FAILED, DexGraphResultPolicy.resolveOutcomeFailure(null, null, hasCandidates = false, bindFailures = 1))
+        assertEquals(Reason.NO_MATCH, DexGraphResultPolicy.resolveOutcomeFailure(null, null, hasCandidates = false, bindFailures = 0))
+        assertNull(DexGraphResultPolicy.resolveOutcomeFailure(null, null, hasCandidates = true, bindFailures = 1))
+
+        val sampleQuery = GraphQuery(
+            relation = GraphExpression.groupByOwner(
+                inputs = listOf(
+                    GraphExpression.label(
+                        GraphExpression.scan(
+                            EntityRelation.FIELD_DEFS,
+                            GraphPredicate.from(EntityPredicate.text(EntityTextField.TYPE, TextOperation.EXACT, "Landroid/content/Context;"))
+                        ),
+                        "ctx"
+                    )
+                ),
+                requiredRoles = listOf("ctx")
+            ),
+            maxResults = 33,
+            maxWork = DexMeguvizGraphPlans.GRAPH_MAX_WORK
+        )
+        val scoped = DexMeguvizGraphPlans.scopedAdvancedGraphQuery(sampleQuery, listOf("base", "split.feature"))
+        val jsonText = scoped.toQueryIrJson()
+        assertFalse("scoped QueryIR must stay single-line compact", jsonText.contains('\n'))
+        val ir = JSONObject(jsonText)
+        val slots = ir.getJSONObject("scope").getJSONArray("slots")
+        assertEquals(listOf("base", "split.feature"), (0 until slots.length()).map(slots::getString))
+        val caps = ir.getJSONArray("required_capabilities")
+        assertTrue((0 until caps.length()).map(caps::getString).contains("inherited_fields"))
+        assertEquals(33, ir.getInt("max_results"))
+        assertEquals(DexMeguvizGraphPlans.GRAPH_MAX_WORK, ir.getLong("max_work"))
+        assertThrows(IllegalArgumentException::class.java) { DexMeguvizGraphPlans.scopedAdvancedGraphQuery(sampleQuery, emptyList()) }
+        assertThrows(IllegalArgumentException::class.java) { DexMeguvizGraphPlans.scopedAdvancedGraphQuery(sampleQuery, listOf("base", " ")) }
+        assertThrows(IllegalArgumentException::class.java) { DexMeguvizGraphPlans.scopedAdvancedGraphQuery(sampleQuery, listOf("base", "base")) }
+
+        assertEquals(listOf(0..127, 128..149), DexMeguvizAssistEngine.calculateCandidateChunks(List(150) { 32 }))
+        assertEquals(listOf(0..1, 2..2), DexMeguvizAssistEngine.calculateCandidateChunks(listOf(4000, 96, 1)))
+        assertTrue(DexMeguvizAssistEngine.calculateCandidateChunks(emptyList()).isEmpty())
+
+        val resolvedSlots = DexMeguvizAssistEngine.resolveSplitSlotNames(
+            splitPaths = listOf("/data/app/split_feat.apk", "/data/app/split_other.apk", "/data/app/split_other2.apk"),
+            splitNames = listOf("feature_video", null, "feature_video")
+        )
+        assertEquals(3, resolvedSlots.size)
+        assertEquals("feature_video", resolvedSlots[0])
+        assertEquals("other", resolvedSlots[1])
+        assertTrue("split slots must be distinct and printable", resolvedSlots.distinct().size == 3 && resolvedSlots[2] != "feature_video")
+
+        for (redundant in listOf(
+            DexAssistQuery.HOME_RECOMMEND_EARLY_LOAD_LISTENER,
+            DexAssistQuery.COMMENT_REPLY_MAPPER,
+            DexAssistQuery.SPONSOR_CONTAINER_SCOPE,
+            DexAssistQuery.SPONSOR_PLAYER_WRAPPER,
+            DexAssistQuery.PEGASUS_DIVIDER,
+            DexAssistQuery.STORY_QUALITY_DEFAULT,
+            DexAssistQuery.PAUSED_AD_REQUEST_API,
+            DexAssistQuery.BRAND_SPLASH_KNTR_PAGE,
+            DexAssistQuery.COMMENT_COMPOSE_MORE_MENU,
+            DexAssistQuery.HOME_CHROME_TOP,
+            DexAssistQuery.HOME_CHROME_TOP_LAYOUT,
+            DexAssistQuery.HOME_CHROME_TOP_BACKDROP,
+            DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS,
+            DexAssistQuery.HOME_CHROME_TOP_CONTENT,
+            DexAssistQuery.HOME_CHROME_BOTTOM,
+            DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT,
+            DexAssistQuery.HOME_CHROME_BOTTOM_ITEM,
+            DexAssistQuery.BRAND_SPLASH_KNTR_DRAW,
+            DexAssistQuery.PAUSED_AD_COUNTDOWN
+        )) {
+            val plans = DexMeguvizQueries.graphPlans(redundant)
+            assertTrue("$redundant plans should be fallbackOnly", plans.isNotEmpty() && plans.all { it.fallbackOnly })
+            plans.forEach { JSONObject(it.toQueryIrJson()) }
         }
-        runIsolated { s -> s.`every query produces bounded rules with a non-empty where condition`() }
-        runIsolated { s -> s.`multi-rule queries keep their fan-out rules`() }
-        runIsolated { s -> s.`compose menu and grpc wire queries avoid obfuscated method names`() }
-        runIsolated { s -> s.`system environment queries match static descriptors and semantic constants without method names`() }
-        runIsolated { s -> s.`owner member and declaration rules address exact descriptors`() }
-        runIsolated { s -> s.`home recommend early load listener query covers PegasusFragment scroll+attach fanout and 3-arg continuation lambda`() }
-        runIsolated { s -> s.`graph plans serialize bounded valid QueryIR JSON without fragile package or arity locks`() }
-        runIsolated { s -> s.`batch 3 graph plans serialize bounded QueryIR JSON with structural anchors`() }
-        runIsolated { s -> s.`archive snapshot skip policy avoids duplicate tier1 scan when planned requires tier2`() }
+        assertFalse(DexMeguvizGraphPlans.requiresArchiveSnapshot(setOf(DexAssistQuery.PAUSED_AD_COUNTDOWN)))
+        assertEquals(2, DexMeguvizQueries.graphPlans(DexAssistQuery.BRAND_SPLASH_KNTR_PAGE).count { it.fallbackOnly })
+        assertEquals(3, DexMeguvizQueries.graphPlans(DexAssistQuery.COMMENT_COMPOSE_MORE_MENU).count { it.fallbackOnly })
+        val homeTabPlans = DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_TAB_RESOURCE)
+        assertTrue(homeTabPlans[0].fallbackOnly)
+        assertFalse(homeTabPlans[1].fallbackOnly)
+
+        val backdropIr = DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_CHROME_TOP_BACKDROP).single().toQueryIrJson()
+        val rightActionsIr = DexMeguvizQueries.graphPlans(DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS).single().toQueryIrJson()
+        assertEquals(backdropIr, rightActionsIr)
+
+        assertThrows(IllegalArgumentException::class.java) { DexMeguvizAssistEngine.withArchiveSnapshot(emptyList()) {} }
+        val nativeMissing = DexMeguvizAssistEngine.resolveAll(
+            setOf(DexAssistQuery.BLOCK_UPDATE),
+            listOf("/nonexistent/base.apk"),
+            javaClass.classLoader!!
+        )
+        assertEquals(DexAssistResult.Unavailable(Reason.NATIVE_UNAVAILABLE), nativeMissing.getValue(DexAssistQuery.BLOCK_UPDATE))
+    }
+
+    @Test
+    fun verifyAllCases() {
+        everyQueryProducesBoundedRules()
+        multiRuleAndDescriptorQueries()
+        graphPlansAndQueryIrVerification()
+        phase3GraphLaneAndTier1FallbackPolicy()
     }
 }

@@ -30,11 +30,39 @@ import java.util.concurrent.TimeUnit
 
 class VerifiedPayloadDeliveryTest {
 
-    @get:Rule
+    @Rule
+    @JvmField
     val tempFolder = TemporaryFolder()
 
     @Test
-    fun elf16KbVerifierAccepts16KbAnd64KbAndRejects4KbOrMalformedHeaders() {
+    fun elf64PageAlignmentAndCongruenceEnforcement() {
+        verifyElf16KbAccepts16KbAnd64KbAndRejects4KbOrMalformedHeaders()
+        verifyElf16KbEnforcesCongruenceBoundsOverlapAndNoTextrel()
+    }
+
+    @Test
+    fun elf32AndAudioAssetStorePageAlignmentEnforcement() {
+        verifyElf32EnforcesAlignmentCongruenceOverlapAndNoTextrel()
+        verifyAudioAssetStoreRejects4KbArm64ElfAndAccepts16KbElf()
+    }
+
+    @Test
+    fun archiveVerifierEnforcesZipBombAndTraversalLimits() {
+        verifyArchiveVerifierAllowsSmallHighRatioZeroPaddedSoBelow256KbAndRejects1MbZipBomb()
+        verifyArchiveVerifierAcceptsSafeEntriesAndRejectsTraversalBombLimitsAndForbiddenExtensions()
+    }
+
+    @Test
+    fun securePayloadStorePreparesDirectoryAndPublishesAtomically() {
+        verifySecurePayloadStorePreparesDirectoryEnforcesPermissionsAndPublishesAtomically()
+    }
+
+    @Test
+    fun dualChannelFdOpenerPrefersRemoteAndFallsBackToProvider() {
+        verifyDualChannelFdOpenerPrefersRemoteAndFallsBackToProvider()
+    }
+
+    private fun verifyElf16KbAccepts16KbAnd64KbAndRejects4KbOrMalformedHeaders() {
         val valid16k = TestElf16KbBuilder.buildElf64(16384L)
         assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(valid16k, "libvalid16k.so").isSuccess)
 
@@ -77,8 +105,7 @@ class VerifiedPayloadDeliveryTest {
         assertTrue(Elf16KbVerifier.verifyElf64FilePageAlignment(elfFile).isSuccess)
     }
 
-    @Test
-    fun elf16KbVerifierEnforcesCongruenceBoundsOverlapAndNoTextrel() {
+    private fun verifyElf16KbEnforcesCongruenceBoundsOverlapAndNoTextrel() {
         // 同权限多 PT_LOAD（例如 TestElf16KbBuilder 构造的最小双 PF_RX 头）允许共页
         val sameFlagMultiSeg = TestElf16KbBuilder.buildElf64WithSegments(listOf(16384L, 16384L))
         assertTrue(Elf16KbVerifier.verifyElf64PageAlignment(sameFlagMultiSeg, "same-flags").isSuccess)
@@ -154,8 +181,7 @@ class VerifiedPayloadDeliveryTest {
         }
     }
 
-    @Test
-    fun elf32VerifierEnforcesAlignmentCongruenceOverlapAndNoTextrel() {
+    private fun verifyElf32EnforcesAlignmentCongruenceOverlapAndNoTextrel() {
         val valid4k = buildElf32Custom(
             totalBytes = 512,
             segments = listOf(
@@ -195,8 +221,7 @@ class VerifiedPayloadDeliveryTest {
         assertTrue(Elf16KbVerifier.verifyElf32PageAlignment(textrel32, "elf32-textrel").isFailure)
     }
 
-    @Test
-    fun archiveVerifierAllowsSmallHighRatioZeroPaddedSoBelow256KbAndRejects1MbZipBomb() {
+    private fun verifyArchiveVerifierAllowsSmallHighRatioZeroPaddedSoBelow256KbAndRejects1MbZipBomb() {
         // 200 KiB (< 256 KiB 阈值) 高压缩比全零载荷（模拟 16KB 零填充小 .so）应放行
         val smallZeroPaddedSo = ByteArray(200 * 1024)
         val smallZip = TestZipBuilder.buildZip(
@@ -217,10 +242,9 @@ class VerifiedPayloadDeliveryTest {
         assertEquals(200L * 1024L, smallVerified.getOrThrow().single().size)
 
         // 1 MiB 真正高压缩 Zip 炸弹必须继续拦截
-        val bomb1Mb = ByteArray(1024 * 1024)
         val bombZip = TestZipBuilder.buildZip(
             tempFolder.newFile("bomb-1mb.zip"),
-            mapOf("payload.json" to bomb1Mb)
+            mapOf("payload.json" to sharedBomb1Mb)
         )
         val bombResult = ArchiveVerifier.verifyZip(
             bombZip,
@@ -234,8 +258,7 @@ class VerifiedPayloadDeliveryTest {
         assertTrue(bombResult.isFailure)
     }
 
-    @Test
-    fun audioAssetStoreRejects4KbArm64ElfAndAccepts16KbElf() {
+    private fun verifyAudioAssetStoreRejects4KbArm64ElfAndAccepts16KbElf() {
         val store = AudioAssetStore(tempFolder.newFolder("audio-elf-store"), hostAbi = "arm64-v8a")
         val bad4k = TestElf16KbBuilder.buildElf64(4096L)
         val badAsset = AudioAsset("libonnxruntime.so", bad4k.size.toLong(), sha256Hex(bad4k), "jni/arm64-v8a/libonnxruntime.so")
@@ -252,8 +275,7 @@ class VerifiedPayloadDeliveryTest {
         assertTrue(store.valid(goodAsset))
     }
 
-    @Test
-    fun archiveVerifierAcceptsSafeEntriesAndRejectsTraversalBombLimitsAndForbiddenExtensions() {
+    private fun verifyArchiveVerifierAcceptsSafeEntriesAndRejectsTraversalBombLimitsAndForbiddenExtensions() {
         val jsonPayload = """{"rules":[{"id":"r1","pattern":"spam"}]}""".toByteArray()
         val emptyPayload = ByteArray(0)
         val validZip = TestZipBuilder.buildZip(
@@ -330,8 +352,7 @@ class VerifiedPayloadDeliveryTest {
         )
     }
 
-    @Test
-    fun securePayloadStorePreparesDirectoryEnforcesPermissionsAndPublishesAtomically() {
+    private fun verifySecurePayloadStorePreparesDirectoryEnforcesPermissionsAndPublishesAtomically() {
         val root = tempFolder.newFolder("store-root")
         val chmodEvents = mutableListOf<Pair<Path, Int>>()
         val dir = SecurePayloadStore.prepareDirectory(
@@ -457,8 +478,7 @@ class VerifiedPayloadDeliveryTest {
         assertTrue(SecurePayloadStore.prepareDirectory(root, "linked", enforcePermissions = false).isFailure)
     }
 
-    @Test
-    fun dualChannelFdOpenerPrefersRemoteAndFallsBackToProvider() {
+    private fun verifyDualChannelFdOpenerPrefersRemoteAndFallsBackToProvider() {
         var providerCalled = 0
         val primary = DualChannelFdOpener.openReadOnly(
             openRemote = { ByteArrayInputStream("remote".toByteArray()) },
@@ -607,5 +627,9 @@ class VerifiedPayloadDeliveryTest {
         buf.putInt(dynOff + 8, 0)
         buf.putInt(dynOff + 12, 0)
         return bytes
+    }
+
+    companion object {
+        private val sharedBomb1Mb: ByteArray by lazy { ByteArray(1024 * 1024) }
     }
 }

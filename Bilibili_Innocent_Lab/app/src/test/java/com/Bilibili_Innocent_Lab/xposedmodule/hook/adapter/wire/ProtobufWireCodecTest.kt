@@ -60,7 +60,7 @@ class ProtobufWireCodecTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `varint roundtrips boundary values including 10-byte negative int64`() {
+    fun `varint roundtrips boundary values and rejects empty truncated overlong or overflow inputs`() {
         val cases = listOf(
             0L to 1,
             1L to 1,
@@ -82,10 +82,7 @@ class ProtobufWireCodecTest {
             assertEquals(value, decoded!!.value)
             assertEquals(expectedSize, decoded.nextOffset)
         }
-    }
 
-    @Test
-    fun `varint rejects empty truncated overlong and 64bit-overflow inputs`() {
         // Empty / invalid offset
         assertNull(ProtobufWireCodec.readVarint(ByteArray(0), 0))
         assertNull(ProtobufWireCodec.readVarint(byteArrayOf(0x01), -1))
@@ -107,11 +104,11 @@ class ProtobufWireCodecTest {
     }
 
     // -------------------------------------------------------------------------
-    // 2. Fixed32 / Fixed64 / StartGroup-EndGroup / Unknown preservation
+    // 2. Fixed32 / Fixed64 / StartGroup-EndGroup / Copy-on-change identity
     // -------------------------------------------------------------------------
 
     @Test
-    fun `scans fixed32 fixed64 and nested groups while preserving unknown fields verbatim`() {
+    fun `scans fixed and nested groups while preserving unknown fields and copy on change identity`() {
         val msg = buildMessage {
             writeVarintField(1, 42L)
             writeFixed32Field(2, 0x12345678)
@@ -153,20 +150,12 @@ class ProtobufWireCodecTest {
         assertEquals("tail", ProtobufWireCodec.decodeUtf8OrNull(msg, slices[4].payloadStart, slices[4].payloadEnd))
 
         // Drop only field 1, verify fixed32/fixed64/nested-group/tail remain byte-for-byte identical
-        val rewritten = ProtobufWireCodec.rewriteFields(msg) { slice ->
+        val dropped1 = ProtobufWireCodec.rewriteFields(msg) { slice ->
             if (slice.fieldNumber == 1) WireRewriteAction.Drop else WireRewriteAction.Keep
         }
-        assertNotSame(msg, rewritten)
-        val expectedWithoutField1 = msg.copyOfRange(slices[0].rawEnd, msg.size)
-        assertArrayEquals(expectedWithoutField1, rewritten)
-    }
+        assertNotSame(msg, dropped1)
+        assertArrayEquals(msg.copyOfRange(slices[0].rawEnd, msg.size), dropped1)
 
-    // -------------------------------------------------------------------------
-    // 3. Copy-on-change identity & actions
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `copy on change returns exact same array identity when untouched and supports all rewrite actions`() {
         val original = buildMessage {
             writeVarintField(1, 7L)
             writeStringField(2, "keep-me")
@@ -174,10 +163,7 @@ class ProtobufWireCodecTest {
             writeStringField(4, "replace-delimited")
             writeFixed32Field(99, 0xCAFEBABE.toInt())
         }
-
-        val untouched = ProtobufWireCodec.rewriteFields(original) { WireRewriteAction.Keep }
-        assertSame(original, untouched)
-
+        assertSame(original, ProtobufWireCodec.rewriteFields(original) { WireRewriteAction.Keep })
         val empty = ByteArray(0)
         assertSame(empty, ProtobufWireCodec.rewriteFields(empty) { WireRewriteAction.Drop })
 
@@ -200,19 +186,16 @@ class ProtobufWireCodecTest {
     }
 
     // -------------------------------------------------------------------------
-    // 4. Malformed / truncated / oversized / deeply-nested rejection + UTF-8 + packed
+    // 3. Malformed / truncated / oversized / deeply-nested rejection + UTF-8 + packed
     // -------------------------------------------------------------------------
 
     @Test
-    fun `rejects truncated oversized reserved wire types unbalanced and overly deep groups without panic`() {
-        // Truncated length-delimited payload
+    fun `rejects truncated oversized reserved unbalanced or overly deep wire inputs and validates utf8 and packed varints`() {
         val truncatedDelimited = byteArrayOf(((2 shl 3) or 2).toByte(), 10, 0x01, 0x02)
         assertNull(ProtobufWireCodec.scanTopLevel(truncatedDelimited))
         assertNull(ProtobufWireCodec.rewriteFieldsOrNull(truncatedDelimited) { WireRewriteAction.Drop })
-        // rewriteFields safely falls back to returning original reference
         assertSame(truncatedDelimited, ProtobufWireCodec.rewriteFields(truncatedDelimited) { WireRewriteAction.Drop })
 
-        // Huge overflowing length varint (0x7FFFFFFF) -> never attempts huge allocation
         val giantLen = buildMessage {
             writeVarint(ProtobufWireCodec.makeTag(1, ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED))
             writeVarint(Int.MAX_VALUE.toLong())
@@ -220,30 +203,21 @@ class ProtobufWireCodecTest {
         }
         assertNull(ProtobufWireCodec.scanTopLevel(giantLen))
 
-        // Negative length varint (-1L)
         val negativeLen = buildMessage {
             writeVarint(ProtobufWireCodec.makeTag(1, ProtobufWireCodec.WIRE_TYPE_LENGTH_DELIMITED))
             writeVarint(-1L)
         }
         assertNull(ProtobufWireCodec.scanTopLevel(negativeLen))
 
-        // Invalid field number 0
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(0x00, 0x01)))
-
-        // Reserved wire types 6 and 7
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 6).toByte())))
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 7).toByte())))
-
-        // Truncated fixed32 / fixed64
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 5).toByte(), 1, 2, 3)))
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 1).toByte(), 1, 2, 3, 4, 5, 6, 7)))
-
-        // Unmatched END_GROUP at top level, mismatched END_GROUP field number, unclosed START_GROUP
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 4).toByte())))
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 3).toByte(), ((2 shl 3) or 4).toByte())))
         assertNull(ProtobufWireCodec.scanTopLevel(byteArrayOf(((1 shl 3) or 3).toByte(), ((1 shl 3) or 0).toByte(), 0x01)))
 
-        // Group nesting exactly MAX_GROUP_DEPTH (32) succeeds; MAX_GROUP_DEPTH + 1 fails safely
         fun buildNestedGroup(depth: Int): ByteArray = buildMessage {
             repeat(depth) { d ->
                 writeVarint(ProtobufWireCodec.makeTag(d + 1, ProtobufWireCodec.WIRE_TYPE_START_GROUP))
@@ -256,23 +230,16 @@ class ProtobufWireCodecTest {
         assertNotNull(ProtobufWireCodec.scanTopLevel(buildNestedGroup(ProtobufWireCodec.MAX_GROUP_DEPTH)))
         assertNull(ProtobufWireCodec.scanTopLevel(buildNestedGroup(ProtobufWireCodec.MAX_GROUP_DEPTH + 1)))
 
-        // Exceeds custom maxBytes limit
         val validSmall = buildMessage { writeStringField(1, "hello") }
         assertNull(ProtobufWireCodec.scanTopLevel(validSmall, maxBytes = validSmall.size - 1))
-    }
 
-    @Test
-    fun `validates strict utf8 and packed varints`() {
         val validUtf8 = "你好Bilibili🚀".toByteArray(Charsets.UTF_8)
         assertEquals("你好Bilibili🚀", ProtobufWireCodec.decodeUtf8OrNull(validUtf8))
         assertEquals("", ProtobufWireCodec.decodeUtf8OrNull(ByteArray(0)))
-
-        // Invalid UTF-8 sequences
         assertNull(ProtobufWireCodec.decodeUtf8OrNull(byteArrayOf(0xFF.toByte())))
-        assertNull(ProtobufWireCodec.decodeUtf8OrNull(byteArrayOf(0xC3.toByte()))) // truncated 2-byte
-        assertNull(ProtobufWireCodec.decodeUtf8OrNull(byteArrayOf(0xC0.toByte(), 0xAF.toByte()))) // overlong
+        assertNull(ProtobufWireCodec.decodeUtf8OrNull(byteArrayOf(0xC3.toByte())))
+        assertNull(ProtobufWireCodec.decodeUtf8OrNull(byteArrayOf(0xC0.toByte(), 0xAF.toByte())))
 
-        // Packed varints
         val packed = buildMessage {
             writeVarint(0L)
             writeVarint(127L)
@@ -285,11 +252,12 @@ class ProtobufWireCodecTest {
     }
 
     // -------------------------------------------------------------------------
-    // 5. KmpRawWireAdapters: ReplyMainList / DynList / ViewUnite
+    // 4. KmpRawWireAdapters + KmpWireSchemaProber
     // -------------------------------------------------------------------------
 
     @Test
-    fun `reply main list wire adapter filters main top pinned and nested replies while preserving unknown fields`() {
+    fun `kmp raw wire adapters and schema prober preserve unknown fields calibrate shifts and keep identity`() {
+        // 4A: ReplyMainListWireAdapter
         fun encodeReply(
             id: Long,
             mid: Long,
@@ -302,235 +270,165 @@ class ProtobufWireCodecTest {
             children.forEach { writeLengthDelimited(1, it) }
             writeVarintField(2, id)
             writeVarintField(5, mid)
-            writeVarintField(11, 999L) // real count_ field: must NOT be misread as Member!
-            writeLengthDelimited(
-                12, // content_
-                buildMessage { writeStringField(1, message) }
-            )
+            writeVarintField(11, 999L)
+            writeLengthDelimited(12, buildMessage { writeStringField(1, message) })
             if (useLegacyMember) {
                 writeLengthDelimited(
-                    13, // real member_ field (NOT 11!)
+                    13,
                     buildMessage {
                         writeVarintField(1, mid)
                         writeStringField(2, name)
                         writeVarintField(5, level.toLong())
-                        writeVarintField(6, 2L) // Member#6 is official_verify_type_ varint
+                        writeVarintField(6, 2L)
                     }
                 )
             } else {
                 writeLengthDelimited(
-                    15, // real memberV2_ field (NOT 19!)
+                    15,
                     buildMessage {
                         writeLengthDelimited(
                             1,
                             buildMessage {
                                 writeVarintField(1, mid)
                                 writeStringField(2, name)
-                                writeVarintField(5, level.toLong()) // MemberV2$Basic#5 is level_ (NOT 6!)
+                                writeVarintField(5, level.toLong())
                                 writeLengthDelimited(6, buildMessage { writeStringField(1, "avatar_item") })
                             }
                         )
                     }
                 )
             }
-            writeLengthDelimited(19, buildMessage { writeStringField(1, "hot_info_kept") }) // real hotInfo_
+            writeLengthDelimited(19, buildMessage { writeStringField(1, "hot_info_kept") })
         }
 
         val childSpam = encodeReply(id = 101L, mid = 999L, message = "spam_child_link", name = "Bot", level = 0)
         val childClean = encodeReply(id = 102L, mid = 222L, message = "nice nested comment", name = "Alice", level = 5, useLegacyMember = true)
-        val mainKeep = encodeReply(
-            id = 1L,
-            mid = 111L,
-            message = "helpful discussion",
-            name = "Bob",
-            level = 6,
-            children = listOf(childSpam, childClean)
-        )
+        val mainKeep = encodeReply(id = 1L, mid = 111L, message = "helpful discussion", name = "Bob", level = 6, children = listOf(childSpam, childClean))
         val mainSpam = encodeReply(id = 2L, mid = 888L, message = "buy_promo_now", name = "AdAccount", level = 1)
         val topSpam = encodeReply(id = 3L, mid = 777L, message = "pinned_ad", name = "Sponsor", level = 4)
         val upTopClean = encodeReply(id = 4L, mid = 333L, message = "author pinned note", name = "UP", level = 6)
         val voteTopSpam = encodeReply(id = 5L, mid = 666L, message = "buy_promo_vote", name = "Spammer", level = 2)
         val subjectControlPayload = buildMessage { writeVarintField(1, 1L); writeVarintField(2, 555L) }
-
-        val unknownCursor = buildMessage {
-            writeStringField(1, "cursor_next_page_token")
-            writeVarintField(2, 1L)
-        }
+        val unknownCursor = buildMessage { writeStringField(1, "cursor_next_page_token"); writeVarintField(2, 1L) }
         val mainListBytes = buildMessage {
-            writeLengthDelimited(1, unknownCursor) // cursor_
-            writeLengthDelimited(2, mainKeep) // replies_
+            writeLengthDelimited(1, unknownCursor)
+            writeLengthDelimited(2, mainKeep)
             writeLengthDelimited(2, mainSpam)
-            writeLengthDelimited(3, subjectControlPayload) // subjectControl_ (NOT single reply!)
-            writeLengthDelimited(4, upTopClean) // upTop_
-            writeLengthDelimited(6, voteTopSpam) // voteTop_
-            writeLengthDelimited(14, topSpam) // topReplies_
-            writeLengthDelimited(77, unknownCursor) // unknown field must remain intact
+            writeLengthDelimited(3, subjectControlPayload)
+            writeLengthDelimited(4, upTopClean)
+            writeLengthDelimited(6, voteTopSpam)
+            writeLengthDelimited(14, topSpam)
+            writeLengthDelimited(77, unknownCursor)
         }
-
-        // No-op filter returns exact same ByteArray identity
-        val untouched = ReplyMainListWireAdapter.filterReplies(mainListBytes) { false }
-        assertSame(mainListBytes, untouched)
-
-        // Filter by keyword and low level; subjectControl_(3) must NOT be misread or dropped
-        val filtered = ReplyMainListWireAdapter.filterReplies(mainListBytes) { signal ->
+        assertSame(mainListBytes, ReplyMainListWireAdapter.filterReplies(mainListBytes) { false })
+        val filteredReplies = ReplyMainListWireAdapter.filterReplies(mainListBytes) { signal ->
             val msg = signal.message.orEmpty()
             msg.contains("promo") || msg.contains("pinned_ad") || msg.contains("spam_child") || (signal.level ?: 6) < 1
         }
-        assertNotSame(mainListBytes, filtered)
-
-        val remainingReplies = ReplyMainListWireAdapter.extractTopLevelReplies(filtered)
+        assertNotSame(mainListBytes, filteredReplies)
+        val remainingReplies = ReplyMainListWireAdapter.extractTopLevelReplies(filteredReplies)
         assertEquals(2, remainingReplies.size)
         assertEquals(1L, remainingReplies[0].id)
         assertEquals("Bob", remainingReplies[0].authorName)
         assertEquals(6, remainingReplies[0].level)
-        assertEquals(1, remainingReplies[0].nestedReplyCount) // childSpam removed, childClean kept!
+        assertEquals(1, remainingReplies[0].nestedReplyCount)
         assertEquals(4L, remainingReplies[1].id)
+        val replyTopSlices = ProtobufWireCodec.scanTopLevel(filteredReplies)!!
+        val scSlice = replyTopSlices.single { it.fieldNumber == 3 }
+        assertArrayEquals(subjectControlPayload, filteredReplies.copyOfRange(scSlice.payloadStart, scSlice.payloadEnd))
+        val unknownSlice = replyTopSlices.single { it.fieldNumber == 77 }
+        assertArrayEquals(unknownCursor, filteredReplies.copyOfRange(unknownSlice.payloadStart, unknownSlice.payloadEnd))
 
-        // Verify subjectControl_(3) and unknown field(77) preserved verbatim
-        val topSlices = ProtobufWireCodec.scanTopLevel(filtered)!!
-        val scSlice = topSlices.single { it.fieldNumber == 3 }
-        assertArrayEquals(subjectControlPayload, filtered.copyOfRange(scSlice.payloadStart, scSlice.payloadEnd))
-        val unknownSlice = topSlices.single { it.fieldNumber == 77 }
-        assertArrayEquals(unknownCursor, filtered.copyOfRange(unknownSlice.payloadStart, unknownSlice.payloadEnd))
-    }
-
-    @Test
-    fun `dyn list wire adapter filters dynamic cards while preserving cursor topic up_list and identity`() {
-        fun encodeDynItem(
-            dynId: String,
-            uid: Long,
-            author: String,
-            text: String,
-            dynText: String = "",
-            cardType: Long = 2L
-        ): ByteArray = buildMessage {
-            writeVarintField(1, cardType)
-            writeVarintField(2, 1L)
-            writeLengthDelimited(
-                3, // Module
-                buildMessage {
-                    writeVarintField(1, 2L) // moduleType_
-                    writeLengthDelimited(
-                        2, // ModuleAuthor
-                        buildMessage {
-                            writeVarintField(1, uid) // ModuleAuthor#1 mid_
-                            writeLengthDelimited(
-                                3, // ModuleAuthor#3 author_: UserInfo
-                                buildMessage {
-                                    writeVarintField(1, uid)
-                                    writeStringField(2, author)
-                                }
-                            )
-                        }
-                    )
-                    writeLengthDelimited(
-                        3, // ModuleDispute#3 (must NOT be misread as ModuleDynamic#5)
-                        buildMessage { writeStringField(1, "dispute_ignore") }
-                    )
-                    writeLengthDelimited(
-                        4, // ModuleDesc#4
-                        buildMessage {
-                            writeLengthDelimited(
-                                1,
-                                buildMessage { writeStringField(1, text) }
-                            )
-                        }
-                    )
-                    if (dynText.isNotEmpty()) {
+        // 4B: DynListWireAdapter
+        fun encodeDynItem(dynId: String, uid: Long, author: String, text: String, dynText: String = "", cardType: Long = 2L): ByteArray =
+            buildMessage {
+                writeVarintField(1, cardType)
+                writeVarintField(2, 1L)
+                writeLengthDelimited(
+                    3,
+                    buildMessage {
+                        writeVarintField(1, 2L)
                         writeLengthDelimited(
-                            5, // real ModuleDynamic#5
+                            2,
                             buildMessage {
-                                writeLengthDelimited(
-                                    1,
-                                    buildMessage { writeStringField(1, dynText) }
-                                )
+                                writeVarintField(1, uid)
+                                writeLengthDelimited(3, buildMessage { writeVarintField(1, uid); writeStringField(2, author) })
                             }
                         )
+                        writeLengthDelimited(3, buildMessage { writeStringField(1, "dispute_ignore") })
+                        writeLengthDelimited(4, buildMessage { writeLengthDelimited(1, buildMessage { writeStringField(1, text) }) })
+                        if (dynText.isNotEmpty()) {
+                            writeLengthDelimited(5, buildMessage { writeLengthDelimited(1, buildMessage { writeStringField(1, dynText) }) })
+                        }
                     }
-                }
-            )
-            writeLengthDelimited(
-                4, // Extend (1=dynIdStr, 4=origName, 6=origDesc, 7=desc, 14=uid)
-                buildMessage {
-                    writeStringField(1, dynId)
-                    writeStringField(3, "orig_id_str_999") // #3 is origDynIdStr_
-                    writeStringField(4, author) // #4 is origName_
-                    writeVarintField(14, uid) // #14 is uid_
-                }
-            )
-        }
-
+                )
+                writeLengthDelimited(
+                    4,
+                    buildMessage {
+                        writeStringField(1, dynId)
+                        writeStringField(3, "orig_id_str_999")
+                        writeStringField(4, author)
+                        writeVarintField(14, uid)
+                    }
+                )
+            }
         val itemKeep = encodeDynItem("dyn_1", 1001L, "TechUP", "Kernel deep dive", dynText = "dynamic_payload_ok")
         val itemAd = encodeDynItem("dyn_2", 9001L, "MallBot", "Limited promo", dynText = "flash_sale_module_dynamic", cardType = 10L)
         val upListPayload = buildMessage { writeStringField(1, "up_list_preserved") }
         val topicPayload = buildMessage { writeStringField(1, "topic_preserved") }
         val cursorPayload = "cursor_v2_opaque".toByteArray(Charsets.UTF_8)
-
         val dynReply = buildMessage {
             writeLengthDelimited(
                 1,
                 buildMessage {
                     writeLengthDelimited(1, itemKeep)
                     writeLengthDelimited(1, itemAd)
-                    writeLengthDelimited(4, cursorPayload) // unknown/pagination inside DynamicList
+                    writeLengthDelimited(4, cursorPayload)
                 }
             )
             writeLengthDelimited(2, upListPayload)
             writeLengthDelimited(3, topicPayload)
             writeFixed64Field(88, 9876543210L)
         }
-
-        val untouched = DynListWireAdapter.filterDynamicList(dynReply) { false }
-        assertSame(dynReply, untouched)
-
-        val filtered = DynListWireAdapter.filterDynamicList(dynReply) { signal ->
+        assertSame(dynReply, DynListWireAdapter.filterDynamicList(dynReply) { false })
+        val filteredDyn = DynListWireAdapter.filterDynamicList(dynReply) { signal ->
             signal.texts.any { it.contains("flash_sale_module_dynamic") } || signal.cardType == 10L
         }
-        assertNotSame(dynReply, filtered)
-
-        val extracted = DynListWireAdapter.extractDynamicItems(filtered)
-        assertEquals(1, extracted.size)
-        assertEquals("dyn_1", extracted[0].dynamicId)
-        assertEquals("TechUP", extracted[0].authorName)
-        assertEquals(1001L, extracted[0].authorUid)
-        assertEquals(listOf("Kernel deep dive", "dynamic_payload_ok"), extracted[0].texts)
-
-        // Top-level up_list, topic, unknown fixed64 & inner cursor field 4 all preserved verbatim
-        val topSlices = ProtobufWireCodec.scanTopLevel(filtered)!!
-        assertEquals(listOf(1, 2, 3, 88), topSlices.map { it.fieldNumber })
-        assertArrayEquals(upListPayload, filtered.copyOfRange(topSlices[1].payloadStart, topSlices[1].payloadEnd))
-        assertArrayEquals(topicPayload, filtered.copyOfRange(topSlices[2].payloadStart, topSlices[2].payloadEnd))
-        assertEquals(9876543210L, ProtobufWireCodec.readFixed64Le(filtered, topSlices[3].payloadStart))
-        val innerListSlices = ProtobufWireCodec.scanTopLevel(
-            filtered,
-            topSlices[0].payloadStart,
-            topSlices[0].payloadLength
-        )!!
+        assertNotSame(dynReply, filteredDyn)
+        val extractedDyn = DynListWireAdapter.extractDynamicItems(filteredDyn)
+        assertEquals(1, extractedDyn.size)
+        assertEquals("dyn_1", extractedDyn[0].dynamicId)
+        assertEquals("TechUP", extractedDyn[0].authorName)
+        assertEquals(1001L, extractedDyn[0].authorUid)
+        assertEquals(listOf("Kernel deep dive", "dynamic_payload_ok"), extractedDyn[0].texts)
+        val dynTopSlices = ProtobufWireCodec.scanTopLevel(filteredDyn)!!
+        assertEquals(listOf(1, 2, 3, 88), dynTopSlices.map { it.fieldNumber })
+        assertArrayEquals(upListPayload, filteredDyn.copyOfRange(dynTopSlices[1].payloadStart, dynTopSlices[1].payloadEnd))
+        assertArrayEquals(topicPayload, filteredDyn.copyOfRange(dynTopSlices[2].payloadStart, dynTopSlices[2].payloadEnd))
+        assertEquals(9876543210L, ProtobufWireCodec.readFixed64Le(filteredDyn, dynTopSlices[3].payloadStart))
+        val innerListSlices = ProtobufWireCodec.scanTopLevel(filteredDyn, dynTopSlices[0].payloadStart, dynTopSlices[0].payloadLength)!!
         assertEquals(listOf(1, 4), innerListSlices.map { it.fieldNumber })
-        assertArrayEquals(cursorPayload, filtered.copyOfRange(innerListSlices[1].payloadStart, innerListSlices[1].payloadEnd))
-    }
+        assertArrayEquals(cursorPayload, filteredDyn.copyOfRange(innerListSlices[1].payloadStart, innerListSlices[1].payloadEnd))
 
-    @Test
-    fun `view unite wire adapter extracts summary filters modules and rewrites fields with identity`() {
+        // 4C: ViewUniteWireAdapter
         fun encodeModule(type: Int, title: String): ByteArray = buildMessage {
             writeVarintField(1, type.toLong())
             writeStringField(9, title)
         }
-
         val activityTabPayload = buildMessage { writeVarintField(2, 999L) }
         val viewReply = buildMessage {
-            writeLengthDelimited(2, buildMessage { writeStringField(1, "BV1test") }) // arc(2)
-            writeLengthDelimited(3, buildMessage { writeVarintField(1, 7L) }) // reqUser(3)
-            writeLengthDelimited(4, buildMessage { writeVarintField(1, 42L) }) // owner(4)
+            writeLengthDelimited(2, buildMessage { writeStringField(1, "BV1test") })
+            writeLengthDelimited(3, buildMessage { writeVarintField(1, 7L) })
+            writeLengthDelimited(4, buildMessage { writeVarintField(1, 42L) })
             writeLengthDelimited(
-                5, // tab(5)
+                5,
                 buildMessage {
                     writeLengthDelimited(
-                        1, // Tab.tabModule(1)
+                        1,
                         buildMessage {
-                            writeVarintField(1, 1L) // tabType(1)
+                            writeVarintField(1, 1L)
                             writeLengthDelimited(
-                                2, // IntroductionTab(2) - NOT 4!
+                                2,
                                 buildMessage {
                                     writeLengthDelimited(2, encodeModule(5, "ugc_intro"))
                                     writeLengthDelimited(2, encodeModule(22, "game_promo"))
@@ -541,7 +439,7 @@ class ProtobufWireCodecTest {
                         }
                     )
                     writeLengthDelimited(
-                        1, // Second TabModule carrying ActivityTab(4) - must stay untouched!
+                        1,
                         buildMessage {
                             writeVarintField(1, 3L)
                             writeLengthDelimited(4, activityTabPayload)
@@ -549,36 +447,23 @@ class ProtobufWireCodecTest {
                     )
                 }
             )
-            writeLengthDelimited(6, buildMessage { writeStringField(1, "supplement") }) // supplement(6)
-            writeVarintField(8, 1L) // ecode(8)
-            writeLengthDelimited(9, buildMessage { writeStringField(1, "ecode_cfg") }) // ecodeConfig(9)
+            writeLengthDelimited(6, buildMessage { writeStringField(1, "supplement") })
+            writeVarintField(8, 1L)
+            writeLengthDelimited(9, buildMessage { writeStringField(1, "ecode_cfg") })
             writeFixed32Field(102, 0x0BADF00D)
         }
-
-        val summary = ViewUniteWireAdapter.extractSummary(viewReply)
-        assertNotNull(summary)
-        assertTrue(summary!!.hasArc)
-        assertTrue(summary.hasOwner)
-        assertTrue(summary.hasTab)
-        assertTrue(summary.hasSupplement)
+        val summary = ViewUniteWireAdapter.extractSummary(viewReply)!!
+        assertTrue(summary.hasArc && summary.hasOwner && summary.hasTab && summary.hasSupplement)
         assertEquals(1L, summary.ecode)
         assertEquals(listOf(5, 22, 10), summary.tabModuleTypes)
         assertFalse(summary.hasPlayVodInfo)
-
-        // Untouched tab filter preserves exact ByteArray identity
         assertSame(viewReply, ViewUniteWireAdapter.filterTabModules(viewReply) { _, _ -> false })
-
-        // Drop module type 22 (game_promo); ActivityTab(4) must not be touched
-        val filteredModules = ViewUniteWireAdapter.filterTabModules(viewReply) { modType, _ ->
-            modType == 22
-        }
+        val filteredModules = ViewUniteWireAdapter.filterTabModules(viewReply) { modType, _ -> modType == 22 }
         assertNotSame(viewReply, filteredModules)
         val afterSummary = ViewUniteWireAdapter.extractSummary(filteredModules)!!
         assertEquals(listOf(5, 10), afterSummary.tabModuleTypes)
         assertTrue(afterSummary.hasArc)
         assertEquals(1L, afterSummary.ecode)
-
-        // Strip supplement(6) and ecode(8) while keeping unknown field 102
         assertSame(filteredModules, ViewUniteWireAdapter.stripTopLevelFields(filteredModules, setOf(999)))
         val stripped = ViewUniteWireAdapter.stripTopLevelFields(filteredModules, setOf(6, 8))
         val strippedSummary = ViewUniteWireAdapter.extractSummary(stripped)!!
@@ -586,22 +471,17 @@ class ProtobufWireCodecTest {
         assertFalse(strippedSummary.hasSupplement)
         assertTrue(strippedSummary.hasTab)
         assertTrue(102 in strippedSummary.topLevelFieldNumbers)
-        val unknownSlice = ProtobufWireCodec.scanTopLevel(stripped)!!.single { it.fieldNumber == 102 }
-        assertEquals(0x0BADF00D, ProtobufWireCodec.readFixed32Le(stripped, unknownSlice.payloadStart))
+        val viewUnknownSlice = ProtobufWireCodec.scanTopLevel(stripped)!!.single { it.fieldNumber == 102 }
+        assertEquals(0x0BADF00D, ProtobufWireCodec.readFixed32Le(stripped, viewUnknownSlice.payloadStart))
 
-        // PlayViewUniteReply uses field 1 (vodInfo) and field 5 (supplement)
         val playViewReply = buildMessage {
             writeLengthDelimited(1, buildMessage { writeVarintField(1, 80L) })
             writeLengthDelimited(5, buildMessage { writeStringField(1, "play_supplement") })
         }
         val playSummary = ViewUniteWireAdapter.extractSummary(playViewReply, isPlayView = true)!!
-        assertTrue(playSummary.hasPlayVodInfo)
-        assertTrue(playSummary.hasSupplement)
-        assertFalse(playSummary.hasTab)
-    }
+        assertTrue(playSummary.hasPlayVodInfo && playSummary.hasSupplement && !playSummary.hasTab)
 
-    @Test
-    fun `kmp wire schema prober calibrates shifted field numbers and falls back closed on collision`() {
+        // 4D: KmpWireSchemaProber
         val emptyLoader = object : ClassLoader(ProtobufWireCodecTest::class.java.classLoader) {
             override fun loadClass(name: String, resolve: Boolean): Class<*> {
                 if (name.startsWith("com.bapis.")) throw ClassNotFoundException(name)
@@ -657,7 +537,7 @@ class ProtobufWireCodecTest {
     }
 
     internal object FakeCollidingViewReply {
-        const val TAB_FIELD_NUMBER = 4 // collides with default ownerField = 4!
+        const val TAB_FIELD_NUMBER = 4
     }
 
     internal object FakeZeroFieldDynamicList {

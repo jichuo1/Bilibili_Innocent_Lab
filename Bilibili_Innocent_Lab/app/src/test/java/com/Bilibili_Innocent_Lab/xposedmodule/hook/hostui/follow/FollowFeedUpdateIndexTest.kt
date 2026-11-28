@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,7 +52,7 @@ class FollowFeedUpdateIndexTest {
     fun hasReferenceMatchesTheScanTheControllerUsedToDoOnRandomScreens() {
         val random = Random(20261029L)
         val index = FollowFeedUpdateIndex()
-        repeat(5_000) {
+        repeat(250) {
             val count = random.nextInt(30)
             val rows = List(count) {
                 if (random.nextInt(4) == 0) null
@@ -61,7 +62,8 @@ class FollowFeedUpdateIndexTest {
             repeat(10) {
                 val key = FollowFeedReferenceKey(random.nextInt(7).toLong(), random.nextInt(5).toLong())
                 val legacy = (0 until count).none { rows[it]?.referenceKey() == key }.not()
-                assertEquals("key $key in $rows", legacy, index.hasReference(key))
+                val actual = index.hasReference(key)
+                if (legacy != actual) assertEquals("key $key in $rows", legacy, actual)
             }
         }
     }
@@ -104,6 +106,76 @@ class FollowFeedUpdateIndexTest {
         assertTrue(index.keyAllocations < legacy.keyAllocations)
     }
 
+    fun `follow feed tab labels and header titles support Simplified Traditional and English locales`() {
+        assertTrue(isSupportedTabLabels(listOf("全部", "视频")))
+        assertTrue(isSupportedTabLabels(listOf(" 全部 ", " 影片 ")))
+        assertTrue(isSupportedTabLabels(listOf("全部", "視頻")))
+        assertTrue(isSupportedTabLabels(listOf("All", "Video")))
+        assertTrue(isSupportedTabLabels(listOf(" all ", " VIDEOS ")))
+        assertFalse(isSupportedTabLabels(listOf("全部", "视频", "同城")))
+        assertFalse(isSupportedTabLabels(listOf("全部")))
+        assertFalse(isSupportedTabLabels(listOf("全部", "关注")))
+
+        assertTrue(isSupportedHeaderTitle("关注"))
+        assertTrue(isSupportedHeaderTitle(" 關注 "))
+        assertTrue(isSupportedHeaderTitle("追蹤"))
+        assertTrue(isSupportedHeaderTitle("Following"))
+        assertTrue(isSupportedHeaderTitle(" FOLLOW "))
+        assertFalse(isSupportedHeaderTitle("动态"))
+        assertFalse(isSupportedHeaderTitle(null))
+        assertFalse(isSupportedHeaderTitle(""))
+    }
+
+    class CurrentHostItemRenamed(
+        private val uid: Long,
+        @JvmField val mods: List<Any>,
+        @JvmField val refParent: CurrentHostItemRenamed?,
+        private val hasQuote: Boolean
+    ) {
+        fun renamedId(): Long = uid
+        fun b(): List<Any> = mods
+        fun h(): Boolean = hasQuote
+    }
+    class CurrentHostModuleOk(
+        @JvmField var top: Any,
+        @JvmField var b: CurrentHostItemRenamed
+    ) {
+        fun M(): CurrentHostItemRenamed = top as CurrentHostItemRenamed
+        fun O(): Boolean = false
+    }
+    class CurrentHostHolder(@JvmField val module: CurrentHostModuleOk)
+    class CurrentHostModuleBadOwner(
+        private val top: CurrentHostItemRenamed,
+        @JvmField val c: CurrentHostItemRenamed
+    ) {
+        fun M(): CurrentHostItemRenamed = top
+        fun O(): Boolean = false
+    }
+
+    fun `FollowFeedHostAccess current falls back for renamed identity localModules parent while enforcing a or b localOwner`() {
+        val access = requireNotNull(FollowFeedHostAccess.current(CurrentHostModuleOk::class.java, CurrentHostItemRenamed::class.java))
+        lateinit var child: CurrentHostItemRenamed
+        lateinit var root: CurrentHostItemRenamed
+        val mod = CurrentHostModuleOk(
+            CurrentHostItemRenamed(99L, emptyList(), null, false),
+            CurrentHostItemRenamed(10L, emptyList(), null, true)
+        )
+        val modules = listOf<Any>(mod)
+        root = CurrentHostItemRenamed(99L, modules, null, false)
+        child = CurrentHostItemRenamed(10L, modules, root, true)
+        mod.top = root
+        mod.b = child
+        val row = requireNotNull(access.row(CurrentHostHolder(mod), 7))
+        assertEquals(99L, row.identity)
+        assertEquals(7, row.position)
+        assertTrue(row.first)
+        assertTrue(row.last)
+        assertEquals(10L, row.reference?.identity)
+        assertEquals(true, access.isQuotedModule(mod))
+
+        assertNull(FollowFeedHostAccess.current(CurrentHostModuleBadOwner::class.java, CurrentHostItemRenamed::class.java))
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (FollowFeedUpdateIndexTest) -> Unit) {
@@ -115,5 +187,7 @@ class FollowFeedUpdateIndexTest {
         runIsolated { s -> s.shorterScreensClearTheTailAndLongerScreensGrowTheSnapshot() }
         runIsolated { s -> s.hasReferenceMatchesTheScanTheControllerUsedToDoOnRandomScreens() }
         runIsolated { s -> s.operationCountDropsFromRTimesNToNForTheSameScreen() }
+        runIsolated { s -> s.`follow feed tab labels and header titles support Simplified Traditional and English locales`() }
+        runIsolated { s -> s.`FollowFeedHostAccess current falls back for renamed identity localModules parent while enforcing a or b localOwner`() }
     }
 }

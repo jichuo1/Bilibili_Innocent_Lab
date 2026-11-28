@@ -1,11 +1,18 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
 import com.bapis.bilibili.app.resource.v1.ListReply
 import com.bapis.bilibili.app.resource.v1.ModuleMoss
 import com.bapis.bilibili.app.resource.v1.ModuleReply
 import com.bapis.bilibili.app.resource.v1.PoolReply
 import com.bilibili.lib.moss.api.MossResponseHandler
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -309,6 +316,67 @@ class BlockComponentLibraryFeatureInstallerTest {
         assertTrue(registrar.hooks.isEmpty())
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    fun `wire-first cleans component library pool without Java ModuleMoss`() {
+        val libReg = PlayerPortTestRegistrar()
+        val libLoader = object : ClassLoader(loader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> =
+                if (name == "com.bapis.bilibili.app.resource.v1.ModuleMoss") throw ClassNotFoundException(name)
+                else super.loadClass(name, resolve)
+        }
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        val libRes = BlockComponentLibraryFeatureInstaller(
+            enabled = true,
+            targetKeywords = setOf("基础组件库"),
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod)
+        ).install(HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = libLoader,
+            hookPoints = HookPointRegistry(libLoader),
+            registrar = libReg,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { _, _ -> }
+        ))
+        assertEquals(FeatureInstallResult.Installed(1, complete = true), libRes)
+        var libOut: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { libOut = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val payload = ListReply(
+            listOf(
+                PoolReply("video", listOf(ModuleReply("keep"))),
+                PoolReply("基础组件库", listOf(ModuleReply("drop-me")))
+            )
+        ).toByteArray()
+        val descriptor = WireStrippedDescriptor("bilibili.app.resource.v1", "Module", "List")
+        libReg.invoke("kmp.grpc.wire.channel", GrpcEngine(emptyList()), arrayOf(Service("host"), descriptor, ByteArray(0), handler, null)) { passed ->
+            (passed[3] as Handler).onNext(payload)
+            null
+        }
+        val cleanedLib = ListReply.parseFrom(requireNotNull(libOut))
+        assertEquals(1, cleanedLib.getPoolsList()[0].getModulesList().size)
+        assertTrue(cleanedLib.getPoolsList()[1].getModulesList().isEmpty())
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (BlockComponentLibraryFeatureInstallerTest) -> Unit) {
@@ -328,5 +396,6 @@ class BlockComponentLibraryFeatureInstallerTest {
         runIsolated { s -> s.`the block all sentinel clears every pool regardless of its name`() }
         runIsolated { s -> s.`picked pool names clear that pool only and unknown names never match`() }
         runIsolated { s -> s.`disabled feature never resolves or registers the host hook`() }
+        runIsolated { s -> s.`wire-first cleans component library pool without Java ModuleMoss`() }
     }
 }

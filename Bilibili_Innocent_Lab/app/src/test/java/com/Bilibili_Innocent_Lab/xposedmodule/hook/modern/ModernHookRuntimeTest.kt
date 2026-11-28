@@ -1,96 +1,146 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import io.github.jichuo1.meguviz.hook.api.ErrorPolicy
 import io.github.jichuo1.meguviz.hook.api.HookId
+import io.github.jichuo1.meguviz.hook.api.ParameterAccess
+import io.github.jichuo1.meguviz.hook.core.HookEnvironment
+import io.github.jichuo1.meguviz.hook.testing.ContractOracle
+import io.github.jichuo1.meguviz.hook.testing.FakeBackend
 import io.github.libxposed.api.XposedInterface
 import java.lang.reflect.Executable
 import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
 
 /**
- * 业务安装器依赖的 before/after/replace 语义，经由真实的 MeguvizHook API 102 后端与调度器驱动：
+ * 业务安装器依赖的 before/after/replace/log/reflect 语义，经由真实的 MeguvizHook API 102 后端与调度器驱动：
  * 框架接口用代理替身，其余全部是生产代码。语义基准来自迁移前的实现（见差分测试）。
  */
-@RunWith(Parameterized::class)
-internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
-    companion object {
-        @JvmStatic
-        @Parameterized.Parameters(name = "{0}")
-        fun engines(): List<HookDispatchEngine> = HookDispatchEngine.values().toList()
-    }
-
-    private fun ModernMemberHookCreator.invoke(chain: TestChain): Any? = invoke(chain, engine)
-
+class ModernHookRuntimeTest {
     private val method = Fixture::class.java.getDeclaredMethod("sum", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
     private val pair = Fixture::class.java.getDeclaredMethod("pair", Any::class.java, Any::class.java)
 
+    private fun faults(runtime: ModernHookRuntime): List<String> = mutableListOf<String>().also { runtime.drainFaults(it::add) }
+
+    private fun IllegalStateException.leaks(hooker: XposedInterface.Hooker, chain: TestChain) =
+        try {
+            hooker.intercept(chain)
+            fail("the callback failure must reach the framework")
+        } catch (actual: IllegalStateException) {
+            assertSame(this, actual)
+        }
+
     @Test
-    fun `read only hook sees the incoming arguments and keeps its private copy unallocated`() {
-        val incoming = arrayOf<Any?>(1, null)
-        val chain = TestChain(pair, Fixture(), incoming) { _, args ->
-            assertArrayEquals(incoming, args)
-            3
-        }
-        val creator = ModernMemberHookCreator(pair).apply {
-            before {
-                assertEquals(1, argOrNull(0))
-                assertNull(argOrNull(1))
-                assertNull(argOrNull(-1))
-                assertNull(argOrNull(2))
-                assertNull(copiedArgsOrNull())
+    fun `read only and mutated argument copies stay isolated across before after and recursive invocations`() {
+        for (engine in HookDispatchEngine.values()) {
+            val readIncoming = arrayOf<Any?>(1, null)
+            val readChain = TestChain(pair, Fixture(), readIncoming) { _, args ->
+                assertArrayEquals(readIncoming, args)
+                3
             }
-            after {
-                assertEquals(1, argOrNull(0))
-                assertNull(copiedArgsOrNull())
+            val readOnly = ModernMemberHookCreator(pair).apply {
+                before {
+                    assertEquals(1, argOrNull(0))
+                    assertNull(argOrNull(1))
+                    assertNull(argOrNull(-1))
+                    assertNull(argOrNull(2))
+                    assertNull(copiedArgsOrNull())
+                }
+                after {
+                    assertEquals(1, argOrNull(0))
+                    assertNull(copiedArgsOrNull())
+                }
             }
+            assertEquals(3, readOnly.invoke(readChain, engine))
+            assertEquals(1, readChain.calls)
+
+            val mutIncoming = arrayOf<Any?>(1, 2)
+            var snapshot: Array<Any?>? = null
+            val mutChain = TestChain(pair, Fixture(), mutIncoming) { _, args ->
+                assertSame(snapshot?.get(1), args[1])
+                assertNull(args[0])
+                5
+            }
+            val mutator = ModernMemberHookCreator(pair).apply {
+                before {
+                    assertEquals(1, argOrNull(0))
+                    snapshot = args
+                    args[0] = null
+                    assertSame(snapshot, args)
+                    assertNull(argOrNull(0))
+                }
+                after {
+                    assertSame(snapshot, args)
+                    assertNull(argOrNull(0))
+                }
+            }
+            assertEquals(5, mutator.invoke(mutChain, engine))
+            assertArrayEquals(arrayOf<Any?>(1, 2), mutIncoming)
+            assertEquals(1, mutChain.argumentOverrideCalls)
+
+            val afterOnlyIncoming = arrayOf<Any?>(1, 2)
+            val afterOnlyChain = TestChain(method, Fixture(), afterOnlyIncoming)
+            val afterOnly = ModernMemberHookCreator(method).apply {
+                after { args[0] = 9; assertEquals(9, argOrNull(0)) }
+            }
+            assertEquals(3, afterOnly.invoke(afterOnlyChain, engine))
+            assertEquals("an after-only hook keeps the downstream call on the original arguments", 0, afterOnlyChain.argumentOverrideCalls)
+            assertArrayEquals(arrayOf<Any?>(1, 2), afterOnlyIncoming)
+
+            lateinit var recursive: ModernMemberHookCreator
+            recursive = ModernMemberHookCreator(method).apply {
+                before {
+                    val value = argOrNull(0) as Int
+                    assertNull(getObjectExtra("value"))
+                    setObjectExtra("value", value)
+                    args[0] = value + 10
+                    if (value == 1) {
+                        assertEquals(12, recursive.invoke(TestChain(method, arguments = arrayOf(2, 0)), engine))
+                        assertEquals(11, argOrNull(0))
+                        assertEquals(1, getObjectExtra("value"))
+                    }
+                }
+                after { result = argOrNull(0) }
+            }
+            assertEquals(11, recursive.invoke(TestChain(method, arguments = arrayOf(1, 0)), engine))
+
+            val transformIncoming = arrayOf<Any?>(1, 2)
+            val transformChain = TestChain(method, Fixture(), transformIncoming) { _, args -> (args[0] as Int) + (args[1] as Int) }
+            val transformer = ModernMemberHookCreator(method).apply {
+                before { args[0] = 5; setObjectExtra("value", 2) }
+                after { result = (result as Int) * (getObjectExtra("value") as Int) }
+            }
+            assertEquals(14, transformer.invoke(transformChain, engine))
+            assertArrayEquals(arrayOf<Any?>(1, 2), transformIncoming)
+            assertEquals(1, transformChain.calls)
         }
-        assertEquals(3, creator.invoke(chain))
-        assertEquals(1, chain.calls)
+
+        // Direct chain avoids proceed(args) copy on read-only args[] access, and forwards setArg/args[] mutations.
+        val combine = ReadAndWriteArgsTarget::class.java.getDeclaredMethod("combine", String::class.java, String::class.java)
+        val receiver = ReadAndWriteArgsTarget()
+        var readFirst: Any? = null
+        val readOnlyHook = ModernMemberHookCreator(combine).apply { before { readFirst = args[0] } }
+        val directReadChain = TestChain(combine, receiver, arrayOf("x", "y")) { _, a -> receiver.combine(a[0] as String, a[1] as String) }
+        assertEquals("x:y", readOnlyHook.invoke(directReadChain))
+        assertEquals("x", readFirst)
+        assertEquals(1, directReadChain.calls)
+        assertEquals(0, directReadChain.argumentOverrideCalls)
+
+        val mutatedViaArray = ModernMemberHookCreator(combine).apply { before { args[0] = "z" } }
+        val mutateArrayChain = TestChain(combine, receiver, arrayOf("x", "y")) { _, a -> receiver.combine(a[0] as String, a[1] as String) }
+        assertEquals("z:y", mutatedViaArray.invoke(mutateArrayChain))
+        assertEquals(1, mutateArrayChain.argumentOverrideCalls)
+        assertArrayEquals(arrayOf("x", "y"), mutateArrayChain.args.toTypedArray())
+        assertArrayEquals(arrayOf("z", "y"), mutateArrayChain.lastPassedArgs)
+
+        val mutatedViaSetArg = ModernMemberHookCreator(combine).apply { before { setArg(1, "w") } }
+        val mutateSetArgChain = TestChain(combine, receiver, arrayOf("x", "y")) { _, a -> receiver.combine(a[0] as String, a[1] as String) }
+        assertEquals("x:w", mutatedViaSetArg.invoke(mutateSetArgChain))
+        assertEquals(1, mutateSetArgChain.argumentOverrideCalls)
     }
 
     @Test
-    fun `array access stays private and read only accessor observes null writes`() {
-        val incoming = arrayOf<Any?>(1, 2)
-        var snapshot: Array<Any?>? = null
-        val chain = TestChain(pair, Fixture(), incoming) { _, args ->
-            assertSame(snapshot?.get(1), args[1])
-            assertNull(args[0])
-            5
-        }
-        val creator = ModernMemberHookCreator(pair).apply {
-            before {
-                assertEquals(1, argOrNull(0))
-                snapshot = args
-                args[0] = null
-                assertSame(snapshot, args)
-                assertNull(argOrNull(0))
-            }
-            after {
-                assertSame(snapshot, args)
-                assertNull(argOrNull(0))
-            }
-        }
-        assertEquals(5, creator.invoke(chain))
-        assertArrayEquals(arrayOf<Any?>(1, 2), incoming)
-        assertEquals(1, chain.argumentOverrideCalls)
-    }
-
-    @Test
-    fun `first array access in after cannot modify upstream arguments`() {
-        val incoming = arrayOf<Any?>(1, 2)
-        val chain = TestChain(method, Fixture(), incoming)
-        val creator = ModernMemberHookCreator(method).apply {
-            after { args[0] = 9; assertEquals(9, argOrNull(0)) }
-        }
-        assertEquals(3, creator.invoke(chain))
-        assertEquals("an after-only hook keeps the downstream call on the original arguments", 0, chain.argumentOverrideCalls)
-        assertArrayEquals(arrayOf<Any?>(1, 2), incoming)
-    }
-
-    @Test
-    fun `extras remain unallocated on reads and support overwrites including null`() {
+    fun `extras remain unallocated on reads support null overwrites and never leak across invocations`() {
         val param = ModernHookParam(method, null, emptyList())
         val extras = ModernHookParam::class.java.getDeclaredField("extras").apply { isAccessible = true }
         assertNull(param.getObjectExtra("key"))
@@ -101,173 +151,7 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         param.setObjectExtra("key", null)
         assertSame(map, extras.get(param))
         assertNull(param.getObjectExtra("key"))
-    }
 
-    @Test
-    fun `recursive invocations keep argument copies and extras isolated`() {
-        lateinit var creator: ModernMemberHookCreator
-        creator = ModernMemberHookCreator(method).apply {
-            before {
-                val value = argOrNull(0) as Int
-                assertNull(getObjectExtra("value"))
-                setObjectExtra("value", value)
-                args[0] = value + 10
-                if (value == 1) {
-                    assertEquals(12, creator.invoke(TestChain(method, arguments = arrayOf(2, 0))))
-                    assertEquals(11, argOrNull(0))
-                    assertEquals(1, getObjectExtra("value"))
-                }
-            }
-            after { result = argOrNull(0) }
-        }
-        assertEquals(11, creator.invoke(TestChain(method, arguments = arrayOf(1, 0))))
-    }
-
-    @Test
-    fun `before edits a private argument copy and after transforms the downstream result`() {
-        val incoming = arrayOf<Any?>(1, 2)
-        val chain = TestChain(method, Fixture(), incoming) { _, args -> (args[0] as Int) + (args[1] as Int) }
-        val creator = ModernMemberHookCreator(method).apply {
-            before { args[0] = 5; setObjectExtra("value", 2) }
-            after { result = (result as Int) * (getObjectExtra("value") as Int) }
-        }
-        assertEquals(14, creator.invoke(chain))
-        assertArrayEquals(arrayOf<Any?>(1, 2), incoming)
-        assertEquals(1, chain.calls)
-    }
-
-    @Test
-    fun `early null result still skips original and reaches after`() {
-        val chain = TestChain(pair)
-        val creator = ModernMemberHookCreator(pair).apply {
-            before { result = null }
-            after { assertNull(result); result = 7 }
-        }
-        assertEquals(7, creator.invoke(chain))
-        assertEquals(0, chain.calls)
-    }
-
-    @Test
-    fun `original exception identity survives unless after explicitly handles it`() {
-        val failure = IllegalStateException("host")
-        val chain = TestChain(method) { _, _ -> throw failure }
-        val creator = ModernMemberHookCreator(method).apply { after { assertSame(failure, throwable) } }
-        try {
-            creator.invoke(chain)
-            fail("host failure must propagate")
-        } catch (actual: IllegalStateException) {
-            assertSame(failure, actual)
-        }
-        assertEquals(1, chain.calls)
-        val recovered = ModernMemberHookCreator(method).apply { after { result = 12 } }
-        assertEquals(12, recovered.invoke(TestChain(method) { _, _ -> throw failure }))
-    }
-
-    @Test
-    fun `before failure skips original and after can inspect it`() {
-        val failure = IllegalArgumentException("requested failure")
-        val chain = TestChain(method)
-        val creator = ModernMemberHookCreator(method).apply {
-            before { throwable = failure }
-            after { assertSame(failure, throwable); result = 9 }
-        }
-        assertEquals(9, creator.invoke(chain))
-        assertEquals(0, chain.calls)
-    }
-
-    @Test
-    fun `hook callback exceptions reach the framework without retrying original`() {
-        val failure = IllegalStateException("hook failure")
-        val chain = TestChain(method)
-        val creator = ModernMemberHookCreator(method).apply { after { throw failure } }
-        try {
-            creator.invoke(chain)
-            fail("protective recovery belongs to the framework")
-        } catch (actual: IllegalStateException) {
-            assertSame(failure, actual)
-        }
-        assertEquals(1, chain.calls)
-    }
-
-    @Test
-    fun `replacement and default intercept do not call the original`() {
-        val chain = TestChain(method)
-        assertEquals(0, ModernMemberHookCreator(method).apply { intercept() }.invoke(chain))
-        assertEquals(42, ModernMemberHookCreator(method).apply { replaceTo(42) }.invoke(chain))
-        assertEquals(0, chain.calls)
-    }
-
-    @Test
-    fun `constant replacements avoid argument reads and a later dynamic replacement still executes`() {
-        val chain = TestChain(pair, arguments = arrayOf(5, 6))
-        val creator = ModernMemberHookCreator(pair).apply { replaceTo(null) }
-        assertNull(creator.invoke(chain))
-        assertEquals(0, chain.argumentListReads)
-        assertEquals(0, chain.argumentSlotReads)
-        assertEquals(0, chain.calls)
-
-        creator.replaceAny { argOrNull(0) }
-        assertEquals(5, creator.invoke(chain))
-        assertEquals(0, chain.argumentListReads)
-        assertEquals(1, chain.argumentSlotReads)
-        assertEquals(0, chain.calls)
-
-        val failure = IllegalStateException("dynamic replacement failure")
-        creator.replaceAny { throw failure }
-        try {
-            creator.invoke(chain)
-            fail("dynamic failures must reach the framework")
-        } catch (actual: IllegalStateException) {
-            assertSame(failure, actual)
-        }
-    }
-
-    @Test
-    fun `default interception returns correctly boxed zero values without reading arguments`() {
-        val expected = mapOf(
-            "booleanValue" to false, "byteValue" to 0.toByte(), "charValue" to 0.toChar(),
-            "shortValue" to 0.toShort(), "intValue" to 0, "longValue" to 0L,
-            "floatValue" to 0f, "doubleValue" to 0.0, "objectValue" to null, "voidValue" to null
-        )
-        for ((name, value) in expected) {
-            val member = ReturnFixture::class.java.getDeclaredMethod(name)
-            val chain = TestChain(member)
-            assertEquals(name, value, ModernMemberHookCreator(member).apply { intercept() }.invoke(chain))
-            assertEquals(name, 0, chain.argumentListReads)
-            assertEquals(name, 0, chain.argumentSlotReads)
-            assertEquals(name, 0, chain.calls)
-        }
-    }
-
-    @Test
-    fun `a replacement on a void method or constructor never hands a placeholder value to the framework`() {
-        val voidMethod = ReturnFixture::class.java.getDeclaredMethod("voidValue")
-        val chain = TestChain(voidMethod)
-        assertNull(ModernMemberHookCreator(voidMethod).apply { replaceAny { Unit } }.invoke(chain))
-        assertEquals(0, chain.calls)
-        val constructor = Fixture::class.java.getDeclaredConstructor()
-        assertNull(ModernMemberHookCreator(constructor).apply { replaceAny { "ignored" } }.invoke(TestChain(constructor, Fixture())))
-    }
-
-    @Test
-    fun `constructor callbacks see the same receiver before and after downstream`() {
-        val constructor = Fixture::class.java.getDeclaredConstructor()
-        val instance = Fixture()
-        val chain = TestChain(constructor, instance) { receiver, _ ->
-            assertSame(instance, receiver)
-            instance.value = 5
-            null
-        }
-        val creator = ModernMemberHookCreator(constructor).apply {
-            before { assertSame(instance, thisObject); assertEquals(0, instance.value) }
-            after { assertSame(instance, thisObject); assertEquals(5, instance.value) }
-        }
-        assertNull(creator.invoke(chain))
-        assertEquals(1, chain.calls)
-    }
-
-    @Test
-    fun `invocation extras cannot leak to the next invocation`() {
         var sequence = 0
         val creator = ModernMemberHookCreator(method).apply {
             before {
@@ -284,47 +168,373 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         assertEquals(2, hooker.intercept(TestChain(method)))
     }
 
-    // --- 注册、身份与异常模式 ---------------------------------------------------------------------------
-
     @Test
-    fun `registration never sets a framework id and requests protective mode`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("feature:point", method) { replaceTo(1) }
-        assertEquals(listOf(XposedInterface.ExceptionMode.PROTECTIVE), framework.modes)
-        assertTrue("MeguvizHook scopes logical ids to its own environment", framework.ids.isEmpty())
-        assertEquals(1, framework.handles.single().hooker.intercept(TestChain(method)))
+    fun `rewritten surface borrow is returned once even when the original setter throws`() {
+        val target = BorrowPlayer::class.java.getDeclaredMethod("setOutputSurface", Any::class.java)
+        val player = BorrowPlayer()
+        val display = Any()
+        val input = Any()
+        val failure = IllegalArgumentException("invalid surface")
+        for (throws in listOf(false, true)) {
+            val backend = FakeBackend.create()
+            backend.onTarget(target) { owner, arguments ->
+                assertSame(player, owner)
+                assertSame(input, arguments.single())
+                if (throws) throw failure
+                null
+            }
+            var releases = 0
+            val setter = ModernMemberHookCreator(target).apply {
+                before {
+                    assertSame(display, argOrNull(0))
+                    setObjectExtra("borrow", input)
+                    args[0] = input
+                }
+                after {
+                    assertSame(input, getObjectExtra("borrow"))
+                    assertEquals(throws, hasThrowable)
+                    releases++
+                }
+            }
+            HookEnvironment.create(backend).use { environment ->
+                val receipt = environment.install(setter.toSpec(HookId.of("bil.surface.repeat"), ErrorPolicy.PROPAGATE))
+                assertTrue(receipt.message(), receipt.isInstalled)
+                val observed = runCatching { backend.call(target, player, display) }.exceptionOrNull()
+                val expected = if (throws) ContractOracle.originalThrows() else ContractOracle.originalReturns()
+                assertSame(if (throws) failure else null, observed)
+                assertEquals(expected.originalCalls(), backend.originalCallCount(target))
+                assertEquals(if (expected.afterCallbacksRan()) 1 else 0, releases)
+            }
+        }
     }
 
     @Test
-    fun `repeating a logical point replaces the previous callback instead of stacking`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("feature:point", method) { replaceTo(1) }
-        runtime.install("feature:point", method) { replaceTo(2) }
-        assertEquals("one framework hook, swapped atomically", 1, framework.handles.size)
-        assertEquals(1, framework.replaced)
-        assertEquals(2, framework.handles.single().hooker.intercept(TestChain(method)))
-        // Re-created lambdas are different callbacks to the SDK; the latest one must still win.
-        runtime.install("feature:dynamic", method) { before { setObjectExtra("a", 1) }; after { result = 5 } }
-        runtime.install("feature:dynamic", method) { before { setObjectExtra("a", 2) }; after { result = 6 } }
-        assertEquals(2, framework.handles.size)
-        assertEquals(6, framework.handles.last().hooker.intercept(TestChain(method)))
+    fun `early results and exceptions respect before after and protective policies`() {
+        for (engine in HookDispatchEngine.values()) {
+            val earlyNullChain = TestChain(pair)
+            val earlyNullCreator = ModernMemberHookCreator(pair).apply {
+                before { result = null }
+                after { assertNull(result); result = 7 }
+            }
+            assertEquals(7, earlyNullCreator.invoke(earlyNullChain, engine))
+            assertEquals(0, earlyNullChain.calls)
+
+            val hostFailure = IllegalStateException("host")
+            val hostFailChain = TestChain(method) { _, _ -> throw hostFailure }
+            val propagating = ModernMemberHookCreator(method).apply { after { assertSame(hostFailure, throwable) } }
+            try {
+                propagating.invoke(hostFailChain, engine)
+                fail("host failure must propagate")
+            } catch (actual: IllegalStateException) {
+                assertSame(hostFailure, actual)
+            }
+            assertEquals(1, hostFailChain.calls)
+            val recovered = ModernMemberHookCreator(method).apply { after { result = 12 } }
+            assertEquals(12, recovered.invoke(TestChain(method) { _, _ -> throw hostFailure }, engine))
+
+            val beforeFailure = IllegalArgumentException("requested failure")
+            val beforeFailChain = TestChain(method)
+            val beforeFailCreator = ModernMemberHookCreator(method).apply {
+                before { throwable = beforeFailure }
+                after { assertSame(beforeFailure, throwable); result = 9 }
+            }
+            assertEquals(9, beforeFailCreator.invoke(beforeFailChain, engine))
+            assertEquals(0, beforeFailChain.calls)
+
+            val hookFailure = IllegalStateException("hook failure")
+            val hookFailChain = TestChain(method)
+            val hookFailCreator = ModernMemberHookCreator(method).apply { after { throw hookFailure } }
+            try {
+                hookFailCreator.invoke(hookFailChain, engine)
+                fail("protective recovery belongs to the framework")
+            } catch (actual: IllegalStateException) {
+                assertSame(hookFailure, actual)
+            }
+            assertEquals(1, hookFailChain.calls)
+
+            val assignedFailure = IllegalStateException("assigned")
+            fun hooker(policy: HookExceptionPolicy): XposedInterface.Hooker {
+                val framework = FakeXposedFramework()
+                ModernHookRuntime(framework.xposed, engine).install("p", method, policy) { after { throwable = assignedFailure } }
+                return framework.handles.single().hooker
+            }
+            try {
+                hooker(HookExceptionPolicy.PROTECT_HOST).intercept(TestChain(method))
+                fail("the assigned throwable must leave the callback")
+            } catch (actual: IllegalStateException) {
+                assertSame(assignedFailure, actual)
+            }
+            try {
+                hooker(HookExceptionPolicy.DELIVER_TO_HOST).intercept(TestChain(method))
+                fail("the assigned throwable must be delivered")
+            } catch (actual: IllegalStateException) {
+                assertSame(assignedFailure, actual)
+            }
+        }
     }
 
     @Test
-    fun `different logical ids and different targets stay separate registrations`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("a", method) { replaceTo(1) }
-        runtime.install("b", method) { replaceTo(2) }
-        runtime.install("a", pair) { replaceTo(3) }
-        assertEquals(3, framework.handles.size)
-        assertEquals(0, framework.replaced)
+    fun `constant dynamic and default replacements skip original and box zero values without reading arguments`() {
+        val expectedZeros = mapOf(
+            "booleanValue" to false, "byteValue" to 0.toByte(), "charValue" to 0.toChar(),
+            "shortValue" to 0.toShort(), "intValue" to 0, "longValue" to 0L,
+            "floatValue" to 0f, "doubleValue" to 0.0, "objectValue" to null, "voidValue" to null
+        )
+        for (engine in HookDispatchEngine.values()) {
+            val replaceChain = TestChain(method)
+            assertEquals(0, ModernMemberHookCreator(method).apply { intercept() }.invoke(replaceChain, engine))
+            assertEquals(42, ModernMemberHookCreator(method).apply { replaceTo(42) }.invoke(replaceChain, engine))
+            assertEquals(0, replaceChain.calls)
+
+            val dynChain = TestChain(pair, arguments = arrayOf(5, 6))
+            val dynCreator = ModernMemberHookCreator(pair).apply { replaceTo(null) }
+            assertNull(dynCreator.invoke(dynChain, engine))
+            assertEquals(0, dynChain.argumentListReads)
+            assertEquals(0, dynChain.argumentSlotReads)
+            assertEquals(0, dynChain.calls)
+
+            dynCreator.replaceAny { argOrNull(0) }
+            assertEquals(5, dynCreator.invoke(dynChain, engine))
+            assertEquals(0, dynChain.argumentListReads)
+            assertEquals(1, dynChain.argumentSlotReads)
+            assertEquals(0, dynChain.calls)
+
+            val dynFailure = IllegalStateException("dynamic replacement failure")
+            dynCreator.replaceAny { throw dynFailure }
+            try {
+                dynCreator.invoke(dynChain, engine)
+                fail("dynamic failures must reach the framework")
+            } catch (actual: IllegalStateException) {
+                assertSame(dynFailure, actual)
+            }
+
+            for ((name, value) in expectedZeros) {
+                val member = ReturnFixture::class.java.getDeclaredMethod(name)
+                val chain = TestChain(member)
+                assertEquals(name, value, ModernMemberHookCreator(member).apply { intercept() }.invoke(chain, engine))
+                assertEquals(name, 0, chain.argumentListReads)
+                assertEquals(name, 0, chain.argumentSlotReads)
+                assertEquals(name, 0, chain.calls)
+            }
+
+            val voidMethod = ReturnFixture::class.java.getDeclaredMethod("voidValue")
+            val voidChain = TestChain(voidMethod)
+            assertNull(ModernMemberHookCreator(voidMethod).apply { replaceAny { Unit } }.invoke(voidChain, engine))
+            assertEquals(0, voidChain.calls)
+            val constructor = Fixture::class.java.getDeclaredConstructor()
+            assertNull(ModernMemberHookCreator(constructor).apply { replaceAny { "ignored" } }.invoke(TestChain(constructor, Fixture()), engine))
+
+            val successFramework = FakeXposedFramework()
+            ModernHookRuntime(successFramework.xposed, engine).install("success", method) { replaceResultOnSuccess(42) }
+            val successHooker = successFramework.handles.single().hooker
+            assertEquals(42, successHooker.intercept(TestChain(method) { _, _ -> 7 }))
+            val hostFailure = IllegalStateException("host failed")
+            try {
+                successHooker.intercept(TestChain(method) { _, _ -> throw hostFailure })
+                fail("original exception must propagate")
+            } catch (actual: IllegalStateException) {
+                assertSame(hostFailure, actual)
+            }
+        }
     }
 
     @Test
-    fun `ids that the SDK would reject are normalised into stable unique ids`() {
+    fun `constructors beforeOnly lazy slot reads and parameter access specs behave cleanly`() {
+        val constructor = Fixture::class.java.getDeclaredConstructor()
+        val zeroArg = ReturnFixture::class.java.getDeclaredMethod("intValue")
+        for (engine in HookDispatchEngine.values()) {
+            val instance = Fixture()
+            val ctorChain = TestChain(constructor, instance) { receiver, _ ->
+                assertSame(instance, receiver)
+                instance.value = 5
+                null
+            }
+            val ctorCreator = ModernMemberHookCreator(constructor).apply {
+                before { assertSame(instance, thisObject); assertEquals(0, instance.value) }
+                after { assertSame(instance, thisObject); assertEquals(5, instance.value) }
+            }
+            assertNull(ctorCreator.invoke(ctorChain, engine))
+            assertEquals(1, ctorChain.calls)
+
+            val ctorFramework = FakeXposedFramework()
+            val ctorRuntime = ModernHookRuntime(ctorFramework.xposed, engine)
+            val seen = mutableListOf<Any?>()
+            ctorRuntime.install("ctor", constructor) { after { seen += thisObject } }
+            ctorRuntime.install("ctor", constructor) { after { seen += thisObject; seen += "second" } }
+            assertEquals("constructors use the raw framework hook", 1, ctorFramework.handles.size)
+            assertEquals(1, ctorFramework.replaced)
+            assertEquals(listOf(XposedInterface.ExceptionMode.PROTECTIVE), ctorFramework.modes)
+            val ctorReceiver = Fixture()
+            ctorFramework.handles.single().hooker.intercept(TestChain(constructor, ctorReceiver) { _, _ -> null })
+            assertEquals(listOf<Any?>(ctorReceiver, "second"), seen)
+            ctorRuntime.install("ctor", constructor, HookExceptionPolicy.DELIVER_TO_HOST) { after { } }
+            assertEquals(2, ctorFramework.handles.size)
+            assertEquals(1, ctorFramework.unhooks)
+            assertEquals(XposedInterface.ExceptionMode.PASSTHROUGH, ctorFramework.modes.last())
+
+            val beforeFramework = FakeXposedFramework()
+            val beforeRuntime = ModernHookRuntime(beforeFramework.xposed, engine)
+            var seen0: Any? = null
+            beforeRuntime.install("before-only", pair) {
+                faultOwner = "feature_before"
+                before {
+                    seen0 = argOrNull(0)
+                    assertNull(copiedArgsOrNull())
+                }
+            }
+            val beforeHooker = beforeFramework.handles.single().hooker
+            val okChain = TestChain(pair, Fixture(), arrayOf("a", "b")) { _, args -> args[1] }
+            assertEquals("b", beforeHooker.intercept(okChain))
+            assertEquals("a", seen0)
+            assertEquals(0, okChain.argumentListReads)
+            assertEquals(if (engine == HookDispatchEngine.DIRECT) 1 else 2, okChain.argumentSlotReads)
+            assertEquals(if (engine == HookDispatchEngine.DIRECT) 0 else 1, okChain.argumentOverrideCalls)
+            val ioFailure = java.io.IOException("downstream failed")
+            try {
+                beforeHooker.intercept(TestChain(pair, Fixture(), arrayOf("a", "b")) { _, _ -> throw ioFailure })
+                fail("downstream failure must propagate")
+            } catch (actual: java.io.IOException) {
+                assertSame(ioFailure, actual)
+            }
+            assertTrue(faults(beforeRuntime).isEmpty())
+
+            val zeroBefore = ModernMemberHookCreator(zeroArg).apply { before { } }
+                .toSpec(HookId.of("zero-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+            assertEquals(ParameterAccess.NO_ARGS, zeroBefore.access())
+            val noArgsBefore = ModernMemberHookCreator(pair).apply { before(ParameterAccess.NO_ARGS) { } }
+                .toSpec(HookId.of("noargs-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+            assertEquals(ParameterAccess.NO_ARGS, noArgsBefore.access())
+            val readBefore = ModernMemberHookCreator(pair).apply { before(ParameterAccess.READ_ARGS_VIEW) { argOrNull(0) } }
+                .toSpec(HookId.of("read-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+            assertEquals(ParameterAccess.READ_ARGS_VIEW, readBefore.access())
+            val mutableBefore = ModernMemberHookCreator(pair).apply { before { args[0] = "x" } }
+                .toSpec(HookId.of("mutable-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+            assertEquals(ParameterAccess.MUTABLE_ARGS, mutableBefore.access())
+            val readAfter = ModernMemberHookCreator(pair).apply { after { argOrNull(0) } }
+                .toSpec(HookId.of("read-after"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
+            assertEquals(ParameterAccess.READ_ARGS_VIEW, readAfter.access())
+
+            val readFramework = FakeXposedFramework()
+            var readSeen: Any? = null
+            ModernHookRuntime(readFramework.xposed, engine).install("read-before-run", pair) {
+                faultOwner = "feature_read"
+                before(ParameterAccess.READ_ARGS_VIEW) { readSeen = argOrNull(0) }
+            }
+            val readChain = TestChain(pair, Fixture(), arrayOf("x", "y")) { _, args -> args[1] }
+            assertEquals("y", readFramework.handles.single().hooker.intercept(readChain))
+            assertEquals("x", readSeen)
+            assertEquals(0, readChain.argumentListReads)
+            assertEquals(1, readChain.argumentSlotReads)
+            assertEquals(0, readChain.argumentOverrideCalls)
+        }
+    }
+
+    @Test
+    fun `registration replaces logical points isolates separate targets and rejects legacy api or invalid executables`() {
+        val abstractMethod = AbstractFixture::class.java.getDeclaredMethod("render")
+        val interfaceMethod = InterfaceFixture::class.java.getDeclaredMethod("applyModifier", Any::class.java)
+        for (engine in HookDispatchEngine.values()) {
+            val regFramework = FakeXposedFramework()
+            val regRuntime = ModernHookRuntime(regFramework.xposed, engine)
+            regRuntime.install("feature:point", method) { replaceTo(1) }
+            assertEquals(listOf(XposedInterface.ExceptionMode.PROTECTIVE), regFramework.modes)
+            assertTrue("MeguvizHook scopes logical ids to its own environment", regFramework.ids.isEmpty())
+            assertEquals(1, regFramework.handles.single().hooker.intercept(TestChain(method)))
+
+            regRuntime.install("feature:point", method) { replaceTo(2) }
+            assertEquals("one framework hook, swapped atomically", 1, regFramework.handles.size)
+            assertEquals(1, regFramework.replaced)
+            assertEquals(2, regFramework.handles.single().hooker.intercept(TestChain(method)))
+            regRuntime.install("feature:dynamic", method) { before { setObjectExtra("a", 1) }; after { result = 5 } }
+            regRuntime.install("feature:dynamic", method) { before { setObjectExtra("a", 2) }; after { result = 6 } }
+            assertEquals(2, regFramework.handles.size)
+            assertEquals(6, regFramework.handles.last().hooker.intercept(TestChain(method)))
+
+            val sepFramework = FakeXposedFramework()
+            val sepRuntime = ModernHookRuntime(sepFramework.xposed, engine)
+            sepRuntime.install("a", method) { replaceTo(1) }
+            sepRuntime.install("b", method) { replaceTo(2) }
+            sepRuntime.install("a", pair) { replaceTo(3) }
+            assertEquals(3, sepFramework.handles.size)
+            assertEquals(0, sepFramework.replaced)
+
+            assertEquals(ErrorPolicy.FRAMEWORK_PROTECTIVE, HookExceptionPolicy.PROTECT_HOST.errorPolicy)
+            assertEquals(ErrorPolicy.PROPAGATE, HookExceptionPolicy.DELIVER_TO_HOST.errorPolicy)
+            val policyFramework = FakeXposedFramework()
+            val policyRuntime = ModernHookRuntime(policyFramework.xposed, engine)
+            policyRuntime.install("default", method) { replaceTo(1) }
+            policyRuntime.install("deliver", method, HookExceptionPolicy.DELIVER_TO_HOST) { replaceTo(1) }
+            assertEquals(
+                listOf(XposedInterface.ExceptionMode.PROTECTIVE, XposedInterface.ExceptionMode.PASSTHROUGH),
+                policyFramework.modes
+            )
+
+            val changeFramework = FakeXposedFramework()
+            val changeRuntime = ModernHookRuntime(changeFramework.xposed, engine)
+            changeRuntime.install("point", method) { replaceTo(1) }
+            changeRuntime.install("point", method, HookExceptionPolicy.DELIVER_TO_HOST) { replaceTo(2) }
+            assertEquals(
+                listOf(XposedInterface.ExceptionMode.PROTECTIVE, XposedInterface.ExceptionMode.PASSTHROUGH),
+                changeFramework.modes
+            )
+            assertEquals(1, changeFramework.unhooks)
+            assertEquals(0, changeFramework.replaced)
+
+            val unhookFramework = FakeXposedFramework()
+            val handle = ModernHookRuntime(unhookFramework.xposed, engine).install("observer", method) { after { } }
+            assertEquals(0, unhookFramework.unhooks)
+            handle.unhook()
+            assertEquals(1, unhookFramework.unhooks)
+
+            val legacyFramework = FakeXposedFramework(apiVersion = 101)
+            try {
+                ModernHookRuntime(legacyFramework.xposed, engine).install("unsupported", method) { intercept() }
+                fail("API 101 is no longer supported")
+            } catch (expected: IllegalStateException) {
+                assertEquals("Modern API 102 or newer is required", expected.message)
+            }
+            assertTrue(legacyFramework.handles.isEmpty())
+
+            val badConstFramework = FakeXposedFramework()
+            try {
+                ModernHookRuntime(badConstFramework.xposed, engine).install("bad-constant", method) { replaceTo("not an int") }
+                fail("an incompatible constant must not install")
+            } catch (expected: IllegalStateException) {
+                assertTrue(expected.message, expected.message!!.contains("was not installed"))
+            }
+            assertTrue(badConstFramework.handles.isEmpty())
+
+            val invalidExeFramework = FakeXposedFramework()
+            val invalidExeRuntime = ModernHookRuntime(invalidExeFramework.xposed, engine)
+            assertThrows(IllegalArgumentException::class.java) { invalidExeRuntime.install("abstract", abstractMethod) { before { } } }
+            assertThrows(IllegalArgumentException::class.java) { invalidExeRuntime.install("interface", interfaceMethod) { before { } } }
+            assertThrows(IllegalArgumentException::class.java) { invalidExeFramework.xposed.hook(abstractMethod) }
+            assertThrows(IllegalArgumentException::class.java) { invalidExeFramework.xposed.hook(interfaceMethod) }
+
+            val shapeFramework = FakeXposedFramework()
+            val shapeRuntime = ModernHookRuntime(shapeFramework.xposed, engine)
+            shapeRuntime.install("shape", method) { replaceTo(1) }
+            shapeRuntime.install("shape", method) { after { result = 2 } }
+            assertEquals("no stacked registrations after the shape changed", 1, shapeFramework.handles.size - shapeFramework.unhooks)
+        }
+    }
+
+    @Test
+    fun `the direct engine is the shipped default and the sdk engine stays selectable`() {
+        assertEquals(HookDispatchEngine.DIRECT, HookDispatchEngine.values().first())
+        val creator = ModernMemberHookCreator(method).apply { after { } }
+        assertTrue(creator.usesDirectChain(HookDispatchEngine.DIRECT))
+        assertFalse(creator.usesDirectChain(HookDispatchEngine.SDK))
+        val constant = ModernMemberHookCreator(method).apply { replaceTo(1) }
+        assertFalse("constants always use the sdk constant channel", constant.usesDirectChain(HookDispatchEngine.DIRECT))
+        val constructor = ModernMemberHookCreator(Fixture::class.java.getDeclaredConstructor()).apply { after { } }
+        assertTrue("constructor receivers are only visible on the framework chain", constructor.usesDirectChain(HookDispatchEngine.SDK))
+        val success = ModernMemberHookCreator(method).apply { replaceResultOnSuccess(99) }
+        assertFalse("success replacements always use the sdk success channel", success.usesDirectChain(HookDispatchEngine.DIRECT))
+    }
+
+    @Test
+    fun `hook ids normalize awkward inputs isolate class loaders and match sha256 hex table`() {
         val awkward = "free-copy:comment-high:${method.toGenericString()}"
         val first = ModernHookIds.of(awkward, method)
         assertEquals(first, ModernHookIds.of(awkward, method))
@@ -335,12 +545,8 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         val long = "x".repeat(400)
         assertNotEquals(ModernHookIds.of(long + "a", method), ModernHookIds.of(long + "b", method))
         assertTrue(ModernHookIds.of(long + "a", method).value().length <= 128)
-        // Nothing the module registers today may be refused by the SDK's id grammar.
         listOf("", "plain", "a b", "<init>", "中文", "a/b:c.d-e_f").forEach { ModernHookIds.of(it, method) }
-    }
 
-    @Test
-    fun `hook ids hex table lookup matches sha256 percent-02x byte for byte`() {
         fun referenceHashId(id: String, executable: Executable): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             fun feed(text: String) {
@@ -364,17 +570,10 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         }
 
         val executables = listOf<Executable>(
-            method,
-            pair,
-            Fixture::class.java.getDeclaredConstructor(),
-            ReturnFixture::class.java.getDeclaredMethod("voidValue")
+            method, pair, Fixture::class.java.getDeclaredConstructor(), ReturnFixture::class.java.getDeclaredMethod("voidValue")
         )
         val ids = mutableListOf(
-            "",
-            "plain",
-            "free-copy:comment-high:${method.toGenericString()}",
-            "中文/emoji:🎉#tag",
-            "x".repeat(80)
+            "", "plain", "free-copy:comment-high:${method.toGenericString()}", "中文/emoji:🎉#tag", "x".repeat(80)
         )
         for (i in 0 until 40) ids += "probe-$i"
 
@@ -393,345 +592,85 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
             }
         }
         assertEquals("all 16 lowercase hex digits should be exercised", 16, seenHexChars.size)
-    }
 
-    /**
-     * `PROTECTIVE` 的框架契约是“捕获 hooker 异常并按没装 Hook 继续”，所以想让宿主方法以
-     * 指定异常结束的 Hook 必须显式选 `PASSTHROUGH`；默认值不许漂移。
-     */
-    @Test
-    fun `exception policy maps to the framework mode and defaults to protective`() {
-        assertEquals(ErrorPolicy.FRAMEWORK_PROTECTIVE, HookExceptionPolicy.PROTECT_HOST.errorPolicy)
-        assertEquals(ErrorPolicy.PROPAGATE, HookExceptionPolicy.DELIVER_TO_HOST.errorPolicy)
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("default", method) { replaceTo(1) }
-        runtime.install("deliver", method, HookExceptionPolicy.DELIVER_TO_HOST) { replaceTo(1) }
-        assertEquals(
-            listOf(XposedInterface.ExceptionMode.PROTECTIVE, XposedInterface.ExceptionMode.PASSTHROUGH),
-            framework.modes
-        )
-    }
-
-    @Test
-    fun `changing the exception policy of a logical point closes the old hook and installs a fresh one`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("point", method) { replaceTo(1) }
-        runtime.install("point", method, HookExceptionPolicy.DELIVER_TO_HOST) { replaceTo(2) }
-        assertEquals(listOf(XposedInterface.ExceptionMode.PROTECTIVE, XposedInterface.ExceptionMode.PASSTHROUGH), framework.modes)
-        assertEquals(1, framework.unhooks)
-        assertEquals(0, framework.replaced)
-    }
-
-    @Test
-    fun `the returned handle unhooks the framework hook`() {
-        val framework = FakeXposedFramework()
-        val handle = ModernHookRuntime(framework.xposed, engine).install("observer", method) { after { } }
-        assertEquals(0, framework.unhooks)
-        handle.unhook()
-        assertEquals(1, framework.unhooks)
-    }
-
-    @Test
-    fun `an API below 102 is rejected and nothing is installed`() {
-        val framework = FakeXposedFramework(apiVersion = 101)
-        try {
-            ModernHookRuntime(framework.xposed, engine).install("unsupported", method) { intercept() }
-            fail("API 101 is no longer supported")
-        } catch (expected: IllegalStateException) {
-            assertEquals("Modern API 102 or newer is required", expected.message)
+        val resource = SameNameTarget::class.java.name.replace('.', '/') + ".class"
+        val classBytes = requireNotNull(javaClass.classLoader!!.getResourceAsStream(resource)).use { it.readBytes() }
+        val loaderA = object : ClassLoader(null) {
+            fun define(): Class<*> = defineClass(SameNameTarget::class.java.name, classBytes, 0, classBytes.size)
         }
-        assertTrue(framework.handles.isEmpty())
-    }
-
-    @Test
-    fun `an install the SDK refuses fails loudly instead of leaving a silent gap`() {
-        val framework = FakeXposedFramework()
-        // A constant that cannot be returned by the target is rejected up front (it used to crash the host later).
-        try {
-            ModernHookRuntime(framework.xposed, engine).install("bad-constant", method) { replaceTo("not an int") }
-            fail("an incompatible constant must not install")
-        } catch (expected: IllegalStateException) {
-            assertTrue(expected.message, expected.message!!.contains("was not installed"))
+        val loaderB = object : ClassLoader(null) {
+            fun define(): Class<*> = defineClass(SameNameTarget::class.java.name, classBytes, 0, classBytes.size)
         }
-        assertTrue(framework.handles.isEmpty())
+        val methodA = loaderA.define().getDeclaredMethod("ping", String::class.java)
+        val methodB = loaderB.define().getDeclaredMethod("ping", String::class.java)
+        assertNotEquals(loaderA, loaderB)
+        assertNotEquals(ModernHookIds.of("same", methodA).value(), ModernHookIds.of("same", methodB).value())
     }
 
     @Test
-    fun `constructor hooks go to the framework chain so the receiver stays visible and a repeat replaces`() {
+    fun `fault attribution reports protected feature callback bugs once and respects unhooks`() {
         val constructor = Fixture::class.java.getDeclaredConstructor()
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        val seen = mutableListOf<Any?>()
-        runtime.install("ctor", constructor) { after { seen += thisObject } }
-        runtime.install("ctor", constructor) { after { seen += thisObject; seen += "second" } }
-        assertEquals("constructors use the raw framework hook", 1, framework.handles.size)
-        assertEquals(1, framework.replaced)
-        assertEquals(listOf(XposedInterface.ExceptionMode.PROTECTIVE), framework.modes)
-        val instance = Fixture()
-        framework.handles.single().hooker.intercept(TestChain(constructor, instance) { _, _ -> null })
-        assertEquals(listOf<Any?>(instance, "second"), seen)
-        runtime.install("ctor", constructor, HookExceptionPolicy.DELIVER_TO_HOST) { after { } }
-        assertEquals(2, framework.handles.size)
-        assertEquals(1, framework.unhooks)
-        assertEquals(XposedInterface.ExceptionMode.PASSTHROUGH, framework.modes.last())
-    }
-
-    @Test
-    fun `a hook assigned throwable only reaches the host when the policy delivers it`() {
-        val failure = IllegalStateException("assigned")
-        fun hooker(policy: HookExceptionPolicy): XposedInterface.Hooker {
+        for (engine in HookDispatchEngine.values()) {
             val framework = FakeXposedFramework()
-            ModernHookRuntime(framework.xposed, engine).install("p", method, policy) { after { throwable = failure } }
-            return framework.handles.single().hooker
-        }
-        // Protective: the failure leaves the callback so the framework can swallow it and continue as unhooked.
-        try {
-            hooker(HookExceptionPolicy.PROTECT_HOST).intercept(TestChain(method))
-            fail("the assigned throwable must leave the callback")
-        } catch (actual: IllegalStateException) {
-            assertSame(failure, actual)
-        }
-        // Deliver: an explicit outcome, independent of how callback failures are treated.
-        try {
-            hooker(HookExceptionPolicy.DELIVER_TO_HOST).intercept(TestChain(method))
-            fail("the assigned throwable must be delivered")
-        } catch (actual: IllegalStateException) {
-            assertSame(failure, actual)
-        }
-    }
+            val runtime = ModernHookRuntime(framework.xposed, engine)
+            val failure = IllegalStateException("callback bug")
+            runtime.install("a", method) { faultOwner = "feature_a"; after { throw failure } }
+            runtime.install("b", pair) { faultOwner = "feature_b"; before { throw failure } }
+            assertTrue(faults(runtime).isEmpty())
+            failure.leaks(framework.handles[0].hooker, TestChain(method))
+            failure.leaks(framework.handles[0].hooker, TestChain(method))
+            failure.leaks(framework.handles[1].hooker, TestChain(pair, arguments = arrayOf(1, 2)))
+            assertEquals(setOf("feature_a", "feature_b"), faults(runtime).toSet())
+            assertTrue("drained records are not reported again", faults(runtime).isEmpty())
 
-    // --- 故障归因 ---------------------------------------------------------------------------------------------
-
-    private fun faults(runtime: ModernHookRuntime): List<String> = mutableListOf<String>().also { runtime.drainFaults(it::add) }
-
-    private fun IllegalStateException.leaks(hooker: XposedInterface.Hooker, chain: TestChain) =
-        try {
-            hooker.intercept(chain)
-            fail("the callback failure must reach the framework")
-        } catch (actual: IllegalStateException) {
-            assertSame(this, actual)
-        }
-
-    @Test
-    fun `an exception escaping a protected feature callback is attributed to the feature once`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        val failure = IllegalStateException("callback bug")
-        runtime.install("a", method) { faultOwner = "feature_a"; after { throw failure } }
-        runtime.install("b", pair) { faultOwner = "feature_b"; before { throw failure } }
-        assertTrue(faults(runtime).isEmpty())
-        failure.leaks(framework.handles[0].hooker, TestChain(method))
-        failure.leaks(framework.handles[0].hooker, TestChain(method))
-        failure.leaks(framework.handles[1].hooker, TestChain(pair, arguments = arrayOf(1, 2)))
-        assertEquals(setOf("feature_a", "feature_b"), faults(runtime).toSet())
-        assertTrue("drained records are not reported again", faults(runtime).isEmpty())
-    }
-
-    @Test
-    fun `a failing original or a clean callback is not a feature fault`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("a", method) { faultOwner = "feature_a"; after { result = (result as? Int ?: 0) + 1 } }
-        framework.handles[0].hooker.intercept(TestChain(method))
-        val original = java.io.IOException("host failure")
-        try {
-            framework.handles[0].hooker.intercept(TestChain(method) { _, _ -> throw original })
-        } catch (_: Exception) {
-        }
-        assertTrue(faults(runtime).isEmpty())
-    }
-
-    @Test
-    fun `only protected hooks with an owner are watched and an unhook ends the attribution`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        val failure = IllegalStateException("bug")
-        runtime.install("no-owner", method) { after { throw failure } }
-        runtime.install("deliver", pair, HookExceptionPolicy.DELIVER_TO_HOST) { faultOwner = "feature_d"; before { throw failure } }
-        val gone = runtime.install("gone", method) { faultOwner = "feature_g"; before { throw failure } }
-        failure.leaks(framework.handles[0].hooker, TestChain(method))
-        failure.leaks(framework.handles[1].hooker, TestChain(pair, arguments = arrayOf(1, 2)))
-        failure.leaks(framework.handles[2].hooker, TestChain(method, arguments = arrayOf(1, 2)))
-        gone.unhook()
-        assertTrue(faults(runtime).isEmpty())
-    }
-
-    @Test
-    fun `a constructor callback failure is attributed but a failing original constructor is not`() {
-        val constructor = Fixture::class.java.getDeclaredConstructor()
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        val failure = IllegalStateException("callback bug")
-        runtime.install("ctor", constructor) { faultOwner = "feature_c"; after { if (thisObject != null) throw failure } }
-        val hooker = framework.handles.single().hooker
-        val original = java.io.IOException("host constructor failed")
-        try {
-            hooker.intercept(TestChain(constructor, Fixture()) { _, _ -> throw original })
-        } catch (_: Exception) {
-        }
-        failure.leaks(hooker, TestChain(constructor, Fixture()) { _, _ -> null })
-        assertEquals(listOf("feature_c"), faults(runtime))
-    }
-
-    @Test
-    fun `a point first installed as a constant and later as a callback leaves exactly one live hook`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("shape", method) { replaceTo(1) }
-        runtime.install("shape", method) { after { result = 2 } }
-        val live = framework.handles.size - framework.unhooks
-        assertEquals("no stacked registrations after the shape changed", 1, live)
-    }
-
-    @Test
-    fun `the direct engine is the shipped default and the sdk engine stays selectable`() {
-        assertEquals(HookDispatchEngine.DIRECT, HookDispatchEngine.values().first())
-        val creator = ModernMemberHookCreator(method).apply { after { } }
-        assertTrue(creator.usesDirectChain(HookDispatchEngine.DIRECT))
-        assertFalse(creator.usesDirectChain(HookDispatchEngine.SDK))
-        val constant = ModernMemberHookCreator(method).apply { replaceTo(1) }
-        assertFalse("constants always use the sdk constant channel", constant.usesDirectChain(HookDispatchEngine.DIRECT))
-        val constructor = ModernMemberHookCreator(Fixture::class.java.getDeclaredConstructor()).apply { after { } }
-        assertTrue("constructor receivers are only visible on the framework chain", constructor.usesDirectChain(HookDispatchEngine.SDK))
-        val success = ModernMemberHookCreator(method).apply { replaceResultOnSuccess(99) }
-        assertFalse("success replacements always use the sdk success channel", success.usesDirectChain(HookDispatchEngine.DIRECT))
-    }
-
-    @Test
-    fun `replaceResultOnSuccess overrides normal returns and propagates original failures`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        runtime.install("success", method) { replaceResultOnSuccess(42) }
-        val hooker = framework.handles.single().hooker
-        assertEquals(42, hooker.intercept(TestChain(method) { _, _ -> 7 }))
-
-        val failure = IllegalStateException("host failed")
-        try {
-            hooker.intercept(TestChain(method) { _, _ -> throw failure })
-            fail("original exception must propagate")
-        } catch (actual: IllegalStateException) {
-            assertSame(failure, actual)
-        }
-    }
-
-    @Test
-    fun `beforeOnly reads slots lazily and propagates original failures without attributing a fault`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        var seen0: Any? = null
-        runtime.install("before-only", pair) {
-            faultOwner = "feature_before"
-            before {
-                seen0 = argOrNull(0)
-                assertNull(copiedArgsOrNull())
+            val cleanFramework = FakeXposedFramework()
+            val cleanRuntime = ModernHookRuntime(cleanFramework.xposed, engine)
+            cleanRuntime.install("a", method) { faultOwner = "feature_a"; after { result = (result as? Int ?: 0) + 1 } }
+            cleanFramework.handles[0].hooker.intercept(TestChain(method))
+            try {
+                cleanFramework.handles[0].hooker.intercept(TestChain(method) { _, _ -> throw java.io.IOException("host failure") })
+            } catch (_: Exception) {
             }
-        }
-        val hooker = framework.handles.single().hooker
-        val okChain = TestChain(pair, Fixture(), arrayOf("a", "b")) { _, args -> args[1] }
-        assertEquals("b", hooker.intercept(okChain))
-        assertEquals("a", seen0)
-        assertEquals(0, okChain.argumentListReads)
-        assertEquals(if (engine == HookDispatchEngine.DIRECT) 1 else 2, okChain.argumentSlotReads)
-        assertEquals(if (engine == HookDispatchEngine.DIRECT) 0 else 1, okChain.argumentOverrideCalls)
+            assertTrue(faults(cleanRuntime).isEmpty())
 
-        val failure = java.io.IOException("downstream failed")
-        try {
-            hooker.intercept(TestChain(pair, Fixture(), arrayOf("a", "b")) { _, _ -> throw failure })
-            fail("downstream failure must propagate")
-        } catch (actual: java.io.IOException) {
-            assertSame(failure, actual)
-        }
-        assertTrue(faults(runtime).isEmpty())
-    }
+            val watchFramework = FakeXposedFramework()
+            val watchRuntime = ModernHookRuntime(watchFramework.xposed, engine)
+            val bug = IllegalStateException("bug")
+            watchRuntime.install("no-owner", method) { after { throw bug } }
+            watchRuntime.install("deliver", pair, HookExceptionPolicy.DELIVER_TO_HOST) { faultOwner = "feature_d"; before { throw bug } }
+            val gone = watchRuntime.install("gone", method) { faultOwner = "feature_g"; before { throw bug } }
+            bug.leaks(watchFramework.handles[0].hooker, TestChain(method))
+            bug.leaks(watchFramework.handles[1].hooker, TestChain(pair, arguments = arrayOf(1, 2)))
+            bug.leaks(watchFramework.handles[2].hooker, TestChain(method, arguments = arrayOf(1, 2)))
+            gone.unhook()
+            assertTrue(faults(watchRuntime).isEmpty())
 
-    @Test
-    fun `unhook is idempotent and stale handle cannot remove or unbind a replacement`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        val failure = IllegalStateException("bug")
-        val first = runtime.install("rebound", method) {
-            faultOwner = "feature_old"
-            before { throw failure }
-        }
-        val second = runtime.install("rebound", method) {
-            faultOwner = "feature_new"
-            before { throw failure }
-        }
-        val unhooksBeforeStale = framework.unhooks
-        first.unhook()
-        first.unhook()
-        assertEquals("stale handle must not unhook active replacement", unhooksBeforeStale, framework.unhooks)
+            val ctorFramework = FakeXposedFramework()
+            val ctorRuntime = ModernHookRuntime(ctorFramework.xposed, engine)
+            ctorRuntime.install("ctor", constructor) { faultOwner = "feature_c"; after { if (thisObject != null) throw failure } }
+            val ctorHooker = ctorFramework.handles.single().hooker
+            try {
+                ctorHooker.intercept(TestChain(constructor, Fixture()) { _, _ -> throw java.io.IOException("host constructor failed") })
+            } catch (_: Exception) {
+            }
+            failure.leaks(ctorHooker, TestChain(constructor, Fixture()) { _, _ -> null })
+            assertEquals(listOf("feature_c"), faults(ctorRuntime))
 
-        failure.leaks(framework.handles.last().hooker, TestChain(method, arguments = arrayOf(1, 2)))
-        assertEquals("active fault owner must stay bound after stale unhook", listOf("feature_new"), faults(runtime))
-
-        second.unhook()
-        second.unhook()
-        assertEquals(unhooksBeforeStale + 1, framework.unhooks)
-        runCatching { framework.handles.last().hooker.intercept(TestChain(method, arguments = arrayOf(1, 2))) }
-        assertTrue(faults(runtime).isEmpty())
-    }
-
-    @Test
-    fun `toSpec selects minimal parameter access and typed callbacks cleanly`() {
-        val zeroArg = ReturnFixture::class.java.getDeclaredMethod("intValue")
-        val zeroBefore = ModernMemberHookCreator(zeroArg).apply { before { } }
-            .toSpec(HookId.of("zero-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
-        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.NO_ARGS, zeroBefore.access())
-
-        val noArgsBefore = ModernMemberHookCreator(pair).apply {
-            before(io.github.jichuo1.meguviz.hook.api.ParameterAccess.NO_ARGS) { }
-        }.toSpec(HookId.of("noargs-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
-        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.NO_ARGS, noArgsBefore.access())
-
-        val readBefore = ModernMemberHookCreator(pair).apply {
-            before(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW) { argOrNull(0) }
-        }.toSpec(HookId.of("read-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
-        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW, readBefore.access())
-
-        val mutableBefore = ModernMemberHookCreator(pair).apply {
-            before { args[0] = "x" }
-        }.toSpec(HookId.of("mutable-before"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
-        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.MUTABLE_ARGS, mutableBefore.access())
-
-        val readAfter = ModernMemberHookCreator(pair).apply {
-            after { argOrNull(0) }
-        }.toSpec(HookId.of("read-after"), ErrorPolicy.FRAMEWORK_PROTECTIVE)
-        assertEquals(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW, readAfter.access())
-
-        val readFramework = FakeXposedFramework()
-        var readSeen: Any? = null
-        ModernHookRuntime(readFramework.xposed, engine).install("read-before-run", pair) {
-            faultOwner = "feature_read"
-            before(io.github.jichuo1.meguviz.hook.api.ParameterAccess.READ_ARGS_VIEW) { readSeen = argOrNull(0) }
-        }
-        val readChain = TestChain(pair, Fixture(), arrayOf("x", "y")) { _, args -> args[1] }
-        assertEquals("y", readFramework.handles.single().hooker.intercept(readChain))
-        assertEquals("x", readSeen)
-        assertEquals(0, readChain.argumentListReads)
-        assertEquals(1, readChain.argumentSlotReads)
-        assertEquals(0, readChain.argumentOverrideCalls)
-    }
-
-    @Test
-    fun `abstract and interface executables are rejected by runtime and test framework`() {
-        val framework = FakeXposedFramework()
-        val runtime = ModernHookRuntime(framework.xposed, engine)
-        val abstractMethod = AbstractFixture::class.java.getDeclaredMethod("render")
-        val interfaceMethod = InterfaceFixture::class.java.getDeclaredMethod("applyModifier", Any::class.java)
-        assertThrows(IllegalArgumentException::class.java) {
-            runtime.install("abstract", abstractMethod) { before { } }
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            runtime.install("interface", interfaceMethod) { before { } }
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            framework.xposed.hook(abstractMethod)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            framework.xposed.hook(interfaceMethod)
+            val staleFramework = FakeXposedFramework()
+            val staleRuntime = ModernHookRuntime(staleFramework.xposed, engine)
+            val first = staleRuntime.install("rebound", method) { faultOwner = "feature_old"; before { throw bug } }
+            val second = staleRuntime.install("rebound", method) { faultOwner = "feature_new"; before { throw bug } }
+            val unhooksBeforeStale = staleFramework.unhooks
+            first.unhook()
+            first.unhook()
+            assertEquals("stale handle must not unhook active replacement", unhooksBeforeStale, staleFramework.unhooks)
+            bug.leaks(staleFramework.handles.last().hooker, TestChain(method, arguments = arrayOf(1, 2)))
+            assertEquals("active fault owner must stay bound after stale unhook", listOf("feature_new"), faults(staleRuntime))
+            second.unhook()
+            second.unhook()
+            assertEquals(unhooksBeforeStale + 1, staleFramework.unhooks)
+            runCatching { staleFramework.handles.last().hooker.intercept(TestChain(method, arguments = arrayOf(1, 2))) }
+            assertTrue(faults(staleRuntime).isEmpty())
         }
     }
 
@@ -814,35 +753,85 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         }, calls, seen)
     }
 
-    private fun migrated(before: BeforeAction, after: AfterAction, original: Original): Observed {
+    private fun migrated(before: BeforeAction, after: AfterAction, original: Original, engine: HookDispatchEngine): Observed {
         val calls = intArrayOf(0)
         val seen = arrayOfNulls<List<Any?>>(1)
         val incoming = arrayOf<Any?>(1, 2)
         val chain = TestChain(method, null, incoming, scripted(original, calls, seen))
-        return observe({ creatorFor(before, after).invoke(chain) }, calls, seen)
+        return observe({ creatorFor(before, after).invoke(chain, engine) }, calls, seen)
     }
 
     @Test
     fun `every before after and original combination matches the pre-migration behaviour`() {
-        var combinations = 0
-        for (before in BeforeAction.values()) for (after in AfterAction.values()) for (original in Original.values()) {
-            val expected = legacy(before, after, original)
-            val actual = migrated(before, after, original)
-            val label = "before=$before after=$after original=$original"
-            assertEquals(label + " original calls", expected.originalCalls, actual.originalCalls)
-            assertEquals(label + " arguments seen by the original", expected.originalArgs, actual.originalArgs)
-            // 唯一的有意差异（仅“只有 after”的形状）：原方法已失败时 after 又出错（抛出或写入 throwable），
-            // SDK 契约还原原始异常、after 的异常进入诊断；迁移前由 after 的异常覆盖。该情形只在 Hook 自身出错时出现，
-            // 保护模式下框架对“已执行下游后回调失败”同样交回下游结果，所以宿主看到的仍是原异常。
-            val expectedThrown =
-                if (engine == HookDispatchEngine.SDK && before == BeforeAction.NONE && original == Original.THROW &&
-                    (after == AfterAction.THROW || after == AfterAction.SET_THROWABLE)) originalFailure
-                else expected.thrown
-            assertSame(label + " exception identity", expectedThrown, actual.thrown)
-            assertEquals(label + " result", expected.returned, actual.returned)
-            combinations++
+        for (engine in HookDispatchEngine.values()) {
+            var combinations = 0
+            for (before in BeforeAction.values()) for (after in AfterAction.values()) for (original in Original.values()) {
+                val expected = legacy(before, after, original)
+                val actual = migrated(before, after, original, engine)
+                val label = "engine=$engine before=$before after=$after original=$original"
+                assertEquals("$label original calls", expected.originalCalls, actual.originalCalls)
+                assertEquals("$label arguments seen by the original", expected.originalArgs, actual.originalArgs)
+                val expectedThrown =
+                    if (engine == HookDispatchEngine.SDK && before == BeforeAction.NONE && original == Original.THROW &&
+                        (after == AfterAction.THROW || after == AfterAction.SET_THROWABLE)) originalFailure
+                    else expected.thrown
+                assertSame("$label exception identity", expectedThrown, actual.thrown)
+                assertEquals("$label result", expected.returned, actual.returned)
+                combinations++
+            }
+            assertEquals(7 * 8 * 2, combinations)
         }
-        assertEquals(7 * 8 * 2, combinations)
+    }
+
+    @Test
+    fun `modern hook log and reflect access handle sinks primitives and concrete bridge resolution safely`() {
+        try {
+            val seen = mutableListOf<Pair<String, Throwable?>>()
+            ModernHookLog.bindSink { message, throwable -> seen += message to throwable }
+            val failure = IllegalStateException("x")
+            ModernHookLog.info("a")
+            ModernHookLog.error("b", failure)
+            assertEquals(listOf("a" to null, "b" to failure), seen)
+
+            ModernHookLog.bindSink { _, _ -> throw IllegalStateException("binder died") }
+            ModernHookLog.info("a")
+            ModernHookLog.error("b", RuntimeException())
+
+            ModernHookLog.bindSink(null)
+            ModernHookLog.info("a")
+            ModernHookLog.error("b")
+        } finally {
+            ModernHookLog.bindSink(null)
+        }
+
+        val target = PrimitiveTarget()
+        repeat(2) {
+            assertEquals("bool:true", ReflectAccess.callMethod(target, "withBoolean", true))
+            assertEquals("int:7", ReflectAccess.callMethod(target, "withInt", 7))
+            assertEquals("long:8", ReflectAccess.callMethod(target, "withLong", 8L))
+            assertEquals("double:1.5", ReflectAccess.callMethod(target, "withDouble", 1.5))
+            assertEquals("char:x", ReflectAccess.callMethod(target, "withChar", 'x'))
+            assertEquals("str:null", ReflectAccess.callMethod(target, "withNullable", null))
+            assertEquals("str:ok", ReflectAccess.callMethod(target, "withNullable", "ok"))
+            assertEquals("zero", ReflectAccess.callMethod(target, "zeroArg"))
+            assertEquals(11, ReflectAccess.callStaticMethod(PrimitiveTarget::class.java, "staticSum", 4, 7))
+        }
+        assertTrue(classOf<java.lang.Boolean>().isPrimitive)
+        assertEquals(java.lang.Boolean.TYPE, classOf<java.lang.Boolean>())
+        assertEquals(java.lang.Boolean::class.java, classOf<java.lang.Boolean>(primitiveType = false))
+        assertTrue(!classOf<java.lang.Boolean>(primitiveType = false).isPrimitive)
+        assertEquals(Boolean::class.javaPrimitiveType, Boolean::class.java)
+        assertEquals(Int::class.javaPrimitiveType, Int::class.java)
+        assertTrue(Boolean::class.java.isPrimitive)
+
+        val covariant = ConcreteCovariant()
+        val chosen = ReflectAccess.findCompatibleMethod(ConcreteCovariant::class.java, "produce", arrayOf("hi"))
+        assertNotNull(chosen)
+        assertFalse(chosen!!.isBridge)
+        assertFalse(chosen.isSynthetic)
+        assertEquals(String::class.java, chosen.returnType)
+        assertEquals("HI", chosen.invoke(covariant, "hi"))
+        assertEquals("HI", ReflectAccess.callMethod(covariant, "produce", "hi"))
     }
 
     // --- 测试替身 ---------------------------------------------------------------------------------------------
@@ -857,6 +846,7 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         var argumentListReads = 0
         var argumentSlotReads = 0
         var argumentOverrideCalls = 0
+        var lastPassedArgs: Array<Any?>? = null
         override fun getExecutable(): Executable = member
         override fun getThisObject(): Any? = receiver
         override fun getArgs(): List<Any?> {
@@ -869,17 +859,57 @@ internal class ModernHookRuntimeTest(private val engine: HookDispatchEngine) {
         }
         override fun proceed(): Any? {
             calls++
+            lastPassedArgs = arguments
             return original(receiver, arguments)
         }
         override fun proceed(args: Array<Any?>): Any? {
             calls++
             argumentOverrideCalls++
+            lastPassedArgs = args
             return original(receiver, args)
         }
         override fun proceedWith(thisObject: Any): Any? = proceedWith(thisObject, arguments)
         override fun proceedWith(thisObject: Any, args: Array<Any?>): Any? {
             calls++
+            lastPassedArgs = args
             return original(thisObject, args)
+        }
+    }
+
+    private class BorrowPlayer {
+        @Suppress("UNUSED_PARAMETER") fun setOutputSurface(surface: Any) = Unit
+    }
+
+    class SameNameTarget {
+        @Suppress("unused")
+        fun ping(value: String): String = value
+    }
+
+    class ReadAndWriteArgsTarget {
+        fun combine(a: String, b: String): String = "$a:$b"
+    }
+
+    interface GenericBase<T> {
+        fun produce(input: T): Any
+    }
+
+    open class ConcreteCovariant : GenericBase<String> {
+        override fun produce(input: String): String = input.uppercase()
+    }
+
+    @Suppress("unused")
+    private class PrimitiveTarget {
+        fun withBoolean(value: Boolean): String = "bool:$value"
+        fun withInt(value: Int): String = "int:$value"
+        fun withLong(value: Long): String = "long:$value"
+        fun withDouble(value: Double): String = "double:$value"
+        fun withChar(value: Char): String = "char:$value"
+        fun withNullable(value: String?): String = "str:$value"
+        fun zeroArg(): String = "zero"
+
+        companion object {
+            @JvmStatic
+            fun staticSum(a: Int, b: Int): Int = a + b
         }
     }
 

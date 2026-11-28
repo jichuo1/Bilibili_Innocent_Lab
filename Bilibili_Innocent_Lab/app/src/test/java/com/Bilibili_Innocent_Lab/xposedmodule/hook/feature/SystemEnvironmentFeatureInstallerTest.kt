@@ -191,7 +191,8 @@ class SystemEnvironmentFeatureInstallerTest {
     }
 
     @Test
-    fun `dual boundaries sanitize detected results without mutating originals or looping`() {
+    fun verifySanitizationAndPassThroughBehavior() {
+        // dual boundaries sanitize detected results without mutating originals or looping
         Fixture().use { fixture ->
             val installer = fixture.createInstaller()
             val records = fixture.installViaCoordinator(installer)
@@ -223,7 +224,6 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals("unchanged", sanitizedEnv["model"])
             assertEquals("kept", sanitizedEnv["files"])
 
-            // Repeat calls exercise both string "true" root and "substrate" maps without looping/hanging.
             HostEnvironment.next = linkedMapOf<Any?, Any?>(
                 "root" to "true",
                 "is_root" to "true",
@@ -255,7 +255,6 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals(false, sanitizedHook["riru"])
             assertEquals(true, sanitizedHook["other"])
 
-            // Parent and both leaves emit ADAPTED, OBSERVED, APPLIED once each.
             val expectedStages = listOf(FeatureRuntimeStage.ADAPTED, FeatureRuntimeStage.OBSERVED, FeatureRuntimeStage.APPLIED)
             assertEquals(expectedStages, fixture.stagesById[SystemEnvironmentFeatureInstaller.ID])
             assertEquals(expectedStages, fixture.stagesById[SystemEnvironmentFeatureInstaller.CAP_ROOT])
@@ -263,14 +262,11 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals(FeatureInstallResult.Installed(1), fixture.coordinatorCapabilities[SystemEnvironmentFeatureInstaller.CAP_ROOT])
             assertEquals(FeatureInstallResult.Installed(1), fixture.coordinatorCapabilities[SystemEnvironmentFeatureInstaller.CAP_HOOK])
         }
-    }
 
-    @Test
-    fun `partial skipOptions subsets sanitize present verified keys without inventing missing ones`() {
+        // partial skipOptions subsets sanitize present verified keys without inventing missing ones
         Fixture().use { fixture ->
             fixture.createInstaller().install(fixture.environment)
 
-            // Simulate host skipping "hook" checks, returning only root/is_root.
             val vmOnly = linkedMapOf<Any?, Any?>("root" to "1", "is_root" to "true")
             HostEnvironment.next = vmOnly
             val outVmOnly = fixture.callEnv(setOf("hook"))
@@ -278,7 +274,6 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals("0", outVmOnly["root"])
             assertEquals("false", outVmOnly["is_root"])
 
-            // Simulate host skipping "vm"/root checks, returning only axposed/maps.
             val hookOnly = linkedMapOf<Any?, Any?>("axposed" to "true", "maps" to "substrate")
             HostEnvironment.next = hookOnly
             val outHookOnly = fixture.callEnv(setOf("vm"))
@@ -286,10 +281,8 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals("false", outHookOnly["axposed"])
             assertEquals("", outHookOnly["maps"])
         }
-    }
 
-    @Test
-    fun `clean maps are passed through zero-copy without claiming applied`() {
+        // clean maps are passed through zero-copy without claiming applied
         Fixture().use { fixture ->
             fixture.createInstaller().install(fixture.environment)
 
@@ -300,8 +293,7 @@ class SystemEnvironmentFeatureInstallerTest {
                 "maps" to "unrelated-entry"
             )
             HostEnvironment.next = cleanEnv
-            val outEnv = fixture.callEnv()
-            assertSame(cleanEnv, outEnv)
+            assertSame(cleanEnv, fixture.callEnv())
 
             val cleanHook = linkedMapOf(
                 "xposed" to false,
@@ -311,17 +303,14 @@ class SystemEnvironmentFeatureInstallerTest {
                 "custom" to true
             )
             HostHook.next = cleanHook
-            val outHook = fixture.callHook()
-            assertSame(cleanHook, outHook)
+            assertSame(cleanHook, fixture.callHook())
 
             assertEquals(listOf(FeatureRuntimeStage.ADAPTED, FeatureRuntimeStage.OBSERVED), fixture.stagesById[SystemEnvironmentFeatureInstaller.ID])
             assertEquals(listOf(FeatureRuntimeStage.ADAPTED, FeatureRuntimeStage.OBSERVED), fixture.stagesById[SystemEnvironmentFeatureInstaller.CAP_ROOT])
             assertEquals(listOf(FeatureRuntimeStage.ADAPTED, FeatureRuntimeStage.OBSERVED), fixture.stagesById[SystemEnvironmentFeatureInstaller.CAP_HOOK])
         }
-    }
 
-    @Test
-    fun `malformed or untrusted maps are returned unchanged without claiming observed or applied`() {
+        // malformed or untrusted maps are returned unchanged without claiming observed or applied
         Fixture().use { fixture ->
             fixture.createInstaller().install(fixture.environment)
 
@@ -338,8 +327,7 @@ class SystemEnvironmentFeatureInstallerTest {
                     assertNull(SystemEnvironmentResult.sanitizeEnvironment(null))
                 } else {
                     HostEnvironment.next = bad
-                    val returned = fixture.callEnv()
-                    assertSame(bad, returned)
+                    assertSame(bad, fixture.callEnv())
                 }
             }
 
@@ -355,7 +343,8 @@ class SystemEnvironmentFeatureInstallerTest {
     }
 
     @Test
-    fun `original host exception is propagated via ContractOracle without applying or falsifying evidence`() {
+    fun verifyExceptionsGatingAndIncrementalRetry() {
+        // original host exception is propagated via ContractOracle without applying or falsifying evidence
         Fixture().use { fixture ->
             fixture.createInstaller().install(fixture.environment)
             val failure = IllegalStateException("host read failure")
@@ -368,10 +357,8 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals(listOf(FeatureRuntimeStage.ADAPTED), fixture.stagesById[SystemEnvironmentFeatureInstaller.ID])
             assertEquals(listOf(FeatureRuntimeStage.ADAPTED), fixture.stagesById[SystemEnvironmentFeatureInstaller.CAP_ROOT])
         }
-    }
 
-    @Test
-    fun `disabled non-main missing loader and registration failure behave cleanly`() {
+        // disabled non-main missing loader and registration failure behave cleanly
         Fixture().use { disabled ->
             val installer = disabled.createInstaller(enabled = false)
             assertEquals(emptyList<String>(), installer.capabilityIds)
@@ -400,10 +387,8 @@ class SystemEnvironmentFeatureInstallerTest {
             assertTrue(partialFail.capabilities[SystemEnvironmentFeatureInstaller.CAP_HOOK] is FeatureInstallResult.Skipped)
             assertEquals(listOf("system_environment_hook"), partialFail.errors)
         }
-    }
 
-    @Test
-    fun `incremental adaptation retry installs remaining family without duplicating already-registered hook`() {
+        // incremental adaptation retry installs remaining family without duplicating already-registered hook
         val envOnly = SystemEnvironmentPoints(environment = Fixture.defaultPoints().environment, hook = null)
         Fixture(initialPoints = envOnly).use { fixture ->
             val installer = fixture.createInstaller()
@@ -419,7 +404,6 @@ class SystemEnvironmentFeatureInstallerTest {
             assertEquals(1, fixture.registrar.registrationCounts[SystemEnvironmentFeatureInstaller.HOOK_ENVIRONMENT])
             assertNull(fixture.registrar.registrationCounts[SystemEnvironmentFeatureInstaller.HOOK_FEATURES])
 
-            // Second attempt once background DEX assist finishes locating the hook boundary.
             fixture.currentPoints = Fixture.defaultPoints()
             val second = installer.install(fixture.environment)
             assertEquals(FeatureInstallResult.Installed(2, complete = true), second)
@@ -433,7 +417,7 @@ class SystemEnvironmentFeatureInstallerTest {
     }
 
     @Test
-    fun `adapter json roundtrip validation ambiguity conclusive checks planned and merge`() {
+    fun verifyAdapterPointsValidationAndLocate() {
         val full = Fixture.defaultPoints()
         assertEquals(full, SystemEnvironmentPoints.fromJson(full.toJson()))
 

@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.NormalQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.FutureTask
@@ -127,6 +128,81 @@ class NormalQualityFeatureHooksTest {
         assertEquals(1, registrar.registrationAttempts.count { it.first == "player.quality.normal.scope.0" })
     }
 
+    object AutoSwitchTemplateA {
+        @JvmStatic fun c(): Boolean = true
+        @JvmStatic fun helper(x: Int): Boolean = x > 0
+    }
+    object AutoSwitchTemplateB {
+        @JvmStatic fun b(): Boolean = true
+    }
+    object QualityDefaultTemplate {
+        @JvmStatic fun a(): Int = 80
+    }
+    class EmptyQualityMarkerTemplate
+
+    fun modernAutoSwitchResolvesInstallsAndFlipsTrueToFalse() {
+        val methodA = AutoSwitchTemplateA::class.java.getDeclaredMethod("c")
+        val methodHelper = AutoSwitchTemplateA::class.java.getDeclaredMethod("helper", Int::class.javaPrimitiveType)
+        val methodB = AutoSwitchTemplateB::class.java.getDeclaredMethod("b")
+        assertNull(NormalQualityLocator.selectAutoSwitch(listOf(methodHelper)))
+        assertNull(NormalQualityLocator.selectAutoSwitch(listOf(methodA, methodB)))
+        assertNull(NormalQualityLocator.selectAutoSwitch(emptyList()))
+
+        val theseusName = "com.bilibili.ship.theseus.united.page.videoquality.TheseusPlayerQualityService"
+        val modernLoader = TestRenamingClassLoader(
+            parent = loader,
+            templates = mapOf(
+                theseusName to EmptyQualityMarkerTemplate::class.java,
+                "rt02" to AutoSwitchTemplateA::class.java,
+                "wj12" to QualityDefaultTemplate::class.java
+            ),
+            hiddenPrefixes = setOf("com.bilibili.video.story.player.quality.StoryQualityService")
+        )
+        val rt02 = modernLoader.loadClass("rt02")
+        assertEquals("c", NormalQualityLocator.selectAutoSwitch(rt02.declaredMethods.toList())?.name)
+        val point = VersionAdapter.HookPoint("rt02", "c", emptyList())
+        assertNotNull(NormalQualityLocator.resolveAutoSwitch(modernLoader, point))
+        assertNull(NormalQualityLocator.resolveAutoSwitch(modernLoader, point.copy(paramClassNames = listOf("int"))))
+        assertNull(NormalQualityLocator.resolveAutoSwitch(modernLoader, point.copy(className = "com.bapis.rt02")))
+
+        assertTrue(NormalQualityLocator.applicableModern(modernLoader, VersionAdapter.HookPoint("wj12", "a", emptyList())))
+        assertFalse(NormalQualityLocator.applicableModern(modernLoader, VersionAdapter.HookPoint("gh6.h", "c", emptyList())))
+
+        val registrar = PlayerPortTestRegistrar()
+        val statuses = linkedMapOf<String, String>()
+        val hookStages = mutableListOf<FeatureRuntimeStage>()
+        val points = VersionAdapter.PlayerQualityPoints(
+            defaultQualityMethod = VersionAdapter.HookPoint("wj12", "a", emptyList()),
+            normalAutoSwitch = point
+        )
+        val installer = PlayerQualityFeatureInstaller(80, points)
+        val env = HookEnvironment(
+            "tv.danmaku.bili", modernLoader, HookPointRegistry(modernLoader), registrar,
+            { _, _ -> }, { _, _ -> }, { k, v -> statuses[k] = v },
+            runtimeEvidence = { _, s, _ -> hookStages += s }
+        )
+        assertEquals(FeatureInstallResult.Installed(2, complete = true), installer.install(env))
+        assertEquals("success", statuses["player_quality_status"])
+        assertFalse(installer.requiresAdaptationRetry)
+        assertEquals(false, registrar.invoke("player.quality.normal.auto_switch") { true })
+        assertTrue(FeatureRuntimeStage.OBSERVED in hookStages)
+        assertTrue(FeatureRuntimeStage.APPLIED in hookStages)
+
+        val noTheseusLoader = TestRenamingClassLoader(
+            parent = loader,
+            templates = mapOf("wj12" to QualityDefaultTemplate::class.java),
+            hiddenPrefixes = setOf(theseusName, "com.bilibili.video.story.player.quality.StoryQualityService")
+        )
+        val legacyEnv = HookEnvironment(
+            "tv.danmaku.bili", noTheseusLoader, HookPointRegistry(noTheseusLoader), PlayerPortTestRegistrar(),
+            { _, _ -> }, { _, _ -> }, { _, _ -> }
+        )
+        val legacyResult = PlayerQualityFeatureInstaller(
+            80, VersionAdapter.PlayerQualityPoints(VersionAdapter.HookPoint("wj12", "a", emptyList()))
+        ).install(legacyEnv)
+        assertEquals(FeatureInstallResult.Installed(1, complete = true), legacyResult)
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (NormalQualityFeatureHooksTest) -> Unit) {
@@ -141,5 +217,6 @@ class NormalQualityFeatureHooksTest {
         runIsolated { s -> s.originalPreferenceFailurePropagatesWithoutInventingAnAppliedOverride() }
         runIsolated { s -> s.unavailableStoryTargetNeverAcquiresAnOrdinaryDefaultOverride() }
         runIsolated { s -> s.partialRegistrationStaysInactiveAndRetryDoesNotDuplicateInstalledHooks() }
+        runIsolated { s -> s.modernAutoSwitchResolvesInstallsAndFlipsTrueToFalse() }
     }
 }

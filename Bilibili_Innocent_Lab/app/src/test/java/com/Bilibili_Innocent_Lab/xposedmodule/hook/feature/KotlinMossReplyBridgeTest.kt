@@ -240,8 +240,19 @@ class KotlinMossReplyBridgeTest {
         assertEquals(4, legacy!!.parameterCount)
         assertEquals(Void.TYPE, legacy.returnType)
         assertTrue(legacy.parameterTypes[3].isInterface)
-        // 当前 5 参入口不会被旧版判定误选。
+        // 当前 5 参入口不会被旧版判定误选；4 参 ViewProgress 也可解析。
+        assertNotNull(KotlinMossBridgeMembers.legacyCallbackEntry(LegacyKotlinInteractiveMoss::class.java, "viewProgress"))
         assertNull(KotlinMossBridgeMembers.legacyCallbackEntry(FakeKotlinMoss::class.java, "dynVideo"))
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private class LegacyKotlinInteractiveMoss {
+        fun viewProgress(
+            req: Any,
+            ser: SerializationStrategy<*>,
+            deser: DeserializationStrategy<*>,
+            handler: com.bilibili.lib.moss.api.MossResponseHandler
+        ) = Unit
     }
 
     fun `selects only the callback shaped generic entry of the requested method`() {

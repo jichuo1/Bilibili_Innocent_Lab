@@ -1,7 +1,19 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.view.View
+import androidx.compose.ui.Modifier
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyThreadKey
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
+import io.github.jichuo1.meguviz.hook.api.ErrorPolicy
+import io.github.jichuo1.meguviz.hook.api.HookId
+import io.github.jichuo1.meguviz.hook.core.HookEnvironment as MeguvizHookEnvironment
+import io.github.jichuo1.meguviz.hook.testing.FakeBackend
+import java.lang.reflect.Constructor
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -173,5 +185,224 @@ class ReplyTopologyComposeMenuContextTest {
         runIsolated { s -> s.collectedMenuCannotBeReboundToAnUnrelatedMenu() }
         runIsolated { s -> s.sourceVerificationFailureDisablesTheEntry() }
         runIsolated { s -> s.installerMissingSeedClearsAnAlreadyRememberedMenu() }
+    }
+
+    @Test
+    fun verifiesComposeEntryValidationInstallationRetryAndAnchorPlanning() {
+        // Entry validation accepts wmo1 and legacy shapes and rejects invalid entries.
+        val loader920 = composeHostClassLoader("wmo1")
+        assertTrue(isValidComposeMenuEntryClass(loader920.loadClass("wmo1")))
+        assertTrue(isValidComposeMenuEntryClass(FixtureLegacyEntry::class.java))
+        assertFalse(isValidComposeMenuEntryClass(FixtureBadFirstFieldEntry::class.java))
+        assertFalse(isValidComposeMenuEntryClass(FixtureBadLastFieldEntry::class.java))
+        assertFalse(isValidComposeMenuEntryClass(FixtureMismatchedCtorEntry::class.java))
+        assertFalse(isValidComposeMenuEntryClass(FixtureEnumEntry::class.java))
+        assertFalse(isValidComposeMenuEntryClass(FixtureInterfaceEntry::class.java))
+        assertFalse(isValidComposeMenuEntryClass(Int::class.java))
+        assertFalse(isValidComposeMenuEntryClass(Array<String>::class.java))
+
+        // ReplyTopologyComposeMenu installs across obfuscated entry names and skips ambiguous entries.
+        for (entryName in listOf("cko1", "clo1", "wmo1", "gao1", "c9o1")) {
+            val loader = composeHostClassLoader(entryName)
+            RecordingRegistrar().use { registrar ->
+                val env = HookEnvironment(
+                    processName = "tv.danmaku.bili",
+                    classLoader = loader,
+                    hookPoints = HookPointRegistry(loader),
+                    registrar = registrar,
+                    logInfo = { _, _ -> },
+                    logError = { _, _ -> },
+                    reportStatus = { _, _ -> }
+                )
+                val result = ReplyTopologyComposeMenu { _, _ -> }.install(env)
+                assertEquals("Entry class $entryName should install", FeatureInstallResult.Installed(1, complete = true), result)
+                assertTrue("reply.topology.compose.menu" in registrar.installedIds)
+            }
+        }
+        val ambiguousLoader = composeHostClassLoader("wmo1", FixtureAmbiguousMoreMenuBubble::class.java)
+        RecordingRegistrar().use { registrar ->
+            val env = HookEnvironment(
+                processName = "tv.danmaku.bili",
+                classLoader = ambiguousLoader,
+                hookPoints = HookPointRegistry(ambiguousLoader),
+                registrar = registrar,
+                logInfo = { _, _ -> },
+                logError = { _, _ -> },
+                reportStatus = { _, _ -> }
+            )
+            val result = ReplyTopologyComposeMenu { _, _ -> }.install(env)
+            assertEquals(FeatureInstallResult.Skipped("missing-compose-menu-entry"), result)
+            assertTrue(registrar.installedIds.isEmpty())
+        }
+
+        // CommentTopologyFeatureInstaller retry flag activates once on missing points and stops after update.
+        RecordingRegistrar().use { registrar ->
+            val loader = requireNotNull(javaClass.classLoader)
+            val env = HookEnvironment(
+                processName = "tv.danmaku.bili",
+                classLoader = loader,
+                hookPoints = HookPointRegistry(loader),
+                registrar = registrar,
+                logInfo = { _, _ -> },
+                logError = { _, _ -> },
+                reportStatus = { _, _ -> }
+            )
+            val disabled = CommentTopologyFeatureInstaller(enabled = false, points = null, lowBindPoint = null, highBindPoint = null)
+            assertEquals(FeatureInstallResult.Skipped("disabled"), disabled.install(env))
+            assertFalse(disabled.requiresAdaptationRetry)
+
+            val installer = CommentTopologyFeatureInstaller(enabled = true, points = null, lowBindPoint = null, highBindPoint = null)
+            assertEquals(FeatureInstallResult.Skipped("missing-adapter-point"), installer.install(env))
+            assertTrue(installer.requiresAdaptationRetry)
+
+            installer.updateAdaptedPoints(points = null, lowBindPoint = null, highBindPoint = null)
+            assertEquals(FeatureInstallResult.Skipped("missing-adapter-point"), installer.install(env))
+            assertFalse(installer.requiresAdaptationRetry)
+        }
+
+        // planConstrainedAnchorInsertion supports zero or one neighbor and rejects conflicts or ambiguity.
+        assertEquals(
+            ConstrainedAnchorPlan(updateNeighbor = false, updateReference = false),
+            planConstrainedAnchorInsertion(neighborCount = 0, referenceInverseConstraint = View.NO_ID, neighborViewId = null)
+        )
+        assertEquals(
+            ConstrainedAnchorPlan(updateNeighbor = true, updateReference = false),
+            planConstrainedAnchorInsertion(neighborCount = 1, referenceInverseConstraint = View.NO_ID, neighborViewId = 77)
+        )
+        assertEquals(
+            ConstrainedAnchorPlan(updateNeighbor = true, updateReference = true),
+            planConstrainedAnchorInsertion(neighborCount = 1, referenceInverseConstraint = 77, neighborViewId = 77)
+        )
+        assertTrue(
+            runCatching {
+                planConstrainedAnchorInsertion(neighborCount = 0, referenceInverseConstraint = 42, neighborViewId = null)
+            }.exceptionOrNull()?.message?.contains("constraint-reference-conflict=42") == true
+        )
+        assertTrue(
+            runCatching {
+                planConstrainedAnchorInsertion(neighborCount = 1, referenceInverseConstraint = 88, neighborViewId = 77)
+            }.exceptionOrNull()?.message?.contains("constraint-reference-conflict=88") == true
+        )
+        assertTrue(
+            runCatching {
+                planConstrainedAnchorInsertion(neighborCount = 2, referenceInverseConstraint = View.NO_ID, neighborViewId = 77)
+            }.exceptionOrNull()?.message?.contains("constraint-neighbor-count=2") == true
+        )
+    }
+
+    internal class FixtureCompositionLocal
+    internal object FixtureAndroidLocals {
+        private val localView = FixtureCompositionLocal()
+        @JvmStatic
+        fun getLocalView(): FixtureCompositionLocal = localView
+    }
+    internal interface FixtureComposer {
+        fun consume(key: FixtureCompositionLocal): Any?
+    }
+    internal abstract class FixturePainter
+    @Suppress("unused")
+    internal data class FixtureWmo1WithDefaults(
+        val a: String,
+        val b: FixturePainter,
+        val c: String = "",
+        val d: FixturePainter,
+        val e: () -> Unit
+    ) {
+        companion object {
+            @JvmField
+            val f: Int = 8
+        }
+    }
+    @Suppress("unused")
+    internal class FixtureLegacyEntry(val a: String, val b: () -> Unit)
+    @Suppress("unused")
+    internal class FixtureBadFirstFieldEntry(val a: Int, val b: () -> Unit)
+    @Suppress("unused")
+    internal class FixtureBadLastFieldEntry(val a: String, val b: Int)
+    @Suppress("unused")
+    internal class FixtureMismatchedCtorEntry {
+        val a: String = ""
+        val b: () -> Unit = {}
+    }
+    internal enum class FixtureEnumEntry { ONLY }
+    internal interface FixtureInterfaceEntry
+    internal object FixtureMoreMenuBubble {
+        @JvmStatic @Suppress("UNUSED_PARAMETER")
+        fun d(items: List<*>, onDismiss: (Any?) -> Unit, composer: FixtureComposer, changed: Int) = Unit
+        @JvmStatic @Suppress("UNUSED_PARAMETER")
+        fun b(entry: FixtureWmo1WithDefaults, onDismiss: () -> Unit, modifier: Modifier, composer: FixtureComposer, changed: Int) = Unit
+    }
+    internal object FixtureAmbiguousMoreMenuBubble {
+        @JvmStatic @Suppress("UNUSED_PARAMETER")
+        fun d(items: List<*>, onDismiss: (Any?) -> Unit, composer: FixtureComposer, changed: Int) = Unit
+        @JvmStatic @Suppress("UNUSED_PARAMETER")
+        fun b(entry: FixtureWmo1WithDefaults, onDismiss: () -> Unit, modifier: Modifier, composer: FixtureComposer, changed: Int) = Unit
+        @JvmStatic @Suppress("UNUSED_PARAMETER")
+        fun b(entry: FixtureLegacyEntry, onDismiss: () -> Unit, modifier: Modifier, composer: FixtureComposer, changed: Int) = Unit
+    }
+
+    private class RecordingRegistrar : HookRegistrar, AutoCloseable {
+        val backend = FakeBackend.create()
+        private val megEnv = MeguvizHookEnvironment.create(backend)
+        val installedIds = linkedSetOf<String>()
+
+        override fun first(id: String, className: String, methodName: String, block: ModernMemberHookCreator.() -> Unit) =
+            error("Unexpected first() for $id")
+        override fun all(id: String, className: String, methodName: String, block: ModernMemberHookCreator.() -> Unit) =
+            error("Unexpected all() for $id")
+        override fun exact(
+            id: String,
+            owner: Class<*>,
+            methodName: String,
+            vararg parameterTypes: Class<*>,
+            block: ModernMemberHookCreator.() -> Unit
+        ) {
+            val method = owner.getDeclaredMethod(methodName, *parameterTypes)
+            val spec = ModernMemberHookCreator(method).apply(block).toSpec(HookId.of(id), ErrorPolicy.PROPAGATE)
+            val receipt = megEnv.install(spec)
+            assertTrue(receipt.message(), receipt.isInstalled)
+            installedIds += id
+        }
+        override fun adapted(
+            id: String,
+            point: VersionAdapter.HookPoint,
+            exceptionPolicy: HookExceptionPolicy,
+            block: ModernMemberHookCreator.() -> Unit
+        ) = error("Unexpected adapted() for $id")
+        override fun constructor(id: String, constructor: Constructor<*>, block: ModernMemberHookCreator.() -> Unit) =
+            error("Unexpected constructor() for $id")
+        override fun close() = megEnv.close()
+    }
+
+    private fun composeHostClassLoader(
+        entryClassName: String,
+        bubbleTemplate: Class<*> = FixtureMoreMenuBubble::class.java
+    ): ClassLoader {
+        fun internalName(cls: Class<*>): String = cls.name.replace('.', '/')
+        val templates = mapOf(
+            "androidx.compose.ui.platform.AndroidCompositionLocals_androidKt" to FixtureAndroidLocals::class.java,
+            "androidx.compose.runtime.CompositionLocal" to FixtureCompositionLocal::class.java,
+            "androidx.compose.runtime.Composer" to FixtureComposer::class.java,
+            "androidx.compose.ui.graphics.painter.Painter" to FixturePainter::class.java,
+            "kntr.common.comment.common.ui.moremenu.MoreMenuBubbleKt" to bubbleTemplate,
+            entryClassName to FixtureWmo1WithDefaults::class.java,
+            "$entryClassName\$Companion" to FixtureWmo1WithDefaults.Companion::class.java,
+            "zAltEntry" to FixtureLegacyEntry::class.java
+        )
+        val replacements = linkedMapOf(
+            internalName(FixtureAndroidLocals::class.java) to "androidx/compose/ui/platform/AndroidCompositionLocals_androidKt",
+            internalName(FixtureCompositionLocal::class.java) to "androidx/compose/runtime/CompositionLocal",
+            internalName(FixtureComposer::class.java) to "androidx/compose/runtime/Composer",
+            internalName(FixturePainter::class.java) to "androidx/compose/ui/graphics/painter/Painter",
+            internalName(bubbleTemplate) to "kntr/common/comment/common/ui/moremenu/MoreMenuBubbleKt",
+            internalName(FixtureWmo1WithDefaults::class.java) to entryClassName.replace('.', '/'),
+            internalName(FixtureWmo1WithDefaults.Companion::class.java) to "${entryClassName.replace('.', '/')}\$Companion",
+            internalName(FixtureLegacyEntry::class.java) to "zAltEntry"
+        )
+        return TestRenamingClassLoader(
+            parent = requireNotNull(javaClass.classLoader),
+            templates = templates,
+            replacements = replacements
+        )
     }
 }

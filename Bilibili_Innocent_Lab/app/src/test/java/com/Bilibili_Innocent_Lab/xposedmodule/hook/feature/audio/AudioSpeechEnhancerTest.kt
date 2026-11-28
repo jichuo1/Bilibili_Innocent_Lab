@@ -24,7 +24,11 @@ class AudioSpeechEnhancerTest {
             val input = FloatArray(rate) { i -> (sin(2 * PI * 900 * (i / 2) / rate) * .2 * if (i % 2 == 0) 1 else -1).toFloat() }
             processor(rate).process(input)
             assertTrue(input.all { it.isFinite() && abs(it) < .21 })
-            for (i in (rate / 4 / 2 * 2) until input.size step 2) assertEquals("rate=$rate index=$i", input[i], -input[i + 1], 1e-6f)
+            for (i in (rate / 4 / 2 * 2) until input.size step 2) {
+                val left = input[i]
+                val rightNeg = -input[i + 1]
+                if (!(abs(left - rightNeg) <= 1e-6f)) assertEquals("rate=$rate index=$i", left, rightNeg, 1e-6f)
+            }
             val energy = input.takeLast(rate / 4).sumOf { it.toDouble() * it } / (rate / 4)
             assertTrue("rate=$rate energy=$energy", energy in .018.. .022)
         }
@@ -59,8 +63,13 @@ class AudioSpeechEnhancerTest {
             val original = FloatArray(rate * 2) { (sin(2 * PI * frequency * (it / 2) / rate) * .1).toFloat() }
             val output = original.copyOf()
             processor(rate).process(output)
-            for (i in rate until output.size)
-                assertEquals("frequency=$frequency index=$i", original[i - 1582 * 2], output[i], 1e-6f)
+            for (i in rate until output.size) {
+                val expectedSample = original[i - 1582 * 2]
+                val actualSample = output[i]
+                if (!(abs(expectedSample - actualSample) <= 1e-6f)) {
+                    assertEquals("frequency=$frequency index=$i", expectedSample, actualSample, 1e-6f)
+                }
+            }
         }
     }
 

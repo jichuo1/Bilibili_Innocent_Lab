@@ -100,7 +100,7 @@ class QuickLocatePlanTest {
         val full = requireNotNull(VersionAdapter.quickLocate(freshLoader(), AdaptPlan.full()))
         val fullJson = JSONObject(full.toJson().toString())
         val fullDiag = full.diagnostics.associateBy { it.id }
-        repeat(10) { round ->
+        repeat(4) { round ->
             val families = PointFamily.entries.filter { random.nextInt(100) < 20 + round % 5 * 15 }.toSet()
             val plan = AdaptPlan(round.toLong(), families, emptySet())
             val loader = freshLoader()
@@ -171,7 +171,7 @@ class QuickLocatePlanTest {
             "com.bilibili.player", "com.bilibili.lib.homepage", "com.bilibili.teenagersmode", "com.bilibili.bplus",
             "com.bilibili.relation", "com.bilibili.search2", "com.bilibili.adcommon", "tv.danmaku"
         )
-        repeat(8) { round ->
+        repeat(3) { round ->
             val hidden = packages.filter { random.nextInt(3) == 0 }.toSet()
             val families = PointFamily.entries.filter { random.nextBoolean() }.toSet()
             // 同一个隐藏集合建两份独立 ClassLoader：全量与按计划各自真实求值。

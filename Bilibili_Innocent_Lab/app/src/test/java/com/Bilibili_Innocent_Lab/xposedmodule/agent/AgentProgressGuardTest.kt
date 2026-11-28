@@ -179,6 +179,53 @@ class AgentProgressGuardTest {
         assertTrue(guard.observe(call("get_host_state"), state(page = "video")))
     }
 
+    fun `fgs promotion helper and usesAccessibility policy handle background restrictions safely`() {
+        assertTrue(runForegroundSafely { })
+        assertFalse(runForegroundSafely { throw SecurityException("fgs denied") })
+        assertFalse(runForegroundSafely { throw IllegalStateException("background fgs denied") })
+
+        // 纯原生 RPC 任务即使启动时无障碍已连接也不应因无障碍抖动被取消。
+        val routing = AgentNativeRoutingPolicy()
+        routing.startingNative()
+        routing.began()
+        assertFalse(
+            agentTaskUsesAccessibility(
+                routing.uiOnly,
+                usedAccessibility = false
+            )
+        )
+        // 执行过 get_ui_state / UI 操作后断连必须取消。
+        assertTrue(
+            agentTaskUsesAccessibility(
+                routing.uiOnly,
+                usedAccessibility = true
+            )
+        )
+        // 原生转交 UI 或纯 UI 任务必须依赖无障碍。
+        assertTrue(
+            routing.handoff(
+                JSONObject().put("ok", true).put(
+                    "data",
+                    JSONObject().put("status", "finished").put("native_window_released", true)
+                )
+            )
+        )
+        assertTrue(
+            agentTaskUsesAccessibility(
+                routing.uiOnly,
+                usedAccessibility = false
+            )
+        )
+
+        val uiOnlyPolicy = AgentNativeRoutingPolicy().apply { noNative() }
+        assertTrue(
+            agentTaskUsesAccessibility(
+                uiOnlyPolicy.uiOnly,
+                usedAccessibility = false
+            )
+        )
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (AgentProgressGuardTest) -> Unit) {
@@ -199,6 +246,7 @@ class AgentProgressGuardTest {
         runIsolated { s -> s.`empty search results keep accumulating despite changing query and cursor`() }
         runIsolated { s -> s.`same candidate set with different ordering queries and cursors is old evidence`() }
         runIsolated { s -> s.`navigation requested is not a new observation`() }
+        runIsolated { s -> s.`fgs promotion helper and usesAccessibility policy handle background restrictions safely`() }
     
         AgentScreenshotWorkerCases().verifyAllCases()
         AgentTaskCacheCases().verifyAllCases()

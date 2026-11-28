@@ -1,5 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
+import android.view.View
+import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.comment.ReplyTopologyAnchorBinder
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.comment.ReplyTopologySeedBridge
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeFlags
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyThreadKey
 import java.io.ByteArrayInputStream
@@ -24,6 +31,99 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class ReplyTopologySeedStoreTest {
+    @get:Rule
+    val tempFolder = TemporaryFolder()
+
+    private class FakeCommentItem
+    private class FakeHolder(val itemView: View, private val item: FakeCommentItem)
+    private class FakeBinding(private val root: View) {
+        @Suppress("unused")
+        fun getRoot(): View = root
+    }
+    private class FakeFieldBinding(@JvmField val a: View)
+
+    private fun flagSeed(rpid: Long) = ReplyTopologySeed(
+        key = ReplyTopologyThreadKey(oid = 1L, type = 1, rootRpid = rpid),
+        nodes = listOf(
+            ReplyTopologyNodeSnapshot.fromRaw(
+                rpid = rpid,
+                rootRpid = 0L,
+                parentRpid = 0L,
+                dialogId = 0L,
+                ctime = 100L,
+                authorMid = 10L,
+                authorName = "user",
+                repliedAuthorName = null,
+                message = "msg-$rpid",
+                flags = ReplyTopologyNodeFlags.ROOT
+            )
+        ),
+        expectedReplyCount = 1
+    )
+
+    fun seedBridgeEnforcesBoundedLruCapacityAndWireRetryState() {
+        val bridge = ReplyTopologySeedBridge()
+        for (i in 1L..200L) {
+            bridge.cacheSeed(flagSeed(i))
+            if (i == 1L) bridge.findSeed(1L)
+        }
+        assertNull(bridge.findSeed(1L))
+        assertNull(bridge.findSeed(8L))
+        assertNotNull(bridge.findSeed(9L))
+        assertNotNull(bridge.findSeed(200L))
+        assertFalse(bridge.allWireBound())
+        assertTrue(bridge.shouldRetryWire(null))
+        bridge.markAllWireBound()
+        assertEquals("wire", bridge.channelKind)
+        assertFalse(bridge.shouldRetryWire(null))
+        assertTrue(bridge.shouldRetryWire(VersionAdapter.HookPoint("a", "b")))
+    }
+
+    fun anchorBinderExtractsCommentItemAndBindingRootAcrossShapes() {
+        val binder = ReplyTopologyAnchorBinder()
+        val view = object : ViewGroup(null) {
+            override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) = Unit
+        }
+        val item = FakeCommentItem()
+        val holder = FakeHolder(view, item)
+
+        assertSame(item, binder.findCommentItem(FakeCommentItem::class.java, holder, emptyArray()))
+        assertSame(item, binder.findCommentItem(FakeCommentItem::class.java, Any(), arrayOf(item)))
+        assertNull(binder.findCommentItem(FakeCommentItem::class.java, Any(), emptyArray()))
+
+        assertSame(view, binder.findBindingRoot(holder, emptyArray()))
+        assertSame(view, binder.findBindingRoot(null, arrayOf(FakeBinding(view))))
+        assertSame(view, binder.findBindingRoot(null, arrayOf(FakeFieldBinding(view))))
+    }
+
+    fun commentTopologyInstallerIntegratesCoordinatorRetryAdapted() {
+        val posted = mutableListOf<() -> Unit>()
+        val env = HookEnvironment(
+            processName = "tv.danmaku.bili",
+            classLoader = javaClass.classLoader,
+            hookPoints = HookPointRegistry(javaClass.classLoader),
+            registrar = TestHookRegistrar,
+            logInfo = { _, _ -> },
+            logError = { _, _ -> },
+            reportStatus = { _, _ -> },
+            postToMain = { posted += it }
+        )
+        val coordinator = FeatureInstallCoordinator(env)
+        val installer = CommentTopologyFeatureInstaller(
+            enabled = true,
+            points = null,
+            lowBindPoint = null,
+            highBindPoint = null
+        )
+
+        val initial = coordinator.installAll(listOf(installer)).single().result
+        assertEquals(FeatureInstallResult.Skipped("missing-adapter-point"), initial)
+        assertTrue(installer.isAdaptationRetryPending)
+
+        coordinator.retryAdapted(adapted = null, ok = true)
+        assertFalse("After prepare receives null adapted points, retry loop stops", installer.isAdaptationRetryPending)
+        assertTrue(posted.isEmpty())
+    }
 
     fun identityMissFallsBackToMatchingCommentItemRpid() {
         val store = ReplyTopologySeedStore(maxRememberedRoots = 2)
@@ -146,15 +246,22 @@ class ReplyTopologySeedStoreTest {
         runIsolated { s -> s.identityCacheIsBoundedAndUsesAccessOrder() }
         runIsolated { s -> s.repeatedIdentityLookupsStayStableAndDoNotInsertEntries() }
         runIsolated { s -> s.identityLookupKeepsAccessOrderAfterProbeReuse() }
-    
+        runIsolated { s -> s.seedBridgeEnforcesBoundedLruCapacityAndWireRetryState() }
+        runIsolated { s -> s.anchorBinderExtractsCommentItemAndBindingRootAcrossShapes() }
+        runIsolated { s -> s.commentTopologyInstallerIntegratesCoordinatorRetryAdapted() }
+
         RuleSetCodecCases().verifyAllCases()
         SectionPickPolicyCases().verifyAllCases()
-        SemanticBackendCases().verifyAllCases()
-        SemanticCacheCases().verifyAllCases()
+        SemanticBackendCases(tempFolder.newFolder()).verifyAllCases { tempFolder.newFolder() }
+        SemanticCacheCases(tempFolder.newFolder()).verifyAllCases { tempFolder.newFolder() }
         SemanticConnectivityCases().verifyAllCases()
         SemanticHttpResponseReaderCases().verifyAllCases()
-        SemanticLearnedStoreCases().verifyAllCases()
+        SemanticLearnedStoreCases(tempFolder.newFolder()).verifyAllCases { tempFolder.newFolder() }
     }
+}
+
+private class IsolatedCaseFolder(val root: File) {
+    fun newFolder(name: String) = File(root, name).apply { mkdirs() }
 }
 
 private class RuleSetCodecCases {
@@ -364,9 +471,9 @@ private class SectionPickPolicyCases {
     }
 }
 
-private class SemanticBackendCases {
+private class SemanticBackendCases(rootDir: File) {
 
-    val temp = TemporaryFolder()
+    val temp = IsolatedCaseFolder(rootDir)
 
     /** 批量上限类断言假设一题一文本；拆题后一题 = 一条 × 一条规则，取一条规则保持题数 = 条目数（多规则题面见 SemanticJudgeTest）。 */
     private val rules = SemanticPresets.COMMENT.take(1)
@@ -885,7 +992,7 @@ private class SemanticBackendCases {
         SemanticJudge("k", rules, background = { it.run(); true }, transport = transport).evaluate(listOf("一"), SemanticMode.WAIT)
         val file = File(File(root, "bil_semantic"), SemanticJudge.LEARNED_FILE)
         // 真机上写盘走后台池；单测里等它落盘。
-        repeat(50) { if (!file.isFile) Thread.sleep(20) }
+        repeat(500) { if (!file.isFile) Thread.sleep(2) }
         assertTrue(file.isFile)
         val saved = file.readText()
         assertTrue(saved.startsWith("v ") && saved.trim().endsWith(" 1")) // choice+文本 = 变体 1
@@ -1099,19 +1206,14 @@ private class SemanticBackendCases {
         assertTrue(AiChatCompat.truncated(chatReply("{", "length")))
     }
 
-    fun verifyAllCases() {
+    fun verifyAllCases(newRoot: () -> File) {
         fun runIsolated(block: (SemanticBackendCases) -> Unit) {
-            val s = SemanticBackendCases()
-            s.temp.create()
+            val s = SemanticBackendCases(newRoot())
+            s.resetVariants()
             try {
-                s.resetVariants()
-                try {
-                    block(s)
-                } finally {
-                    s.clearVariants()
-                }
+                block(s)
             } finally {
-                s.temp.delete()
+                s.clearVariants()
             }
         }
         runIsolated { s -> s.`openai compatible base urls resolve to chat completions`() }
@@ -1157,9 +1259,9 @@ private class SemanticBackendCases {
     }
 }
 
-private class SemanticCacheCases {
+private class SemanticCacheCases(rootDir: File = File(".")) {
 
-    val temp = TemporaryFolder()
+    val temp = IsolatedCaseFolder(rootDir)
 
     private fun key(i: Int) = "%032x".format(i)
 
@@ -1311,15 +1413,10 @@ private class SemanticCacheCases {
         assertEquals(7 * day, SemanticSettings.from("k", "", "", false)!!.cacheTtlMs)
     }
 
-    fun verifyAllCases() {
+    fun verifyAllCases(newRoot: () -> File) {
         fun runIsolated(block: (SemanticCacheCases) -> Unit) {
-            val s = SemanticCacheCases()
-            s.temp.create()
-            try {
-                block(s)
-            } finally {
-                s.temp.delete()
-            }
+            val s = SemanticCacheCases(newRoot())
+            block(s)
         }
         runIsolated { s -> s.`hot entries survive a scan of one-off entries`() }
         runIsolated { s -> s.`plain recency would have evicted the same hot set`() }
@@ -1494,8 +1591,8 @@ private class SemanticHttpResponseReaderCases {
     }
 }
 
-private class SemanticLearnedStoreCases {
-    val temporary = TemporaryFolder()
+private class SemanticLearnedStoreCases(rootDir: File = File(".")) {
+    val temporary = IsolatedCaseFolder(rootDir)
 
     fun `updates during an active save keep one consumer and persist the newest snapshot`() {
         val tasks = ArrayDeque<Runnable>()
@@ -1640,15 +1737,10 @@ private class SemanticLearnedStoreCases {
         assertEquals(listOf("learned.txt"), temporary.root.list()?.toList())
     }
 
-    fun verifyAllCases() {
+    fun verifyAllCases(newRoot: () -> File) {
         fun runIsolated(block: (SemanticLearnedStoreCases) -> Unit) {
-            val s = SemanticLearnedStoreCases()
-            s.temporary.create()
-            try {
-                block(s)
-            } finally {
-                s.temporary.delete()
-            }
+            val s = SemanticLearnedStoreCases(newRoot())
+            block(s)
         }
         runIsolated { s -> s.`updates during an active save keep one consumer and persist the newest snapshot`() }
         runIsolated { s -> s.`failed writes retry within a bound and remain retryable on a later update`() }

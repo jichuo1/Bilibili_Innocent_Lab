@@ -16,6 +16,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class SponsorBlockClientTest {
+    @get:Rule
+    val folder = TemporaryFolder()
+
     private val id = SponsorVideoId("BV14741127BN", 1)
     private class Connection(private val status: Int, private val body: InputStream) : HttpURLConnection(URL("https://www.bsbsb.top")) {
         var released = false
@@ -68,7 +71,7 @@ class SponsorBlockClientTest {
         runIsolated { s -> s.networkTlsAndInvalidResponsesHaveDistinctReasons() }
         runIsolated { s -> s.cancellationBeforeOpeningDoesNotStartANetworkRequestOrRetry() }
     
-        SponsorCachingSourceCases().verifyAllCases()
+        SponsorCachingSourceCases(folder).verifyAllCases()
         SponsorPlaybackControllerCases().verifyAllCases()
         SponsorPlaybackPolicyCases().verifyAllCases()
         SponsorPlayerBindingsCases().verifyAllCases()
@@ -76,8 +79,8 @@ class SponsorBlockClientTest {
     }
 }
 
-private class SponsorCachingSourceCases {
-    val folder = TemporaryFolder()
+private class SponsorCachingSourceCases(private val folder: TemporaryFolder) {
+    private val root = folder.newFolder()
     private var time = 10_000_000_000L
     private val video = SponsorVideoId("BV1pVWu6ZEzn", 43486676261)
     private val ad = SponsorSegment("a", 74_636, 103_813, 566_000)
@@ -89,10 +92,10 @@ private class SponsorCachingSourceCases {
         }
     }
 
-    private fun store() = SponsorSegmentStore(folder.root) { time }
+    private fun store() = SponsorSegmentStore(root) { time }
     private fun source(network: Network) = SponsorCachingSource(network, store()) { time }
     private fun fetch(source: SponsorSegmentSource, id: SponsorVideoId = video) = source.fetch(id, SponsorRequestCancellation())
-    private fun fileOf(id: SponsorVideoId) = File(File(folder.root, SponsorSegmentStore.DIRECTORY), SponsorSegmentStore.keyOf(id) + ".json")
+    private fun fileOf(id: SponsorVideoId) = File(File(root, SponsorSegmentStore.DIRECTORY), SponsorSegmentStore.keyOf(id) + ".json")
 
     fun aSuccessfulFetchIsStoredAndAFreshEntryIsServedWithoutTheNetwork() {
         val network = Network(SponsorFetchResult.Available(listOf(ad)))
@@ -175,7 +178,8 @@ private class SponsorCachingSourceCases {
     fun withoutAStoreOrWithAnUnwritableOneTheNetworkResultPassesThroughUnchanged() {
         val result = SponsorFetchResult.Available(listOf(ad))
         assertSame(result, fetch(SponsorCachingSource(Network(result), null) { time }))
-        val broken = SponsorCachingSource(Network(result), SponsorSegmentStore(folder.newFile("occupied")) { time }) { time }
+        val occupied = File(root, "occupied").apply { createNewFile() }
+        val broken = SponsorCachingSource(Network(result), SponsorSegmentStore(occupied) { time }) { time }
         assertSame(result, fetch(broken))
     }
 
@@ -193,13 +197,8 @@ private class SponsorCachingSourceCases {
 
     fun verifyAllCases() {
         fun runIsolated(block: (SponsorCachingSourceCases) -> Unit) {
-            val s = SponsorCachingSourceCases()
-            s.folder.create()
-            try {
-                block(s)
-            } finally {
-                s.folder.delete()
-            }
+            val s = SponsorCachingSourceCases(folder)
+            block(s)
         }
         runIsolated { s -> s.aSuccessfulFetchIsStoredAndAFreshEntryIsServedWithoutTheNetwork() }
         runIsolated { s -> s.aStaleEntryIsRefreshedFromTheNetworkAndOverwritten() }

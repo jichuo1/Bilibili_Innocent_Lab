@@ -3,9 +3,21 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import FlatWave1EndPageMerger
 import FlatWave1EndPageService
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler as KmpWireHandler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service as KmpWireService
+import kotlinx.serialization.SerializationStrategy
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 
 class PlayerEndPageRecommendTest {
     class Request
@@ -204,6 +216,76 @@ class PlayerEndPageRecommendTest {
         assertEquals(mergeMethod, directAccess.mergedList)
     }
 
+    private object WireDummyStrategy : SerializationStrategy<Any>
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, WireDummyStrategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    class WireEndPageReply(val cards: List<String>) {
+        fun getRelatesList(): List<String> = cards
+        fun getRelatesCount(): Int = cards.size
+        fun toByteArray(): ByteArray = ByteArrayOutputStream().also { out ->
+            DataOutputStream(out).use { s ->
+                s.writeInt(cards.size)
+                cards.forEach(s::writeUTF)
+            }
+        }.toByteArray()
+        class Builder(source: WireEndPageReply) {
+            private var cards = source.cards
+            fun clearRelates() = apply { cards = emptyList() }
+            fun build() = WireEndPageReply(cards)
+        }
+        companion object {
+            private val DEFAULT = WireEndPageReply(emptyList())
+            @JvmStatic fun getDefaultInstance() = DEFAULT
+            @JvmStatic fun newBuilder(source: WireEndPageReply) = Builder(source)
+            @JvmStatic fun parseFrom(bytes: ByteArray): WireEndPageReply =
+                DataInputStream(ByteArrayInputStream(bytes)).use { s ->
+                    WireEndPageReply(List(s.readInt()) { s.readUTF() })
+                }
+        }
+    }
+
+    fun `wire-first cleans end page relates in KMP-only mode`() {
+        val endReg = PlayerPortTestRegistrar()
+        val endAccess = PlayerEndPageRecommendLocator.resolve(WireEndPageReply::class.java, null, null, null)
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            KmpWireService::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            KmpWireHandler::class.java,
+            Any::class.java
+        )
+        val endResult = PlayerEndPageRecommendFeatureInstaller(
+            enabled = true,
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod),
+            resolve = { endAccess }
+        ).install(environment(endReg))
+        assertTrue(endResult is FeatureInstallResult.Installed)
+        var endOut: ByteArray? = null
+        val handler = object : KmpWireHandler {
+            override fun onNext(bytes: ByteArray?) { endOut = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val descriptor = WireStrippedDescriptor("bilibili.app.viewunite.v1", "View", "ViewEndPage")
+        endReg.invoke(
+            "kmp.grpc.wire.channel",
+            GrpcEngine(emptyList()),
+            arrayOf(KmpWireService("host"), descriptor, ByteArray(0), handler, null)
+        ) { passed ->
+            (passed[3] as KmpWireHandler).onNext(WireEndPageReply(listOf("card-1", "card-2")).toByteArray())
+            null
+        }
+        assertTrue(WireEndPageReply.parseFrom(requireNotNull(endOut)).getRelatesList().isEmpty())
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (PlayerEndPageRecommendTest) -> Unit) {
@@ -225,5 +307,6 @@ class PlayerEndPageRecommendTest {
         runIsolated { s -> s.`one failed registration remains in the five-path denominator`() }
         runIsolated { s -> s.`disabled other process absent and incorrect structures install no unsafe hook`() }
         runIsolated { s -> s.`flattened root merger resolves from arbitrary service field without fixed class or method names`() }
+        runIsolated { s -> s.`wire-first cleans end page relates in KMP-only mode`() }
     }
 }

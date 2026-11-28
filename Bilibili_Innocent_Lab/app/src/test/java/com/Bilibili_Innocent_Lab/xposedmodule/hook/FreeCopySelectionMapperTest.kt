@@ -6,6 +6,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -437,6 +438,15 @@ private class HookPointRegistryCases {
         assertNotNull(registry.resolveExact("fixture:exact-int", Fixture::class.java, "exact", *params))
     }
 
+    fun `resolves jvm array descriptors`() {
+        val classes = registry.resolveParameterClasses(listOf("[Ljava.lang.String;", "[I", "[[B", "int"))
+        assertNotNull(classes)
+        assertArrayEquals(
+            arrayOf(Array<String>::class.java, IntArray::class.java, Array<ByteArray>::class.java, Int::class.javaPrimitiveType),
+            classes!!
+        )
+    }
+
     fun verifyAllCases() {
         fun runIsolated(block: (HookPointRegistryCases) -> Unit) {
             val s = HookPointRegistryCases()
@@ -458,5 +468,6 @@ private class HookPointRegistryCases {
         runIsolated { s -> s.`resolves fields through unified diagnostics`() }
         runIsolated { s -> s.`resolves constructor and reports missing signature`() }
         runIsolated { s -> s.`cached parameter names resolve every primitive and fail as a whole`() }
+        runIsolated { s -> s.`resolves jvm array descriptors`() }
     }
 }

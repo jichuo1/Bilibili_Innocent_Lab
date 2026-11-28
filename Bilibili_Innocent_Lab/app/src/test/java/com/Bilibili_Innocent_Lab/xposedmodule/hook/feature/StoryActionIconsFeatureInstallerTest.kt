@@ -9,10 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import java.util.IdentityHashMap
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.LegacyStoryDanmakuAccess
 import com.bilibili.video.story.action.LegacyToggle
@@ -148,101 +145,53 @@ class StoryActionIconsFeatureInstallerTest {
         fun S0(@Suppress("UNUSED_PARAMETER") player: TemplateRootPlayer?, @Suppress("UNUSED_PARAMETER") index: Int) = Unit
     }
 
-    private class StoryRenamingClassLoader(
+    private fun storyRenamingLoader(
         parent: ClassLoader,
         controllerTemplate: Class<*>,
         playerClassName: String
-    ) : ClassLoader(parent) {
-        private val templates = mapOf(
+    ): ClassLoader = TestRenamingClassLoader(
+        parent = parent,
+        templates = mapOf(
             LegacyStoryDanmakuAccess.OWNER to controllerTemplate,
             playerClassName to TemplateRootPlayer::class.java
-        )
-        private val replacements = mapOf(
+        ),
+        replacements = mapOf(
             controllerTemplate.name.replace('.', '/') to LegacyStoryDanmakuAccess.OWNER.replace('.', '/'),
             TemplateRootPlayer::class.java.name.replace('.', '/') to playerClassName.replace('.', '/')
         )
-
-        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
-            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
-            val loaded = findLoadedClass(name) ?: run {
-                val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
-                    .use { it.readBytes() }
-                val rewritten = rewrite(raw)
-                defineClass(name, rewritten, 0, rewritten.size)
-            }
-            if (resolve) resolveClass(loaded)
-            loaded
-        }
-
-        private fun rewrite(raw: ByteArray): ByteArray {
-            val input = DataInputStream(ByteArrayInputStream(raw))
-            val out = ByteArrayOutputStream()
-            val output = DataOutputStream(out)
-            output.writeInt(input.readInt())
-            output.writeShort(input.readUnsignedShort())
-            output.writeShort(input.readUnsignedShort())
-            val count = input.readUnsignedShort()
-            output.writeShort(count)
-            var index = 1
-            while (index < count) {
-                val tag = input.readUnsignedByte()
-                output.writeByte(tag)
-                if (tag == 1) {
-                    var value = input.readUTF()
-                    replacements.entries.sortedByDescending { it.key.length }.forEach { (k, v) ->
-                        value = value.replace(k, v)
-                    }
-                    output.writeUTF(value)
-                } else {
-                    val length = when (tag) {
-                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
-                        5, 6 -> 8
-                        7, 8, 16, 19, 20 -> 2
-                        15 -> 3
-                        else -> error("Unsupported CP tag: $tag")
-                    }
-                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
-                    if (tag == 5 || tag == 6) index++
-                }
-                index++
-            }
-            output.write(input.readBytes())
-            output.flush()
-            return out.toByteArray()
-        }
-    }
+    )
 
     fun `legacy toggle resolves root package players on 920 and 921 while preserving 919 K0 tiebreak and failing closed on ambiguity`() {
         val resolved921_2 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
-            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "uxt0"),
+            storyRenamingLoader(loader, TemplateStoryController921::class.java, "uxt0"),
             LegacyToggle::class.java
         ))
         assertEquals("S0", resolved921_2.bind.name)
 
         val resolved921_1 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
-            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "avt0"),
+            storyRenamingLoader(loader, TemplateStoryController921::class.java, "avt0"),
             LegacyToggle::class.java
         ))
         assertEquals("S0", resolved921_1.bind.name)
 
         val resolved920 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
-            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "icu0"),
+            storyRenamingLoader(loader, TemplateStoryController921::class.java, "icu0"),
             LegacyToggle::class.java
         ))
         assertEquals("S0", resolved920.bind.name)
 
         val resolved919 = requireNotNull(LegacyStoryDanmakuAccess.resolve(
-            StoryRenamingClassLoader(loader, TemplateStoryControllerMulti::class.java, "iwr0"),
+            storyRenamingLoader(loader, TemplateStoryControllerMulti::class.java, "iwr0"),
             LegacyToggle::class.java
         ))
         assertEquals("K0", resolved919.bind.name)
 
         assertNull(LegacyStoryDanmakuAccess.resolve(
-            StoryRenamingClassLoader(loader, TemplateStoryControllerMulti::class.java, "uxt0"),
+            storyRenamingLoader(loader, TemplateStoryControllerMulti::class.java, "uxt0"),
             LegacyToggle::class.java
         ))
         assertNull(LegacyStoryDanmakuAccess.resolve(
-            StoryRenamingClassLoader(loader, TemplateStoryController921::class.java, "com.example.other.FakePlayer"),
+            storyRenamingLoader(loader, TemplateStoryController921::class.java, "com.example.other.FakePlayer"),
             LegacyToggle::class.java
         ))
     }

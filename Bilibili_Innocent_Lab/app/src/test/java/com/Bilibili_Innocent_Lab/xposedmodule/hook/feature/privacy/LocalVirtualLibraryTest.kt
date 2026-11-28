@@ -451,12 +451,11 @@ class LocalVirtualLibraryTest {
             valid.replace("\"version\":1", "\"version\":01"),
             valid.replace("\"version\":1", "\"version\":1/* comment */"),
             valid.replace("\"version\":1", "\"version\":1,"),
-            "[".repeat(20) + "0" + "]".repeat(20),
-            " ".repeat(LocalVirtualLibrary.MAX_JSON_LENGTH + 1)
+            "[".repeat(20) + "0" + "]".repeat(20)
         )
-        variants.forEach { malformed ->
+        fun checkMalformed(malformed: String, maxJsonLength: Int = LocalVirtualLibrary.MAX_JSON_LENGTH) {
             val storage = Storage(text = malformed)
-            val library = storage.library()
+            val library = storage.library(maxJsonLength = maxJsonLength)
             val error = assertThrows(CorruptLibraryException::class.java) { library.readSnapshot() }
             assertEquals("Local library JSON is invalid or unsupported", error.message)
             assertNull(error.cause)
@@ -465,6 +464,8 @@ class LocalVirtualLibraryTest {
             assertEquals(malformed, storage.text)
             assertEquals(0, storage.saves)
         }
+        variants.forEach { checkMalformed(it) }
+        checkMalformed(" ".repeat(8 * 1024 + 1), maxJsonLength = 8 * 1024)
     }
 
     fun jsonSchemaTypesDuplicateEntriesAndLimitsAreStrict() {
@@ -673,7 +674,11 @@ class LocalVirtualLibraryTest {
         var loadFailure: RuntimeException? = null
         var saveFailure: RuntimeException? = null
 
-        fun library(maxEntries: Int = LocalVirtualLibrary.MAX_ENTRIES, maxFolders: Int = LocalVirtualLibrary.MAX_FOLDERS) =
+        fun library(
+            maxEntries: Int = LocalVirtualLibrary.MAX_ENTRIES,
+            maxFolders: Int = LocalVirtualLibrary.MAX_FOLDERS,
+            maxJsonLength: Int = LocalVirtualLibrary.MAX_JSON_LENGTH
+        ) =
             LocalVirtualLibrary(
                 load = {
                     loads++
@@ -686,7 +691,8 @@ class LocalVirtualLibraryTest {
                     text = it
                 },
                 maxEntries = maxEntries,
-                maxFolders = maxFolders
+                maxFolders = maxFolders,
+                maxJsonLength = maxJsonLength
             )
     }
 

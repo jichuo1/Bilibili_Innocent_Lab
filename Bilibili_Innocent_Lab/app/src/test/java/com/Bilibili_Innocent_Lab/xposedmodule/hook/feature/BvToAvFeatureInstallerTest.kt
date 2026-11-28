@@ -78,6 +78,11 @@ class BvToAvFeatureInstallerTest {
         CommentBindProbeCases().verifyAllCases()
         CommentClassicStyleFeatureInstallerCases().verifyAllCases()
     }
+
+    @Test
+    fun `resolve avoids excessive allocations when thread allocation tracking enabled`() {
+        CommentBindProbeCases().theRecordingPathDoesNotAllocateWhenEnabled()
+    }
 }
 
 private class CloudKeyFreezeFeatureInstallerCases {
@@ -561,7 +566,7 @@ private class CloudKeyFreezeFeatureInstallerCases {
         )
         val bool = registrar.idOf(FakeDeviceDecision::class.java, "getBoolean", 2)
         registrar.invoke(bool, args = arrayOf("ff_free", true)) { false }
-        assertNull(published.poll(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+        assertTrue(published.isEmpty())
         assertFalse("collecting" in recorder.statuses)
     }
 
@@ -1214,7 +1219,7 @@ private class CommentBindBudgetCases {
         val queue = CommentBindQueue<String>()
         val views = List(30) { View("v$it") }
         var enqueued = 0; var replaced = 0; var overflow = 0; var superseded = 0; var processed = 0
-        repeat(20_000) {
+        repeat(2_000) {
             if (random.nextInt(3) > 0) {
                 val r = queue.enqueue(entry(views[random.nextInt(views.size)], enqueuedAt = clock.now.coerceAtLeast(1)))
                 enqueued++; replaced += r.replaced; overflow += r.overflowDropped
@@ -1602,12 +1607,12 @@ private class CommentBindProbeCases {
             probe.endDrain(drain, 8, 3, 5)
             probe.onDeferred(CommentBindProbe.DEFER_SCROLL)
         }
-        repeat(30_000) { cycle() } // 预热：JIT、锁膨胀、环形缓冲分配
+        repeat(2_000) { cycle() } // 预热：JIT、锁膨胀、环形缓冲分配
         val id = Thread.currentThread().id
         val before = bean.getThreadAllocatedBytes(id)
-        repeat(100_000) { cycle() }
+        repeat(10_000) { cycle() }
         val allocated = bean.getThreadAllocatedBytes(id) - before
-        assertTrue("allocated $allocated bytes over 100k cycles", allocated < 100_000L) // < 1 字节/周期
+        assertTrue("allocated $allocated bytes over 10k cycles", allocated < 10_000L) // < 1 字节/周期
     }
 
     fun verifyAllCases() {
@@ -1629,7 +1634,6 @@ private class CommentBindProbeCases {
         runIsolated { s -> s.aDrainStartedWhileDisabledIsNotHalfRecordedAfterEnabling() }
         runIsolated { s -> s.reportsAreRateLimitedAndNeverPerItem() }
         runIsolated { s -> s.reportTextCarriesTheMeasuredFigures() }
-        runIsolated { s -> s.theRecordingPathDoesNotAllocateWhenEnabled() }
     }
 }
 

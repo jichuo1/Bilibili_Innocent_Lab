@@ -11,8 +11,10 @@ import org.junit.Test
 
 class KavaMemberLookupTest {
 
+    @Test
     fun `batch scopes close on exceptions and never cross threads or class loaders`() {
         org.junit.Assume.assumeFalse(BuildConfig.MEGUVIZ_LEGACY_LOOKUP)
+        resetLookupCaches()
         val loader = javaClass.classLoader!!
         val other = object : ClassLoader(loader) {}
         KavaMemberLookup.withLookupBatch(loader) {
@@ -80,6 +82,7 @@ class KavaMemberLookupTest {
         }
     }
 
+    @Before
     fun resetLookupCaches() {
         KavaMemberLookup.resetForTests()
     }
@@ -307,7 +310,9 @@ class KavaMemberLookupTest {
         fun defineFixture(name: String, bytes: ByteArray): Class<*> = defineClass(name, bytes, 0, bytes.size)
     }
 
-    private fun exerciseDynamicLoaderAndCreateRef(): java.lang.ref.WeakReference<ClassLoader> {
+    private fun exerciseDynamicLoaderAndCreateRef(
+        refQueue: java.lang.ref.ReferenceQueue<ClassLoader>
+    ): java.lang.ref.WeakReference<ClassLoader> {
         val parent = requireNotNull(DynamicTargetFixture::class.java.classLoader)
         val resource = DynamicTargetFixture::class.java.name.replace('.', '/') + ".class"
         val bytes = requireNotNull(parent.getResourceAsStream(resource)).use { it.readBytes() }
@@ -318,7 +323,7 @@ class KavaMemberLookupTest {
         assertSame(definedClass, KavaMemberLookup.classOrNull(dynamicLoader, DynamicTargetFixture::class.java.name))
         assertEquals("ping", KavaMemberLookup.methodOrNull(definedClass, "ping")?.name)
         assertTrue(KavaMemberLookup.declaredMethods(definedClass).any { it.name == "ping" })
-        return java.lang.ref.WeakReference(dynamicLoader)
+        return java.lang.ref.WeakReference(dynamicLoader, refQueue)
     }
 
     fun `registered host loader uses volatile fast path and keeps third party child loaders out of cache`() {
@@ -354,21 +359,23 @@ class KavaMemberLookupTest {
             urlLoader.close()
         }
 
-        val dynamicRef = exerciseDynamicLoaderAndCreateRef()
+        val refQueue = java.lang.ref.ReferenceQueue<ClassLoader>()
+        val dynamicRef = exerciseDynamicLoaderAndCreateRef(refQueue)
         val diagnostics = KavaMemberLookup.diagnostics()
         assertEquals(0, diagnostics.cachedClasses)
         assertEquals(0, diagnostics.cachedMethods)
         assertEquals(0, diagnostics.cachedMemberCollections)
 
-        var collected = false
-        for (i in 0 until 20) {
-            if (dynamicRef.get() == null) {
+        var collected = dynamicRef.get() == null
+        val deadlineNs = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (!collected && System.nanoTime() < deadlineNs) {
+            System.gc()
+            @Suppress("DEPRECATION")
+            System.runFinalization()
+            if (refQueue.remove(20L) === dynamicRef || dynamicRef.get() == null) {
                 collected = true
                 break
             }
-            System.gc()
-            System.runFinalization()
-            Thread.sleep(20)
         }
         assertTrue("dynamic ClassLoader should not be pinned by Value -> Key cycle in loaderCaches", collected)
     }
@@ -414,7 +421,6 @@ class KavaMemberLookupTest {
             s.resetLookupCaches()
             block(s)
         }
-        runIsolated { s -> s.`batch scopes close on exceptions and never cross threads or class loaders`() }
         runIsolated { s -> s.`zero parameter constructor lookup is exact even with overloaded constructors`() }
         runIsolated { s -> s.`zero parameter method lookup rejects argument only overloads`() }
         runIsolated { s -> s.`inherited zero parameter lookup stays exact and caches absent overloads`() }

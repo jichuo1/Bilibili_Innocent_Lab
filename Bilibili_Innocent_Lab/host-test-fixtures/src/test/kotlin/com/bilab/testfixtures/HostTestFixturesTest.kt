@@ -8,8 +8,6 @@ import java.util.zip.Deflater
 import java.util.zip.ZipInputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -75,30 +73,5 @@ class HostTestFixturesTest {
         val elf4k = TestElf16KbBuilder.buildElf64(pageAlign = 4096L)
         val buf4k = ByteBuffer.wrap(elf4k).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(4096L, buf4k.getLong(64 + 48))
-    }
-
-    @Test
-    fun `in memory key value store preserves typed reads and isolation`() {
-        val store = InMemoryKeyValueStore(mapOf("init" to true))
-        assertTrue(store.getBoolean("init"))
-        assertFalse(store.getBoolean("missing"))
-
-        store.putInt("count", 7)
-        store.putLong("ts", 99L)
-        store.putFloat("alpha", 0.5f)
-        store.putString("name", "bil")
-        store.putStringSet("tags", setOf("a", "b"))
-
-        assertEquals(7, store.getInt("count"))
-        assertEquals(99L, store.getLong("ts"))
-        assertEquals(0.5f, store.getFloat("alpha"))
-        assertEquals("bil", store.getString("name"))
-        assertEquals(setOf("a", "b"), store.getStringSet("tags"))
-
-        store.remove("count")
-        assertFalse(store.contains("count"))
-        assertEquals(0, store.getInt("count"))
-        store.clear()
-        assertNull(store.getString("name"))
     }
 }

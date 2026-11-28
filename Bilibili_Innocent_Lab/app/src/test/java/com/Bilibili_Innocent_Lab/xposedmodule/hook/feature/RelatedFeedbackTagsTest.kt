@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import UnrelatedRootFeedbackCard
 import bjx1
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.feedbackfixture.*
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bilibili.ship.theseus.united.page.intro.module.relate.RelateCardType as HostCardType
 import hkx1
 import iox1
@@ -42,6 +43,45 @@ class RelatedFeedbackTagsTest {
         assertNull(RelatedFeedbackTags.resolve(UnrelatedRootFeedbackCard::class.java))
     }
 
+    class TemplateRelateCard(@JvmField val t: HostCardType, @JvmField val m: TemplateRelateMenu)
+    class TemplateRelateMenu(@JvmField val x: TemplateRelateBox, @JvmField val y: TemplateRelateBox)
+    class TemplateRelateBox(@JvmField val items: List<TemplateRelateReason>)
+    class TemplateRelateReason(
+        @JvmField val a: Long, @JvmField val b: Long, @JvmField val tag: Long,
+        @JvmField val d: Int, @JvmField val text: String
+    )
+
+    fun flattenedRelateCardsResolveDynamically() {
+        for (cardName in listOf("vd72", "uh72")) {
+            val menuName = "${cardName}m"
+            val boxName = "${cardName}b"
+            val reasonName = "${cardName}r"
+            val loader = TestRenamingClassLoader(
+                parent = javaClass.classLoader!!,
+                templates = mapOf(
+                    cardName to TemplateRelateCard::class.java,
+                    menuName to TemplateRelateMenu::class.java,
+                    boxName to TemplateRelateBox::class.java,
+                    reasonName to TemplateRelateReason::class.java
+                ),
+                replacements = mapOf(
+                    TemplateRelateMenu::class.java.name.replace('.', '/') to menuName,
+                    TemplateRelateBox::class.java.name.replace('.', '/') to boxName,
+                    TemplateRelateReason::class.java.name.replace('.', '/') to reasonName
+                )
+            )
+            val cardClass = loader.loadClass(cardName)
+            val tags = requireNotNull(RelatedFeedbackTags.resolve(cardClass))
+            val r1 = loader.loadClass(reasonName).declaredConstructors.single().newInstance(1L, 2L, 777L, 4, "spam")
+            val b1 = loader.loadClass(boxName).declaredConstructors.single().newInstance(listOf(r1))
+            val m = loader.loadClass(menuName).declaredConstructors.single().newInstance(b1, b1)
+            val card = cardClass.declaredConstructors.single().newInstance(HostCardType.AV, m)
+            assertEquals(listOf(FeedbackTag(777L, "spam")), tags.read(card))
+            assertTrue(tags.matches(card, setOf(777L), emptySet()))
+            assertFalse(tags.matches(card, setOf(1L, 2L, 4L), emptySet()))
+        }
+    }
+
     @org.junit.Test
     fun verifyAllCases() {
         fun runIsolated(block: (RelatedFeedbackTagsTest) -> Unit) {
@@ -51,5 +91,6 @@ class RelatedFeedbackTagsTest {
         runIsolated { s -> s.tagIdIsCalibratedIndependentlyFromReasonIdAuthorAndRegion() }
         runIsolated { s -> s.unrelatedShapeAndMissingNamesAreRejected() }
         runIsolated { s -> s.relocatedCardSharesTagSemanticsAcrossItsTwoMenus() }
+        runIsolated { s -> s.flattenedRelateCardsResolveDynamically() }
     }
 }

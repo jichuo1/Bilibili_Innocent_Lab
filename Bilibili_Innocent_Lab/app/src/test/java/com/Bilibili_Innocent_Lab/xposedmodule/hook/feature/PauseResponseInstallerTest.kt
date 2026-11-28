@@ -2,7 +2,14 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookPointRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KmpGrpcWireAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.testsupport.TestRenamingClassLoader
 import com.bilibili.lib.moss.api.MossResponseHandler
+import kmpfixture.modern.Descriptor
+import kmpfixture.modern.GrpcEngine
+import kmpfixture.modern.Handler
+import kmpfixture.modern.KMossException
+import kmpfixture.modern.Service
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -124,7 +131,12 @@ class PauseResponseInstallerTest {
                 TemplateKIData::class.java.name.replace('.', '/') to "${mossPkg}KPlayPauseReply\$IData".replace('.', '/')
             )
             val hidden = if (hideReceiveLambda) setOf("${pkg}AdPausedPageApi\$receivePausedPageResult\$2") else emptySet()
-            return StructuralRenamingClassLoader(javaClass.classLoader!!, baseTemplates, replacements, hidden)
+            return TestRenamingClassLoader(
+                parent = javaClass.classLoader!!,
+                templates = baseTemplates,
+                replacements = replacements,
+                hiddenNames = hidden
+            )
         }
 
         val valid = buildLoader()
@@ -294,7 +306,7 @@ class PauseResponseInstallerTest {
                 TemplateKPlayPauseReply::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReply",
                 TemplateKViewMoss::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KViewMoss"
             )
-            return StructuralRenamingClassLoader(javaClass.classLoader, baseTemplates, replacements)
+            return TestRenamingClassLoader(javaClass.classLoader!!, templates = baseTemplates, replacements = replacements)
         }
         val adFamilies = setOf("ad-api")
         val uniqueLoader = buildLoader(extraAmbiguous = false)
@@ -321,7 +333,7 @@ class PauseResponseInstallerTest {
             PauseReply.Companion::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/PlayPauseReply\$Companion",
             JavaPauseMoss::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/ViewMoss"
         )
-        val wireLoader = StructuralRenamingClassLoader(javaClass.classLoader, templates, replacements)
+        val wireLoader = TestRenamingClassLoader(javaClass.classLoader!!, templates = templates, replacements = replacements)
         val registrar = PlayerPortTestRegistrar()
         val env = HookEnvironment("tv.danmaku.bili", wireLoader, HookPointRegistry(wireLoader), registrar,
             { _, _ -> }, { _, _ -> }, { k, v -> statuses[k] = v },
@@ -453,66 +465,6 @@ class PauseResponseInstallerTest {
         ): Any = Unit
     }
 
-    private class StructuralRenamingClassLoader(
-        parent: ClassLoader,
-        private val templates: Map<String, Class<*>>,
-        private val replacements: Map<String, String>,
-        private val hidden: Set<String> = emptySet()
-    ) : ClassLoader(parent) {
-        override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
-            if (name in hidden) throw ClassNotFoundException(name)
-            val template = templates[name] ?: return@synchronized super.loadClass(name, resolve)
-            val loaded = findLoadedClass(name) ?: run {
-                val raw = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
-                    .use { it.readBytes() }
-                val selfInternal = template.name.replace('.', '/')
-                val targetInternal = name.replace('.', '/')
-                val fullMap = replacements + (selfInternal to targetInternal)
-                val rewritten = rewrite(raw, fullMap)
-                defineClass(name, rewritten, 0, rewritten.size)
-            }
-            if (resolve) resolveClass(loaded)
-            loaded
-        }
-
-        private fun rewrite(raw: ByteArray, replacements: Map<String, String>): ByteArray {
-            val input = DataInputStream(ByteArrayInputStream(raw))
-            val outBuffer = ByteArrayOutputStream()
-            val output = DataOutputStream(outBuffer)
-            output.writeInt(input.readInt())
-            output.writeShort(input.readUnsignedShort())
-            output.writeShort(input.readUnsignedShort())
-            val count = input.readUnsignedShort()
-            output.writeShort(count)
-            var index = 1
-            while (index < count) {
-                val tag = input.readUnsignedByte()
-                output.writeByte(tag)
-                if (tag == 1) {
-                    var value = input.readUTF()
-                    replacements.entries.sortedByDescending { it.key.length }.forEach { (k, v) ->
-                        value = value.replace(k, v)
-                    }
-                    output.writeUTF(value)
-                } else {
-                    val length = when (tag) {
-                        3, 4, 9, 10, 11, 12, 17, 18 -> 4
-                        5, 6 -> 8
-                        7, 8, 16, 19, 20 -> 2
-                        15 -> 3
-                        else -> error("Unsupported CP tag: $tag")
-                    }
-                    repeat(length) { output.writeByte(input.readUnsignedByte()) }
-                    if (tag == 5 || tag == 6) index++
-                }
-                index++
-            }
-            output.write(input.readBytes())
-            output.flush()
-            return outBuffer.toByteArray()
-        }
-    }
-
     class TemplateIntraClassAmbiguousApiOwner {
         @Suppress("UNUSED_PARAMETER")
         fun f(
@@ -561,9 +513,51 @@ class PauseResponseInstallerTest {
             TemplateKPlayPauseReply::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KPlayPauseReply",
             TemplateKViewMoss::class.java.name.replace('.', '/') to "com/bapis/bilibili/app/viewunite/v1/KViewMoss"
         )
-        val loader = StructuralRenamingClassLoader(javaClass.classLoader, templates, replacements)
+        val loader = TestRenamingClassLoader(javaClass.classLoader!!, templates = templates, replacements = replacements)
         assertFalse(PauseRequestCoverage.hasVerifiedApiEntry(loader, hostVersionCode = 9210100))
         assertTrue(PauseRequestCoverage.covered(loader, 9210100, setOf("ad-api"), kotlinInstalled = true).isEmpty())
+    }
+
+    private class WireStrippedDescriptor(
+        pkg: String,
+        svc: String,
+        mtd: String
+    ) : Descriptor(pkg, svc, mtd, Any::class, Strategy) {
+        override fun toString(): String = "kmp.Descriptor@${Integer.toHexString(System.identityHashCode(this))}"
+    }
+
+    fun `wire-first cleans pause response without Java or Kotlin Moss`() {
+        val pauseReg = PlayerPortTestRegistrar()
+        val pausePoints = PauseResponseAdapter.resolve(PauseReply::class.java, PauseReq::class.java, null, null)
+        val wireMethod = GrpcEngine::class.java.getDeclaredMethod(
+            "a",
+            Service::class.java,
+            Descriptor::class.java,
+            ByteArray::class.java,
+            Handler::class.java,
+            Any::class.java
+        )
+        val pauseCov = PauseResponseAdapter.install(
+            environment(pauseReg),
+            pausePoints,
+            kmpGrpcWireEngine = KmpGrpcWireAdapter.point(wireMethod)
+        )
+        assertEquals(PauseResponseAdapter.Coverage(1, 1, kotlinInstalled = true), pauseCov)
+        var pauseOut: ByteArray? = null
+        val handler = object : Handler {
+            override fun onNext(bytes: ByteArray?) { pauseOut = bytes }
+            override fun onCompleted() = Unit
+            override fun onError(error: KMossException) = Unit
+        }
+        val descriptor = WireStrippedDescriptor("bilibili.app.viewunite.v1", "View", "PlayPause")
+        pauseReg.invoke("kmp.grpc.wire.channel", GrpcEngine(emptyList()), arrayOf(Service("host"), descriptor, ByteArray(0), handler, null)) { passed ->
+            (passed[3] as Handler).onNext(PauseReply("ad-payload", "bar-keep", 0, "meta").toByteArray())
+            null
+        }
+        val pauseDecoded = PauseReply.parseFrom(requireNotNull(pauseOut))
+        assertFalse(pauseDecoded.hasAds())
+        assertEquals("bar-keep", pauseDecoded.bar)
+        assertEquals("meta", pauseDecoded.other)
     }
 
     @org.junit.Test
@@ -586,5 +580,6 @@ class PauseResponseInstallerTest {
         runIsolated { s -> s.`9190300 and 9180000 builds also resolve unique 16-param AdPausedPageApi structurally and fail closed on ambiguity`() }
         runIsolated { s -> s.`paused ad installer retries kmp grpc wire idempotently without re-registering java hooks`() }
         runIsolated { s -> s.`intra-class 2-method 16-param ambiguity fails closed even when another class has a single entry`() }
+        runIsolated { s -> s.`wire-first cleans pause response without Java or Kotlin Moss`() }
     }
 }

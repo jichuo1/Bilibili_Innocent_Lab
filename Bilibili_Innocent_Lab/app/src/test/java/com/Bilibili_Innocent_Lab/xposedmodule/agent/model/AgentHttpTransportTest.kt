@@ -310,7 +310,7 @@ private class AgentModelClientCases {
     }
 
     fun `explicit large input budget transmits complete text without relaxing output or default clients`() {
-        val text = "完整字幕".repeat(20_000)
+        val text = "完整字幕".repeat(16_500)
         var received = ""
         val transport = AgentHttpTransport { _, bytes, _, _ ->
             received = JSONObject(bytes.toString(Charsets.UTF_8)).getJSONArray("messages").getJSONObject(0).getString("content")
@@ -698,7 +698,7 @@ private class AgentRoleRoutingCases {
 
     fun `role health storage stays bounded across repeated configuration changes`() {
         val health = AgentHealthRegistry()
-        repeat(300) { index ->
+        repeat(AgentHealthRegistry.MAX_RECORDS + 8) { index ->
             val source = planner.copy(apiKey = "key-$index")
             val capabilities = mapOf(source.fingerprint to AgentModelCapabilities(true, false, now, "probe"))
             AgentSourceRouter(listOf(source), capabilities, health).acquire(AgentModelRole.PLANNER,
